@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "WeatherRequestKind": {
+      "enum": [
+        "ALOFT",
+        "ESTIMATED_QNH"
+      ],
+      "title": "WeatherRequestKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "altitude_ft_msl": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Altitude Ft Msl"
+    },
+    "elevation_ft_msl": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Elevation Ft Msl"
+    },
+    "kind": {
+      "$ref": "#/$defs/WeatherRequestKind"
+    },
+    "latitude_deg": {
+      "maximum": 90,
+      "minimum": -90,
+      "title": "Latitude Deg",
+      "type": "number"
+    },
+    "longitude_deg": {
+      "maximum": 180,
+      "minimum": -180,
+      "title": "Longitude Deg",
+      "type": "number"
+    },
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "valid_time_utc": {
+      "format": "date-time",
+      "title": "Valid Time Utc",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "kind",
+    "latitude_deg",
+    "longitude_deg",
+    "valid_time_utc"
+  ],
+  "title": "WeatherRequest",
+  "type": "object"
+}

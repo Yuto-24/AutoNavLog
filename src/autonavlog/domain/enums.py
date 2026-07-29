@@ -1,0 +1,84 @@
+from enum import Enum
+
+
+class StrEnum(str, Enum):
+    """Python 3.10-compatible string enum."""
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+
+class RouteNodeRole(StrEnum):
+    AIRPORT = "AIRPORT"
+    DEPARTURE_REFERENCE = "DEPARTURE_REFERENCE"
+    TURN_POINT = "TURN_POINT"
+    VISUAL_REPORTING_POINT = "VISUAL_REPORTING_POINT"
+    ROUTE_POINT = "ROUTE_POINT"
+    DESTINATION = "DESTINATION"
+
+
+class VisualReferenceRole(StrEnum):
+    CHECK_POINT = "CHECK_POINT"
+    ABEAM_REFERENCE = "ABEAM_REFERENCE"
+    ALIGNMENT_REFERENCE = "ALIGNMENT_REFERENCE"
+    CROSS_TRACK_REFERENCE = "CROSS_TRACK_REFERENCE"
+    OTHER = "OTHER"
+
+
+class FlightPhase(StrEnum):
+    CLIMB = "CLIMB"
+    CRUISE = "CRUISE"
+    DESCENT = "DESCENT"
+    VISUAL_ARRIVAL = "VISUAL_ARRIVAL"
+
+
+class DerivedPointType(StrEnum):
+    RCA = "RCA"
+    EOC = "EOC"
+
+
+class ProjectStatus(StrEnum):
+    DRAFT = "DRAFT"
+    ROUTE_INCOMPLETE = "ROUTE_INCOMPLETE"
+    FORECAST_REQUIRED = "FORECAST_REQUIRED"
+    WEATHER_PENDING = "WEATHER_PENDING"
+    MANUAL_INPUT_REQUIRED = "MANUAL_INPUT_REQUIRED"
+    CALCULATION_WARNING = "CALCULATION_WARNING"
+    READY_FOR_REVIEW = "READY_FOR_REVIEW"
+    READY_FOR_COPY = "READY_FOR_COPY"
+    SNAPSHOTTED = "SNAPSHOTTED"
+
+
+class ValueState(StrEnum):
+    AUTO = "AUTO"
+    MANUAL_OVERRIDE = "MANUAL_OVERRIDE"
+    FIXED_RULE = "FIXED_RULE"
+    PERFORMANCE_TABLE = "PERFORMANCE_TABLE"
+    UNAVAILABLE = "UNAVAILABLE"
+    WARNING = "WARNING"
+
+
+class AdoptedSource(StrEnum):
+    AUTOMATIC = "AUTOMATIC"
+    MANUAL = "MANUAL"
+
+
+class IssueSeverity(StrEnum):
+    BLOCKER = "BLOCKER"
+    WARNING = "WARNING"
+
+
+class WeatherRequestKind(StrEnum):
+    ALOFT = "ALOFT"
+    ESTIMATED_QNH = "ESTIMATED_QNH"
+
+
+class Availability(StrEnum):
+    AVAILABLE = "AVAILABLE"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
+class Pa500Policy(StrEnum):
+    CEILING = "CEILING"
+    NEAREST = "NEAREST"
+    FLOOR = "FLOOR"

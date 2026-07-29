@@ -1,0 +1,511 @@
+{
+  "$defs": {
+    "FlightPhase": {
+      "enum": [
+        "CLIMB",
+        "CRUISE",
+        "DESCENT",
+        "VISUAL_ARRIVAL"
+      ],
+      "title": "FlightPhase",
+      "type": "string"
+    },
+    "NavSection": {
+      "additionalProperties": false,
+      "properties": {
+        "from_node_id": {
+          "format": "uuid",
+          "title": "From Node Id",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "loss_time_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Loss Time Seconds",
+          "type": "number"
+        },
+        "manual_tas_kt": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Tas Kt"
+        },
+        "manual_temperature_c": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Temperature C"
+        },
+        "manual_wind_direction_deg": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 360,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Wind Direction Deg"
+        },
+        "manual_wind_speed_kt": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Wind Speed Kt"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/$defs/FlightPhase"
+        },
+        "planned_altitude_ft_msl": {
+          "title": "Planned Altitude Ft Msl",
+          "type": "number"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "safe_enroute_altitude_ft_msl": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safe Enroute Altitude Ft Msl"
+        },
+        "sequence": {
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "to_node_id": {
+          "format": "uuid",
+          "title": "To Node Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "from_node_id",
+        "to_node_id",
+        "phase",
+        "planned_altitude_ft_msl"
+      ],
+      "title": "NavSection",
+      "type": "object"
+    },
+    "ProjectStatus": {
+      "enum": [
+        "DRAFT",
+        "ROUTE_INCOMPLETE",
+        "FORECAST_REQUIRED",
+        "WEATHER_PENDING",
+        "MANUAL_INPUT_REQUIRED",
+        "CALCULATION_WARNING",
+        "READY_FOR_REVIEW",
+        "READY_FOR_COPY",
+        "SNAPSHOTTED"
+      ],
+      "title": "ProjectStatus",
+      "type": "string"
+    },
+    "RouteNode": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude Deg",
+          "type": "number"
+        },
+        "longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude Deg",
+          "type": "number"
+        },
+        "manual_distance_nm": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Distance Nm"
+        },
+        "manual_true_course_deg": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 360,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual True Course Deg"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "role": {
+          "$ref": "#/$defs/RouteNodeRole"
+        },
+        "sequence": {
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "source": {
+          "default": "MANUAL",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "name",
+        "latitude_deg",
+        "longitude_deg",
+        "role"
+      ],
+      "title": "RouteNode",
+      "type": "object"
+    },
+    "RouteNodeRole": {
+      "enum": [
+        "AIRPORT",
+        "DEPARTURE_REFERENCE",
+        "TURN_POINT",
+        "VISUAL_REPORTING_POINT",
+        "ROUTE_POINT",
+        "DESTINATION"
+      ],
+      "title": "RouteNodeRole",
+      "type": "string"
+    },
+    "VisualReference": {
+      "additionalProperties": false,
+      "properties": {
+        "along_track_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Along Track Fraction"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude Deg",
+          "type": "number"
+        },
+        "linked_section_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linked Section Id"
+        },
+        "longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude Deg",
+          "type": "number"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "role": {
+          "$ref": "#/$defs/VisualReferenceRole"
+        },
+        "source": {
+          "default": "MANUAL",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "latitude_deg",
+        "longitude_deg",
+        "role"
+      ],
+      "title": "VisualReference",
+      "type": "object"
+    },
+    "VisualReferenceRole": {
+      "enum": [
+        "CHECK_POINT",
+        "ABEAM_REFERENCE",
+        "ALIGNMENT_REFERENCE",
+        "CROSS_TRACK_REFERENCE",
+        "OTHER"
+      ],
+      "title": "VisualReferenceRole",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "acknowledged_warning_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Acknowledged Warning Codes",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "aircraft_profile_id": {
+      "default": "SR22_G6",
+      "title": "Aircraft Profile Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "default_variation_deg_east": {
+      "title": "Default Variation Deg East",
+      "type": "number"
+    },
+    "departure_airport_id": {
+      "title": "Departure Airport Id",
+      "type": "string"
+    },
+    "destination_airport_id": {
+      "title": "Destination Airport Id",
+      "type": "string"
+    },
+    "flight_date": {
+      "format": "date",
+      "title": "Flight Date",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "manual_qnh_hpa": {
+      "anyOf": [
+        {
+          "exclusiveMaximum": 1100,
+          "exclusiveMinimum": 800,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Manual Qnh Hpa"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "pilot_name": {
+      "default": "",
+      "title": "Pilot Name",
+      "type": "string"
+    },
+    "planned_departure_time_jst": {
+      "format": "date-time",
+      "title": "Planned Departure Time Jst",
+      "type": "string"
+    },
+    "revision": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "route_nodes": {
+      "items": {
+        "$ref": "#/$defs/RouteNode"
+      },
+      "title": "Route Nodes",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/NavSection"
+      },
+      "title": "Sections",
+      "type": "array"
+    },
+    "selected_forecast_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Forecast Run Id"
+    },
+    "ship_identifier": {
+      "default": "",
+      "title": "Ship Identifier",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ProjectStatus",
+      "default": "DRAFT"
+    },
+    "tgl_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Tgl Count",
+      "type": "integer"
+    },
+    "total_usable_fuel_gal": {
+      "exclusiveMinimum": 0,
+      "title": "Total Usable Fuel Gal",
+      "type": "number"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "visual_references": {
+      "items": {
+        "$ref": "#/$defs/VisualReference"
+      },
+      "title": "Visual References",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "flight_date",
+    "planned_departure_time_jst",
+    "departure_airport_id",
+    "destination_airport_id",
+    "total_usable_fuel_gal",
+    "default_variation_deg_east"
+  ],
+  "title": "Project",
+  "type": "object"
+}

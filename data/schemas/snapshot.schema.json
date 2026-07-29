@@ -1,0 +1,1368 @@
+{
+  "$defs": {
+    "AdoptedSource": {
+      "enum": [
+        "AUTOMATIC",
+        "MANUAL"
+      ],
+      "title": "AdoptedSource",
+      "type": "string"
+    },
+    "AdoptedValue_datetime_": {
+      "additionalProperties": false,
+      "properties": {
+        "adopted_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdoptedSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "automatic_metadata": {
+          "additionalProperties": true,
+          "title": "Automatic Metadata",
+          "type": "object"
+        },
+        "automatic_status": {
+          "$ref": "#/$defs/ValueState",
+          "default": "UNAVAILABLE"
+        },
+        "automatic_value": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Automatic Value"
+        },
+        "manual_override": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Override"
+        },
+        "warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "title": "AdoptedValue[datetime]",
+      "type": "object"
+    },
+    "AdoptedValue_float_": {
+      "additionalProperties": false,
+      "properties": {
+        "adopted_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdoptedSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "automatic_metadata": {
+          "additionalProperties": true,
+          "title": "Automatic Metadata",
+          "type": "object"
+        },
+        "automatic_status": {
+          "$ref": "#/$defs/ValueState",
+          "default": "UNAVAILABLE"
+        },
+        "automatic_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Automatic Value"
+        },
+        "manual_override": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Override"
+        },
+        "warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "title": "AdoptedValue[float]",
+      "type": "object"
+    },
+    "Availability": {
+      "enum": [
+        "AVAILABLE",
+        "UNAVAILABLE"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "CalculationOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "converged": {
+          "default": false,
+          "title": "Converged",
+          "type": "boolean"
+        },
+        "derived_points": {
+          "items": {
+            "$ref": "#/$defs/DerivedRoutePoint"
+          },
+          "title": "Derived Points",
+          "type": "array"
+        },
+        "fuel_plan": {
+          "$ref": "#/$defs/FuelPlan"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/Issue"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "iterations": {
+          "items": {
+            "$ref": "#/$defs/IterationRecord"
+          },
+          "title": "Iterations",
+          "type": "array"
+        },
+        "performance_table_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Performance Table Version"
+        },
+        "policy_version": {
+          "title": "Policy Version",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "qnh_hpa": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/SectionResult"
+          },
+          "title": "Sections",
+          "type": "array"
+        },
+        "selected_forecast_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selected Forecast Run Id"
+        },
+        "status": {
+          "$ref": "#/$defs/ProjectStatus"
+        }
+      },
+      "required": [
+        "project_id",
+        "selected_forecast_run_id",
+        "qnh_hpa",
+        "fuel_plan",
+        "status",
+        "policy_version"
+      ],
+      "title": "CalculationOutcome",
+      "type": "object"
+    },
+    "DerivedPointType": {
+      "enum": [
+        "RCA",
+        "EOC"
+      ],
+      "title": "DerivedPointType",
+      "type": "string"
+    },
+    "DerivedRoutePoint": {
+      "additionalProperties": false,
+      "properties": {
+        "along_route_distance_nm": {
+          "title": "Along Route Distance Nm",
+          "type": "number"
+        },
+        "estimated_time_utc": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimated Time Utc"
+        },
+        "latitude_deg": {
+          "title": "Latitude Deg",
+          "type": "number"
+        },
+        "longitude_deg": {
+          "title": "Longitude Deg",
+          "type": "number"
+        },
+        "section_id": {
+          "format": "uuid",
+          "title": "Section Id",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/DerivedPointType"
+        }
+      },
+      "required": [
+        "type",
+        "section_id",
+        "latitude_deg",
+        "longitude_deg",
+        "along_route_distance_nm"
+      ],
+      "title": "DerivedRoutePoint",
+      "type": "object"
+    },
+    "FlightPhase": {
+      "enum": [
+        "CLIMB",
+        "CRUISE",
+        "DESCENT",
+        "VISUAL_ARRIVAL"
+      ],
+      "title": "FlightPhase",
+      "type": "string"
+    },
+    "FuelPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "additional_gal": {
+          "default": 2.8,
+          "title": "Additional Gal",
+          "type": "number"
+        },
+        "climb_gal": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Climb Gal"
+        },
+        "cruise_gal": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cruise Gal"
+        },
+        "descent_gal": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Descent Gal"
+        },
+        "extra_endurance_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extra Endurance Seconds"
+        },
+        "extra_gal": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extra Gal"
+        },
+        "min_required_gal": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Required Gal"
+        },
+        "reserve_gal": {
+          "default": 12.4,
+          "title": "Reserve Gal",
+          "type": "number"
+        },
+        "taxi_runup_gal": {
+          "default": 1.5,
+          "title": "Taxi Runup Gal",
+          "type": "number"
+        },
+        "tgl_gal": {
+          "default": 0.0,
+          "title": "Tgl Gal",
+          "type": "number"
+        },
+        "total_usable_gal": {
+          "title": "Total Usable Gal",
+          "type": "number"
+        }
+      },
+      "required": [
+        "total_usable_gal"
+      ],
+      "title": "FuelPlan",
+      "type": "object"
+    },
+    "Issue": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledgement_required": {
+          "default": false,
+          "title": "Acknowledgement Required",
+          "type": "boolean"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "section_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Section Id"
+        },
+        "severity": {
+          "$ref": "#/$defs/IssueSeverity"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "message"
+      ],
+      "title": "Issue",
+      "type": "object"
+    },
+    "IssueSeverity": {
+      "enum": [
+        "BLOCKER",
+        "WARNING"
+      ],
+      "title": "IssueSeverity",
+      "type": "string"
+    },
+    "IterationRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "iteration": {
+          "title": "Iteration",
+          "type": "integer"
+        },
+        "max_time_delta_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Max Time Delta Seconds"
+        },
+        "representative_times_utc": {
+          "additionalProperties": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": "Representative Times Utc",
+          "type": "object"
+        }
+      },
+      "required": [
+        "iteration",
+        "max_time_delta_seconds",
+        "representative_times_utc"
+      ],
+      "title": "IterationRecord",
+      "type": "object"
+    },
+    "NavSection": {
+      "additionalProperties": false,
+      "properties": {
+        "from_node_id": {
+          "format": "uuid",
+          "title": "From Node Id",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "loss_time_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Loss Time Seconds",
+          "type": "number"
+        },
+        "manual_tas_kt": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Tas Kt"
+        },
+        "manual_temperature_c": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Temperature C"
+        },
+        "manual_wind_direction_deg": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 360,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Wind Direction Deg"
+        },
+        "manual_wind_speed_kt": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Wind Speed Kt"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/$defs/FlightPhase"
+        },
+        "planned_altitude_ft_msl": {
+          "title": "Planned Altitude Ft Msl",
+          "type": "number"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "safe_enroute_altitude_ft_msl": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safe Enroute Altitude Ft Msl"
+        },
+        "sequence": {
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "to_node_id": {
+          "format": "uuid",
+          "title": "To Node Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "from_node_id",
+        "to_node_id",
+        "phase",
+        "planned_altitude_ft_msl"
+      ],
+      "title": "NavSection",
+      "type": "object"
+    },
+    "Project": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged_warning_codes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Acknowledged Warning Codes",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "aircraft_profile_id": {
+          "default": "SR22_G6",
+          "title": "Aircraft Profile Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "default_variation_deg_east": {
+          "title": "Default Variation Deg East",
+          "type": "number"
+        },
+        "departure_airport_id": {
+          "title": "Departure Airport Id",
+          "type": "string"
+        },
+        "destination_airport_id": {
+          "title": "Destination Airport Id",
+          "type": "string"
+        },
+        "flight_date": {
+          "format": "date",
+          "title": "Flight Date",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "manual_qnh_hpa": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 1100,
+              "exclusiveMinimum": 800,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Qnh Hpa"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "pilot_name": {
+          "default": "",
+          "title": "Pilot Name",
+          "type": "string"
+        },
+        "planned_departure_time_jst": {
+          "format": "date-time",
+          "title": "Planned Departure Time Jst",
+          "type": "string"
+        },
+        "revision": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "route_nodes": {
+          "items": {
+            "$ref": "#/$defs/RouteNode"
+          },
+          "title": "Route Nodes",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/NavSection"
+          },
+          "title": "Sections",
+          "type": "array"
+        },
+        "selected_forecast_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Forecast Run Id"
+        },
+        "ship_identifier": {
+          "default": "",
+          "title": "Ship Identifier",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ProjectStatus",
+          "default": "DRAFT"
+        },
+        "tgl_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tgl Count",
+          "type": "integer"
+        },
+        "total_usable_fuel_gal": {
+          "exclusiveMinimum": 0,
+          "title": "Total Usable Fuel Gal",
+          "type": "number"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "visual_references": {
+          "items": {
+            "$ref": "#/$defs/VisualReference"
+          },
+          "title": "Visual References",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "flight_date",
+        "planned_departure_time_jst",
+        "departure_airport_id",
+        "destination_airport_id",
+        "total_usable_fuel_gal",
+        "default_variation_deg_east"
+      ],
+      "title": "Project",
+      "type": "object"
+    },
+    "ProjectStatus": {
+      "enum": [
+        "DRAFT",
+        "ROUTE_INCOMPLETE",
+        "FORECAST_REQUIRED",
+        "WEATHER_PENDING",
+        "MANUAL_INPUT_REQUIRED",
+        "CALCULATION_WARNING",
+        "READY_FOR_REVIEW",
+        "READY_FOR_COPY",
+        "SNAPSHOTTED"
+      ],
+      "title": "ProjectStatus",
+      "type": "string"
+    },
+    "RouteNode": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude Deg",
+          "type": "number"
+        },
+        "longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude Deg",
+          "type": "number"
+        },
+        "manual_distance_nm": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Distance Nm"
+        },
+        "manual_true_course_deg": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 360,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual True Course Deg"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "role": {
+          "$ref": "#/$defs/RouteNodeRole"
+        },
+        "sequence": {
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "source": {
+          "default": "MANUAL",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "name",
+        "latitude_deg",
+        "longitude_deg",
+        "role"
+      ],
+      "title": "RouteNode",
+      "type": "object"
+    },
+    "RouteNodeRole": {
+      "enum": [
+        "AIRPORT",
+        "DEPARTURE_REFERENCE",
+        "TURN_POINT",
+        "VISUAL_REPORTING_POINT",
+        "ROUTE_POINT",
+        "DESTINATION"
+      ],
+      "title": "RouteNodeRole",
+      "type": "string"
+    },
+    "SectionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "cas_kt": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "cumulative_distance_nm": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "cumulative_ete_seconds": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "eto_utc": {
+          "$ref": "#/$defs/AdoptedValue_datetime_"
+        },
+        "from_name": {
+          "title": "From Name",
+          "type": "string"
+        },
+        "ground_speed_kt": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "magnetic_course_deg": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "magnetic_heading_deg": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "performance_metadata": {
+          "additionalProperties": true,
+          "title": "Performance Metadata",
+          "type": "object"
+        },
+        "pressure_altitude_exact_ft": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "pressure_altitude_planning_ft": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "remaining_fuel_gal": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "section_fuel_gal": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "section_id": {
+          "format": "uuid",
+          "title": "Section Id",
+          "type": "string"
+        },
+        "tas_kt": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "temperature_c": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "to_name": {
+          "title": "To Name",
+          "type": "string"
+        },
+        "true_course_deg": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "variation_deg_east": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "wca_deg": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "wind_direction_deg_from": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "wind_speed_kt": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "zone_distance_nm": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "zone_ete_seconds": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        }
+      },
+      "required": [
+        "section_id",
+        "from_name",
+        "to_name",
+        "pressure_altitude_exact_ft",
+        "pressure_altitude_planning_ft",
+        "true_course_deg",
+        "variation_deg_east",
+        "magnetic_course_deg",
+        "wind_direction_deg_from",
+        "wind_speed_kt",
+        "wca_deg",
+        "magnetic_heading_deg",
+        "temperature_c",
+        "cas_kt",
+        "tas_kt",
+        "ground_speed_kt",
+        "zone_distance_nm",
+        "cumulative_distance_nm",
+        "zone_ete_seconds",
+        "cumulative_ete_seconds",
+        "eto_utc",
+        "section_fuel_gal",
+        "remaining_fuel_gal"
+      ],
+      "title": "SectionResult",
+      "type": "object"
+    },
+    "ValueState": {
+      "enum": [
+        "AUTO",
+        "MANUAL_OVERRIDE",
+        "FIXED_RULE",
+        "PERFORMANCE_TABLE",
+        "UNAVAILABLE",
+        "WARNING"
+      ],
+      "title": "ValueState",
+      "type": "string"
+    },
+    "VisualReference": {
+      "additionalProperties": false,
+      "properties": {
+        "along_track_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Along Track Fraction"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude Deg",
+          "type": "number"
+        },
+        "linked_section_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linked Section Id"
+        },
+        "longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude Deg",
+          "type": "number"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "role": {
+          "$ref": "#/$defs/VisualReferenceRole"
+        },
+        "source": {
+          "default": "MANUAL",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "latitude_deg",
+        "longitude_deg",
+        "role"
+      ],
+      "title": "VisualReference",
+      "type": "object"
+    },
+    "VisualReferenceRole": {
+      "enum": [
+        "CHECK_POINT",
+        "ABEAM_REFERENCE",
+        "ALIGNMENT_REFERENCE",
+        "CROSS_TRACK_REFERENCE",
+        "OTHER"
+      ],
+      "title": "VisualReferenceRole",
+      "type": "string"
+    },
+    "WeatherRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "altitude_ft_msl": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Altitude Ft Msl"
+        },
+        "elevation_ft_msl": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elevation Ft Msl"
+        },
+        "kind": {
+          "$ref": "#/$defs/WeatherRequestKind"
+        },
+        "latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude Deg",
+          "type": "number"
+        },
+        "longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude Deg",
+          "type": "number"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "valid_time_utc": {
+          "format": "date-time",
+          "title": "Valid Time Utc",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "kind",
+        "latitude_deg",
+        "longitude_deg",
+        "valid_time_utc"
+      ],
+      "title": "WeatherRequest",
+      "type": "object"
+    },
+    "WeatherRequestKind": {
+      "enum": [
+        "ALOFT",
+        "ESTIMATED_QNH"
+      ],
+      "title": "WeatherRequestKind",
+      "type": "string"
+    },
+    "WeatherResult": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "$ref": "#/$defs/Availability"
+        },
+        "kind": {
+          "$ref": "#/$defs/WeatherRequestKind"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Values",
+          "type": "object"
+        },
+        "warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "request_id",
+        "availability",
+        "kind"
+      ],
+      "title": "WeatherResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adopted_manual_overrides": {
+      "additionalProperties": true,
+      "title": "Adopted Manual Overrides",
+      "type": "object"
+    },
+    "autonavlog_version": {
+      "title": "Autonavlog Version",
+      "type": "string"
+    },
+    "calculation_policy_version": {
+      "title": "Calculation Policy Version",
+      "type": "string"
+    },
+    "calculation_results": {
+      "$ref": "#/$defs/CalculationOutcome"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "forecast_metadata": {
+      "additionalProperties": true,
+      "title": "Forecast Metadata",
+      "type": "object"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "input_data": {
+      "$ref": "#/$defs/Project"
+    },
+    "msm_package_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Msm Package Version"
+    },
+    "performance_table_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Performance Table Version"
+    },
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "project_revision": {
+      "title": "Project Revision",
+      "type": "integer"
+    },
+    "readiness_status": {
+      "title": "Readiness Status",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "selected_forecast_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Selected Forecast Run Id"
+    },
+    "warnings": {
+      "items": {
+        "$ref": "#/$defs/Issue"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "weather_requests": {
+      "items": {
+        "$ref": "#/$defs/WeatherRequest"
+      },
+      "title": "Weather Requests",
+      "type": "array"
+    },
+    "weather_results": {
+      "items": {
+        "$ref": "#/$defs/WeatherResult"
+      },
+      "title": "Weather Results",
+      "type": "array"
+    }
+  },
+  "required": [
+    "project_id",
+    "project_revision",
+    "input_data",
+    "performance_table_version",
+    "calculation_policy_version",
+    "calculation_results",
+    "selected_forecast_run_id",
+    "autonavlog_version",
+    "msm_package_version",
+    "readiness_status"
+  ],
+  "title": "CalculationSnapshot",
+  "type": "object"
+}

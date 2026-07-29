@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "aircraft": "SR22 G6",
+  "source_document": "G6_SR22_飛行規程(20230828)承認版.pdf",
+  "source_revision": "2023-08-28",
+  "verified_against": "POH_G6(2023.8.28).pdf",
+  "validation_status": "UNVERIFIED",
+  "tables": [
+    {
+      "id": "climb_time_fuel_distance",
+      "file": "climb_time_fuel_distance.csv",
+      "source_page": "PENDING",
+      "sha256": null
+    },
+    {
+      "id": "cruise_performance",
+      "file": "cruise_performance.csv",
+      "source_page": "PENDING",
+      "sha256": null
+    }
+  ]
+}
