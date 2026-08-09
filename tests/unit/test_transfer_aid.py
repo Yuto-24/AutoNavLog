@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from autonavlog.application.calculation_service import CalculationService
 from autonavlog.domain.calculation import DerivedRoutePoint, Issue
 from autonavlog.domain.enums import (
@@ -107,6 +109,43 @@ def test_ready_transfer_aid_is_dense_a4_landscape_table(
     assert 'onclick="window.print()"' in document
     assert "A4横で印刷" in document
     assert html in document
+
+
+def test_transfer_aid_does_not_revive_legacy_sea_or_eto_values(
+    project,
+    airports,
+    performance_repository,
+) -> None:
+    ready_project, outcome = _outcome_with_sections(
+        project,
+        airports,
+        performance_repository,
+    )
+    legacy_section = outcome.sections[0].model_copy(
+        update={
+            "safe_enroute_altitude_ft_msl": AdoptedValue[float](
+                automatic_value=9876.0,
+                automatic_status=ValueState.AUTO,
+                adopted_source=AdoptedSource.AUTOMATIC,
+            ),
+            "eto_utc": AdoptedValue[datetime](
+                automatic_value=datetime(2026, 8, 10, 12, 34, tzinfo=timezone.utc),
+                automatic_status=ValueState.AUTO,
+                adopted_source=AdoptedSource.AUTOMATIC,
+            ),
+        }
+    )
+    legacy_outcome = outcome.model_copy(
+        update={"sections": [legacy_section, *outcome.sections[1:]]}
+    )
+
+    html = render_transfer_aid_html(ready_project, legacy_outcome)
+    route_table = html.split('<table class="route-table">', 1)[1].split("</table>", 1)[0]
+
+    assert "SEA" not in route_table
+    assert "9876" not in route_table
+    assert "21:34" not in route_table
+    assert route_table.count("<td class='num'></td>") == len(legacy_outcome.sections)
 
 
 def test_non_ready_transfer_aid_is_red_and_marks_missing_values(

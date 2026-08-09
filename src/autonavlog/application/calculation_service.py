@@ -1761,7 +1761,7 @@ class CalculationService:
                         ValueState.FIXED_RULE,
                         planned_altitude_metadata,
                     ),
-                    # DESIGN v2.6 keeps this field only for schema compatibility.
+                    # DESIGN.md §0.2: compatibility-only; legacy SEA must stay unused.
                     safe_enroute_altitude_ft_msl=_unavailable(),
                     loss_time_seconds=0.0,
                     pressure_altitude_exact_ft=_automatic(exact_pa),
@@ -1821,7 +1821,7 @@ class CalculationService:
                     cumulative_distance_nm=_automatic(cumulative_distance),
                     zone_ete_seconds=_automatic(ete_seconds),
                     cumulative_ete_seconds=_automatic(cumulative_seconds),
-                    # ETO is anchored to an in-flight actual time check, not planned ETD.
+                    # DESIGN.md §6.5: ETO needs an actual time check, not planned ETD.
                     eto_utc=_unavailable(),
                     section_fuel_gal=_automatic(
                         section_fuel,
