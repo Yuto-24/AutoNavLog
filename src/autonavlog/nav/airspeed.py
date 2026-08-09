@@ -28,9 +28,9 @@ def pressure_altitude_exact_ft(elevation_ft_msl: float, qnh_hpa: float) -> float
         raise ValueError("QNH must be between 800 and 1100 hPa")
     elevation_m = elevation_ft_msl * FT_TO_M
     qnh_pa = qnh_hpa * 100.0
-    station_pressure = qnh_pa * (
-        1.0 - LAPSE_K_PER_M * elevation_m / T0_K
-    ) ** (G0 / (R_AIR * LAPSE_K_PER_M))
+    station_pressure = qnh_pa * (1.0 - LAPSE_K_PER_M * elevation_m / T0_K) ** (
+        G0 / (R_AIR * LAPSE_K_PER_M)
+    )
     pressure_altitude_m = (T0_K / LAPSE_K_PER_M) * (
         1.0 - (station_pressure / P0_PA) ** (R_AIR * LAPSE_K_PER_M / G0)
     )
@@ -79,8 +79,7 @@ def tas_from_cas(cas_kt: float, pressure_altitude_ft: float, temperature_c: floa
         raise ValueError("temperature must be above absolute zero")
     sea_level_mach = cas_kt * KT_TO_MPS / sqrt(GAMMA * R_AIR * T0_K)
     impact_pressure = P0_PA * (
-        (1.0 + (GAMMA - 1.0) * sea_level_mach * sea_level_mach / 2.0)
-        ** (GAMMA / (GAMMA - 1.0))
+        (1.0 + (GAMMA - 1.0) * sea_level_mach * sea_level_mach / 2.0) ** (GAMMA / (GAMMA - 1.0))
         - 1.0
     )
     pressure = _standard_pressure_pa(pressure_altitude_ft)

@@ -50,6 +50,11 @@
       "title": "Longitude Deg",
       "type": "number"
     },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
     "request_id": {
       "title": "Request Id",
       "type": "string"

@@ -6,7 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .enums import DerivedPointType, IssueSeverity, ProjectStatus
+from .enums import DerivedPointType, FlightPhase, IssueSeverity, ProjectStatus
+from .planning import ArrivalAltitudeResult, CheckPointProjection
 from .values import AdoptedValue
 
 
@@ -19,6 +20,7 @@ class Issue(CalculationModel):
     severity: IssueSeverity
     message: str
     section_id: UUID | None = None
+    segment_sequence: int | None = Field(default=None, ge=0)
     acknowledgement_required: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -34,8 +36,14 @@ class DerivedRoutePoint(CalculationModel):
 
 class SectionResult(CalculationModel):
     section_id: UUID
+    sequence: int = Field(ge=0)
+    phase: FlightPhase
+    segment_label: str | None = None
     from_name: str
     to_name: str
+    planned_altitude_ft_msl: AdoptedValue[float]
+    safe_enroute_altitude_ft_msl: AdoptedValue[float]
+    loss_time_seconds: float = Field(ge=0)
     pressure_altitude_exact_ft: AdoptedValue[float]
     pressure_altitude_planning_ft: AdoptedValue[float]
     true_course_deg: AdoptedValue[float]
@@ -85,6 +93,8 @@ class CalculationOutcome(CalculationModel):
     qnh_hpa: AdoptedValue[float]
     sections: list[SectionResult] = Field(default_factory=list)
     derived_points: list[DerivedRoutePoint] = Field(default_factory=list)
+    arrival_altitude: ArrivalAltitudeResult | None = None
+    check_point_projections: list[CheckPointProjection] = Field(default_factory=list)
     fuel_plan: FuelPlan
     issues: list[Issue] = Field(default_factory=list)
     iterations: list[IterationRecord] = Field(default_factory=list)

@@ -6,9 +6,16 @@ import nbformat
 def test_distribution_notebook_is_clean_and_thin() -> None:
     path = Path("notebooks/AutoNavLog.ipynb")
     notebook = nbformat.read(path, as_version=4)
-    assert all(not cell.outputs for cell in notebook.cells if cell.cell_type == "code")
-    code = "\n".join(cell.source for cell in notebook.cells if cell.cell_type == "code")
+    code_cells = [cell for cell in notebook.cells if cell.cell_type == "code"]
+    assert all(not cell.outputs for cell in code_cells)
+    assert all(cell.execution_count is None for cell in code_cells)
+    assert all(cell.source.startswith("#@title ") for cell in code_cells)
+    code = "\n".join(cell.source for cell in code_cells)
     assert "CalculationService" in code
+    assert "PerformanceRepository.from_directory_for_application" in code
+    assert "except ReferenceDataError as error:" in code
+    assert "参照データを読み込めません。空港候補は空です。原因:" in code
+    assert "airports = AirportRepository([])" in code
     assert "solve_wind_triangle" not in code
     assert "pressure_altitude" not in code
 

@@ -1,0 +1,26 @@
+{
+  "created_at_utc": "2026-08-02T00:00:00Z",
+  "dataset_id": "autonavlog-default",
+  "revision": "2026-08-02-seed",
+  "schema_version": 1,
+  "tables": [
+    {
+      "kind": "AIRPORT",
+      "path": "airports.csv",
+      "row_count": 2,
+      "sha256": "e2ce009211a7116fe2345099237c90b6bb18128abe1f32813110f6ba70232e5c"
+    },
+    {
+      "kind": "POINT",
+      "path": "points.csv",
+      "row_count": 0,
+      "sha256": "dcc80ec3a5373bccbb9636ba60ff0cefb277b21f4a2e3f0659cef2681d4506c5"
+    },
+    {
+      "kind": "CHECK_POINT",
+      "path": "checkpoints.csv",
+      "row_count": 0,
+      "sha256": "6caee9317d879c970482fb8854706eaa96c023047ca3d8d37c5a2cb3c8e04c38"
+    }
+  ]
+}

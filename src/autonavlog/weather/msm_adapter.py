@@ -45,9 +45,7 @@ class MsmWeatherProvider:
         try:
             import msm_wind
         except ImportError as error:
-            raise RuntimeError(
-                "jma-msm-wind 0.2.1 is required for MsmWeatherProvider"
-            ) from error
+            raise RuntimeError("jma-msm-wind 0.2.1 is required for MsmWeatherProvider") from error
         if getattr(msm_wind, "__version__", None) != self.package_version:
             raise RuntimeError("MsmWeatherProvider requires jma-msm-wind 0.2.1 exactly")
         self._msm = msm_wind
@@ -103,9 +101,7 @@ class MsmWeatherProvider:
         forecast_run_id: str,
         requirement: ForecastRequirement,
     ) -> PreparedForecastRun:
-        terrain = None
-        if self.terrain_cache_path is not None and self.terrain_cache_path.exists():
-            terrain = self._msm.GridTerrainProvider.load(self.terrain_cache_path)
+        terrain = self._load_terrain(requirement)
         prepared = self.client.prepare_run(
             self._run_id(forecast_run_id),
             self._requirement(requirement),
@@ -121,8 +117,41 @@ class MsmWeatherProvider:
                 "terrain_cache": None
                 if self.terrain_cache_path is None
                 else str(self.terrain_cache_path),
+                "terrain_required": requirement.require_estimated_qnh,
+                "terrain_loaded": terrain is not None,
             },
         )
+
+    def _load_terrain(self, requirement: ForecastRequirement) -> Any | None:
+        if not requirement.require_estimated_qnh:
+            return None
+        if self.terrain_cache_path is None:
+            raise RuntimeError(
+                "MSM estimated QNH requires terrain data. Configure terrain_cache_path "
+                "with an existing jma-msm-wind GridTerrainProvider cache before "
+                "preparing the forecast run."
+            )
+        if not self.terrain_cache_path.is_file():
+            raise RuntimeError(
+                "MSM estimated QNH terrain cache is missing or is not a file: "
+                f"{self.terrain_cache_path}. Provide a valid cache via "
+                "terrain_cache_path before preparing the forecast run."
+            )
+        try:
+            terrain = self._msm.GridTerrainProvider.load(self.terrain_cache_path)
+        except Exception as error:
+            raise RuntimeError(
+                "MSM estimated QNH terrain cache could not be loaded: "
+                f"{self.terrain_cache_path}. Replace or regenerate the terrain cache "
+                "before preparing the forecast run."
+            ) from error
+        if terrain is None:
+            raise RuntimeError(
+                "MSM estimated QNH terrain cache loader returned no terrain provider: "
+                f"{self.terrain_cache_path}. Replace or regenerate the terrain cache "
+                "before preparing the forecast run."
+            )
+        return terrain
 
     def query_batch(
         self,

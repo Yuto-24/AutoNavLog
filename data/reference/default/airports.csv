@@ -1,0 +1,3 @@
+id,icao,name,latitude_deg,longitude_deg,elevation_ft_msl,pattern_altitude_ft_msl,pattern_altitude_source,pattern_altitude_source_revision,pattern_altitude_validation_status,source,source_revision
+RJFM,RJFM,Miyazaki,31.8772222222,131.4486111111,19,1019,Civil Aviation College Student Training Procedures Rev.19 §4-1(2) mechanical elevation+1000 ft seed,CAC Rev.19 effective 2026-06-24,UNVERIFIED,JMA RJFM aerodrome climatological table,JMA PDF accessed 2026-07-30
+RJFO,RJFO,Oita,33.4794444444,131.7372222222,17,1017,Civil Aviation College Student Training Procedures Rev.19 §4-1(2) mechanical elevation+1000 ft seed,CAC Rev.19 effective 2026-06-24,UNVERIFIED,JMA RJFO aerodrome climatological table and MLIT airport environment data,JMA/MLIT PDFs accessed 2026-07-30

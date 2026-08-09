@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from enum import Enum
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -14,6 +16,11 @@ class PerformanceTableManifest(PerformanceModel):
     sha256: str | None = None
 
 
+class ClimbTemperaturePolicy(str, Enum):
+    TABLE_GRID = "TABLE_GRID"
+    ISA_BASELINE_10_PERCENT_PER_10C_ABOVE = "ISA_BASELINE_10_PERCENT_PER_10C_ABOVE"
+
+
 class PerformanceManifest(PerformanceModel):
     schema_version: int = 1
     aircraft: str
@@ -21,6 +28,7 @@ class PerformanceManifest(PerformanceModel):
     source_revision: str
     verified_against: str
     validation_status: str = "UNVERIFIED"
+    climb_temperature_policy: ClimbTemperaturePolicy = ClimbTemperaturePolicy.TABLE_GRID
     tables: list[PerformanceTableManifest] = Field(default_factory=list)
 
     @property
