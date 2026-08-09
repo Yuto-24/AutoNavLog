@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
@@ -10,33 +7,18 @@ from uuid import UUID
 from autonavlog.domain.project import Project
 from autonavlog.domain.snapshot import CalculationSnapshot
 
-from .repository import SaveResult
+from .repository import ProjectIndex, ProjectSummary, SaveResult
+from .safe_json import (
+    JsonStorageError,
+    atomic_model_write,
+    read_json_model,
+)
 
 
 class RevisionConflictError(RuntimeError):
     def __init__(self, message: str, conflict_copy: Path):
         super().__init__(message)
         self.conflict_copy = conflict_copy
-
-
-def _atomic_json_write(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    serialized = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=path.parent,
-        text=True,
-    )
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(serialized)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 class LocalProjectRepository:
@@ -46,18 +28,77 @@ class LocalProjectRepository:
     def _project_dir(self, project_id: UUID) -> Path:
         return self.root / "projects" / str(project_id)
 
+    @property
+    def index_path(self) -> Path:
+        return self.root / "projects" / "index.json"
+
+    @staticmethod
+    def _summary(project: Project) -> ProjectSummary:
+        return ProjectSummary(
+            id=project.id,
+            name=project.name,
+            updated_at=project.updated_at,
+            status=project.status,
+            revision=project.revision,
+        )
+
+    def _scan_projects(self) -> list[ProjectSummary]:
+        projects_root = self.root / "projects"
+        summaries: list[ProjectSummary] = []
+        if not projects_root.exists():
+            return summaries
+        for path in sorted(projects_root.glob("*/project.json")):
+            try:
+                project = read_json_model(path, Project)
+            except JsonStorageError:
+                continue
+            if path.parent.name != str(project.id):
+                continue
+            summaries.append(self._summary(project))
+        return sorted(
+            summaries,
+            key=lambda item: (item.updated_at, str(item.id)),
+            reverse=True,
+        )
+
+    def _write_index(self, projects: list[ProjectSummary]) -> None:
+        atomic_model_write(
+            self.index_path,
+            ProjectIndex(projects=projects),
+        )
+
+    def _rebuild_index(self) -> list[ProjectSummary]:
+        projects = self._scan_projects()
+        self._write_index(projects)
+        return projects
+
+    def list_projects(self) -> list[ProjectSummary]:
+        if self.index_path.exists():
+            try:
+                index = read_json_model(self.index_path, ProjectIndex)
+                return index.projects
+            except JsonStorageError:
+                pass
+        return self._rebuild_index()
+
     def load(self, project_id: UUID) -> Project:
         path = self._project_dir(project_id) / "project.json"
-        return Project.model_validate_json(path.read_text(encoding="utf-8"))
+        try:
+            project = read_json_model(path, Project)
+        except JsonStorageError:
+            project = read_json_model(path.with_name("project.json.bak"), Project)
+        if project.id != project_id:
+            raise JsonStorageError("project id does not match its storage path")
+        return project
 
     def save(self, project: Project, expected_revision: int) -> SaveResult:
         path = self._project_dir(project.id) / "project.json"
         if path.exists():
-            existing = Project.model_validate_json(path.read_text(encoding="utf-8"))
+            existing = read_json_model(path, Project)
             if existing.revision != expected_revision:
                 stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
                 conflict = path.with_name(f"project-conflict-{stamp}.json")
-                _atomic_json_write(conflict, project.model_dump(mode="json"))
+                atomic_model_write(conflict, project, keep_backup=False)
                 raise RevisionConflictError(
                     f"expected revision {expected_revision}, found {existing.revision}",
                     conflict,
@@ -70,21 +111,25 @@ class LocalProjectRepository:
                 "updated_at": datetime.now(timezone.utc),
             }
         )
-        _atomic_json_write(path, saved.model_dump(mode="json"))
+        atomic_model_write(path, saved)
+        self._rebuild_index()
         return SaveResult(project=saved, path=path)
 
     def autosave(self, project: Project) -> Path:
         path = self._project_dir(project.id) / "autosave.json"
-        _atomic_json_write(path, project.model_dump(mode="json"))
+        atomic_model_write(path, project)
         return path
 
     def create_snapshot(self, snapshot: CalculationSnapshot) -> Path:
         path = self.root / "snapshots" / str(snapshot.project_id) / f"{snapshot.id}.json"
         if path.exists():
             raise FileExistsError("snapshots are immutable")
-        _atomic_json_write(path, snapshot.model_dump(mode="json"))
+        atomic_model_write(path, snapshot, keep_backup=False)
         return path
 
     def load_snapshot(self, project_id: UUID, snapshot_id: UUID) -> CalculationSnapshot:
         path = self.root / "snapshots" / str(project_id) / f"{snapshot_id}.json"
-        return CalculationSnapshot.model_validate_json(path.read_text(encoding="utf-8"))
+        snapshot = read_json_model(path, CalculationSnapshot)
+        if snapshot.project_id != project_id or snapshot.id != snapshot_id:
+            raise JsonStorageError("snapshot identity does not match its storage path")
+        return snapshot

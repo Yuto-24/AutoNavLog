@@ -23,9 +23,7 @@ def main() -> int:
         "清書ビュー",
         "保存・Snapshot作成",
     ]
-    markdown = "\n".join(
-        cell.source for cell in notebook.cells if cell.cell_type == "markdown"
-    )
+    markdown = "\n".join(cell.source for cell in notebook.cells if cell.cell_type == "markdown")
     missing = [heading for heading in headings if heading not in markdown]
     if missing:
         raise SystemExit(f"notebook is missing workflow headings: {missing}")

@@ -80,9 +80,7 @@ def build_fuel_plan(
         endurance = extra / EXTRA_ENDURANCE_GPH * 3600.0
     descent = phase_totals[FlightPhase.DESCENT]
     visual_arrival = phase_totals[FlightPhase.VISUAL_ARRIVAL]
-    descent_total = (
-        None if descent is None or visual_arrival is None else descent + visual_arrival
-    )
+    descent_total = None if descent is None or visual_arrival is None else descent + visual_arrival
     return FuelPlan(
         total_usable_gal=total_usable_gal,
         taxi_runup_gal=TAXI_RUNUP_GAL,

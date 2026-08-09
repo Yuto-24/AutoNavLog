@@ -1,13 +1,32 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from autonavlog.domain.enums import ProjectStatus
 from autonavlog.domain.project import Project
 from autonavlog.domain.snapshot import CalculationSnapshot
+
+
+class ProjectSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    id: UUID
+    name: str
+    updated_at: datetime
+    status: ProjectStatus
+    revision: int
+
+
+class ProjectIndex(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    projects: list[ProjectSummary]
 
 
 class SaveResult(BaseModel):
@@ -19,6 +38,8 @@ class SaveResult(BaseModel):
 
 
 class ProjectRepository(Protocol):
+    def list_projects(self) -> list[ProjectSummary]: ...
+
     def load(self, project_id: UUID) -> Project: ...
 
     def save(self, project: Project, expected_revision: int) -> SaveResult: ...

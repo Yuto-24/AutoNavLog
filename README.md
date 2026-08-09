@@ -1,17 +1,23 @@
 # AutoNavLog
 
 AutoNavLogは、航空大学校 宮崎課程 NAV2の航法LOG作成を支援する、SR22 G6向けの
-**地上準備専用**ツールです。計算結果は運航資料や完成帳票ではありません。利用者が
-根拠と警告を確認し、別添8-1へ手書きで清書することを前提にしています。
+**地上準備専用**ツールです。計算結果とA4横の転記補助表は、運航資料、完成帳票、
+別添8-1原本ではありません。利用者が根拠と警告を確認し、公式様式へ手書きで転記する
+ための非公式補助です。航空大学校の公式様式・計算規則への準拠は主張しません。
 
 ## 現在の検証状態
 
 アプリケーション、計算Policy、MSM連携、保存、KML/KMZ取込、Colab UI、テスト基盤を
-実装しています。ただし、`data/performance/manifest.json`は`UNVERIFIED`です。
-承認版飛行規程から二重照合した性能CSVとGolden NAV2 LOGが追加されるまで、性能を必要と
-する実計算は明示的にBlockerとなり、結果を「検証済み」と表示しません。
+実装しています。`data/performance`にはSR22 G6 POH P/N 13772-006 Reissue Aの上昇
+19行・巡航159行を収録し、原典PDFからの再抽出と全行差分比較を完了しています。上昇表の
+ISA温度および標準より10℃高いごとの10%増加もmanifestで明示したPolicyとして適用します。
 
-空の性能CSVや空港CSVを仮の値で埋めないでください。
+これは対象機固有の日本承認AFM/POH・Supplementとの適用確認や、校内Golden NAV2 LOGとの
+一致を意味しません。これらと気象QNH、丸め等の未確認事項が残るため、結果を
+航空大学校の承認済みNAV LOGまたは運航資料とは表示しません。v2.6ではSEA・DEM・
+陸域マスクを対象外とし、取得・算出・入力・表示・転記可否の判定には使用しません。
+既存schemaのSEA fieldは旧Projectの読込互換だけに残しています。
+
 
 ## 開発
 
@@ -34,6 +40,33 @@ MSM契約試験やColabリリースでは、Privateリポジトリから作成�
 `jma_msm_wind-0.2.1` wheelをAutoNavLog wheelと同時にインストールします。
 
 ## Colab配布
+
+### Colab操作プレビュー
+
+`notebooks/AutoNavLog_Colab_Preview.ipynb`は、地上準備の操作確認と非公式転記補助だけを
+目的とします。参照・SR22 G6性能データ、検証済みPzs `terrain.npz`、AutoNavLog wheel、
+固定版`jma-msm-wind==0.2.1` wheelを、内部manifestで全fileのsize/SHA-256を検査する
+単一ZIPへまとめて使用します。
+
+```bash
+python scripts/build_colab_preview_bundle.py \
+  dist/autonavlog-0.2.0-py3-none-any.whl \
+  /path/to/jma_msm_wind-0.2.1-py3-none-any.whl \
+  dist/autonavlog-colab-preview-0.2.0.zip \
+  --terrain /path/to/verified/terrain.npz
+```
+
+ZIPをColab VMの`/content`、またはGoogle Driveの`MyDrive`直下へ配置してNotebookを
+実行します。上空風・気温はMSM予報値、QNHはPzs地形cacheを用いた`MSM推定QNH`です。
+MSM推定QNHは公式飛行場気象の観測QNHではないため、利用者が原票と照合します。取得・
+算出できない場合は1013.25 hPa等で補完せず、適切なQNHを確認して手入力します。
+Pzs地形cacheはMSM推定QNHだけに使用し、SEA・障害物評価には使用しません。
+
+### Drive release bundle
+
+`release-to-drive` workflowは、Pzs地形cacheの検証と実MSM acceptance gateを通過した
+versioned releaseを共有Driveへ公開します。プレビューを個別に配布する場合は、上記の
+`AutoNavLog_Colab_Preview.ipynb`と自己検証型preview ZIPを組み合わせます。
 
 1. GitHub Actionsの`release-to-drive`を手動実行します。
 2. CIがAutoNavLogとMSMのwheel、Notebook、性能・空港データ、Pzs地形キャッシュ、
@@ -60,9 +93,10 @@ AutoNavLogは既存ファイルを上書きせず`project-conflict-*.json`を保
 - `src/autonavlog/performance`: 性能CSV検証、上昇補間、巡航セル選択
 - `src/autonavlog/weather`: FakeとMSM v0.2.1アダプター
 - `src/autonavlog/storage`: Local/Google Drive保存とrevision管理
-- `src/autonavlog/presentation`: Colab UIとスマートフォン清書ビュー
-- `notebooks/AutoNavLog.ipynb`: 利用者向けの薄い起動Notebook
+- `src/autonavlog/presentation`: Colab UIとA4横の非公式転記補助表
+- `notebooks/AutoNavLog.ipynb`: 利用者向け起動Notebook
 
 詳細は[アーキテクチャ](docs/architecture.md)、
 [計算規則](docs/calculation_rules.md)、
-[データ来歴](docs/data_provenance.md)を参照してください。
+[データ来歴](docs/data_provenance.md)、
+[一次資料監査](docs/primary_source_audit.md)を参照してください。

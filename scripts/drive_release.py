@@ -21,15 +21,19 @@ def service():
 
 
 def create_folder(api, name: str, parent_id: str) -> str:
-    result = api.files().create(
-        body={
-            "name": name,
-            "mimeType": "application/vnd.google-apps.folder",
-            "parents": [parent_id],
-        },
-        fields="id",
-        supportsAllDrives=True,
-    ).execute()
+    result = (
+        api.files()
+        .create(
+            body={
+                "name": name,
+                "mimeType": "application/vnd.google-apps.folder",
+                "parents": [parent_id],
+            },
+            fields="id",
+            supportsAllDrives=True,
+        )
+        .execute()
+    )
     return result["id"]
 
 

@@ -128,6 +128,130 @@
       "title": "AdoptedValue[float]",
       "type": "object"
     },
+    "ArrivalAltitudeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "adopted_altitude_ft_msl": {
+          "multipleOf": 100,
+          "title": "Adopted Altitude Ft Msl",
+          "type": "integer"
+        },
+        "adopted_source": {
+          "$ref": "#/$defs/AdoptedSource"
+        },
+        "airport_elevation_ft_msl": {
+          "minimum": 0,
+          "title": "Airport Elevation Ft Msl",
+          "type": "number"
+        },
+        "airport_elevation_rounded_ft_msl": {
+          "minimum": 0,
+          "multipleOf": 100,
+          "title": "Airport Elevation Rounded Ft Msl",
+          "type": "integer"
+        },
+        "automatic_altitude_ft_msl": {
+          "multipleOf": 100,
+          "title": "Automatic Altitude Ft Msl",
+          "type": "integer"
+        },
+        "base_vrep_altitude_ft_msl": {
+          "multipleOf": 100,
+          "title": "Base Vrep Altitude Ft Msl",
+          "type": "integer"
+        },
+        "boundary_tolerance_m": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 1.0,
+          "title": "Boundary Tolerance M",
+          "type": "number"
+        },
+        "derived_pattern_altitude_ft_msl": {
+          "minimum": 1000,
+          "multipleOf": 100,
+          "title": "Derived Pattern Altitude Ft Msl",
+          "type": "integer"
+        },
+        "destination_airport_id": {
+          "minLength": 1,
+          "title": "Destination Airport Id",
+          "type": "string"
+        },
+        "distance_nm_exact": {
+          "minimum": 0,
+          "title": "Distance Nm Exact",
+          "type": "number"
+        },
+        "effective_distance_nm": {
+          "minimum": 0,
+          "title": "Effective Distance Nm",
+          "type": "number"
+        },
+        "excess_distance_nm_exact": {
+          "minimum": 0,
+          "title": "Excess Distance Nm Exact",
+          "type": "number"
+        },
+        "excess_distance_nm_rounded": {
+          "minimum": 0,
+          "title": "Excess Distance Nm Rounded",
+          "type": "integer"
+        },
+        "manual_override_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manual Override Reason"
+        },
+        "pattern_altitude_ft_msl": {
+          "minimum": 0,
+          "title": "Pattern Altitude Ft Msl",
+          "type": "number"
+        },
+        "rule_version": {
+          "const": "CAC_REV19_8_4_9_V3",
+          "default": "CAC_REV19_8_4_9_V3",
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "selected_reference_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selected Reference Fingerprint",
+          "type": "string"
+        },
+        "vrep_node_id": {
+          "format": "uuid",
+          "title": "Vrep Node Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vrep_node_id",
+        "destination_airport_id",
+        "distance_nm_exact",
+        "effective_distance_nm",
+        "airport_elevation_ft_msl",
+        "airport_elevation_rounded_ft_msl",
+        "derived_pattern_altitude_ft_msl",
+        "pattern_altitude_ft_msl",
+        "base_vrep_altitude_ft_msl",
+        "excess_distance_nm_exact",
+        "excess_distance_nm_rounded",
+        "automatic_altitude_ft_msl",
+        "adopted_altitude_ft_msl",
+        "adopted_source",
+        "selected_reference_fingerprint"
+      ],
+      "title": "ArrivalAltitudeResult",
+      "type": "object"
+    },
     "Availability": {
       "enum": [
         "AVAILABLE",
@@ -139,6 +263,24 @@
     "CalculationOutcome": {
       "additionalProperties": false,
       "properties": {
+        "arrival_altitude": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArrivalAltitudeResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "check_point_projections": {
+          "items": {
+            "$ref": "#/$defs/CheckPointProjection"
+          },
+          "title": "Check Point Projections",
+          "type": "array"
+        },
         "converged": {
           "default": false,
           "title": "Converged",
@@ -223,6 +365,72 @@
         "policy_version"
       ],
       "title": "CalculationOutcome",
+      "type": "object"
+    },
+    "CheckPointProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "abeam_latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Abeam Latitude Deg",
+          "type": "number"
+        },
+        "abeam_longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Abeam Longitude Deg",
+          "type": "number"
+        },
+        "along_section_distance_nm": {
+          "minimum": 0,
+          "title": "Along Section Distance Nm",
+          "type": "number"
+        },
+        "along_track_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Along Track Fraction",
+          "type": "number"
+        },
+        "checkpoint_id": {
+          "format": "uuid",
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "cross_track_distance_nm": {
+          "minimum": 0,
+          "title": "Cross Track Distance Nm",
+          "type": "number"
+        },
+        "cumulative_distance_nm": {
+          "minimum": 0,
+          "title": "Cumulative Distance Nm",
+          "type": "number"
+        },
+        "policy_version": {
+          "const": "CP_ABEAM_WGS84_V1",
+          "default": "CP_ABEAM_WGS84_V1",
+          "title": "Policy Version",
+          "type": "string"
+        },
+        "section_id": {
+          "format": "uuid",
+          "title": "Section Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "section_id",
+        "abeam_latitude_deg",
+        "abeam_longitude_deg",
+        "along_track_fraction",
+        "along_section_distance_nm",
+        "cumulative_distance_nm",
+        "cross_track_distance_nm"
+      ],
+      "title": "CheckPointProjection",
       "type": "object"
     },
     "DerivedPointType": {
@@ -429,6 +637,19 @@
           ],
           "default": null,
           "title": "Section Id"
+        },
+        "segment_sequence": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Sequence"
         },
         "severity": {
           "$ref": "#/$defs/IssueSeverity"
@@ -912,6 +1133,11 @@
         "ground_speed_kt": {
           "$ref": "#/$defs/AdoptedValue_float_"
         },
+        "loss_time_seconds": {
+          "minimum": 0,
+          "title": "Loss Time Seconds",
+          "type": "number"
+        },
         "magnetic_course_deg": {
           "$ref": "#/$defs/AdoptedValue_float_"
         },
@@ -923,6 +1149,12 @@
           "title": "Performance Metadata",
           "type": "object"
         },
+        "phase": {
+          "$ref": "#/$defs/FlightPhase"
+        },
+        "planned_altitude_ft_msl": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
         "pressure_altitude_exact_ft": {
           "$ref": "#/$defs/AdoptedValue_float_"
         },
@@ -932,6 +1164,9 @@
         "remaining_fuel_gal": {
           "$ref": "#/$defs/AdoptedValue_float_"
         },
+        "safe_enroute_altitude_ft_msl": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
         "section_fuel_gal": {
           "$ref": "#/$defs/AdoptedValue_float_"
         },
@@ -939,6 +1174,23 @@
           "format": "uuid",
           "title": "Section Id",
           "type": "string"
+        },
+        "segment_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Label"
+        },
+        "sequence": {
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
         },
         "tas_kt": {
           "$ref": "#/$defs/AdoptedValue_float_"
@@ -974,8 +1226,13 @@
       },
       "required": [
         "section_id",
+        "sequence",
+        "phase",
         "from_name",
         "to_name",
+        "planned_altitude_ft_msl",
+        "safe_enroute_altitude_ft_msl",
+        "loss_time_seconds",
         "pressure_altitude_exact_ft",
         "pressure_altitude_planning_ft",
         "true_course_deg",
@@ -1147,6 +1404,11 @@
           "minimum": -180,
           "title": "Longitude Deg",
           "type": "number"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
         },
         "request_id": {
           "title": "Request Id",

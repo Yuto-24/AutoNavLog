@@ -72,9 +72,7 @@ class FakeWeatherProvider:
             latest_compatible_run_id=self.runs[0],
             selected_run_covers_requirement=covers,
             update_available=covers and self.runs.index(selected_run_id) > 0,
-            warnings=()
-            if covers
-            else ("SELECTED_RUN_OUT_OF_COVERAGE",),
+            warnings=() if covers else ("SELECTED_RUN_OUT_OF_COVERAGE",),
         )
 
     def prepare_run(

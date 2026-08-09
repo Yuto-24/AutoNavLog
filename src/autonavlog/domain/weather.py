@@ -55,6 +55,7 @@ class WeatherRequest(WeatherModel):
     valid_time_utc: datetime
     altitude_ft_msl: float | None = None
     elevation_ft_msl: float | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("valid_time_utc")
     @classmethod

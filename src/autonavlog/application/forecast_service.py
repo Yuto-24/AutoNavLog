@@ -19,14 +19,17 @@ class ForecastService:
         for section in project.ordered_sections():
             start = nodes[section.from_node_id]
             end = nodes[section.to_node_id]
-            distance = start.manual_distance_nm or geodesic_leg(
-                start.latitude_deg,
-                start.longitude_deg,
-                end.latitude_deg,
-                end.longitude_deg,
-            ).distance_nm
+            distance = (
+                start.manual_distance_nm
+                or geodesic_leg(
+                    start.latitude_deg,
+                    start.longitude_deg,
+                    end.latitude_deg,
+                    end.longitude_deg,
+                ).distance_nm
+            )
             speed = section.manual_tas_kt or self.estimate_speed_kt
-            section_seconds = distance / speed * 3600.0 + section.loss_time_seconds
+            section_seconds = distance / speed * 3600.0
             times.append(
                 project.planned_departure_time_jst
                 + timedelta(seconds=elapsed_seconds + section_seconds / 2)
@@ -34,7 +37,10 @@ class ForecastService:
             elapsed_seconds += section_seconds
         elapsed_seconds += 10 * 60 + project.tgl_count * 7 * 60
         times.append(project.planned_departure_time_jst + timedelta(seconds=elapsed_seconds))
-        return ForecastRequirement(valid_times_utc=tuple(times))
+        return ForecastRequirement(
+            valid_times_utc=tuple(times),
+            require_estimated_qnh=project.manual_qnh_hpa is None,
+        )
 
     def build_final_requirement(
         self,
@@ -42,5 +48,6 @@ class ForecastService:
         representative_times: tuple[datetime, ...],
     ) -> ForecastRequirement:
         return ForecastRequirement(
-            valid_times_utc=(project.planned_departure_time_jst, *representative_times)
+            valid_times_utc=(project.planned_departure_time_jst, *representative_times),
+            require_estimated_qnh=project.manual_qnh_hpa is None,
         )
