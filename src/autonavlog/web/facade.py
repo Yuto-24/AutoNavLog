@@ -45,6 +45,7 @@ from autonavlog.storage.reference_data import (
 from autonavlog.storage.repository import ProjectSummary
 from autonavlog.weather.provider import WeatherProvider
 
+from .cloudflare_access import AccessTokenVerifier
 from .cruising_altitude import (
     LEGAL_THRESHOLD_NOTE_JA,
     TERRAIN_LIMITATION_NOTE_JA,
@@ -88,6 +89,10 @@ ISSUE_ACTIONS: dict[str, str] = {
 }
 
 
+def _owner_ids_match(left: str, right: str) -> bool:
+    return compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+
+
 class WebApplicationError(ValueError):
     def __init__(self, code: str, message: str, *, status_code: int = 400) -> None:
         super().__init__(message)
@@ -126,6 +131,7 @@ class AutoNavLogWebApplication:
         development_weather: bool,
         maximum_sessions: int = 128,
         trusted_local_identity: str | None = None,
+        access_verifier: AccessTokenVerifier | None = None,
     ) -> None:
         if maximum_sessions < 1:
             raise ValueError("maximum_sessions must be positive")
@@ -140,6 +146,7 @@ class AutoNavLogWebApplication:
         self.maximum_sessions = maximum_sessions
         self.trusted_local_identity = trusted_local_identity
         self._sessions: dict[str, WebSession] = {}
+        self.access_verifier = access_verifier
         self._session_order: list[str] = []
         self._projects_generation = 0
         self._lock = RLock()
@@ -177,7 +184,7 @@ class AutoNavLogWebApplication:
                     "セッションの有効期限が切れました。画面を再読み込みしてください。",
                     status_code=401,
                 ) from error
-            if not compare_digest(session.owner_id, owner_id):
+            if not _owner_ids_match(session.owner_id, owner_id):
                 raise WebApplicationError(
                     "SESSION_OWNER_MISMATCH",
                     "認証ユーザーとセッション所有者が一致しません。",
@@ -190,7 +197,7 @@ class AutoNavLogWebApplication:
     def invalidate_session(self, token: str, owner_id: str) -> None:
         with self._lock:
             session = self._sessions.get(token)
-            if session is None or not compare_digest(session.owner_id, owner_id):
+            if session is None or not _owner_ids_match(session.owner_id, owner_id):
                 return
             self._sessions.pop(token, None)
             try:
@@ -406,11 +413,12 @@ class AutoNavLogWebApplication:
         with session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "保存するProjectがありません。")
-            if request.name is not None:
-                session.project.name = self._normalize_project_name(request.name)
-                session.project.metadata["project_name_auto"] = False
             self._assert_project_owner(session.project, session.owner_id)
-            saved = self.project_service.save(session.project)
+            project_to_save = session.project.model_copy(deep=True)
+            if request.name is not None:
+                project_to_save.name = self._normalize_project_name(request.name)
+                project_to_save.metadata["project_name_auto"] = False
+            saved = self.project_service.save(project_to_save)
             session.project = saved.project
             self._projects_changed(session)
             self._evaluate(session)
@@ -599,10 +607,7 @@ class AutoNavLogWebApplication:
     @staticmethod
     def _assert_project_owner(project: Project, owner_id: str) -> None:
         stored_owner = project.metadata.get("web_owner_id")
-        if not isinstance(stored_owner, str) or not compare_digest(
-            stored_owner,
-            owner_id,
-        ):
+        if not isinstance(stored_owner, str) or not _owner_ids_match(stored_owner, owner_id):
             raise WebApplicationError(
                 "PROJECT_NOT_FOUND",
                 "指定されたProjectは見つかりません。",
@@ -627,18 +632,12 @@ class AutoNavLogWebApplication:
         ):
             return session.saved_projects_cache
 
-        owned: list[ProjectSummary] = []
-        for summary in self.project_service.list_projects():
-            try:
-                project = self.project_service.load(summary.id)
-            except ValueError:
-                continue
-            stored_owner = project.metadata.get("web_owner_id")
-            if isinstance(stored_owner, str) and compare_digest(
-                stored_owner,
-                session.owner_id,
-            ):
-                owned.append(summary)
+        owned = [
+            summary
+            for summary in self.project_service.list_projects()
+            if isinstance(summary.web_owner_id, str)
+            and _owner_ids_match(summary.web_owner_id, session.owner_id)
+        ]
         session.saved_projects_cache = tuple(owned)
         session.saved_projects_generation = generation
         return session.saved_projects_cache

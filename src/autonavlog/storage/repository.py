@@ -20,12 +20,13 @@ class ProjectSummary(BaseModel):
     updated_at: datetime
     status: ProjectStatus
     revision: int
+    web_owner_id: str | None = None
 
 
 class ProjectIndex(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     projects: list[ProjectSummary]
 
 

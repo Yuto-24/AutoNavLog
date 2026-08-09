@@ -6,7 +6,13 @@ originをInternetへ直接listenさせません。
 
 ## 1. ローカルorigin
 
+公開serviceではAccess applicationのTeam domainとAudience tagを設定して起動します。
+どちらもCloudflare dashboardで確認できる識別子で、tokenや秘密鍵ではありません。
+
 ```bash
+export AUTONAVLOG_CLOUDFLARE_TEAM_DOMAIN='https://<team>.cloudflareaccess.com'
+export AUTONAVLOG_CLOUDFLARE_ACCESS_AUDIENCE='<Access application AUD tag>'
+unset AUTONAVLOG_TRUSTED_LOCAL_IDENTITY
 docker compose up -d --build
 docker compose ps
 ```
@@ -51,22 +57,23 @@ remotely-managed tunnelはorigin側でtokenだけを使って接続し、route�
 ## 3. Cloudflare Access
 
 公開hostnameと同じdomainをCloudflare Accessのself-hosted applicationへ登録し、
-利用を許可するidentity／email groupだけのAllow policyを作成します。
-Accessは各requestを認証し、originへ
-`Cf-Access-Authenticated-User-Email` を付与します。AutoNavLogはこの値を正規化して
-session所有者と保存Projectの `web_owner_id` に拘束し、他のidentityには一覧にも404応答にも
-Projectの存在を漏らしません。
+利用を許可するidentity／email groupだけのAllow policyを作成します。Accessがoriginへ付与する
+`Cf-Access-Jwt-Assertion` をAutoNavLog自身でも検証します。検証対象はRS256署名、Team domainの
+`iss`、設定済みapplication `aud`、`exp` です。署名鍵はTeam domainのJWKSから`kid`で選び、
+検証済み`email` claimだけをsession所有者と保存Projectの `web_owner_id` に使用します。
+`Cf-Access-Authenticated-User-Email` 単独のrequestは拒否します。
 
 作業session tokenはレスポンス本文へ返さず、
 `HttpOnly; Secure; SameSite=Strict; Path=/` Cookieだけで送ります。JavaScript、
 `localStorage`、`sessionStorage`、独自headerには保存しません。logoutはserver側sessionを
-無効化してCookieを削除します。
+無効化してCookieを削除します。他のidentityには一覧にも404応答にもProjectの存在を漏らしません。
 
-このheaderはCloudflare Accessから来た場合だけ信頼できます。そのためoriginを
-`127.0.0.1:8123` に限定し、Cloudflareを迂回してheaderを偽装できる受信経路を作りません。
+JWT検証に加えて、originは必ず`127.0.0.1:8123`だけへbindします。
+`AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` はloopback試験専用で、使用requestごとに警告を記録します。
+公開serviceでは必ず未設定にします。
 
 公式手順: [Add web applications](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/)、
-[Authorization cookie](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/)
+[Validate JWTs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
 
 ## 4. 開発用Quick Tunnel
 
@@ -89,6 +96,8 @@ Accessを使用します。`~/.cloudflared/config.yaml` が存在する環境で
 - Composeのpublished portがhostの `127.0.0.1` にだけbindしている。
 - `docker compose ps` でserviceがhealthyである。
 - Cloudflare Access未認証のbrowserがアプリへ到達できない。
+- Team domainとAccess application AUDがcontainer環境へ設定されている。
+- `AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` が公開serviceで空になっている。
 - `/`, `/api/session`, `/healthz` が同じhostnameで応答する。
 - session Cookieに `HttpOnly`、`Secure`、`SameSite=Strict` が付く。
 - 2つのAccess identity間でsessionと保存Projectが相互に見えない。

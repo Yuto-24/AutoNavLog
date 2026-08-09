@@ -36,6 +36,16 @@ def _parser() -> argparse.ArgumentParser:
         help="trusted local-only identity; leave unset behind Cloudflare Access",
     )
     parser.add_argument(
+        "--cloudflare-team-domain",
+        default=os.environ.get("AUTONAVLOG_CLOUDFLARE_TEAM_DOMAIN"),
+        help="expected https://<team>.cloudflareaccess.com JWT issuer",
+    )
+    parser.add_argument(
+        "--cloudflare-access-audience",
+        default=os.environ.get("AUTONAVLOG_CLOUDFLARE_ACCESS_AUDIENCE"),
+        help="expected Cloudflare Access application AUD tag",
+    )
+    parser.add_argument(
         "--log-level",
         choices=("critical", "error", "warning", "info", "debug", "trace"),
         default="info",
@@ -52,6 +62,8 @@ def main() -> None:
         msm_cache_dir=args.msm_cache,
         terrain_cache_path=args.terrain_cache,
         trusted_local_identity=args.trusted_local_identity,
+        cloudflare_team_domain=args.cloudflare_team_domain,
+        cloudflare_access_audience=args.cloudflare_access_audience,
     )
     uvicorn.run(
         create_app(config),

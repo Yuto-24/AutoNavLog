@@ -74,11 +74,12 @@ the imported route controls, flight-plan labels, `準備状況`, its next action
 reference provenance, and the current primary action. Marketing copy, claims,
 metrics, badges, and unrelated navigation are prohibited.
 
-## Implementation fidelity ledger (2026-08-10)
+## Implementation fidelity ledger (verified 2026-08-10 JST)
 
 ### Render and inspection method
 
 - Accepted concepts: `primary-workspace.png` and `calculated-review.png`.
+- Verification execution date: 2026-08-10 (`Asia/Tokyo`).
 - Implementation renders: Playwright Chromium against the built FastAPI-served SPA.
 - Native desktop viewport: 1440 × 1000.
 - Native mobile viewport: 390 × 844; the stored mobile image is a full-page capture.

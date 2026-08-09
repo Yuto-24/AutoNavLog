@@ -16,6 +16,7 @@ from autonavlog.weather.msm_adapter import MsmWeatherProvider
 from autonavlog.weather.msm_metar_provider import MsmMetarWeatherProvider
 from autonavlog.weather.provider import WeatherProvider
 
+from .cloudflare_access import CloudflareAccessVerifier
 from .facade import AutoNavLogWebApplication
 
 WeatherMode = Literal["fake", "msm", "msm-metar"]
@@ -30,12 +31,19 @@ class WebRuntimeConfig:
     terrain_cache_path: Path | None = None
     maximum_sessions: int = 128
     trusted_local_identity: str | None = None
+    cloudflare_team_domain: str | None = None
+    cloudflare_access_audience: str | None = None
 
     def __post_init__(self) -> None:
         if self.weather_mode not in {"fake", "msm", "msm-metar"}:
             raise ValueError(f"unsupported weather mode: {self.weather_mode}")
         if self.maximum_sessions < 1:
             raise ValueError("maximum_sessions must be positive")
+
+        if bool(self.cloudflare_team_domain) != bool(self.cloudflare_access_audience):
+            raise ValueError(
+                "cloudflare_team_domain and cloudflare_access_audience must be set together"
+            )
 
 
 def _weather_factory(
@@ -89,6 +97,12 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
     performance = PerformanceRepository.from_directory_for_application(performance_root)
     project_service = ProjectService(LocalProjectRepository(storage_root))
     weather_factory, weather_label, development_weather = _weather_factory(config)
+    access_verifier = None
+    if config.cloudflare_team_domain and config.cloudflare_access_audience:
+        access_verifier = CloudflareAccessVerifier(
+            team_domain=config.cloudflare_team_domain,
+            audience=config.cloudflare_access_audience,
+        )
     return AutoNavLogWebApplication(
         project_service=project_service,
         airports=airports,
@@ -100,4 +114,5 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
         weather_label=weather_label,
         development_weather=development_weather,
         maximum_sessions=config.maximum_sessions,
+        access_verifier=access_verifier,
     )

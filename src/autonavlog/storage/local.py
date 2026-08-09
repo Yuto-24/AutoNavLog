@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
 from uuid import UUID, uuid4
 
 from autonavlog.domain.project import Project
@@ -24,6 +25,7 @@ class RevisionConflictError(RuntimeError):
 class LocalProjectRepository:
     def __init__(self, root: str | Path):
         self.root = Path(root)
+        self._lock = RLock()
 
     def _project_dir(self, project_id: UUID) -> Path:
         return self.root / "projects" / str(project_id)
@@ -34,12 +36,23 @@ class LocalProjectRepository:
 
     @staticmethod
     def _summary(project: Project) -> ProjectSummary:
+        stored_owner = project.metadata.get("web_owner_id")
+        web_owner_id = stored_owner if isinstance(stored_owner, str) else None
         return ProjectSummary(
             id=project.id,
             name=project.name,
             updated_at=project.updated_at,
             status=project.status,
             revision=project.revision,
+            web_owner_id=web_owner_id,
+        )
+
+    @staticmethod
+    def _sort_summaries(summaries: list[ProjectSummary]) -> list[ProjectSummary]:
+        return sorted(
+            summaries,
+            key=lambda item: (item.updated_at, str(item.id)),
+            reverse=True,
         )
 
     def _scan_projects(self) -> list[ProjectSummary]:
@@ -55,11 +68,7 @@ class LocalProjectRepository:
             if path.parent.name != str(project.id):
                 continue
             summaries.append(self._summary(project))
-        return sorted(
-            summaries,
-            key=lambda item: (item.updated_at, str(item.id)),
-            reverse=True,
-        )
+        return self._sort_summaries(summaries)
 
     def _write_index(self, projects: list[ProjectSummary]) -> None:
         atomic_model_write(
@@ -72,7 +81,7 @@ class LocalProjectRepository:
         self._write_index(projects)
         return projects
 
-    def list_projects(self) -> list[ProjectSummary]:
+    def _read_or_rebuild_index(self) -> list[ProjectSummary]:
         if self.index_path.exists():
             try:
                 index = read_json_model(self.index_path, ProjectIndex)
@@ -80,6 +89,17 @@ class LocalProjectRepository:
             except JsonStorageError:
                 pass
         return self._rebuild_index()
+
+    def _update_index(self, project: Project) -> None:
+        projects = [
+            summary for summary in self._read_or_rebuild_index() if summary.id != project.id
+        ]
+        projects.append(self._summary(project))
+        self._write_index(self._sort_summaries(projects))
+
+    def list_projects(self) -> list[ProjectSummary]:
+        with self._lock:
+            return self._read_or_rebuild_index()
 
     def load(self, project_id: UUID) -> Project:
         path = self._project_dir(project_id) / "project.json"
@@ -92,6 +112,10 @@ class LocalProjectRepository:
         return project
 
     def save(self, project: Project, expected_revision: int) -> SaveResult:
+        with self._lock:
+            return self._save_locked(project, expected_revision)
+
+    def _save_locked(self, project: Project, expected_revision: int) -> SaveResult:
         path = self._project_dir(project.id) / "project.json"
         if path.exists():
             existing = read_json_model(path, Project)
@@ -116,7 +140,7 @@ class LocalProjectRepository:
             }
         )
         atomic_model_write(path, saved)
-        self._rebuild_index()
+        self._update_index(saved)
         return SaveResult(project=saved, path=path)
 
     def autosave(self, project: Project) -> Path:

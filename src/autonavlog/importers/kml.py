@@ -174,18 +174,15 @@ def _simplify(points: list[tuple[float, float]], maximum: int) -> tuple[tuple[fl
 
 
 def named_waypoints_from_line(line: ImportedLine) -> tuple[ImportedPoint, ...]:
-    """Map a delimiter-separated LineString name to geometric key points.
+    """Map names only when every original LineString coordinate has one name.
 
-    Route exports often encode the intended waypoint names in the LineString
-    Placemark name. We only adopt those names when simplification yields the
-    exact same number of key points; ambiguous mappings fall back safely.
+    A LineString name does not encode which vertices its delimited labels refer
+    to. Adopting labels after geometric simplification can therefore assign a
+    valid name to the wrong location.
     """
 
     names = tuple(part.strip() for part in _ROUTE_NAME_SEPARATOR.split(line.name) if part.strip())
-    if len(names) < 2 or len(names) > len(line.coordinates):
-        return ()
-    coordinates = _simplify(list(line.coordinates), len(names))
-    if len(coordinates) != len(names):
+    if len(names) < 2 or len(names) != len(line.coordinates):
         return ()
     return tuple(
         ImportedPoint(
@@ -193,7 +190,7 @@ def named_waypoints_from_line(line: ImportedLine) -> tuple[ImportedPoint, ...]:
             latitude_deg=latitude,
             longitude_deg=longitude,
         )
-        for name, (latitude, longitude) in zip(names, coordinates, strict=True)
+        for name, (latitude, longitude) in zip(names, line.coordinates, strict=True)
     )
 
 

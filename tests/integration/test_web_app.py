@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from autonavlog.web.app import create_app
+from autonavlog.web.cloudflare_access import CloudflareAccessVerificationError
 from autonavlog.web.runtime import WebRuntimeConfig
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,6 +29,17 @@ KML = """<?xml version="1.0" encoding="UTF-8"?>
   </Document>
 </kml>
 """
+
+
+class StubAccessVerifier:
+    def __init__(self, identities: dict[str, str]) -> None:
+        self.identities = identities
+
+    def verify_email(self, assertion: str) -> str:
+        try:
+            return self.identities[assertion]
+        except KeyError as error:
+            raise CloudflareAccessVerificationError("invalid test assertion") from error
 
 
 @pytest.fixture
@@ -174,7 +186,9 @@ async def _save_route(client: httpx.AsyncClient, name: str) -> str:
 
 
 @pytest.mark.anyio
-async def test_cloudflare_identity_is_required_without_local_override(tmp_path: Path) -> None:
+async def test_cloudflare_assertion_authentication_and_session_rotation(
+    tmp_path: Path,
+) -> None:
     app = create_app(
         WebRuntimeConfig(
             data_root=ROOT / "data",
@@ -182,18 +196,71 @@ async def test_cloudflare_identity_is_required_without_local_override(tmp_path: 
             weather_mode="fake",
         )
     )
+    app.state.web_application.access_verifier = StubAccessVerifier(
+        {
+            "pilot-token": "Pilot@Example.com",
+            "unicode-token": "利用者@example.com",
+        }
+    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
         unauthenticated = await client.post("/api/session")
         assert unauthenticated.status_code == 401
         assert unauthenticated.json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
 
-        authenticated = await client.post(
+        spoofed = await client.post(
             "/api/session",
             headers={"Cf-Access-Authenticated-User-Email": "Pilot@Example.com"},
         )
+        assert spoofed.status_code == 401
+        assert spoofed.json()["error"]["code"] == "AUTHENTICATION_INVALID"
+
+        invalid = await client.post(
+            "/api/session",
+            headers={"Cf-Access-Jwt-Assertion": "invalid-token"},
+        )
+        assert invalid.status_code == 401
+        assert invalid.json()["error"]["code"] == "AUTHENTICATION_INVALID"
+
+        authenticated = await client.post(
+            "/api/session",
+            headers={"Cf-Access-Jwt-Assertion": "pilot-token"},
+        )
         assert authenticated.status_code == 200
         assert "sessionToken" not in authenticated.json()
+        old_token = client.cookies.get("autonavlog_session")
+        assert old_token is not None
+
+        refreshed = await client.post(
+            "/api/session",
+            headers={"Cf-Access-Jwt-Assertion": "pilot-token"},
+        )
+        assert refreshed.status_code == 200
+        assert client.cookies.get("autonavlog_session") != old_token
+
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="https://test",
+            headers={
+                "Cf-Access-Jwt-Assertion": "pilot-token",
+                "cookie": f"autonavlog_session={old_token}",
+            },
+        ) as stale:
+            expired = await stale.get("/api/state")
+            assert expired.status_code == 401
+            assert expired.json()["error"]["code"] == "SESSION_NOT_FOUND"
+
+        unicode_identity = await client.post(
+            "/api/session",
+            headers={"Cf-Access-Jwt-Assertion": "unicode-token"},
+        )
+        assert unicode_identity.status_code == 200
+        assert (
+            await client.get(
+                "/api/state",
+                headers={"Cf-Access-Jwt-Assertion": "unicode-token"},
+            )
+        ).status_code == 200
 
 
 @pytest.mark.anyio
@@ -285,9 +352,12 @@ async def test_sessions_and_saved_projects_are_owner_isolated(tmp_path: Path) ->
             weather_mode="fake",
         )
     )
+    app.state.web_application.access_verifier = StubAccessVerifier(
+        {"alice-token": "Alice@Example.com", "bob-token": "bob@example.com"}
+    )
     transport = httpx.ASGITransport(app=app)
-    alice_headers = {"Cf-Access-Authenticated-User-Email": "Alice@Example.com"}
-    bob_headers = {"Cf-Access-Authenticated-User-Email": "bob@example.com"}
+    alice_headers = {"Cf-Access-Jwt-Assertion": "alice-token"}
+    bob_headers = {"Cf-Access-Jwt-Assertion": "bob-token"}
 
     async with httpx.AsyncClient(
         transport=transport,
@@ -300,6 +370,7 @@ async def test_sessions_and_saved_projects_are_owner_isolated(tmp_path: Path) ->
         alice_project_id = await _save_route(alice, "alice-route")
         alice_state = (await alice.get("/api/state")).json()
         assert [item["name"] for item in alice_state["savedProjects"]] == ["alice-route"]
+        assert "web_owner_id" not in alice_state["savedProjects"][0]
 
         async with httpx.AsyncClient(
             transport=transport,
@@ -367,7 +438,9 @@ async def test_session_capacity_evicts_the_least_recent_session(tmp_path: Path) 
 
 
 @pytest.mark.anyio
-async def test_line_waypoint_names_reach_the_confirmed_route(tmp_path: Path) -> None:
+async def test_ambiguous_line_name_preserves_every_original_coordinate(
+    tmp_path: Path,
+) -> None:
     named_kml = """<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
     <Placemark><name>小丸～日振島～祝島～ゴルフコース</name>
     <LineString><coordinates>
@@ -398,6 +471,15 @@ async def test_line_waypoint_names_reach_the_confirmed_route(tmp_path: Path) -> 
 
         confirmed = await client.post("/api/route/confirm", json=_route_payload())
         assert confirmed.status_code == 200, confirmed.text
-        names = [node["name"] for node in confirmed.json()["project"]["route_nodes"]]
+        nodes = confirmed.json()["project"]["route_nodes"]
+        names = [node["name"] for node in nodes]
 
-        assert names == ["RJFM", "日振島", "祝島", "RJFO"]
+        assert len(nodes) == 7
+        assert names == ["RJFM", "WP2", "WP3", "WP4", "WP5", "WP6", "RJFO"]
+        assert [(node["latitude_deg"], node["longitude_deg"]) for node in nodes[1:-1]] == [
+            (31.98214589070221, 131.4317398539069),
+            (32.16275095638636, 131.4734489929498),
+            (33.1802236311398, 132.2948734240414),
+            (33.78695544494976, 131.9894319344609),
+            (33.62999835453385, 131.67890296839),
+        ]

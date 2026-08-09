@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 import os
 from pathlib import Path
 from typing import Annotated, Any, cast
@@ -19,6 +20,9 @@ from autonavlog.importers.kml import (
 )
 from autonavlog.version import __version__
 
+from .cloudflare_access import (
+    CloudflareAccessVerificationError,
+)
 from .facade import AutoNavLogWebApplication, WebApplicationError, WebSession
 from .models import (
     AcknowledgeRequest,
@@ -33,6 +37,8 @@ from .runtime import WeatherMode, WebRuntimeConfig, build_web_application
 MAX_BASE64_CHARACTERS = 14 * 1024 * 1024
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 SESSION_COOKIE_NAME = "autonavlog_session"
+CLOUDFLARE_ASSERTION_HEADER = "Cf-Access-Jwt-Assertion"
+LOGGER = logging.getLogger(__name__)
 CLOUDFLARE_IDENTITY_HEADER = "Cf-Access-Authenticated-User-Email"
 
 
@@ -60,17 +66,40 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 def _owner_identity(request: Request) -> str:
     web = cast(AutoNavLogWebApplication, request.app.state.web_application)
-    raw_identity = (
-        web.trusted_local_identity or request.headers.get(CLOUDFLARE_IDENTITY_HEADER) or ""
-    )
-    identity = raw_identity.strip().casefold()
-    if not identity:
+    assertion = (request.headers.get(CLOUDFLARE_ASSERTION_HEADER) or "").strip()
+    if assertion:
+        if web.access_verifier is None:
+            raise WebApplicationError(
+                "AUTHENTICATION_CONFIGURATION_REQUIRED",
+                "Cloudflare Access JWT検証設定がありません。",
+                status_code=503,
+            )
+        try:
+            raw_identity = web.access_verifier.verify_email(assertion)
+        except CloudflareAccessVerificationError as error:
+            raise WebApplicationError(
+                "AUTHENTICATION_INVALID",
+                "Cloudflare Accessの認証情報を検証できません。",
+                status_code=401,
+            ) from error
+    elif (request.headers.get(CLOUDFLARE_IDENTITY_HEADER) or "").strip():
+        raise WebApplicationError(
+            "AUTHENTICATION_INVALID",
+            "署名付きCloudflare Access認証情報がありません。",
+            status_code=401,
+        )
+    elif web.trusted_local_identity:
+        LOGGER.warning("AUTONAVLOG_TRUSTED_LOCAL_IDENTITY is authorizing a local-only request")
+        raw_identity = web.trusted_local_identity
+    else:
         raise WebApplicationError(
             "AUTHENTICATION_REQUIRED",
             "Cloudflare Accessで認証してからアクセスしてください。",
             status_code=401,
         )
-    if len(identity) > 320 or any(ord(character) < 32 for character in identity):
+
+    identity = raw_identity.strip().casefold()
+    if not identity or len(identity) > 320 or any(ord(character) < 32 for character in identity):
         raise WebApplicationError(
             "AUTHENTICATION_INVALID",
             "認証ユーザー情報を検証できません。",
@@ -116,6 +145,12 @@ def _environment_config() -> WebRuntimeConfig:
         trusted_local_identity=(
             os.environ.get("AUTONAVLOG_TRUSTED_LOCAL_IDENTITY", "").strip() or None
         ),
+        cloudflare_team_domain=(
+            os.environ.get("AUTONAVLOG_CLOUDFLARE_TEAM_DOMAIN", "").strip() or None
+        ),
+        cloudflare_access_audience=(
+            os.environ.get("AUTONAVLOG_CLOUDFLARE_ACCESS_AUDIENCE", "").strip() or None
+        ),
     )
 
 
@@ -151,7 +186,11 @@ def create_app(
 
     @app.post("/api/session")
     def create_session(request: Request, response: Response) -> dict[str, Any]:
-        session = web.create_session(_owner_identity(request))
+        owner_id = _owner_identity(request)
+        previous_token = request.cookies.get(SESSION_COOKIE_NAME)
+        if previous_token:
+            web.invalidate_session(previous_token, owner_id)
+        session = web.create_session(owner_id)
         response.set_cookie(
             key=SESSION_COOKIE_NAME,
             value=session.token,

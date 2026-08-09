@@ -22,6 +22,12 @@ def test_runtime_config_rejects_invalid_weather_and_session_limit(tmp_path: Path
             storage_root=tmp_path,
             maximum_sessions=0,
         )
+    with pytest.raises(ValueError, match="must be set together"):
+        WebRuntimeConfig(
+            data_root=tmp_path,
+            storage_root=tmp_path,
+            cloudflare_team_domain="https://test.cloudflareaccess.com",
+        )
 
 
 def test_msm_metar_delegate_receives_terrain_cache(
