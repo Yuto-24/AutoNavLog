@@ -45,9 +45,11 @@ class ReadinessService:
         calculation_service: CalculationService,
         *,
         msm_package_version: str | None,
+        require_crew_identification: bool = True,
     ) -> None:
         self.calculation_service = calculation_service
         self.msm_package_version = msm_package_version
+        self.require_crew_identification = require_crew_identification
 
     @staticmethod
     def ui_state(project: Project) -> PersistedUiState | None:
@@ -137,7 +139,7 @@ class ReadinessService:
     ) -> tuple[list[Issue], list[Issue]]:
         reference: list[Issue] = []
         project_issues: list[Issue] = []
-        if not project.pilot_name.strip():
+        if self.require_crew_identification and not project.pilot_name.strip():
             project_issues.append(
                 Issue(
                     code="PILOT_REQUIRED",
@@ -145,7 +147,7 @@ class ReadinessService:
                     message="NAV2へ転記するPILOTを入力してください。",
                 )
             )
-        if not project.ship_identifier.strip():
+        if self.require_crew_identification and not project.ship_identifier.strip():
             project_issues.append(
                 Issue(
                     code="SHIP_REQUIRED",

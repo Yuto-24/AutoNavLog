@@ -71,36 +71,46 @@ def test_ready_transfer_aid_is_dense_a4_landscape_table(
     assert "transfer-status transfer-ready" in html
     assert "転記可（要照合）" in html
     for heading in (
-        "PHASE",
+        "DATE",
+        "SHIP",
         "FROM",
         "TO",
-        "ALT",
+        "TTL DIST",
+        "TTL TIME",
+        "TAKE OFF",
+        "LANDING",
+        "PILOT",
         "PA",
+        "TOAT",
+        "CAS",
+        "TAS",
         "TC",
         "VAR",
         "MC",
         "WIND",
         "WCA",
         "MH",
-        "OAT",
-        "CAS",
-        "TAS",
+        "ZONE / CUM",
         "GS",
-        "ZONE DIST",
-        "CUM DIST",
-        "ZONE ETE",
-        "CUM ETE",
+        "ETE",
         "ETO",
-        "SECT FUEL",
-        "REM FUEL",
+        "ATO",
+        "ATE",
+        "SECT / REM",
+        "INFO",
+        "QNH",
+        "TIME",
+        "FUEL",
+        "MIN REQUIRED",
     ):
         assert heading in html
-    assert "RCA" in html
-    assert "DERIVED POINTS" in html
-    assert "FUEL SUMMARY" in html
-    assert "MIN REQUIRED" in html
-    assert "MSM推定QNH" in html
-    assert "1013 hPa" in html
+    route_table = html.split('<table class="route-table">', 1)[1].split("</table>", 1)[0]
+    assert "PHASE" not in route_table
+    assert "<th>ALT" not in route_table
+    assert "DERIVED POINTS" not in html
+    assert "CHECK POINT ABEAM" not in html
+    assert "ARRIVAL / VREP ALTITUDE" not in html
+    assert "PWR_NOT_EXACTLY_65_PERCENT" not in html
     assert render_clearcopy_html(ready_project, outcome) == html
 
     document = render_transfer_aid_document(ready_project, outcome)
@@ -145,7 +155,7 @@ def test_transfer_aid_does_not_revive_legacy_sea_or_eto_values(
     assert "SEA" not in route_table
     assert "9876" not in route_table
     assert "21:34" not in route_table
-    assert route_table.count("<td class='num'></td>") == len(legacy_outcome.sections)
+    assert route_table.count("<td class='num'></td>") == len(legacy_outcome.sections) * 3
 
 
 def test_non_ready_transfer_aid_is_red_and_marks_missing_values(
@@ -181,8 +191,10 @@ def test_non_ready_transfer_aid_is_red_and_marks_missing_values(
     assert ">転記不可<br>" in html
     assert "color:#b00020" in html
     assert "未確定" in html
-    assert "GS_UNAVAILABLE" in html
-    assert "GSを確定できません。" in html
+    assert "GS_UNAVAILABLE" not in html
+    assert "GSを確定できません。" not in html
+    assert "警告" not in html
+    assert "WARNING" not in html
     assert DISCLAIMER in html
 
 
@@ -209,9 +221,9 @@ def test_transfer_aid_groups_repeated_issues_and_preserves_segment_range(
 
     html = render_transfer_aid_html(ready_project, grouped_outcome)
 
-    assert html.count("PWR_NOT_EXACTLY_65_PERCENT") == 1
-    assert html.count("65%に最も近い性能行を採用しました。") == 1
-    assert ">2–5</td>" in html
+    assert "PWR_NOT_EXACTLY_65_PERCENT" not in html
+    assert "65%に最も近い性能行を採用しました。" not in html
+    assert "警告・未確定項目" not in html
 
 
 def test_transfer_aid_always_labels_automatic_qnh_as_msm_estimated(
@@ -237,7 +249,9 @@ def test_transfer_aid_always_labels_automatic_qnh_as_msm_estimated(
 
     html = render_transfer_aid_html(ready_project, metar_outcome)
 
-    assert "MSM推定QNH" in html
+    assert "QNH" in html
+    assert f"{outcome.qnh_hpa.adopted()} hPa" in html
+    assert "MSM推定QNH" not in html
     assert "METAR観測QNH" not in html
 
 
@@ -259,21 +273,21 @@ def test_transfer_aid_distinguishes_every_value_state(
                 adopted_source=AdoptedSource.AUTOMATIC,
             ),
             "pressure_altitude_planning_ft": AdoptedValue[float](
-                automatic_value=5500,
+                automatic_value=5500.125,
                 automatic_status=ValueState.PERFORMANCE_TABLE,
                 automatic_metadata={"source_page": "5-32"},
                 adopted_source=AdoptedSource.AUTOMATIC,
             ),
             "true_course_deg": AdoptedValue[float](
-                automatic_value=123,
+                automatic_value=123.456,
                 automatic_status=ValueState.FIXED_RULE,
                 automatic_metadata={"rule_version": "TEST_RULE"},
                 adopted_source=AdoptedSource.AUTOMATIC,
             ),
             "variation_deg_east": AdoptedValue[float](
-                automatic_value=8,
+                automatic_value=8.25,
                 automatic_status=ValueState.AUTO,
-                manual_override=7,
+                manual_override=7.125,
                 adopted_source=AdoptedSource.MANUAL,
             ),
             "magnetic_course_deg": AdoptedValue[float](
@@ -281,7 +295,7 @@ def test_transfer_aid_distinguishes_every_value_state(
                 automatic_metadata={"reason_code": "COURSE_MISSING"},
             ),
             "wca_deg": AdoptedValue[float](
-                automatic_value=2,
+                automatic_value=2.375,
                 automatic_status=ValueState.WARNING,
                 adopted_source=AdoptedSource.AUTOMATIC,
                 warnings=("CROSSWIND_NEAR_LIMIT",),
@@ -292,18 +306,16 @@ def test_transfer_aid_distinguishes_every_value_state(
 
     html = render_transfer_aid_html(ready_project, marked)
 
-    assert "state-auto" in html
-    assert "state-performance-table" in html
-    assert "性能表 / source_page=5-32" in html
-    assert "state-fixed-rule" in html
-    assert "規則値 / rule_version=TEST_RULE" in html
-    assert "state-manual-override" in html
-    assert "手動 / 自動 +8" in html
-    assert "state-unavailable" in html
+    assert "5500.125" in html
+    assert "123.456" in html
+    assert "7.125" in html
+    assert "2.375" in html
     assert "—（未確定）" in html
-    assert "未確定理由: COURSE_MISSING" in html
-    assert "state-warning" in html
-    assert "⚠ 注意値 / ⚠ CROSSWIND_NEAR_LIMIT" in html
+    assert "state-" not in html
+    assert "source_page=5-32" not in html
+    assert "TEST_RULE" not in html
+    assert "COURSE_MISSING" not in html
+    assert "CROSSWIND_NEAR_LIMIT" not in html
 
 
 def test_transfer_aid_manual_qnh_keeps_msm_estimate_visible(
@@ -329,8 +341,10 @@ def test_transfer_aid_manual_qnh_keeps_msm_estimate_visible(
 
     html = render_transfer_aid_html(ready_project, manual)
 
-    assert "MSM推定QNH" in html
-    assert "1010 hPa（手動上書き / MSM推定 1008 hPa）" in html
+    assert "QNH" in html
+    assert "1010.0 hPa" in html
+    assert "1008.0 hPa" not in html
+    assert "MSM推定QNH" not in html
 
 
 def test_transfer_aid_escapes_project_text(
@@ -349,3 +363,53 @@ def test_transfer_aid_escapes_project_text(
 
     assert "<script>alert" not in html
     assert "&lt;script&gt;alert" in html
+
+
+def test_transfer_aid_preserves_raw_distance_time_and_fuel_values(
+    project,
+    airports,
+    performance_repository,
+) -> None:
+    ready_project, outcome = _outcome_with_sections(
+        project,
+        airports,
+        performance_repository,
+    )
+    first = outcome.sections[0].model_copy(
+        update={
+            "zone_distance_nm": AdoptedValue[float](
+                automatic_value=12.34567,
+                automatic_status=ValueState.AUTO,
+                adopted_source=AdoptedSource.AUTOMATIC,
+            ),
+            "zone_ete_seconds": AdoptedValue[float](
+                automatic_value=61.2345,
+                automatic_status=ValueState.AUTO,
+                adopted_source=AdoptedSource.AUTOMATIC,
+            ),
+            "section_fuel_gal": AdoptedValue[float](
+                automatic_value=1.23456,
+                automatic_status=ValueState.AUTO,
+                adopted_source=AdoptedSource.AUTOMATIC,
+            ),
+        }
+    )
+    raw_outcome = outcome.model_copy(
+        update={
+            "sections": [first, *outcome.sections[1:]],
+            "fuel_plan": outcome.fuel_plan.model_copy(
+                update={
+                    "total_usable_gal": 90.12345,
+                    "taxi_runup_gal": 1.54321,
+                }
+            ),
+        }
+    )
+
+    html = render_transfer_aid_html(ready_project, raw_outcome)
+
+    assert "12.34567" in html
+    assert str(61.2345 / 60) in html
+    assert "1.23456" in html
+    assert "90.12345" in html
+    assert "1.54321" in html

@@ -6,8 +6,7 @@ WORKDIR /build
 COPY web/package.json web/package-lock.json ./web/
 RUN npm --prefix web ci
 COPY web ./web
-RUN mkdir -p src/autonavlog/web/static \
-    && npm --prefix web run build
+RUN npm --prefix web run build
 
 
 FROM python:3.12-slim-bookworm AS runtime
@@ -28,7 +27,7 @@ RUN groupadd --system --gid 10001 autonavlog \
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY data ./data
-COPY --from=frontend /build/src/autonavlog/web/static ./src/autonavlog/web/static
+COPY --from=frontend /build/web/dist ./src/autonavlog/web/static
 
 RUN chmod -R a=rX /opt/autonavlog \
     && python -m pip install .

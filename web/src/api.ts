@@ -1,6 +1,5 @@
 import type { ApiErrorPayload, WebState } from "./types";
 
-const SESSION_KEY = "autonavlog.web.session.v1";
 
 export class ApiError extends Error {
   readonly code: string;
@@ -24,7 +23,7 @@ async function parseError(response: Response): Promise<ApiError> {
     // The status text is the only safe fallback for a non-JSON failure.
   }
   return new ApiError(
-    payload.error?.message ?? response.statusText ?? "処理に失敗しました。",
+    payload.error?.message?.trim() || response.statusText.trim() || "処理に失敗しました。",
     payload.error?.code ?? "REQUEST_FAILED",
     response.status,
     payload.error?.candidates ?? [],
@@ -32,65 +31,99 @@ async function parseError(response: Response): Promise<ApiError> {
 }
 
 export class ApiClient {
-  private token: string | null = sessionStorage.getItem(SESSION_KEY);
+  private bootstrapInFlight: Promise<WebState> | null = null;
 
-  async bootstrap(): Promise<WebState> {
-    if (this.token) {
-      try {
-        return await this.request<WebState>("/api/state");
-      } catch (error) {
-        if (!(error instanceof ApiError) || error.status !== 401) {
-          throw error;
-        }
-        this.token = null;
-        sessionStorage.removeItem(SESSION_KEY);
-      }
-    }
-    const response = await fetch("/api/session", { method: "POST" });
+  private async createSession(): Promise<WebState> {
+    const response = await fetch("/api/session", {
+      method: "POST",
+      credentials: "same-origin",
+      signal: AbortSignal.timeout(30_000),
+    });
     if (!response.ok) {
       throw await parseError(response);
     }
-    const payload = (await response.json()) as {
-      sessionToken: string;
-      state: WebState;
-    };
-    this.token = payload.sessionToken;
-    sessionStorage.setItem(SESSION_KEY, payload.sessionToken);
+    const payload = (await response.json()) as { state: WebState };
     return payload.state;
   }
 
-  async request<T>(
+  private async fetchJson<T>(
     path: string,
-    options: { method?: string; body?: unknown } = {},
+    options: { method?: string; body?: unknown },
+    retryOnUnauthorized: boolean,
   ): Promise<T> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (this.token) {
-      headers["X-AutoNavLog-Session"] = this.token;
+    const headers: Record<string, string> = {};
+    if (options.body !== undefined) {
+      headers["Content-Type"] = "application/json";
     }
     const response = await fetch(path, {
       method: options.method ?? "GET",
+      credentials: "same-origin",
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: AbortSignal.timeout(30_000),
     });
+    if (response.status === 401 && retryOnUnauthorized) {
+      await this.createSession();
+      return this.fetchJson<T>(path, options, false);
+    }
     if (!response.ok) {
       throw await parseError(response);
     }
     return (await response.json()) as T;
   }
 
-  resetSession(): void {
-    this.token = null;
-    sessionStorage.removeItem(SESSION_KEY);
+  async bootstrap(): Promise<WebState> {
+    if (this.bootstrapInFlight) return this.bootstrapInFlight;
+    const pending = (async () => {
+      try {
+        return await this.fetchJson<WebState>("/api/state", {}, false);
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 401) {
+          throw error;
+        }
+        return this.createSession();
+      }
+    })();
+    this.bootstrapInFlight = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.bootstrapInFlight === pending) this.bootstrapInFlight = null;
+    }
+  }
+
+  async request<T>(
+    path: string,
+    options: { method?: string; body?: unknown } = {},
+  ): Promise<T> {
+    return this.fetchJson<T>(path, options, true);
+  }
+
+  async resetSession(): Promise<void> {
+    const response = await fetch("/api/session", {
+      method: "DELETE",
+      credentials: "same-origin",
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok && response.status !== 401) {
+      throw await parseError(response);
+    }
+  }
+
+  private async fetchTransferAid(retryOnUnauthorized: boolean): Promise<Response> {
+    const response = await fetch("/api/transfer-aid", {
+      credentials: "same-origin",
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (response.status === 401 && retryOnUnauthorized) {
+      await this.createSession();
+      return this.fetchTransferAid(false);
+    }
+    return response;
   }
 
   async downloadTransferAid(): Promise<void> {
-    const headers: Record<string, string> = {};
-    if (this.token) {
-      headers["X-AutoNavLog-Session"] = this.token;
-    }
-    const response = await fetch("/api/transfer-aid", { headers });
+    const response = await this.fetchTransferAid(true);
     if (!response.ok) {
       throw await parseError(response);
     }

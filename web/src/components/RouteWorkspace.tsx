@@ -9,6 +9,7 @@ import {
 } from "react-leaflet";
 import type { LatLngBoundsExpression } from "leaflet";
 import type {
+  AltitudeGuidance,
   CalculationOutcome,
   FlightPhase,
   NavSection,
@@ -20,6 +21,7 @@ interface RouteWorkspaceProps {
   candidate: RouteCandidate | null;
   project: Project | null;
   outcome: CalculationOutcome | null;
+  altitudeGuidance: AltitudeGuidance;
   onSectionChange: (sectionId: string, changes: Partial<NavSection>) => void;
 }
 
@@ -37,15 +39,21 @@ const roleLabels: Record<string, string> = {
   DESTINATION: "到着",
 };
 
-function FitBounds({ coordinates }: { coordinates: [number, number][] }) {
+function FitBounds({ signature }: { signature: string }) {
   const map = useMap();
   useEffect(() => {
+    const coordinates = signature
+      ? signature.split(";").map((pair) => {
+          const [latitude, longitude] = pair.split(",").map(Number);
+          return [latitude, longitude] as [number, number];
+        })
+      : [];
     if (coordinates.length >= 2) {
       map.fitBounds(coordinates as LatLngBoundsExpression, { padding: [28, 28] });
     } else if (coordinates.length === 1 && coordinates[0]) {
       map.setView(coordinates[0], 10);
     }
-  }, [coordinates, map]);
+  }, [map, signature]);
   return null;
 }
 
@@ -53,6 +61,7 @@ export function RouteWorkspace({
   candidate,
   project,
   outcome,
+  altitudeGuidance,
   onSectionChange,
 }: RouteWorkspaceProps) {
   const nodes = useMemo(
@@ -63,12 +72,28 @@ export function RouteWorkspace({
     () => [...(project?.sections ?? [])].sort((a, b) => a.sequence - b.sequence),
     [project],
   );
+  const sectionByFromNode = useMemo(
+    () => new Map(sections.map((section) => [section.from_node_id, section])),
+    [sections],
+  );
+  const guidanceBySection = useMemo(
+    () =>
+      new Map(
+        altitudeGuidance.sections.map((guidance) => [guidance.sectionId, guidance]),
+      ),
+    [altitudeGuidance.sections],
+  );
+
   const coordinates = useMemo<[number, number][]>(
     () =>
       nodes.length
         ? nodes.map((node) => [node.latitude_deg, node.longitude_deg])
         : candidate?.coordinates ?? [],
     [candidate, nodes],
+  );
+  const coordinateSignature = useMemo(
+    () => coordinates.map(([latitude, longitude]) => `${latitude},${longitude}`).join(";"),
+    [coordinates],
   );
 
   return (
@@ -115,7 +140,7 @@ export function RouteWorkspace({
                 }}
               >
                 <Tooltip permanent direction="top" offset={[0, -7]}>
-                  {isVrep ? "VREP" : isAirport ? node.name : index}
+                  {isVrep ? node.name + " (VREP)" : node.name}
                 </Tooltip>
               </CircleMarker>
             );
@@ -137,7 +162,7 @@ export function RouteWorkspace({
               </Tooltip>
             </CircleMarker>
           ))}
-          <FitBounds coordinates={coordinates} />
+          <FitBounds signature={coordinateSignature} />
         </MapContainer>
         {!coordinates.length && (
           <div className="map-empty">
@@ -153,7 +178,7 @@ export function RouteWorkspace({
             <tr>
               <th>POINT</th>
               <th>ROLE</th>
-              <th>ALT ft</th>
+              <th>ALT ft MSL / MC候補</th>
               <th>PHASE</th>
             </tr>
           </thead>
@@ -171,30 +196,82 @@ export function RouteWorkspace({
               </tr>
             )}
             {nodes.map((node, index) => {
-              const section = sections[index];
+              const section = sectionByFromNode.get(node.id);
+              const guidance = section
+                ? guidanceBySection.get(section.id)
+                : undefined;
+              const isCandidateAltitude = Boolean(
+                guidance?.candidateAltitudesFtMsl.some(
+                  (candidateAltitude) =>
+                    candidateAltitude === section?.planned_altitude_ft_msl,
+                ),
+              );
+              const requiresAltitudeReview =
+                section?.phase === "CRUISE" && !isCandidateAltitude;
               return (
-                <tr key={node.id} className={node.role === "VISUAL_REPORTING_POINT" ? "vrep-row" : ""}>
+                <tr
+                  key={node.id}
+                  className={[
+                    node.role === "VISUAL_REPORTING_POINT" ? "vrep-row" : "",
+                    requiresAltitudeReview ? "altitude-review-row" : "",
+                  ].filter(Boolean).join(" ")}
+                >
                   <td>
                     <span className="point-index">{index}</span>
                     <strong>{node.name}</strong>
                   </td>
                   <td>{roleLabels[node.role] ?? node.role}</td>
-                  <td>
+                  <td className={requiresAltitudeReview ? "altitude-review-cell" : ""}>
                     {section ? (
-                      <input
-                        className="table-number-input"
-                        aria-label={`${node.name}出発Legの計画高度`}
-                        type="number"
-                        min="100"
-                        max="25000"
-                        step="100"
-                        value={section.planned_altitude_ft_msl}
-                        onChange={(event) =>
-                          onSectionChange(section.id, {
-                            planned_altitude_ft_msl: event.target.valueAsNumber,
-                          })
-                        }
-                      />
+                      <div className="altitude-controls">
+                        {guidance && section.phase === "CRUISE" && (
+                          <select
+                            className="table-select altitude-candidate-select"
+                            aria-label={node.name + "出発Legの巡航高度候補"}
+                            value={
+                              isCandidateAltitude
+                                ? String(section.planned_altitude_ft_msl)
+                                : "custom"
+                            }
+                            onChange={(event) => {
+                              if (event.target.value !== "custom") {
+                                onSectionChange(section.id, {
+                                  planned_altitude_ft_msl: Number(event.target.value),
+                                });
+                              }
+                            }}
+                          >
+                            {guidance.candidateAltitudesFtMsl.map((altitude) => (
+                              <option key={altitude} value={altitude}>
+                                {altitude.toLocaleString("ja-JP")} ft
+                              </option>
+                            ))}
+                            <option value="custom">任意値</option>
+                          </select>
+                        )}
+                        <input
+                          className="table-number-input"
+                          aria-label={node.name + "出発Legの計画高度"}
+                          type="number"
+                          min="100"
+                          max="25000"
+                          step="100"
+                          value={section.planned_altitude_ft_msl}
+                          onChange={(event) => {
+                            if (Number.isFinite(event.target.valueAsNumber)) {
+                              onSectionChange(section.id, {
+                                planned_altitude_ft_msl: event.target.valueAsNumber,
+                              });
+                            }
+                          }}
+                        />
+                        {guidance && (
+                          <small className="altitude-course">
+                            MC {Math.round(guidance.magneticCourseDeg)}°
+                            {requiresAltitudeReview ? "・候補外（要確認）" : ""}
+                          </small>
+                        )}
+                      </div>
                     ) : (
                       "—"
                     )}
@@ -227,6 +304,13 @@ export function RouteWorkspace({
           </tbody>
         </table>
       </div>
+      {project && (
+        <p className="altitude-guidance-note">
+          {altitudeGuidance.legalThresholdNote}
+          <br />
+          {altitudeGuidance.terrainLimitationNote}
+        </p>
+      )}
     </section>
   );
 }

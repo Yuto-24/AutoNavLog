@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -17,7 +17,10 @@ class WebRequestModel(BaseModel):
 class ImportRouteRequest(WebRequestModel):
     filename: str = Field(default="pasted.kml", min_length=1, max_length=255)
     content_base64: str | None = None
-    kml_text: str | None = None
+    kml_text: str | None = Field(
+        default=None,
+        max_length=10 * 1024 * 1024,
+    )
     kmz_kml_filename: str | None = Field(default=None, max_length=512)
 
     @model_validator(mode="after")
@@ -31,7 +34,10 @@ class ImportRouteRequest(WebRequestModel):
 class ConfirmRouteRequest(WebRequestModel):
     candidate_kind: Literal["line", "polygon", "points"]
     candidate_index: int = Field(default=0, ge=0)
-    point_indices: list[int] = Field(default_factory=list, max_length=500)
+    point_indices: list[Annotated[int, Field(ge=0)]] = Field(
+        default_factory=list,
+        max_length=500,
+    )
     route_use_confirmed: bool
     polygon_route_confirmed: bool = False
     flight_date: date
@@ -40,7 +46,7 @@ class ConfirmRouteRequest(WebRequestModel):
     destination_airport_id: str = Field(min_length=1, max_length=64)
     pilot_name: str = Field(default="", max_length=100)
     ship_identifier: str = Field(default="", max_length=100)
-    total_usable_fuel_gal: float = Field(default=81.0, gt=0, le=200)
+    total_usable_fuel_gal: float = Field(default=90.0, gt=0, le=200)
     default_variation_deg_east: float = Field(default=8.0, ge=-30, le=30)
     manual_qnh_hpa: float | None = Field(default=None, gt=800, lt=1100)
     tgl_count: int = Field(default=0, ge=0, le=20)
@@ -69,8 +75,8 @@ class SectionUpdate(WebRequestModel):
 class UpdateProjectRequest(WebRequestModel):
     flight_date: date
     departure_time_jst: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-    pilot_name: str = Field(default="", max_length=100)
-    ship_identifier: str = Field(default="", max_length=100)
+    pilot_name: str | None = Field(default=None, max_length=100)
+    ship_identifier: str | None = Field(default=None, max_length=100)
     total_usable_fuel_gal: float = Field(gt=0, le=200)
     default_variation_deg_east: float = Field(ge=-30, le=30)
     manual_qnh_hpa: float | None = Field(default=None, gt=800, lt=1100)

@@ -1,6 +1,7 @@
 import { ClipboardPaste, FileUp, Route } from "lucide-react";
 import type { Dispatch, DragEvent, SetStateAction } from "react";
-import type { PlanningForm } from "../forms";
+import { convertQnhValue } from "../forms";
+import type { PlanningForm, QnhUnit } from "../forms";
 import type { AirportOption, ImportState } from "../types";
 
 interface ImportPlanPanelProps {
@@ -41,6 +42,7 @@ export function ImportPlanPanel({
 
   const acceptDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    if (busy) return;
     const file = event.dataTransfer.files[0];
     if (file) onFile(file);
   };
@@ -55,8 +57,12 @@ export function ImportPlanPanel({
         {!projectExists && (
           <>
             <div
-              className="drop-zone"
-              onDragOver={(event) => event.preventDefault()}
+              className={`drop-zone ${busy ? "is-disabled" : ""}`}
+              aria-disabled={busy}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = busy ? "none" : "copy";
+              }}
               onDrop={acceptDrop}
             >
               <FileUp aria-hidden="true" size={26} />
@@ -78,7 +84,12 @@ export function ImportPlanPanel({
                 disabled={busy}
               />
             </div>
-            <button className="secondary-button full-width" type="button" onClick={onPaste}>
+            <button
+              className="secondary-button full-width"
+              type="button"
+              onClick={onPaste}
+              disabled={busy}
+            >
               <ClipboardPaste aria-hidden="true" size={17} />
               KMLを貼り付け
             </button>
@@ -197,22 +208,6 @@ export function ImportPlanPanel({
             </select>
           </label>
           <label>
-            <span>PILOT</span>
-            <input
-              value={form.pilotName}
-              onChange={(event) => update("pilotName", event.target.value)}
-              placeholder="氏名"
-            />
-          </label>
-          <label>
-            <span>SHIP</span>
-            <input
-              value={form.shipIdentifier}
-              onChange={(event) => update("shipIdentifier", event.target.value)}
-              placeholder="機体識別"
-            />
-          </label>
-          <label>
             <span>FUEL gal</span>
             <input
               type="number"
@@ -220,7 +215,11 @@ export function ImportPlanPanel({
               max="200"
               step="0.1"
               value={form.totalUsableFuelGal}
-              onChange={(event) => update("totalUsableFuelGal", event.target.valueAsNumber)}
+              onChange={(event) => {
+                if (Number.isFinite(event.target.valueAsNumber)) {
+                  update("totalUsableFuelGal", event.target.valueAsNumber);
+                }
+              }}
             />
           </label>
           <label>
@@ -231,24 +230,51 @@ export function ImportPlanPanel({
               max="30"
               step="0.1"
               value={form.variationDegEast}
-              onChange={(event) => update("variationDegEast", event.target.valueAsNumber)}
-            />
-          </label>
-          <label>
-            <span>QNH hPa</span>
-            <input
-              type="number"
-              min="800"
-              max="1100"
-              step="0.1"
-              value={form.manualQnhHpa}
               onChange={(event) => {
-                update("manualQnhHpa", event.target.value);
-                update("manualQnhConfirmed", false);
+                if (Number.isFinite(event.target.valueAsNumber)) {
+                  update("variationDegEast", event.target.valueAsNumber);
+                }
               }}
-              placeholder="自動取得"
             />
           </label>
+          <div className="form-grid-field span-two">
+            <span>QNH（未入力は自動取得）</span>
+            <div className="qnh-input-row">
+              <input
+                aria-label="QNH値"
+                type="number"
+                min={form.qnhUnit === "hPa" ? "800" : "23.63"}
+                max={form.qnhUnit === "hPa" ? "1100" : "32.48"}
+                step={form.qnhUnit === "hPa" ? "0.1" : "0.01"}
+                value={form.manualQnhValue}
+                onChange={(event) => {
+                  update("manualQnhValue", event.target.value);
+                  update("manualQnhConfirmed", false);
+                }}
+                placeholder="自動取得"
+              />
+              <select
+                aria-label="QNH単位"
+                value={form.qnhUnit}
+                onChange={(event) => {
+                  const nextUnit = event.target.value as QnhUnit;
+                  setForm((current) => ({
+                    ...current,
+                    manualQnhValue: convertQnhValue(
+                      current.manualQnhValue,
+                      current.qnhUnit,
+                      nextUnit,
+                    ),
+                    qnhUnit: nextUnit,
+                    manualQnhConfirmed: false,
+                  }));
+                }}
+              >
+                <option value="hPa">hPa</option>
+                <option value="inHg">inHg</option>
+              </select>
+            </div>
+          </div>
           <label>
             <span>TGL</span>
             <input
@@ -257,22 +283,31 @@ export function ImportPlanPanel({
               max="20"
               step="1"
               value={form.tglCount}
-              onChange={(event) => update("tglCount", event.target.valueAsNumber)}
+              onChange={(event) => {
+                if (Number.isFinite(event.target.valueAsNumber)) {
+                  update("tglCount", event.target.valueAsNumber);
+                }
+              }}
             />
           </label>
           {!projectExists && (
             <label className="span-two">
-              <span>新規Leg ALT ft</span>
+              <span>初期計画高度（ft MSL）</span>
               <input
                 type="number"
                 min="100"
                 max="25000"
                 step="100"
                 value={form.allLegAltitudeFtMsl}
-                onChange={(event) =>
-                  update("allLegAltitudeFtMsl", event.target.valueAsNumber)
-                }
+                onChange={(event) => {
+                  if (Number.isFinite(event.target.valueAsNumber)) {
+                    update("allLegAltitudeFtMsl", event.target.valueAsNumber);
+                  }
+                }}
               />
+              <small className="field-help">
+                経路確定時に各Legへ設定します。確定後はLegごとに変更できます。
+              </small>
             </label>
           )}
         </div>
@@ -285,7 +320,7 @@ export function ImportPlanPanel({
             />
             <span>ALT・Phase・FUEL・VAR・TGLを原資料と照合しました</span>
           </label>
-          {form.manualQnhHpa && (
+          {form.manualQnhValue && (
             <label className="checkbox-row">
               <input
                 type="checkbox"

@@ -6,66 +6,132 @@ function adopted<T>(value: AdoptedValue<T>): T | null {
     : value.automatic_value;
 }
 
-function numberValue(
-  value: AdoptedValue<number>,
-  digits = 0,
-): { text: string; manual: boolean; unavailable: boolean } {
+interface FormattedValue {
+  text: string;
+  manual: boolean;
+  unavailable: boolean;
+}
+
+function numberValue(value: AdoptedValue<number>): FormattedValue {
   const selected = adopted(value);
   return {
-    text: selected === null ? "未取得" : selected.toFixed(digits),
+    text: selected === null ? "未取得" : String(selected),
     manual: value.adopted_source === "MANUAL",
     unavailable: selected === null,
   };
 }
 
-function ValueCell({
-  value,
-  digits = 0,
-  suffix,
-}: {
-  value: AdoptedValue<number>;
-  digits?: number;
-  suffix?: string;
-}) {
-  const formatted = numberValue(value, digits);
+function valueClass(formatted: FormattedValue): string {
+  return formatted.unavailable
+    ? "unavailable-value"
+    : formatted.manual
+      ? "manual-value"
+      : "";
+}
+
+function ValueCell({ value }: { value: AdoptedValue<number> }) {
+  const formatted = numberValue(value);
   return (
-    <td className={formatted.unavailable ? "unavailable-value" : formatted.manual ? "manual-value" : ""}>
-      {formatted.text}{formatted.unavailable ? "" : suffix}
+    <td className={valueClass(formatted)}>
+      {formatted.text}
       {formatted.manual && <small>手入力</small>}
     </td>
   );
 }
 
-function ete(value: AdoptedValue<number>): string {
+function CombinedValueCell({
+  first,
+  second,
+}: {
+  first: AdoptedValue<number>;
+  second: AdoptedValue<number>;
+}) {
+  const firstValue = numberValue(first);
+  const secondValue = numberValue(second);
+  const formatted: FormattedValue = {
+    text: firstValue.text + " / " + secondValue.text,
+    manual: firstValue.manual || secondValue.manual,
+    unavailable: firstValue.unavailable || secondValue.unavailable,
+  };
+  return (
+    <td className={valueClass(formatted)}>
+      {formatted.text}
+      {formatted.manual && <small>手入力</small>}
+    </td>
+  );
+}
+
+function ete(value: AdoptedValue<number>): FormattedValue {
   const seconds = adopted(value);
-  if (seconds === null) return "未取得";
-  const rounded = Math.round(seconds);
-  const minutes = Math.floor(rounded / 60);
-  const remainder = rounded % 60;
-  return `${minutes.toString().padStart(2, "0")}:${remainder
-    .toString()
-    .padStart(2, "0")}`;
+  if (seconds === null) {
+    return { text: "未取得", manual: false, unavailable: true };
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds - minutes * 60;
+  return {
+    text:
+      minutes.toString().padStart(2, "0") +
+      ":" +
+      String(remainder).padStart(2, "0"),
+    manual: value.adopted_source === "MANUAL",
+    unavailable: false,
+  };
 }
 
 function wind(
   direction: AdoptedValue<number>,
   speed: AdoptedValue<number>,
-): string {
+): FormattedValue {
   const directionValue = adopted(direction);
   const speedValue = adopted(speed);
-  if (speedValue === null) return "未取得";
-  if (speedValue < 0.5 || directionValue === null) return "CALM";
-  return `${Math.round(directionValue).toString().padStart(3, "0")}/${Math.round(
-    speedValue,
-  )}`;
+  const manual =
+    direction.adopted_source === "MANUAL" || speed.adopted_source === "MANUAL";
+  if (speedValue === null || (speedValue >= 0.5 && directionValue === null)) {
+    return { text: "未取得", manual, unavailable: true };
+  }
+  if (speedValue < 0.5) {
+    return { text: "CALM", manual, unavailable: false };
+  }
+  return {
+    text:
+      String(directionValue).padStart(3, "0") + "/" + String(speedValue),
+    manual,
+    unavailable: false,
+  };
 }
 
-const phaseLabels: Record<string, string> = {
-  CLIMB: "上昇",
-  CRUISE: "巡航",
-  DESCENT: "降下",
-  VISUAL_ARRIVAL: "場周進入",
-};
+function WindCell({
+  direction,
+  speed,
+}: {
+  direction: AdoptedValue<number>;
+  speed: AdoptedValue<number>;
+}) {
+  const formatted = wind(direction, speed);
+  return (
+    <td className={valueClass(formatted)}>
+      {formatted.text}
+      {formatted.manual && <small>手入力</small>}
+    </td>
+  );
+}
+
+function CombinedEteCell({
+  first,
+  second,
+}: {
+  first: AdoptedValue<number>;
+  second: AdoptedValue<number>;
+}) {
+  const firstValue = ete(first);
+  const secondValue = ete(second);
+  const formatted: FormattedValue = {
+    text: firstValue.text + " / " + secondValue.text,
+    manual: firstValue.manual || secondValue.manual,
+    unavailable: firstValue.unavailable || secondValue.unavailable,
+  };
+  return <td className={valueClass(formatted)}>{formatted.text}</td>;
+}
 
 export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
   const fuel = outcome.fuel_plan;
@@ -79,66 +145,78 @@ export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
         <span>Forecast Run: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
       <div className="table-scroll nav-log-scroll">
-        <table className="nav-log-table">
+        <table className="nav-log-table official-nav-log-table">
           <thead>
             <tr>
-              <th>LEG</th>
-              <th>PHASE</th>
-              <th>TC°</th>
-              <th>DIST<br />NM</th>
-              <th>ALT<br />ft</th>
-              <th>TAS<br />kt</th>
-              <th>W/V</th>
-              <th>MC°</th>
+              <th>FROM</th>
+              <th>TO</th>
+              <th>PA<br /><small>ft</small></th>
+              <th>TOAT<br /><small>°C</small></th>
+              <th>CAS<br /><small>kt</small></th>
+              <th>TAS<br /><small>kt</small></th>
+              <th>TC</th>
               <th>VAR</th>
-              <th>MH°</th>
-              <th>GS<br />kt</th>
-              <th>ETE</th>
-              <th>FUEL<br />gal</th>
-              <th>REM<br />gal</th>
+              <th>MC</th>
+              <th>WIND</th>
+              <th>WCA</th>
+              <th>MH</th>
+              <th>ZONE / CUM<br /><small>DIST NM</small></th>
+              <th>GS<br /><small>kt</small></th>
+              <th>ZONE / CUM<br /><small>ETE</small></th>
+              <th>ETO</th>
+              <th>ATO</th>
+              <th>ATE</th>
+              <th>SECT / REM<br /><small>FUEL gal</small></th>
             </tr>
           </thead>
           <tbody>
             {outcome.sections.map((section) => {
-              const variation = numberValue(section.variation_deg_east, 1);
-              const mc = numberValue(section.magnetic_course_deg, 0);
-              const mh = numberValue(section.magnetic_heading_deg, 0);
-              const eteText = ete(section.zone_ete_seconds);
+              const variationValue = adopted(section.variation_deg_east);
+              const variation: FormattedValue = {
+                text:
+                  variationValue === null
+                    ? "未取得"
+                    : (variationValue >= 0 ? "E " : "W ") +
+                      String(Math.abs(variationValue)),
+                manual: section.variation_deg_east.adopted_source === "MANUAL",
+                unavailable: variationValue === null,
+              };
               return (
-                <tr key={`${section.section_id}-${section.sequence}`}>
-                  <td>
-                    <span className="leg-sequence">{section.sequence + 1}</span>
-                    <strong>{section.from_name} – {section.to_name}</strong>
-                    {section.segment_label && <small>{section.segment_label}</small>}
-                  </td>
-                  <td>{phaseLabels[section.phase] ?? section.phase}</td>
-                  <ValueCell value={section.true_course_deg} />
-                  <ValueCell value={section.zone_distance_nm} digits={1} />
-                  <ValueCell value={section.planned_altitude_ft_msl} />
+                <tr key={section.section_id}>
+                  <td className="route-name-cell">{section.from_name}</td>
+                  <td className="route-name-cell">{section.to_name}</td>
+                  <ValueCell value={section.pressure_altitude_planning_ft} />
+                  <ValueCell value={section.temperature_c} />
+                  <ValueCell value={section.cas_kt} />
                   <ValueCell value={section.tas_kt} />
-                  <td
-                    className={
-                      section.wind_speed_kt.adopted_source === "MANUAL" ? "manual-value" : ""
-                    }
-                  >
-                    {wind(section.wind_direction_deg_from, section.wind_speed_kt)}
-                    {section.wind_speed_kt.adopted_source === "MANUAL" && <small>手入力</small>}
+                  <ValueCell value={section.true_course_deg} />
+                  <td className={valueClass(variation)}>
+                    {variation.text}
+                    {variation.manual && <small>手入力</small>}
                   </td>
-                  <td className={mc.unavailable ? "unavailable-value" : ""}>{mc.text}</td>
-                  <td className={variation.unavailable ? "unavailable-value" : ""}>
-                    {variation.unavailable
-                      ? variation.text
-                      : `${Number(variation.text) >= 0 ? "E" : "W"} ${Math.abs(
-                          Number(variation.text),
-                        ).toFixed(1)}`}
-                  </td>
-                  <td className={mh.unavailable ? "unavailable-value" : ""}>{mh.text}</td>
+                  <ValueCell value={section.magnetic_course_deg} />
+                  <WindCell
+                    direction={section.wind_direction_deg_from}
+                    speed={section.wind_speed_kt}
+                  />
+                  <ValueCell value={section.wca_deg} />
+                  <ValueCell value={section.magnetic_heading_deg} />
+                  <CombinedValueCell
+                    first={section.zone_distance_nm}
+                    second={section.cumulative_distance_nm}
+                  />
                   <ValueCell value={section.ground_speed_kt} />
-                  <td className={eteText === "未取得" ? "unavailable-value" : ""}>
-                    {eteText}
-                  </td>
-                  <ValueCell value={section.section_fuel_gal} digits={1} />
-                  <ValueCell value={section.remaining_fuel_gal} digits={1} />
+                  <CombinedEteCell
+                    first={section.zone_ete_seconds}
+                    second={section.cumulative_ete_seconds}
+                  />
+                  <td className="manual-entry-cell" aria-label="ETO転記欄" />
+                  <td className="manual-entry-cell" aria-label="ATO転記欄" />
+                  <td className="manual-entry-cell" aria-label="ATE転記欄" />
+                  <CombinedValueCell
+                    first={section.section_fuel_gal}
+                    second={section.remaining_fuel_gal}
+                  />
                 </tr>
               );
             })}
@@ -146,11 +224,19 @@ export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
         </table>
       </div>
       <div className="fuel-summary">
-        <div><span>搭載</span><strong>{fuel.total_usable_gal.toFixed(1)} gal</strong></div>
-        <div><span>最低必要</span><strong>{fuel.min_required_gal?.toFixed(1) ?? "未確定"} gal</strong></div>
-        <div><span>予備</span><strong>{fuel.reserve_gal.toFixed(1)} gal</strong></div>
-        <div><span>TGL</span><strong>{fuel.tgl_gal.toFixed(1)} gal</strong></div>
-        <div><span>EXTRA</span><strong>{fuel.extra_gal?.toFixed(1) ?? "未確定"} gal</strong></div>
+        <div><span>搭載</span><strong>{String(fuel.total_usable_gal)} gal</strong></div>
+        <div>
+          <span>最低必要</span>
+          <strong>
+            {fuel.min_required_gal === null ? "未確定" : String(fuel.min_required_gal)} gal
+          </strong>
+        </div>
+        <div><span>予備</span><strong>{String(fuel.reserve_gal)} gal</strong></div>
+        <div><span>TGL</span><strong>{String(fuel.tgl_gal)} gal</strong></div>
+        <div>
+          <span>EXTRA</span>
+          <strong>{fuel.extra_gal === null ? "未確定" : String(fuel.extra_gal)} gal</strong>
+        </div>
       </div>
       <p className="nav-log-disclaimer">
         本表示は地上準備の転記補助です。運航の可否を決定する資料ではありません。

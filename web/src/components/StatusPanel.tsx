@@ -69,12 +69,12 @@ export function StatusPanel({
 
       <div className="issue-summary">
         <span>ブロッカー {blockers.length}</span>
-        <span>警告 {warnings.length}</span>
+        <span>確認事項 {warnings.length}</span>
       </div>
 
       <div className="issue-list">
         {readiness.issues.length === 0 && projectExists && (
-          <p className="no-issues">現在表示すべきBlocker・Warningはありません。</p>
+          <p className="no-issues">現在表示すべきブロッカー・確認事項はありません。</p>
         )}
         {readiness.issues.map((issue) => (
           <article
@@ -100,7 +100,7 @@ export function StatusPanel({
                     }
                     disabled={busy}
                   />
-                  <span>このWarningを確認済みにする</span>
+                  <span>この確認事項を確認済みにする</span>
                 </label>
               )}
             </div>
@@ -131,7 +131,7 @@ export function StatusPanel({
           A4転記補助HTMLを出力
         </button>
         {!readiness.transferAidAllowed && outcomeExists && (
-          <p className="button-reason">Blocker解消・警告承認・再計算後に有効になります。</p>
+          <p className="button-reason">ブロッカー解消・確認事項の承認・再計算後に有効になります。</p>
         )}
       </div>
     </aside>

@@ -71,6 +71,8 @@ export interface ArrivalPlan {
   manual_override_reason: string | null;
 }
 
+// Domain API payloads intentionally retain Python snake_case at this boundary.
+// Components consume these validated fields directly; UI-only state uses camelCase.
 export interface Project {
   id: string;
   name: string;
@@ -111,16 +113,22 @@ export interface SectionResult {
   from_name: string;
   to_name: string;
   planned_altitude_ft_msl: AdoptedValue<number>;
+  pressure_altitude_planning_ft: AdoptedValue<number>;
   true_course_deg: AdoptedValue<number>;
   variation_deg_east: AdoptedValue<number>;
   magnetic_course_deg: AdoptedValue<number>;
   wind_direction_deg_from: AdoptedValue<number>;
   wind_speed_kt: AdoptedValue<number>;
+  wca_deg: AdoptedValue<number>;
   magnetic_heading_deg: AdoptedValue<number>;
+  temperature_c: AdoptedValue<number>;
+  cas_kt: AdoptedValue<number>;
   tas_kt: AdoptedValue<number>;
   ground_speed_kt: AdoptedValue<number>;
   zone_distance_nm: AdoptedValue<number>;
+  cumulative_distance_nm: AdoptedValue<number>;
   zone_ete_seconds: AdoptedValue<number>;
+  cumulative_ete_seconds: AdoptedValue<number>;
   section_fuel_gal: AdoptedValue<number>;
   remaining_fuel_gal: AdoptedValue<number>;
 }
@@ -148,6 +156,20 @@ export interface CalculationOutcome {
   derived_points: DerivedPoint[];
   fuel_plan: FuelPlan;
   status: string;
+}
+
+export interface SectionAltitudeGuidance {
+  sectionId: string;
+  magneticCourseDeg: number;
+  candidateAltitudesFtMsl: number[];
+  appliesToCruise: boolean;
+  requiresReview: boolean;
+}
+
+export interface AltitudeGuidance {
+  legalThresholdNote: string;
+  terrainLimitationNote: string;
+  sections: SectionAltitudeGuidance[];
 }
 
 export interface EffectiveIssue {
@@ -184,6 +206,7 @@ export interface WebState {
   airports: AirportOption[];
   savedProjects: SavedProject[];
   import: ImportState;
+  altitudeGuidance: AltitudeGuidance;
   project: Project | null;
   outcome: CalculationOutcome | null;
   readiness: ReadinessState;

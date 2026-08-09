@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Annotated, Any, cast
 
-from fastapi import Depends, FastAPI, Header, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -28,9 +28,12 @@ from .models import (
     SaveProjectRequest,
     UpdateProjectRequest,
 )
-from .runtime import WebRuntimeConfig, build_web_application
+from .runtime import WeatherMode, WebRuntimeConfig, build_web_application
 
 MAX_BASE64_CHARACTERS = 14 * 1024 * 1024
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+SESSION_COOKIE_NAME = "autonavlog_session"
+CLOUDFLARE_IDENTITY_HEADER = "Cf-Access-Authenticated-User-Email"
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -48,20 +51,36 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: https://*.tile.openstreetmap.org; "
             "connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; "
-            "form-action 'self'"
+            "form-action 'self'; frame-ancestors 'none'"
         )
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         return response
 
 
-def require_session(
-    request: Request,
-    session_token: Annotated[
-        str | None,
-        Header(alias="X-AutoNavLog-Session"),
-    ] = None,
-) -> WebSession:
+def _owner_identity(request: Request) -> str:
+    web = cast(AutoNavLogWebApplication, request.app.state.web_application)
+    raw_identity = (
+        web.trusted_local_identity or request.headers.get(CLOUDFLARE_IDENTITY_HEADER) or ""
+    )
+    identity = raw_identity.strip().casefold()
+    if not identity:
+        raise WebApplicationError(
+            "AUTHENTICATION_REQUIRED",
+            "Cloudflare Accessで認証してからアクセスしてください。",
+            status_code=401,
+        )
+    if len(identity) > 320 or any(ord(character) < 32 for character in identity):
+        raise WebApplicationError(
+            "AUTHENTICATION_INVALID",
+            "認証ユーザー情報を検証できません。",
+            status_code=401,
+        )
+    return identity
+
+
+def require_session(request: Request) -> WebSession:
+    session_token = request.cookies.get(SESSION_COOKIE_NAME)
     if not session_token:
         raise WebApplicationError(
             "SESSION_REQUIRED",
@@ -69,19 +88,21 @@ def require_session(
             status_code=401,
         )
     web = cast(AutoNavLogWebApplication, request.app.state.web_application)
-    return web.session(session_token)
+    return web.session(session_token, _owner_identity(request))
 
 
 SessionDependency = Annotated[WebSession, Depends(require_session)]
 
 
 def _environment_config() -> WebRuntimeConfig:
+    raw_weather_mode = os.environ.get("AUTONAVLOG_WEATHER", "fake")
+    if raw_weather_mode not in {"fake", "msm", "msm-metar"}:
+        raise RuntimeError("AUTONAVLOG_WEATHER must be fake, msm, or msm-metar")
+
     return WebRuntimeConfig(
         data_root=Path(os.environ.get("AUTONAVLOG_DATA_ROOT", "data")),
-        storage_root=Path(
-            os.environ.get("AUTONAVLOG_STORAGE_ROOT", ".autonavlog-data")
-        ),
-        weather_mode=os.environ.get("AUTONAVLOG_WEATHER", "fake"),  # type: ignore[arg-type]
+        storage_root=Path(os.environ.get("AUTONAVLOG_STORAGE_ROOT", ".autonavlog-data")),
+        weather_mode=cast(WeatherMode, raw_weather_mode),
         msm_cache_dir=(
             None
             if not os.environ.get("AUTONAVLOG_MSM_CACHE")
@@ -91,6 +112,9 @@ def _environment_config() -> WebRuntimeConfig:
             None
             if not os.environ.get("AUTONAVLOG_TERRAIN_CACHE")
             else Path(os.environ["AUTONAVLOG_TERRAIN_CACHE"])
+        ),
+        trusted_local_identity=(
+            os.environ.get("AUTONAVLOG_TRUSTED_LOCAL_IDENTITY", "").strip() or None
         ),
     )
 
@@ -126,9 +150,33 @@ def create_app(
         return {"status": "ok", "version": __version__}
 
     @app.post("/api/session")
-    def create_session() -> dict[str, Any]:
-        session = web.create_session()
-        return {"sessionToken": session.token, "state": web.present(session)}
+    def create_session(request: Request, response: Response) -> dict[str, Any]:
+        session = web.create_session(_owner_identity(request))
+        response.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=session.token,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            path="/",
+        )
+        return {"state": web.present(session)}
+
+    @app.delete("/api/session", status_code=204)
+    def delete_session(request: Request) -> Response:
+        owner_id = _owner_identity(request)
+        session_token = request.cookies.get(SESSION_COOKIE_NAME)
+        if session_token:
+            web.invalidate_session(session_token, owner_id)
+        response = Response(status_code=204)
+        response.delete_cookie(
+            key=SESSION_COOKIE_NAME,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            path="/",
+        )
+        return response
 
     @app.get("/api/state")
     def state(session: SessionDependency) -> dict[str, Any]:
@@ -141,6 +189,12 @@ def create_app(
     ) -> dict[str, Any] | JSONResponse:
         try:
             if payload.kml_text is not None:
+                if len(payload.kml_text.encode("utf-8")) > MAX_UPLOAD_BYTES:
+                    raise WebApplicationError(
+                        "UPLOAD_TOO_LARGE",
+                        "KML/KMZは10 MiB以下にしてください。",
+                        status_code=413,
+                    )
                 result = import_kml_text(payload.kml_text, filename=payload.filename)
             else:
                 encoded = payload.content_base64 or ""
@@ -157,6 +211,12 @@ def create_app(
                         "UPLOAD_ENCODING_INVALID",
                         "アップロード内容を読み取れません。",
                     ) from error
+                if len(content) > MAX_UPLOAD_BYTES:
+                    raise WebApplicationError(
+                        "UPLOAD_TOO_LARGE",
+                        "KML/KMZは10 MiB以下にしてください。",
+                        status_code=413,
+                    )
                 result = import_kml_or_kmz(
                     content,
                     filename=payload.filename,
@@ -239,6 +299,16 @@ def create_app(
 
     @app.get("/{requested_path:path}", include_in_schema=False)
     def frontend(requested_path: str) -> Response:
+        if requested_path == "api" or requested_path.startswith("api/"):
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "error": {
+                        "code": "API_NOT_FOUND",
+                        "message": "指定されたAPIはありません。",
+                    }
+                },
+            )
         if requested_path and "/" not in requested_path:
             candidate = static_root / requested_path
             if candidate.is_file() and candidate.parent == static_root:

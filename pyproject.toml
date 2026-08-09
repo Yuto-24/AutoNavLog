@@ -26,6 +26,7 @@ autonavlog-web = "autonavlog.web.__main__:main"
 [project.optional-dependencies]
 msm = ["jma-msm-wind==0.2.1"]
 test = [
+  "anyio>=4,<5",
   "build>=1.2,<2",
   "httpx>=0.28,<1",
   "mypy>=1.11,<2",

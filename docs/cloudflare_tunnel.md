@@ -11,6 +11,15 @@ docker compose up -d --build
 docker compose ps
 ```
 
+Tunnelを使わずloopbackでUI操作まで試す場合だけ、固定identityを明示します。
+
+```bash
+AUTONAVLOG_TRUSTED_LOCAL_IDENTITY=local-user docker compose up -d --build
+```
+
+このoverrideはCloudflare Access headerを使わないローカル試験専用です。設定したまま
+Tunnelへ公開すると全利用者が同じ所有者になるため、公開serviceでは必ず未設定にします。
+
 Composeはcontainer内の `0.0.0.0:8000` をhostの `127.0.0.1:8123` だけへpublishし、
 Projectと参照データをnamed volume `autonavlog-data` に保存します。別terminalで確認します。
 
@@ -43,10 +52,18 @@ remotely-managed tunnelはorigin側でtokenだけを使って接続し、route�
 
 公開hostnameと同じdomainをCloudflare Accessのself-hosted applicationへ登録し、
 利用を許可するidentity／email groupだけのAllow policyを作成します。
-Accessは各requestを認証してからoriginへ転送します。
+Accessは各requestを認証し、originへ
+`Cf-Access-Authenticated-User-Email` を付与します。AutoNavLogはこの値を正規化して
+session所有者と保存Projectの `web_owner_id` に拘束し、他のidentityには一覧にも404応答にも
+Projectの存在を漏らしません。
 
-AutoNavLogの `X-AutoNavLog-Session` は作業sessionの識別だけを行います。
-Accessを省略して認証済みとみなしてはいけません。
+作業session tokenはレスポンス本文へ返さず、
+`HttpOnly; Secure; SameSite=Strict; Path=/` Cookieだけで送ります。JavaScript、
+`localStorage`、`sessionStorage`、独自headerには保存しません。logoutはserver側sessionを
+無効化してCookieを削除します。
+
+このheaderはCloudflare Accessから来た場合だけ信頼できます。そのためoriginを
+`127.0.0.1:8123` に限定し、Cloudflareを迂回してheaderを偽装できる受信経路を作りません。
 
 公式手順: [Add web applications](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/)、
 [Authorization cookie](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/)
@@ -59,9 +76,11 @@ Accessを省略して認証済みとみなしてはいけません。
 cloudflared tunnel --url http://localhost:8123
 ```
 
-Quick Tunnelはrandomな `trycloudflare.com` URLを発行する開発機能です。
-正式公開にはremotely-managed tunnelとAccessを使用します。`~/.cloudflared/config.yaml` が
-存在する環境ではQuick Tunnelが動かない場合があります。
+Quick Tunnelはrandomな `trycloudflare.com` URLを発行する開発機能ですが、通常は
+Access identity headerを付与しないため認証済みsessionを作成できません。固定local identityを
+設定してQuick Tunnelへ公開する運用は禁止します。正式公開にはremotely-managed tunnelと
+Accessを使用します。`~/.cloudflared/config.yaml` が存在する環境ではQuick Tunnelが
+動かない場合があります。
 
 公式手順: [Quick Tunnels](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)
 
@@ -71,8 +90,10 @@ Quick Tunnelはrandomな `trycloudflare.com` URLを発行する開発機能で�
 - `docker compose ps` でserviceがhealthyである。
 - Cloudflare Access未認証のbrowserがアプリへ到達できない。
 - `/`, `/api/session`, `/healthz` が同じhostnameで応答する。
+- session Cookieに `HttpOnly`、`Secure`、`SameSite=Strict` が付く。
+- 2つのAccess identity間でsessionと保存Projectが相互に見えない。
 - KML貼付、経路確定、計算、保存・読込が動く。
-- `fake`、未検証場周高度、未承認WarningなどのBlockerが転記出力を止める。
+- `fake`、未検証場周高度、未確認事項などのBlockerが転記出力を止める。
 - Tunnel token、Access token、Project JSONをGitへ追加していない。
 
 Cloudflare Tunnelはoriginから外向き接続を作るため、originへの受信portを開ける必要はありません。

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
-from typing import cast
 
 import uvicorn
 
 from .app import create_app
-from .runtime import WeatherMode, WebRuntimeConfig
+from .runtime import WebRuntimeConfig
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -30,7 +30,16 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--msm-cache", type=Path)
     parser.add_argument("--terrain-cache", type=Path)
-    parser.add_argument("--log-level", default="info")
+    parser.add_argument(
+        "--trusted-local-identity",
+        default=os.environ.get("AUTONAVLOG_TRUSTED_LOCAL_IDENTITY"),
+        help="trusted local-only identity; leave unset behind Cloudflare Access",
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=("critical", "error", "warning", "info", "debug", "trace"),
+        default="info",
+    )
     return parser
 
 
@@ -39,15 +48,16 @@ def main() -> None:
     config = WebRuntimeConfig(
         data_root=args.data_root,
         storage_root=args.storage_root,
-        weather_mode=cast(WeatherMode, args.weather),
+        weather_mode=args.weather,
         msm_cache_dir=args.msm_cache,
         terrain_cache_path=args.terrain_cache,
+        trusted_local_identity=args.trusted_local_identity,
     )
     uvicorn.run(
         create_app(config),
-        host=str(args.host),
-        port=int(args.port),
-        log_level=str(args.log_level),
+        host=args.host,
+        port=args.port,
+        log_level=args.log_level,
         server_header=False,
     )
 

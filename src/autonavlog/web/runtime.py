@@ -29,6 +29,13 @@ class WebRuntimeConfig:
     msm_cache_dir: Path | None = None
     terrain_cache_path: Path | None = None
     maximum_sessions: int = 128
+    trusted_local_identity: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.weather_mode not in {"fake", "msm", "msm-metar"}:
+            raise ValueError(f"unsupported weather mode: {self.weather_mode}")
+        if self.maximum_sessions < 1:
+            raise ValueError("maximum_sessions must be positive")
 
 
 def _weather_factory(
@@ -54,7 +61,10 @@ def _weather_factory(
         return create_msm, "MSM予報・MSM推定QNH", False
 
     def create_msm_metar() -> WeatherProvider:
-        delegate = MsmWeatherProvider(cache_dir=cache_dir)
+        delegate = MsmWeatherProvider(
+            cache_dir=cache_dir,
+            terrain_cache_path=config.terrain_cache_path,
+        )
         return MsmMetarWeatherProvider(delegate)
 
     return create_msm_metar, "MSM予報・METAR観測QNH", False
@@ -84,6 +94,7 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
         airports=airports,
         performance=performance,
         reference_repository=reference_repository,
+        trusted_local_identity=config.trusted_local_identity,
         reference_catalog=reference_catalog,
         weather_factory=weather_factory,
         weather_label=weather_label,

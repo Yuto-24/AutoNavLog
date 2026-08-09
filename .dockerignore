@@ -19,6 +19,7 @@ web/node_modules
 web/test-results
 web/playwright-report
 web/*.tsbuildinfo
+web/dist
 src/autonavlog/web/static
--.png
+*.png
 tmp_colab_new.py

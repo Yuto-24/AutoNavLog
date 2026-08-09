@@ -31,6 +31,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  min-height: 100dvh;
   background: #ffffff;
 }
 
@@ -53,7 +54,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 h1, h2, h3, p { margin-top: 0; }
 
-.app-shell { min-height: 100vh; background: #ffffff; }
+.app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #ffffff;
+}
 
 .app-header {
   min-height: 68px;
@@ -329,7 +334,7 @@ h1, h2, h3, p { margin-top: 0; }
   width: 1px !important;
   height: 1px !important;
   overflow: hidden !important;
-  clip: rect(1px, 1px, 1px, 1px) !important;
+  clip-path: inset(50%) !important;
   white-space: nowrap !important;
 }
 
@@ -412,6 +417,20 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
 .flight-plan-section > h2 { margin-bottom: 12px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .form-grid label { min-width: 0; display: grid; gap: 5px; }
+.form-grid-field { min-width: 0; display: grid; gap: 5px; }
+.form-grid-field > span {
+  color: #304960;
+  font-size: 11px;
+  font-weight: 700;
+}
+.qnh-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 82px; gap: 6px; }
+.field-help { color: var(--slate-500); font-size: 10px; line-height: 1.45; }
+.drop-zone.is-disabled {
+  color: var(--slate-500);
+  background: var(--slate-100);
+  cursor: not-allowed;
+  opacity: 0.75;
+}
 .form-grid .span-two { grid-column: 1 / -1; }
 .flight-plan-section .primary-button { margin-top: 14px; }
 
@@ -433,7 +452,7 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
 
 .map-empty {
   position: absolute;
-  inset: 0;
+  inset: 0 0 24px;
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -457,16 +476,26 @@ th, td { border-right: 1px solid var(--slate-200); border-bottom: 1px solid var(
 th:last-child, td:last-child { border-right: 0; }
 tbody tr:last-child td { border-bottom: 0; }
 
-.route-table { min-width: 540px; table-layout: fixed; }
-.route-table th:nth-child(1) { width: 30%; }
-.route-table th:nth-child(2) { width: 22%; }
-.route-table th:nth-child(3) { width: 22%; }
+.route-table { min-width: 700px; table-layout: fixed; }
+.route-table th:nth-child(1) { width: 25%; }
+.route-table th:nth-child(2) { width: 17%; }
+.route-table th:nth-child(3) { width: 36%; }
 .route-table td { font-size: 11px; }
 .route-table td:first-child { display: flex; align-items: center; gap: 7px; }
 .point-index { width: 21px; height: 21px; display: inline-flex; align-items: center; justify-content: center; color: #ffffff; background: var(--navy-950); border-radius: 50%; font-size: 9px; font-weight: 750; }
 .vrep-row { color: var(--teal-700); background: var(--teal-50); }
 .vrep-row .point-index { background: var(--teal-700); }
 .table-number-input, .table-select { width: 100%; min-height: 31px; padding: 0 6px; font-size: 11px; }
+.altitude-controls { display: grid; grid-template-columns: 1fr 0.78fr; gap: 5px; }
+.altitude-course { grid-column: 1 / -1; color: var(--slate-500); font-size: 9px; }
+.altitude-review-cell { background: var(--red-50); }
+.altitude-review-row .altitude-course { color: var(--red-700); font-weight: 700; }
+.altitude-review-row .table-number-input {
+  color: var(--red-700);
+  border-color: var(--red-700);
+}
+.altitude-guidance-note { margin: 8px 0 0; color: var(--slate-500); font-size: 9px; line-height: 1.5; }
+
 .empty-table-cell { height: 72px; color: var(--slate-500); text-align: center; }
 
 .status-rail h2 { margin-bottom: 13px; }
@@ -532,20 +561,23 @@ tbody tr:last-child td { border-bottom: 0; }
 .nav-log-heading { margin-bottom: 12px; }
 .nav-log-heading > span { color: var(--slate-500); font-size: 10px; }
 .nav-log-scroll { border: 1px solid var(--slate-200); border-radius: var(--radius-sm); }
-.nav-log-table { min-width: 1280px; }
+.nav-log-table { min-width: 2100px; }
 .nav-log-table th { text-align: center; line-height: 1.25; }
+.nav-log-table th small { font-size: 8px; font-weight: 650; }
 .nav-log-table td { color: #172d42; font-size: 11px; text-align: center; white-space: nowrap; }
-.nav-log-table td:first-child { min-width: 170px; text-align: left; white-space: normal; }
-.nav-log-table td:first-child strong, .nav-log-table td:first-child small { display: block; }
-.nav-log-table td:first-child small, .manual-value small { margin-top: 2px; color: var(--teal-700); font-size: 8px; font-weight: 700; }
-.leg-sequence { display: inline-flex; min-width: 20px; color: var(--slate-500); }
+.nav-log-table .route-name-cell { min-width: 120px; text-align: left; white-space: normal; }
+.manual-value small { display: block; margin-top: 2px; color: var(--teal-700); font-size: 8px; font-weight: 700; }
+.manual-entry-cell { min-width: 62px; background: #fffdf5; }
+.nav-log-focus-target { scroll-margin-top: 14px; }
+.nav-log-focus-target:focus { outline: 3px solid rgba(12, 124, 120, 0.28); outline-offset: -3px; }
 .manual-value { color: var(--teal-700) !important; font-weight: 700; }
 .unavailable-value { color: var(--red-700) !important; font-weight: 700; }
 
 .fuel-summary {
   margin-top: 10px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  overflow: hidden;
   border: 1px solid #7990a5;
   border-radius: var(--radius-sm);
 }
@@ -582,6 +614,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .modal-panel {
   width: min(760px, 100%);
   max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
   overflow-y: auto;
   padding: 20px;
   background: #ffffff;
@@ -598,6 +631,7 @@ tbody tr:last-child td { border-bottom: 0; }
 
 .loading-screen {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -636,7 +670,6 @@ tbody tr:last-child td { border-bottom: 0; }
   .route-workspace { padding: 14px; }
   .map-frame { height: 380px; }
   .issue-list { max-height: none; }
-  .fuel-summary { min-width: 720px; }
   .app-footer { flex-direction: column; }
 }
 

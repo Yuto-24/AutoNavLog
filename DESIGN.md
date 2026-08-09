@@ -1,11 +1,11 @@
 # AutoNavLog UI改善 要求仕様書
 
-- 版: 2.7.1
-- 日付: 2026-08-09
+- 版: 2.7.2
+- 日付: 2026-08-10
 - 対象: AutoNavLog 0.2.0 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
 - 実装担当: 別エージェント
 
-## v2.7.1 配布方式変更（Docker Web service・本節を最優先）
+## v2.7.2 Docker Web service・Access所有権・別添8-1整合（本節を最優先）
 
 本節は利用者決定「ColabではなくWeb公開し、`.venv`ではなくDocker serviceで動かす」
 に基づく配布方式の差分仕様である。
@@ -31,16 +31,18 @@
 - 恒常公開はremotely-managed tunnelのPublished applicationを用いる。
   Quick Tunnelは開発確認に限り、正式公開には用いない。
 - 外部共有時はCloudflare Accessのself-hosted applicationとAllow policyを必須とする。
-  Webアプリの `X-AutoNavLog-Session` は作業状態識別子であり、利用者認証の代替ではない。
+  originはCloudflareが付与する `Cf-Access-Authenticated-User-Email` を認証済みidentityとして
+  受け取り、sessionと保存Projectをそのidentityへ拘束する。異なるidentityには存在自体を返さない。
 - originはloopbackのままとし、Cloudflareを迂回する受信ポートを開けない。
 - Tunnel token、Access credential、API tokenをリポジトリ、Project、ログ、ブラウザへ保存しない。
 
 ### D-32 Web状態・保存
 
-- ブラウザは推測困難なsession tokenを `sessionStorage` に保持し、APIへ
-  `X-AutoNavLog-Session` で送る。sessionはサーバー再起動時に失効してよい。
-- サーバーの作業sessionはLRUで最大128件とし、Project本体は既存
-  `LocalProjectRepository` のrevision付き原子的JSON保存を用いる。
+- session tokenはJavaScriptから参照できない `HttpOnly; Secure; SameSite=Strict` Cookieで
+  同一オリジンへ送る。logout時にサーバー側sessionを無効化し、再起動時に失効してよい。
+- サーバーの作業sessionはidentity所有者付きLRUで最大128件とし、操作lockはsession単位とする。
+  Project本体は既存 `LocalProjectRepository` のrevision付き原子的JSON保存を用い、
+  保存metadataのownerとAccess identityが一致するProjectだけを一覧・読込対象にする。
 - Docker serviceの保存rootは `/var/lib/autonavlog` とし、named volume
   `autonavlog-data` をmountする。参照データ、Project、MSM cacheを同root配下へ分離する。
 - POST/PUTおよびAPI応答は `Cache-Control: no-store` とし、CSP、frame拒否、
@@ -53,8 +55,17 @@
   準備状況rail、NAV LOG結果を1画面に配置する。
 - desktopは3列、tabletは2列、760 px未満は1列とし、表は領域内横scrollを許可する。
 - KML/KMZのdrop・file選択・XML貼付、複数形状選択、Polygon確認、
-  FROM/TO、DATE/ETD、PILOT/SHIP、FUEL/VAR/QNH/TGL、Leg ALT/Phase、
-  Warning承認、保存・読込、計算、転記補助HTMLをcode-nativeなcontrolで提供する。
+  FROM/TO、DATE/ETD、FUEL（既定90 gal）/VAR/QNH（hPa・inHg自動変換）/TGL、
+  Leg計画高度/Phase、確認事項、保存・読込、計算、転記補助HTMLをcode-nativeなcontrolで提供する。
+  PILOT/SHIPは入力させず、KMLの名称は区切り名またはPoint名を優先し、WPはfallbackに限る。
+- CRUISE LegはMC 0〜179°で3,500 ftから奇数千+500、180〜359°で4,500 ftから
+  偶数千+500の候補を示す。任意高度も許可するが候補外は赤い要確認表示とし、
+  航空法第82条の900 m閾値と地表高未判定の制約を同時表示する。
+  法令根拠は[e-Gov 航空法第82条](https://laws.e-gov.go.jp/law/327AC0000000231?occasion_date=20260423)と
+  [e-Gov 航空法施行規則第177条](https://laws.e-gov.go.jp/law/327M50000800056?occasion_date=20260316)
+  を参照する。
+- 計算成功後はNAV LOGへscrollしfocusを移す。画面上で「WARNING／警告」を見出しに使わず、
+  利用者向けには「確認事項」と表示する。
 - 日本語fontはWeb assetへ同梱し、実行OSのfont有無に依存しない。
 - OpenStreetMap tileは地図背景だけに用い、tile取得失敗でも入力・Issue・表を隠さない。
 
@@ -70,14 +81,18 @@
 - 数値の丸め確認だけで参照行を `VERIFIED` へ変更してはならない。
   一次資料と出典版の検証が完了するまでは `PATTERN_ALTITUDE_REQUIRED` を維持し、
   経路取込・入力確認・下書き保存は許可するが転記出力は止める。
+- 転記補助の主表は別添8-1の19列（FROM〜SECT/REM FUEL）に揃え、上段9欄と
+  下段INFO・TIME/FUEL欄を持つ。ETO/ATO/ATEは機上実績欄として空欄を維持し、
+  距離・時間・燃料・航法値を表示時に丸めない。独自PHASE/ALT列やIssue一覧を混在させない。
 
 ### Web受け入れ基準
 
 - **W-1**: clean checkoutから `docker compose up -d --build` が成功してserviceがhealthyとなり、
-  hostのloopback経由で `/healthz`、`/api/session`、`/` が200を返す。
-- **W-2**: Chromium 1440×1000でKML貼付→形状選択→経路確定→計算→NAV LOG表示が動作し、
+  hostのloopback経由で `/healthz` と `/` が200を返す。Access headerまたは明示した
+  trusted local identityなしの `/api/session` は401、認証済みでは200を返す。
+- **W-2**: Chromium 1440×1000でKML貼付→形状選択→経路確定→計算→NAV LOG表示・focusが動作し、
   JavaScript例外と開発overlayがない。
-- **W-3**: 390×844で主要操作が存在し、document bodyに水平overflowがない。
+- **W-3**: 390×844で計算後の主要操作とNAV LOGが存在し、document bodyに水平overflowがない。
 - **W-4**: 未検証場周高度と開発用気象の各Blockerが1件ずつ表示され、
   A4転記補助HTMLがAPIと画面の双方で無効である。
 - **W-5**: Cloudflare Published applicationのService URLを
@@ -93,6 +108,7 @@
   - **成果物条件（v2.6.0で完了）**: 基準アーカイブと `.sha256` は commit `24058c1`（`Add frozen design baseline archive`）でリポジトリへ固定した。SHA-256は上記記載値と一致する
   - 基準アーカイブは基準commitから次の点で進んでいる（**情報としての変更履歴。規範は上記アーカイブ自体**）: `importers/kml.py` のPolygon解析・保持（第0.5節・FR-15・D-10）／ `presentation/colab.py` の確認付きPolygon Route化・`kml_text` 貼付欄ほか一式のUI（第0.5節）／ `calculation_service.py` のSEA参照と `SAFE_ENROUTE_ALTITUDE_REQUIRED` / `PLANNED_ALTITUDE_BELOW_SAFE_ENROUTE` 生成（第0.2節・A.7）／空港seed 2行と性能データ、性能manifest `VERIFIED`（空港の場周経路高度はv2.5検証未合格。第0.1節）
 - 変更履歴:
+  - **v2.7.2はPR #2レビューを反映した版**。Cloudflare Access identity所有権、HttpOnly Secure Cookie、session単位lock、KML名称保持、VFR高度候補、QNH単位変換、別添8-1の19列・無丸め出力、計算後focus、Docker build成果物分離をD-31〜D-34とW-1〜W-6へ追加した
   - **v2.7.1は、Web版の主実行方式をhost `.venv` からDocker serviceへ変更した版**。multi-stage build、非root runtime、read-only root、loopback限定port、named volume、health check、restart policyをD-30〜D-32とW-1/W-6へ追加した
   - **v2.7.0は、主配布をColabからローカルWeb版へ変更した版**。React/Vite + FastAPIの同一オリジン構成、loopback bind、Cloudflare Tunnel + Access、Web session、ローカルProject保存、desktop/mobile受け入れ試験をD-30〜D-34とW-1〜W-6に定義した。航法計算とフェイルクローズ契約はv2.6.0を維持する
   - **v2.6.0は、SEAおよび陸域マスクを現バージョンの対象から除外した版**。DEM10B取得、SEA自動算出・手入力・確認、ALTとの比較、SEA列・清書出力、陸域マスク、DEMのDrive二次cache、関連fixture・実測ゲート、`numpy` / `Pillow` の追加を実装しない。既存schemaの `safe_enroute_altitude_ft_msl` は読込互換のため残してよいが、新規Projectでは未設定とし、航法計算・fingerprint・Issue・ProjectStatus・転記補助HTMLへ使用しない。将来SEAを別表として追加する場合は、現NAV LOG計算から独立した新しい要求・データ契約として再設計する。`docs/baseline/` は commit `24058c1` で固定済み。内部UI状態は `state_schema_version=4`、Project/Snapshot本体は `schema_version=1` を維持する

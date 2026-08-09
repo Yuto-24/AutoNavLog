@@ -10,7 +10,9 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "127.0.0.1:${AUTONAVLOG_PORT:-8123}:8000"
+      - "127.0.0.1:8123:8000"
+    environment:
+      AUTONAVLOG_TRUSTED_LOCAL_IDENTITY: "${AUTONAVLOG_TRUSTED_LOCAL_IDENTITY:-}"
     volumes:
       - autonavlog-data:/var/lib/autonavlog
     read_only: true

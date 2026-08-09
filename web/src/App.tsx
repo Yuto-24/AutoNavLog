@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApiClient, ApiError, fileToBase64 } from "./api";
-import { candidateFromKey, formFromProject, initialPlanningForm } from "./forms";
+import {
+  candidateFromKey,
+  formFromProject,
+  initialPlanningForm,
+  qnhHpa,
+} from "./forms";
 import type { PlanningForm } from "./forms";
 import { Header } from "./components/Header";
 import { ImportPlanPanel } from "./components/ImportPlanPanel";
@@ -30,6 +35,8 @@ function App() {
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [pendingKmz, setPendingKmz] = useState<PendingKmz | null>(null);
   const [selectedKmzDocument, setSelectedKmzDocument] = useState("");
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
+  const navLogRef = useRef<HTMLDivElement | null>(null);
 
   const applyState = (next: WebState) => {
     setState(next);
@@ -68,22 +75,51 @@ function App() {
     return () => {
       active = false;
     };
-  }, [api]);
+  }, [api, bootstrapAttempt]);
 
-  const run = async (action: () => Promise<WebState>, success?: string) => {
+  useEffect(() => {
+    if (!pendingKmz) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) {
+        setPendingKmz(null);
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [busy, pendingKmz]);
+
+  const runTask = async <Result,>(
+    action: () => Promise<Result>,
+    options: {
+      apply?: (result: Result) => void;
+      success?: string;
+      fallbackError?: string;
+    } = {},
+  ): Promise<Result | undefined> => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const next = await action();
-      applyState(next);
-      if (success) setNotice(success);
+      const result = await action();
+      options.apply?.(result);
+      if (options.success) setNotice(options.success);
+      return result;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "処理に失敗しました。");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : options.fallbackError ?? "処理に失敗しました。",
+      );
+      return undefined;
     } finally {
       setBusy(false);
     }
   };
+
+  const run = (action: () => Promise<WebState>, success?: string) =>
+    runTask(action, { apply: applyState, success });
 
   const importEncodedFile = async (
     filename: string,
@@ -119,20 +155,14 @@ function App() {
   };
 
   const handleFile = async (file: File) => {
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      await importEncodedFile(file.name, await fileToBase64(file));
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "ファイルを読み込めません。");
-    } finally {
-      setBusy(false);
-    }
+    await runTask(
+      async () => importEncodedFile(file.name, await fileToBase64(file)),
+      { fallbackError: "ファイルを読み込めません。" },
+    );
   };
 
   const handlePasteImport = async () => {
-    await run(
+    const imported = await run(
       async () =>
         api.request<WebState>("/api/import", {
           method: "POST",
@@ -140,6 +170,7 @@ function App() {
         }),
       "貼付KMLから経路候補を読み込みました。",
     );
+    if (!imported) return;
     setPasteOpen(false);
   };
 
@@ -164,11 +195,9 @@ function App() {
             departure_time_jst: form.departureTimeJst,
             departure_airport_id: form.departureAirportId,
             destination_airport_id: form.destinationAirportId,
-            pilot_name: form.pilotName,
-            ship_identifier: form.shipIdentifier,
             total_usable_fuel_gal: form.totalUsableFuelGal,
             default_variation_deg_east: form.variationDegEast,
-            manual_qnh_hpa: form.manualQnhHpa ? Number(form.manualQnhHpa) : null,
+            manual_qnh_hpa: qnhHpa(form),
             tgl_count: form.tglCount,
             all_leg_altitude_ft_msl: form.allLegAltitudeFtMsl,
             use_penultimate_as_vrep: form.usePenultimateAsVrep,
@@ -204,11 +233,9 @@ function App() {
     return {
       flight_date: form.flightDate,
       departure_time_jst: form.departureTimeJst,
-      pilot_name: form.pilotName,
-      ship_identifier: form.shipIdentifier,
       total_usable_fuel_gal: form.totalUsableFuelGal,
       default_variation_deg_east: form.variationDegEast,
-      manual_qnh_hpa: form.manualQnhHpa ? Number(form.manualQnhHpa) : null,
+      manual_qnh_hpa: qnhHpa(form),
       tgl_count: form.tglCount,
       sections: state.project.sections.map((section) => ({
         section_id: section.id,
@@ -229,14 +256,22 @@ function App() {
   };
 
   const handleCalculate = async () => {
-    await run(async () => {
-      const updated = await api.request<WebState>("/api/project", {
+    const calculated = await run(async () => {
+      await api.request<WebState>("/api/project", {
         method: "PUT",
         body: updatePayload(),
       });
-      applyState(updated);
       return api.request<WebState>("/api/calculate", { method: "POST" });
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。");
+    if (calculated?.outcome) {
+      window.requestAnimationFrame(() => {
+        navLogRef.current?.focus({ preventScroll: true });
+        navLogRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    }
   };
 
   const handleSave = async () => {
@@ -263,12 +298,18 @@ function App() {
     );
   };
 
-  const handleNew = () => {
+  const handleNew = async () => {
     if (state?.project && !window.confirm("現在の未保存入力を閉じて新規作業を始めますか？")) {
       return;
     }
-    api.resetSession();
-    window.location.reload();
+    const reset = await runTask(
+      async () => {
+        await api.resetSession();
+        return true;
+      },
+      { fallbackError: "新規作業を開始できませんでした。" },
+    );
+    if (reset) window.location.reload();
   };
 
   const handleAcknowledge = async (ackKey: string, checked: boolean) => {
@@ -281,16 +322,10 @@ function App() {
   };
 
   const handleDownload = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.downloadTransferAid();
-      setNotice("A4転記補助HTMLのダウンロードを開始しました。");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "出力できませんでした。");
-    } finally {
-      setBusy(false);
-    }
+    await runTask(api.downloadTransferAid.bind(api), {
+      success: "A4転記補助HTMLのダウンロードを開始しました。",
+      fallbackError: "出力できませんでした。",
+    });
   };
 
   if (!state) {
@@ -298,7 +333,21 @@ function App() {
       <main className="loading-screen">
         <div className="loading-mark">A</div>
         <strong>AutoNavLogを起動しています</strong>
-        {error && <p>{error}</p>}
+        {error && (
+          <>
+            <p role="alert">{error}</p>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                setError(null);
+                setBootstrapAttempt((attempt) => attempt + 1);
+              }}
+            >
+              起動を再試行
+            </button>
+          </>
+        )}
       </main>
     );
   }
@@ -321,7 +370,11 @@ function App() {
       <ProgressRail activeStep={state.readiness.workflowStep} />
 
       {(error || notice) && (
-        <div className={`message-bar ${error ? "message-error" : "message-success"}`} role="status">
+        <div
+          className={`message-bar ${error ? "message-error" : "message-success"}`}
+          role={error ? "alert" : "status"}
+          aria-live={error ? "assertive" : "polite"}
+        >
           {error ? <AlertCircle aria-hidden="true" size={18} /> : <CheckCircle2 aria-hidden="true" size={18} />}
           <span>{error ?? notice}</span>
           <button
@@ -350,6 +403,7 @@ function App() {
         <RouteWorkspace
           candidate={selectedCandidate}
           project={state.project}
+          altitudeGuidance={state.altitudeGuidance}
           outcome={state.outcome}
           onSectionChange={handleSectionChange}
         />
@@ -366,7 +420,16 @@ function App() {
         />
       </main>
 
-      {state.outcome && <NavLogTable outcome={state.outcome} />}
+      {state.outcome && (
+        <div
+          ref={navLogRef}
+          className="nav-log-focus-target"
+          tabIndex={-1}
+          aria-label="計算済みNAV LOG"
+        >
+          <NavLogTable outcome={state.outcome} />
+        </div>
+      )}
 
       <footer className="app-footer">
         <span>AutoNavLogは非公式の地上準備支援ツールです。</span>
@@ -383,11 +446,23 @@ function App() {
       />
 
       {pendingKmz && (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal-panel compact-modal" role="dialog" aria-modal="true">
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => {
+            if (!busy) setPendingKmz(null);
+          }}
+        >
+          <section
+            className="modal-panel compact-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="kmz-dialog-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <div className="modal-heading">
               <div>
-                <h2>KMZ内のKMLを選択</h2>
+                <h2 id="kmz-dialog-title">KMZ内のKMLを選択</h2>
                 <p>飛行経路を含む文書を1件選択してください。</p>
               </div>
             </div>
@@ -403,7 +478,12 @@ function App() {
               </select>
             </label>
             <div className="modal-actions">
-              <button className="secondary-button" type="button" onClick={() => setPendingKmz(null)}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setPendingKmz(null)}
+                disabled={busy}
+              >
                 キャンセル
               </button>
               <button
@@ -411,18 +491,14 @@ function App() {
                 type="button"
                 disabled={!selectedKmzDocument || busy}
                 onClick={async () => {
-                  setBusy(true);
-                  try {
-                    await importEncodedFile(
+                  await runTask(
+                    () => importEncodedFile(
                       pendingKmz.filename,
                       pendingKmz.contentBase64,
                       selectedKmzDocument,
-                    );
-                  } catch (reason) {
-                    setError(reason instanceof Error ? reason.message : "KMZを読み込めません。");
-                  } finally {
-                    setBusy(false);
-                  }
+                    ),
+                    { fallbackError: "KMZを読み込めません。" },
+                  );
                 }}
               >
                 選択KMLを読み込む

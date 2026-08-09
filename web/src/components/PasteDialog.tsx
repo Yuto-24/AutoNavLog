@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { useEffect } from "react";
 
 interface PasteDialogProps {
   open: boolean;
@@ -17,9 +18,26 @@ export function PasteDialog({
   onClose,
   onImport,
 }: PasteDialogProps) {
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [busy, onClose, open]);
+
   if (!open) return null;
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={() => {
+        if (!busy) onClose();
+      }}
+    >
       <section
         className="modal-panel"
         role="dialog"
@@ -32,7 +50,13 @@ export function PasteDialog({
             <h2 id="paste-dialog-title">KML/XMLを貼り付け</h2>
             <p>Google EarthからコピーしたKML全文を入力してください。</p>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="閉じる">
+          <button
+            className="icon-button"
+            type="button"
+            onClick={onClose}
+            aria-label="閉じる"
+            disabled={busy}
+          >
             <X aria-hidden="true" size={20} />
           </button>
         </div>
@@ -45,7 +69,12 @@ export function PasteDialog({
           autoFocus
         />
         <div className="modal-actions">
-          <button className="secondary-button" type="button" onClick={onClose}>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+          >
             キャンセル
           </button>
           <button

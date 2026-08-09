@@ -2,7 +2,7 @@
 
 AutoNavLogは、航空大学校 宮崎課程 NAV2の航法LOG作成を支援する、SR22 G6向けの
 **地上準備専用**ツールです。計算結果とA4横の転記補助表は、運航資料、完成帳票、
-別添8-1原本ではありません。利用者が根拠と警告を確認し、公式様式へ手書きで転記する
+別添8-1原本ではありません。利用者が根拠と確認事項を照合し、公式様式へ手書きで転記する
 ための非公式補助です。航空大学校の公式様式・計算規則への準拠は主張しません。
 
 ## 現在の検証状態
@@ -29,6 +29,14 @@ docker compose up -d --build
 docker compose ps
 ```
 
+Cloudflare Access経由では公開hostnameを開きます。直接loopbackでUIを試す場合だけ、
+信頼境界をloopbackへ限定した固定identityを明示して起動します。この変数を設定したserviceを
+Tunnelへ公開しないでください。
+
+```bash
+AUTONAVLOG_TRUSTED_LOCAL_IDENTITY=local-user docker compose up -d --build
+```
+
 ブラウザで `http://127.0.0.1:8123` を開きます。Project、参照データのactive版、
 気象cacheはnamed volume `autonavlog-data` に保存されます。hostへ公開するportはloopbackだけで、
 containerは非root・read-only root filesystem・全capability削除で動作します。
@@ -53,7 +61,9 @@ RJFM/RJFOの場周経路高度は画面上で100 ft単位に丸めて `1,000 ft`
 接続済みのremotely-managed tunnelでPublished applicationを追加し、Service URLを
 `http://localhost:8123` にします。AutoNavLogはloopback bindのまま運用してください。
 外部共有時はCloudflare Accessのself-hosted applicationとAllow policyを必ず設定します。
-ブラウザsession tokenは作業状態の識別子であり、認証機能ではありません。
+originは `Cf-Access-Authenticated-User-Email` を所有者identityとしてsessionと保存Projectへ
+拘束します。session tokenは `HttpOnly; Secure; SameSite=Strict` Cookieで送られ、
+JavaScriptやWeb Storageへ保存しません。
 
 一時的な開発確認だけなら次も使えますが、Quick Tunnelは正式公開には使いません。
 
@@ -141,8 +151,8 @@ AutoNavLogは既存ファイルを上書きせず`project-conflict-*.json`を保
 - `src/autonavlog/performance`: 性能CSV検証、上昇補間、巡航セル選択
 - `src/autonavlog/weather`: FakeとMSM v0.2.1アダプター
 - `src/autonavlog/storage`: Local/Google Drive保存とrevision管理
-- `src/autonavlog/web`: FastAPI、Web façade、ビルド済みReact asset
-- `web`: React/TypeScript/Vite UIとPlaywright試験
+- `src/autonavlog/web`: FastAPI、Web façade、Docker build時に配置されるReact asset
+- `web`: React/TypeScript/Vite UI、追跡外 `web/dist`、Playwright試験
 - `src/autonavlog/presentation`: 旧Colab UIとA4横の非公式転記補助表
 - `notebooks/AutoNavLog.ipynb`: 旧Colab互換・移行確認用Notebook
 

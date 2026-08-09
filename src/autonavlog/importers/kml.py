@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import stat
 import unicodedata
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from defusedxml.common import DefusedXmlException
 
 from autonavlog.nav.geodesy import geodesic_leg
 
+_ROUTE_NAME_SEPARATOR = re.compile(r"\s*[～〜~→⇒]\s*")
 _ARCHIVE_READ_CHUNK_BYTES = 64 * 1024
 
 
@@ -169,6 +171,30 @@ def _simplify(points: list[tuple[float, float]], maximum: int) -> tuple[tuple[fl
         simplified = _rdp(points, tolerance)
         tolerance *= 2
     return tuple(simplified)
+
+
+def named_waypoints_from_line(line: ImportedLine) -> tuple[ImportedPoint, ...]:
+    """Map a delimiter-separated LineString name to geometric key points.
+
+    Route exports often encode the intended waypoint names in the LineString
+    Placemark name. We only adopt those names when simplification yields the
+    exact same number of key points; ambiguous mappings fall back safely.
+    """
+
+    names = tuple(part.strip() for part in _ROUTE_NAME_SEPARATOR.split(line.name) if part.strip())
+    if len(names) < 2 or len(names) > len(line.coordinates):
+        return ()
+    coordinates = _simplify(list(line.coordinates), len(names))
+    if len(coordinates) != len(names):
+        return ()
+    return tuple(
+        ImportedPoint(
+            name=name,
+            latitude_deg=latitude,
+            longitude_deg=longitude,
+        )
+        for name, (latitude, longitude) in zip(names, coordinates, strict=True)
+    )
 
 
 def _find_descendant(element: Element, local_name: str) -> Element | None:

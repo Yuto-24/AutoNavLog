@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from secrets import token_urlsafe
+from secrets import compare_digest, token_urlsafe
 from threading import RLock
 from typing import Any
 from uuid import UUID
@@ -27,8 +27,10 @@ from autonavlog.domain.planning import (
 )
 from autonavlog.domain.project import NavSection, Project, RouteNode
 from autonavlog.importers.kml import (
+    KmlImportError,
     KmlImportResult,
     imported_line_length_nm,
+    named_waypoints_from_line,
     select_imported_line,
     select_imported_polygon_outer,
 )
@@ -40,8 +42,16 @@ from autonavlog.storage.reference_data import (
     ReferenceCatalog,
     ReferenceDataCatalogRepository,
 )
+from autonavlog.storage.repository import ProjectSummary
 from autonavlog.weather.provider import WeatherProvider
 
+from .cruising_altitude import (
+    LEGAL_THRESHOLD_NOTE_JA,
+    TERRAIN_LIMITATION_NOTE_JA,
+    magnetic_course_deg,
+    matches_vfr_cruising_altitude,
+    vfr_cruising_altitude_candidates,
+)
 from .models import (
     ConfirmRouteRequest,
     SaveProjectRequest,
@@ -88,9 +98,13 @@ class WebApplicationError(ValueError):
 @dataclass
 class WebSession:
     token: str
+    owner_id: str
     calculation_service: CalculationService
     weather_provider: WeatherProvider
     readiness_service: ReadinessService
+    lock: RLock = field(default_factory=RLock, repr=False)
+    saved_projects_cache: tuple[ProjectSummary, ...] | None = None
+    saved_projects_generation: int = -1
     import_result: KmlImportResult | None = None
     import_filename: str | None = None
     project: Project | None = None
@@ -111,6 +125,7 @@ class AutoNavLogWebApplication:
         weather_label: str,
         development_weather: bool,
         maximum_sessions: int = 128,
+        trusted_local_identity: str | None = None,
     ) -> None:
         if maximum_sessions < 1:
             raise ValueError("maximum_sessions must be positive")
@@ -123,11 +138,13 @@ class AutoNavLogWebApplication:
         self.weather_label = weather_label
         self.development_weather = development_weather
         self.maximum_sessions = maximum_sessions
+        self.trusted_local_identity = trusted_local_identity
         self._sessions: dict[str, WebSession] = {}
         self._session_order: list[str] = []
+        self._projects_generation = 0
         self._lock = RLock()
 
-    def create_session(self) -> WebSession:
+    def create_session(self, owner_id: str) -> WebSession:
         with self._lock:
             while len(self._session_order) >= self.maximum_sessions:
                 expired = self._session_order.pop(0)
@@ -138,17 +155,19 @@ class AutoNavLogWebApplication:
             session = WebSession(
                 token=token,
                 calculation_service=calculation,
+                owner_id=owner_id,
                 weather_provider=weather,
                 readiness_service=ReadinessService(
                     calculation,
                     msm_package_version=getattr(weather, "package_version", None),
+                    require_crew_identification=False,
                 ),
             )
             self._sessions[token] = session
             self._session_order.append(token)
             return session
 
-    def session(self, token: str) -> WebSession:
+    def session(self, token: str, owner_id: str) -> WebSession:
         with self._lock:
             try:
                 session = self._sessions[token]
@@ -158,9 +177,26 @@ class AutoNavLogWebApplication:
                     "セッションの有効期限が切れました。画面を再読み込みしてください。",
                     status_code=401,
                 ) from error
+            if not compare_digest(session.owner_id, owner_id):
+                raise WebApplicationError(
+                    "SESSION_OWNER_MISMATCH",
+                    "認証ユーザーとセッション所有者が一致しません。",
+                    status_code=401,
+                )
             self._session_order.remove(token)
             self._session_order.append(token)
             return session
+
+    def invalidate_session(self, token: str, owner_id: str) -> None:
+        with self._lock:
+            session = self._sessions.get(token)
+            if session is None or not compare_digest(session.owner_id, owner_id):
+                return
+            self._sessions.pop(token, None)
+            try:
+                self._session_order.remove(token)
+            except ValueError:
+                pass
 
     def accept_import(
         self,
@@ -169,7 +205,7 @@ class AutoNavLogWebApplication:
         result: KmlImportResult,
         filename: str,
     ) -> dict[str, Any]:
-        with self._lock:
+        with session.lock:
             session.import_result = result
             session.import_filename = filename
             session.project = None
@@ -182,7 +218,7 @@ class AutoNavLogWebApplication:
         session: WebSession,
         request: ConfirmRouteRequest,
     ) -> dict[str, Any]:
-        with self._lock:
+        with session.lock:
             if not request.route_use_confirmed:
                 raise WebApplicationError(
                     "ROUTE_CONFIRMATION_REQUIRED",
@@ -203,7 +239,8 @@ class AutoNavLogWebApplication:
             )
             project = self.project_service.create(
                 name=self._unique_project_name(
-                    f"{request.flight_date.isoformat()}_{departure.icao}-{destination.icao}"
+                    f"{request.flight_date.isoformat()}_{departure.icao}-{destination.icao}",
+                    session,
                 ),
                 pilot_name=request.pilot_name,
                 ship_identifier=request.ship_identifier,
@@ -221,6 +258,7 @@ class AutoNavLogWebApplication:
                     "project_name_auto": True,
                     "project_name_generated": project.name,
                     "web_import_filename": session.import_filename,
+                    "web_owner_id": session.owner_id,
                 }
             )
             self._install_route(
@@ -259,7 +297,7 @@ class AutoNavLogWebApplication:
         session: WebSession,
         request: UpdateProjectRequest,
     ) -> dict[str, Any]:
-        with self._lock:
+        with session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             working = session.project.model_copy(deep=True)
@@ -268,8 +306,10 @@ class AutoNavLogWebApplication:
                 request.flight_date,
                 request.departure_time_jst,
             )
-            working.pilot_name = request.pilot_name
-            working.ship_identifier = request.ship_identifier
+            if request.pilot_name is not None:
+                working.pilot_name = request.pilot_name
+            if request.ship_identifier is not None:
+                working.ship_identifier = request.ship_identifier
             working.total_usable_fuel_gal = request.total_usable_fuel_gal
             working.default_variation_deg_east = request.default_variation_deg_east
             working.manual_qnh_hpa = request.manual_qnh_hpa
@@ -306,7 +346,7 @@ class AutoNavLogWebApplication:
             return self.present(session)
 
     def calculate(self, session: WebSession) -> dict[str, Any]:
-        with self._lock:
+        with session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             outcome = session.calculation_service.calculate(
@@ -340,7 +380,7 @@ class AutoNavLogWebApplication:
             return self.present(session)
 
     def acknowledge(self, session: WebSession, ack_key: str, checked: bool) -> dict[str, Any]:
-        with self._lock:
+        with session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "Projectがありません。")
             evaluation = self._evaluate(session)
@@ -352,7 +392,7 @@ class AutoNavLogWebApplication:
             if ack_key not in allowed:
                 raise WebApplicationError(
                     "ACKNOWLEDGEMENT_NOT_FOUND",
-                    "確認対象のWarningが現在の計算状態にありません。",
+                    "確認対象の確認事項が現在の計算状態にありません。",
                     status_code=404,
                 )
             if checked:
@@ -363,21 +403,32 @@ class AutoNavLogWebApplication:
             return self.present(session)
 
     def save(self, session: WebSession, request: SaveProjectRequest) -> dict[str, Any]:
-        with self._lock:
+        with session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "保存するProjectがありません。")
             if request.name is not None:
                 session.project.name = self._normalize_project_name(request.name)
                 session.project.metadata["project_name_auto"] = False
+            self._assert_project_owner(session.project, session.owner_id)
             saved = self.project_service.save(session.project)
             session.project = saved.project
+            self._projects_changed(session)
             self._evaluate(session)
             return self.present(session)
 
     def load(self, session: WebSession, project_id: UUID) -> dict[str, Any]:
-        with self._lock:
-            project = self.project_service.load(project_id)
+        with session.lock:
+            try:
+                project = self.project_service.load(project_id)
+            except ValueError as error:
+                raise WebApplicationError(
+                    "PROJECT_NOT_FOUND",
+                    "指定されたProjectは見つかりません。",
+                    status_code=404,
+                ) from error
+            self._assert_project_owner(project, session.owner_id)
             session.project = project
+            session.saved_projects_cache = None
             session.outcome = None
             session.import_result = None
             session.import_filename = None
@@ -385,7 +436,7 @@ class AutoNavLogWebApplication:
             return self.present(session)
 
     def create_snapshot(self, session: WebSession) -> str:
-        with self._lock:
+        with session.lock:
             if session.project is None or session.outcome is None:
                 raise WebApplicationError(
                     "CALCULATION_REQUIRED",
@@ -402,7 +453,7 @@ class AutoNavLogWebApplication:
             return path.name
 
     def transfer_aid_html(self, session: WebSession) -> tuple[str, str]:
-        with self._lock:
+        with session.lock:
             if session.project is None or session.outcome is None:
                 raise WebApplicationError(
                     "CALCULATION_REQUIRED",
@@ -412,7 +463,7 @@ class AutoNavLogWebApplication:
             if not evaluation.transfer_aid_allowed:
                 raise WebApplicationError(
                     "TRANSFER_AID_BLOCKED",
-                    "Blocker解消・必要警告承認・再計算後に出力できます。",
+                    "未確定項目の解消・必要な確認・再計算後に出力できます。",
                     status_code=409,
                 )
             filename = f"AutoNavLog_transfer_aid_{session.project.id}.html"
@@ -425,6 +476,10 @@ class AutoNavLogWebApplication:
             )
 
     def present(self, session: WebSession) -> dict[str, Any]:
+        with session.lock:
+            return self._present_unlocked(session)
+
+    def _present_unlocked(self, session: WebSession) -> dict[str, Any]:
         evaluation = None if session.project is None else self._evaluate(session)
         issues: list[dict[str, Any]] = []
         displayed_issue_keys: set[tuple[str, UUID | None, int | None]] = set()
@@ -448,9 +503,7 @@ class AutoNavLogWebApplication:
                             None if item.issue.section_id is None else str(item.issue.section_id)
                         ),
                         "segmentSequence": item.issue.segment_sequence,
-                        "acknowledgementRequired": (
-                            item.effective_acknowledgement_required
-                        ),
+                        "acknowledgementRequired": (item.effective_acknowledgement_required),
                         "ackKey": item.ctx.ack_key,
                         "acknowledged": (
                             item.ctx.ack_key in session.project.acknowledged_warning_codes
@@ -462,17 +515,13 @@ class AutoNavLogWebApplication:
                     }
                 )
         project_payload = (
-            None
-            if session.project is None
-            else session.project.model_dump(mode="json")
+            None if session.project is None else session.project.model_dump(mode="json")
         )
         outcome_payload = (
-            None
-            if session.outcome is None
-            else session.outcome.model_dump(mode="json")
+            None if session.outcome is None else session.outcome.model_dump(mode="json")
         )
         candidates = self._candidate_payload(session.import_result)
-        summaries = self.project_service.list_projects()
+        summaries = self._owned_project_summaries(session)
         return {
             "runtime": {
                 "weatherLabel": self.weather_label,
@@ -514,6 +563,11 @@ class AutoNavLogWebApplication:
                 "filename": session.import_filename,
                 **candidates,
             },
+            "altitudeGuidance": {
+                "legalThresholdNote": LEGAL_THRESHOLD_NOTE_JA,
+                "terrainLimitationNote": TERRAIN_LIMITATION_NOTE_JA,
+                "sections": self._section_guidance(session.project),
+            },
             "project": project_payload,
             "outcome": outcome_payload,
             "readiness": {
@@ -542,6 +596,91 @@ class AutoNavLogWebApplication:
         session.readiness = materialized.evaluation
         return materialized.evaluation
 
+    @staticmethod
+    def _assert_project_owner(project: Project, owner_id: str) -> None:
+        stored_owner = project.metadata.get("web_owner_id")
+        if not isinstance(stored_owner, str) or not compare_digest(
+            stored_owner,
+            owner_id,
+        ):
+            raise WebApplicationError(
+                "PROJECT_NOT_FOUND",
+                "指定されたProjectは見つかりません。",
+                status_code=404,
+            )
+
+    def _projects_changed(self, session: WebSession) -> None:
+        with self._lock:
+            self._projects_generation += 1
+        session.saved_projects_cache = None
+        session.saved_projects_generation = -1
+
+    def _owned_project_summaries(
+        self,
+        session: WebSession,
+    ) -> tuple[ProjectSummary, ...]:
+        with self._lock:
+            generation = self._projects_generation
+        if (
+            session.saved_projects_cache is not None
+            and session.saved_projects_generation == generation
+        ):
+            return session.saved_projects_cache
+
+        owned: list[ProjectSummary] = []
+        for summary in self.project_service.list_projects():
+            try:
+                project = self.project_service.load(summary.id)
+            except ValueError:
+                continue
+            stored_owner = project.metadata.get("web_owner_id")
+            if isinstance(stored_owner, str) and compare_digest(
+                stored_owner,
+                session.owner_id,
+            ):
+                owned.append(summary)
+        session.saved_projects_cache = tuple(owned)
+        session.saved_projects_generation = generation
+        return session.saved_projects_cache
+
+    @staticmethod
+    def _section_guidance(project: Project | None) -> list[dict[str, Any]]:
+        if project is None:
+            return []
+        nodes = {node.id: node for node in project.route_nodes}
+        guidance: list[dict[str, Any]] = []
+        for section in project.ordered_sections():
+            start = nodes.get(section.from_node_id)
+            end = nodes.get(section.to_node_id)
+            if start is None or end is None:
+                continue
+            true_course = geodesic_leg(
+                start.latitude_deg,
+                start.longitude_deg,
+                end.latitude_deg,
+                end.longitude_deg,
+            ).initial_true_course_deg
+            magnetic_course = magnetic_course_deg(
+                true_course,
+                project.default_variation_deg_east,
+            )
+            matches = matches_vfr_cruising_altitude(
+                section.planned_altitude_ft_msl,
+                magnetic_course,
+            )
+            guidance.append(
+                {
+                    "sectionId": str(section.id),
+                    "magneticCourseDeg": magnetic_course,
+                    "candidateAltitudesFtMsl": list(
+                        vfr_cruising_altitude_candidates(magnetic_course)
+                    ),
+                    "appliesToCruise": section.phase == FlightPhase.CRUISE,
+                    "requiresReview": (section.phase == FlightPhase.CRUISE and not matches),
+                }
+            )
+        return guidance
+
     def _selected_airports(self, departure_id: str, destination_id: str) -> tuple[Any, Any]:
         try:
             departure = self.reference_catalog.airports[departure_id]
@@ -559,9 +698,31 @@ class AutoNavLogWebApplication:
         request: ConfirmRouteRequest,
     ) -> list[RouteEntry]:
         if request.candidate_kind == "line":
-            line = select_imported_line(result, request.candidate_index)
+            try:
+                line = select_imported_line(result, request.candidate_index)
+            except KmlImportError as error:
+                raise WebApplicationError(
+                    "ROUTE_CANDIDATE_NOT_FOUND",
+                    "選択したLineStringが現在のKMLにありません。",
+                ) from error
+            named = named_waypoints_from_line(line)
+            if named:
+                return [
+                    (
+                        point.name,
+                        point.latitude_deg,
+                        point.longitude_deg,
+                        "KML/KMZ LineString name",
+                    )
+                    for point in named
+                ]
             return [
-                (f"{line.name} {index + 1:02d}", lat, lon, "KML/KMZ LineString")
+                (
+                    self._nearest_point_name(result, lat, lon) or f"WP{index + 1}",
+                    lat,
+                    lon,
+                    "KML/KMZ LineString",
+                )
                 for index, (lat, lon) in enumerate(line.coordinates)
             ]
         if request.candidate_kind == "polygon":
@@ -570,8 +731,14 @@ class AutoNavLogWebApplication:
                     "POLYGON_CONFIRMATION_REQUIRED",
                     "Polygon境界の開始点・進行方向をKML記載順で使うことを確認してください。",
                 )
-            outer = select_imported_polygon_outer(result, request.candidate_index)
-            polygon = result.polygons[request.candidate_index]
+            try:
+                outer = select_imported_polygon_outer(result, request.candidate_index)
+                polygon = result.polygons[request.candidate_index]
+            except (IndexError, KmlImportError) as error:
+                raise WebApplicationError(
+                    "ROUTE_CANDIDATE_NOT_FOUND",
+                    "選択したPolygonが現在のKMLにありません。",
+                ) from error
             return [
                 (f"{polygon.name} {index + 1:02d}", lat, lon, "KML/KMZ Polygon")
                 for index, (lat, lon) in enumerate(outer)
@@ -594,6 +761,26 @@ class AutoNavLogWebApplication:
             for point in points
         ]
 
+    @staticmethod
+    def _nearest_point_name(
+        result: KmlImportResult,
+        latitude_deg: float,
+        longitude_deg: float,
+    ) -> str | None:
+        nearest: tuple[float, str] | None = None
+        for point in result.points:
+            distance = geodesic_leg(
+                latitude_deg,
+                longitude_deg,
+                point.latitude_deg,
+                point.longitude_deg,
+            ).distance_nm
+            if nearest is None or distance < nearest[0]:
+                nearest = (distance, point.name)
+        if nearest is None or nearest[0] > 0.05:
+            return None
+        return nearest[1].strip() or None
+
     def _align_route_endpoints(
         self,
         entries: list[RouteEntry],
@@ -613,13 +800,11 @@ class AutoNavLogWebApplication:
                 deduplicated.append(entry)
         start = (deduplicated[0][1], deduplicated[0][2])
         end = (deduplicated[-1][1], deduplicated[-1][2])
-        direct = (
-            self._distance_to_airport(start, departure)
-            + self._distance_to_airport(end, destination)
+        direct = self._distance_to_airport(start, departure) + self._distance_to_airport(
+            end, destination
         )
-        reverse = (
-            self._distance_to_airport(start, destination)
-            + self._distance_to_airport(end, departure)
+        reverse = self._distance_to_airport(start, destination) + self._distance_to_airport(
+            end, departure
         )
         if reverse + 0.1 < direct:
             raise WebApplicationError(
@@ -670,11 +855,7 @@ class AutoNavLogWebApplication:
             RouteNode(
                 project_id=project.id,
                 sequence=index,
-                name=(
-                    entry[0]
-                    if index in {0, len(entries) - 1}
-                    else f"WP{index}"
-                ),
+                name=entry[0] or f"WP{index}",
                 latitude_deg=entry[1],
                 longitude_deg=entry[2],
                 role=(
@@ -750,11 +931,7 @@ class AutoNavLogWebApplication:
         request: UpdateProjectRequest,
     ) -> None:
         state = project.metadata.get("ui_state")
-        current = (
-            PersistedUiState()
-            if state is None
-            else self.project_service.ui_state(project)
-        )
+        current = PersistedUiState() if state is None else self.project_service.ui_state(project)
         vrep_id = request.visual_reporting_point_node_id
         for index, node in enumerate(project.route_nodes):
             if node.role == RouteNodeRole.VISUAL_REPORTING_POINT:
@@ -850,12 +1027,10 @@ class AutoNavLogWebApplication:
         if blockers:
             return str(blockers[0]["action"])
         pending = [
-            item
-            for item in issues
-            if item["acknowledgementRequired"] and not item["acknowledged"]
+            item for item in issues if item["acknowledgementRequired"] and not item["acknowledged"]
         ]
         if pending:
-            return "Warningを確認済みにしてください"
+            return "確認事項を確認済みにしてください"
         if session.outcome is None:
             return "NAV LOGを計算してください"
         return "A4転記補助HTMLを出力できます"
@@ -872,9 +1047,9 @@ class AutoNavLogWebApplication:
             tzinfo=JST,
         )
 
-    def _unique_project_name(self, requested: str) -> str:
+    def _unique_project_name(self, requested: str, session: WebSession) -> str:
         normalized = self._normalize_project_name(requested)
-        existing = {summary.name for summary in self.project_service.list_projects()}
+        existing = {summary.name for summary in self._owned_project_summaries(session)}
         if normalized not in existing:
             return normalized
         ordinal = 2
@@ -891,4 +1066,5 @@ class AutoNavLogWebApplication:
             "_" if character in '<>:"/\\|?*' or ord(character) < 32 else character
             for character in value.strip()
         ).strip()
-        return (normalized or "route")[:60]
+        normalized = normalized[:60].rstrip(" .")
+        return normalized or "route"

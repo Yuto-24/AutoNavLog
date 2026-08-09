@@ -15,12 +15,12 @@ from autonavlog.domain.planning import load_persisted_ui_state
 from autonavlog.domain.project import Project
 from autonavlog.domain.values import AdoptedValue
 
-from .formatting import ROUNDING, format_clock, format_duration
+from .formatting import ROUNDING, format_clock
 
 DISCLAIMER = (
     "この出力は航空大学校「別添8-1」の複製、公式様式、承認済み運航資料ではありません。"
     "計算値を原票へ手書きで転記するための補助表です。"
-    "利用者が適用規定、性能資料、WX、警告および原票の欄と照合してください。"
+    "利用者が適用規定、性能資料、WX、確認事項および原票の欄と照合してください。"
 )
 
 
@@ -149,54 +149,81 @@ def _wind_cell(result: SectionResult) -> str:
     return f"<td class='{classes}'><span>{escape(shown)}</span>{origin_html}</td>"
 
 
+def _raw(value: Any | None) -> str:
+    return "" if value is None else str(value)
+
+
+def _raw_adopted_cell(value: AdoptedValue[Any], css_class: str = "num") -> str:
+    adopted = value.adopted()
+    shown = "—（未確定）" if adopted is None else _raw(adopted)
+    classes = css_class + (" missing" if adopted is None else "")
+    return f"<td class='{classes}'>{escape(shown)}</td>"
+
+
+def _combined_adopted_cell(
+    primary: AdoptedValue[float],
+    cumulative: AdoptedValue[float],
+    *,
+    seconds_to_minutes: bool = False,
+) -> str:
+    primary_value = primary.adopted()
+    cumulative_value = cumulative.adopted()
+    if seconds_to_minutes:
+        primary_value = None if primary_value is None else primary_value / 60
+        cumulative_value = None if cumulative_value is None else cumulative_value / 60
+    missing = primary_value is None or cumulative_value is None
+    classes = "num combined" + (" missing" if missing else "")
+    primary_text = "—" if primary_value is None else _raw(primary_value)
+    cumulative_text = "—" if cumulative_value is None else _raw(cumulative_value)
+    return (
+        f"<td class='{classes}'><span>{escape(primary_text)}</span>"
+        f"<small>{escape(cumulative_text)}</small></td>"
+    )
+
+
+def _raw_wind_cell(result: SectionResult) -> str:
+    speed = result.wind_speed_kt.adopted()
+    direction = result.wind_direction_deg_from.adopted()
+    if speed == 0:
+        shown = "CALM"
+    elif speed is None or direction is None:
+        shown = "—（未確定）"
+    else:
+        shown = f"{_raw(direction)}/{_raw(speed)}"
+    classes = "num" + (" missing" if speed is None or (speed != 0 and direction is None) else "")
+    return f"<td class='{classes}'>{escape(shown)}</td>"
+
+
 def _section_row(result: SectionResult) -> str:
     cells = [
-        _text_cell(str(result.sequence + 1), "num"),
-        _text_cell(_phase_label(result), "phase"),
         _text_cell(result.from_name, "route-name"),
         _text_cell(result.to_name, "route-name"),
-        _value_cell(result.planned_altitude_ft_msl, lambda value: f"{value:.0f}"),
-        _value_cell(result.pressure_altitude_planning_ft, lambda value: f"{value:.0f}"),
-        _value_cell(
-            result.true_course_deg,
-            lambda value: f"{ROUNDING.bearing(value):03.0f}",
-        ),
-        _value_cell(result.variation_deg_east, lambda value: f"{value:+.0f}"),
-        _value_cell(
-            result.magnetic_course_deg,
-            lambda value: f"{ROUNDING.bearing(value):03.0f}",
-        ),
-        _wind_cell(result),
-        _value_cell(result.wca_deg, lambda value: f"{value:+.0f}"),
-        _value_cell(
-            result.magnetic_heading_deg,
-            lambda value: f"{ROUNDING.bearing(value):03.0f}",
-        ),
-        _value_cell(
-            result.temperature_c,
-            lambda value: f"{ROUNDING.temperature(value):.0f}",
-        ),
-        _value_cell(result.cas_kt, lambda value: f"{value:.0f}"),
-        _value_cell(result.tas_kt, lambda value: f"{value:.0f}"),
-        _value_cell(result.ground_speed_kt, lambda value: f"{value:.0f}"),
-        _value_cell(
+        _raw_adopted_cell(result.pressure_altitude_planning_ft),
+        _raw_adopted_cell(result.temperature_c),
+        _raw_adopted_cell(result.cas_kt),
+        _raw_adopted_cell(result.tas_kt),
+        _raw_adopted_cell(result.true_course_deg),
+        _raw_adopted_cell(result.variation_deg_east),
+        _raw_adopted_cell(result.magnetic_course_deg),
+        _raw_wind_cell(result),
+        _raw_adopted_cell(result.wca_deg),
+        _raw_adopted_cell(result.magnetic_heading_deg),
+        _combined_adopted_cell(
             result.zone_distance_nm,
-            lambda value: f"{ROUNDING.distance(value):.1f}",
-        ),
-        _value_cell(
             result.cumulative_distance_nm,
-            lambda value: f"{ROUNDING.distance(value):.1f}",
         ),
-        _value_cell(result.zone_ete_seconds, format_duration),
-        _value_cell(result.cumulative_ete_seconds, format_duration),
+        _raw_adopted_cell(result.ground_speed_kt),
+        _combined_adopted_cell(
+            result.zone_ete_seconds,
+            result.cumulative_ete_seconds,
+            seconds_to_minutes=True,
+        ),
         _text_cell("", "num"),
-        _value_cell(
+        _text_cell("", "num"),
+        _text_cell("", "num"),
+        _combined_adopted_cell(
             result.section_fuel_gal,
-            lambda value: f"{ROUNDING.fuel(value):.1f}",
-        ),
-        _value_cell(
             result.remaining_fuel_gal,
-            lambda value: f"{ROUNDING.fuel(value):.1f}",
         ),
     ]
     return "<tr>" + "".join(cells) + "</tr>"
@@ -207,38 +234,23 @@ def _project_summary(project: Project, outcome: CalculationOutcome) -> str:
         outcome.sections[-1].cumulative_distance_nm.adopted() if outcome.sections else None
     )
     total_time = outcome.sections[-1].cumulative_ete_seconds.adopted() if outcome.sections else None
-    qnh = outcome.qnh_hpa.adopted()
-    qnh_value = _optional_number(
-        qnh,
-        lambda value: f"{ROUNDING.qnh(value):.0f} hPa",
-    )
-    if outcome.qnh_hpa.state == ValueState.MANUAL_OVERRIDE:
-        automatic_qnh = outcome.qnh_hpa.automatic_value
-        automatic_text = _optional_number(
-            automatic_qnh,
-            lambda value: f"{ROUNDING.qnh(value):.0f} hPa",
-        )
-        qnh_value += f"（手動上書き / MSM推定 {automatic_text}）"
     values = [
-        ("PILOT", project.pilot_name or "未入力"),
         ("DATE", project.flight_date.isoformat()),
-        ("SHIP", project.ship_identifier or "未入力"),
-        ("FROM / TO", f"{project.departure_airport_id} / {project.destination_airport_id}"),
-        ("ETD JST", project.planned_departure_time_jst.strftime("%H:%M")),
-        ("MSM推定QNH", qnh_value),
-        (
-            "TTL DIST nm",
-            _optional_number(
-                total_distance,
-                lambda value: f"{ROUNDING.distance(value):.1f}",
-            ),
-        ),
-        ("TTL ETE", _optional_number(total_time, format_duration)),
-        ("FORECAST RUN", outcome.selected_forecast_run_id or "未確定"),
-        ("POLICY", outcome.policy_version),
+        ("SHIP", project.ship_identifier or ""),
+        ("FROM", project.departure_airport_id),
+        ("TO", project.destination_airport_id),
+        ("TTL DIST", _raw(total_distance)),
+        ("TTL TIME", _raw(None if total_time is None else total_time / 60)),
+        ("TAKE OFF", project.planned_departure_time_jst.strftime("%H:%M")),
+        ("LANDING", ""),
+        ("PILOT", project.pilot_name or ""),
     ]
-    cells = "".join(f"<th>{escape(label)}</th><td>{escape(value)}</td>" for label, value in values)
-    return f"<table class='meta-table'><tbody><tr>{cells}</tr></tbody></table>"
+    headings = "".join(f"<th>{escape(label)}</th>" for label, _ in values)
+    cells = "".join(f"<td>{escape(value)}</td>" for _, value in values)
+    return (
+        "<table class='meta-table'><thead><tr>"
+        f"{headings}</tr></thead><tbody><tr>{cells}</tr></tbody></table>"
+    )
 
 
 def _derived_points_table(outcome: CalculationOutcome) -> str:
@@ -270,39 +282,71 @@ def _derived_points_table(outcome: CalculationOutcome) -> str:
 """
 
 
+def _info_table(outcome: CalculationOutcome) -> str:
+    qnh = outcome.qnh_hpa.adopted()
+    values = [
+        ("CODE", "MSM" if outcome.selected_forecast_run_id else ""),
+        ("TIME", outcome.selected_forecast_run_id or ""),
+        ("WIND", ""),
+        ("VIS", ""),
+        ("CLD", ""),
+        ("TEMP", ""),
+        ("QNH", "" if qnh is None else f"{_raw(qnh)} hPa"),
+    ]
+    headings = "".join(f"<th>{escape(label)}</th>" for label, _ in values)
+    cells = "".join(f"<td>{escape(value)}</td>" for _, value in values)
+    return (
+        "<table class='info-table'><thead><tr><th rowspan='2'>INFO</th>"
+        f"{headings}</tr></thead><tbody><tr>{cells}</tr></tbody></table>"
+    )
+
+
+def _phase_minutes(outcome: CalculationOutcome, phases: set[str]) -> float | None:
+    values = [
+        section.zone_ete_seconds.adopted()
+        for section in outcome.sections
+        if section.phase.value in phases
+    ]
+    if not values or any(value is None for value in values):
+        return None
+    return sum(value for value in values if value is not None) / 60
+
+
 def _fuel_table(outcome: CalculationOutcome) -> str:
     fuel = outcome.fuel_plan
-    values = [
-        ("TOTAL", fuel.total_usable_gal),
-        ("TAXI/RUN-UP", fuel.taxi_runup_gal),
-        ("CLIMB", fuel.climb_gal),
-        ("CRUISE", fuel.cruise_gal),
-        ("DESC/ARR", fuel.descent_gal),
-        ("ADDITIONAL", fuel.additional_gal),
-        ("TGL", fuel.tgl_gal),
-        ("RESERVE", fuel.reserve_gal),
-        ("MIN REQUIRED", fuel.min_required_gal),
-        ("EXTRA", fuel.extra_gal),
+    total_time = outcome.sections[-1].cumulative_ete_seconds.adopted() if outcome.sections else None
+    rows = [
+        ("TAXI-RUN UP", None, fuel.taxi_runup_gal),
+        ("BOF CLIMB", _phase_minutes(outcome, {"CLIMB"}), fuel.climb_gal),
+        ("BOF CRUISE", _phase_minutes(outcome, {"CRUISE"}), fuel.cruise_gal),
+        (
+            "BOF DESCENT",
+            _phase_minutes(outcome, {"DESCENT", "VISUAL_ARRIVAL"}),
+            fuel.descent_gal,
+        ),
+        ("BOF TGL", None, fuel.tgl_gal),
+        ("BOF ADDITIONAL", None, fuel.additional_gal),
+        ("RESERVE", None, fuel.reserve_gal),
+        ("MIN REQUIRED", None, fuel.min_required_gal),
+        (
+            "EXTRA",
+            None if fuel.extra_endurance_seconds is None else fuel.extra_endurance_seconds / 60,
+            fuel.extra_gal,
+        ),
+        ("TOTAL", None if total_time is None else total_time / 60, fuel.total_usable_gal),
     ]
-    headers = "".join(f"<th>{escape(label)}</th>" for label, _ in values)
-    cells = "".join(
-        "<td class='num'>"
-        + escape(
-            _optional_number(
-                value,
-                lambda item: f"{ROUNDING.fuel(item):.1f}",
-            )
-        )
-        + "</td>"
-        for _, value in values
+    body = "".join(
+        "<tr>"
+        f"<th>{escape(label)}</th>"
+        f"<td class='num'>{escape(_raw(time))}</td>"
+        f"<td class='num'>{escape(_raw(amount))}</td>"
+        "</tr>"
+        for label, time, amount in rows
     )
-    endurance = _optional_number(fuel.extra_endurance_seconds, format_duration)
-    return f"""
-<table class="support-table fuel-table">
-  <thead><tr>{headers}<th>EXTRA ENDURANCE</th></tr></thead>
-  <tbody><tr>{cells}<td class="num">{escape(endurance)}</td></tr></tbody>
-</table>
-"""
+    return (
+        "<table class='fuel-table'><thead><tr><th></th><th>TIME</th><th>FUEL</th>"
+        f"</tr></thead><tbody>{body}</tbody></table>"
+    )
 
 
 def _segment_sequence_label(sequences: list[int | None]) -> str:
@@ -525,7 +569,7 @@ def render_transfer_aid_html(
 ) -> str:
     """Render an unofficial, dense transcription aid for A4 landscape printing."""
 
-    effective, status, ready = _transfer_context(
+    _effective, status, ready = _transfer_context(
         project,
         outcome,
         effective_issues,
@@ -536,7 +580,7 @@ def render_transfer_aid_html(
     status_class = "transfer-ready" if ready else "transfer-blocked"
     section_rows = "".join(_section_row(result) for result in outcome.sections)
     if not section_rows:
-        section_rows = "<tr><td class='missing' colspan='23'>Section計算結果なし</td></tr>"
+        section_rows = "<tr><td class='missing' colspan='19'>Section計算結果なし</td></tr>"
     return f"""
 <style>
 @page {{ size: A4 landscape; margin: 8mm; }}
@@ -569,26 +613,16 @@ def render_transfer_aid_html(
 .route-table th {{ white-space:normal; overflow-wrap:anywhere; }}
 .route-table td {{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
 .route-table .route-name {{ white-space:normal; overflow-wrap:anywhere; }}
-.route-table .phase {{ white-space:normal; font-size:5.5px; }}
+.route-table small {{ font-size:5px; font-weight:400; }}
+.route-table .combined small {{ display:block; border-top:1px solid #999; margin-top:2px;
+  padding-top:2px; }}
 .num {{ text-align:right; font-variant-numeric:tabular-nums; }}
 .missing {{ color:#b00020; background:#fff0f0; font-weight:700; }}
-.support-grid {{ display:grid; grid-template-columns:1fr 1.25fr; gap:5px; margin-top:5px; }}
-.support-grid h3,.issues-wrap h3 {{ font-size:8px; margin:0 0 2px; }}
-.support-table {{ table-layout:auto; font-size:6.5px; }}
-.support-table small,.route-table small {{ font-size:5px; font-weight:400; }}
-.fuel-table {{ table-layout:fixed; }}
-.issues-wrap {{ margin-top:5px; }}
-.issues-table td:last-child {{ text-align:left; }}
-.value-origin {{ display:block; margin-top:1px; color:#4b5563; font-size:4.6px;
-  line-height:1.05; white-space:normal; overflow-wrap:anywhere; text-align:left; }}
-.state-manual-override {{ background:#fff7d6; }}
-.state-performance-table {{ background:#eef7ff; }}
-.state-fixed-rule {{ background:#f4f4f5; }}
-.state-warning {{ background:#fff4cc; color:#7d5900; font-weight:700; }}
-.blocker {{ color:#b00020; font-weight:800; }}
-.warning {{ color:#7d5900; font-weight:700; }}
-.print-footer {{ display:flex; justify-content:space-between; margin-top:4px;
-  font-size:6px; color:#333; }}
+.official-bottom {{ display:grid; grid-template-columns:2fr 1fr; gap:5px; margin-top:5px;
+  align-items:start; }}
+.info-table,.fuel-table {{ table-layout:fixed; font-size:6.5px; }}
+.info-table td {{ height:22px; }}
+.fuel-table th:first-child {{ width:48%; text-align:left; }}
 @media print {{
   html,body {{ margin:0; padding:0; background:#fff; }}
   .autonavlog-transfer-aid {{ max-width:none; width:auto; margin:0; padding:0; }}
@@ -599,8 +633,8 @@ def render_transfer_aid_html(
   .meta-table {{ font-size:5.2pt; }}
   .route-table {{ font-size:4.8pt; line-height:1; }}
   .route-table th,.route-table td {{ padding:.55mm .35mm; }}
-  .support-table {{ font-size:5.2pt; }}
-  .support-grid,.issues-wrap,.route-table tr {{ break-inside:avoid; }}
+  .info-table,.fuel-table {{ font-size:5.2pt; }}
+  .official-bottom,.route-table tr {{ break-inside:avoid; }}
 }}
 </style>
 <main class="autonavlog-transfer-aid">
@@ -611,41 +645,29 @@ def render_transfer_aid_html(
       <small>{escape(status.value)}</small></div>
   </header>
   <div class="transfer-disclaimer">{escape(DISCLAIMER)}</div>
-  {_route_source_notice(project)}
   {_project_summary(project, outcome)}
   <div class="transfer-scroll">
     <table class="route-table">
       <thead><tr>
-        <th>#</th><th>PHASE</th><th>FROM</th><th>TO</th>
-        <th>ALT<br><small>ft</small></th><th>PA<br><small>ft</small></th>
-        <th>TC<br><small>°T</small></th>
+        <th>FROM</th><th>TO</th><th>PA<br><small>ft</small></th>
+        <th>TOAT<br><small>°C</small></th><th>CAS<br><small>kt</small></th>
+        <th>TAS<br><small>kt</small></th><th>TC<br><small>°T</small></th>
         <th>VAR<br><small>°E</small></th><th>MC<br><small>°M</small></th>
         <th>WIND<br><small>°/kt</small></th><th>WCA<br><small>°</small></th>
-        <th>MH<br><small>°M</small></th><th>OAT<br><small>°C</small></th>
-        <th>CAS<br><small>kt</small></th><th>TAS<br><small>kt</small></th>
-        <th>GS<br><small>kt</small></th><th>ZONE DIST<br><small>nm</small></th>
-        <th>CUM DIST<br><small>nm</small></th>
-        <th>ZONE ETE<br><small>min</small></th><th>CUM ETE<br><small>min</small></th>
-        <th>ETO<br><small>JST</small></th><th>SECT FUEL<br><small>gal</small></th>
-        <th>REM FUEL<br><small>gal</small></th>
+        <th>MH<br><small>°M</small></th>
+        <th>ZONE / CUM<br>DIST<br><small>nm</small></th>
+        <th>GS<br><small>kt</small></th>
+        <th>ZONE / CUM<br>ETE<br><small>min</small></th>
+        <th>ETO</th><th>ATO</th><th>ATE</th>
+        <th>SECT / REM<br>FUEL<br><small>gal</small></th>
       </tr></thead>
       <tbody>{section_rows}</tbody>
     </table>
   </div>
-  <div class="support-grid">
-    <section><h3>DERIVED POINTS</h3>{_derived_points_table(outcome)}</section>
-    <section><h3>CHECK POINT ABEAM</h3>{_check_point_table(project, outcome)}</section>
-    <section><h3>ARRIVAL / VREP ALTITUDE</h3>{_arrival_table(outcome)}</section>
-    <section><h3>FUEL SUMMARY（gal）</h3>{_fuel_table(outcome)}</section>
+  <div class="official-bottom">
+    {_info_table(outcome)}
+    {_fuel_table(outcome)}
   </div>
-  <section class="issues-wrap"><h3>参照データ出典</h3>
-    {_reference_provenance_table(project)}
-  </section>
-  <section class="issues-wrap"><h3>警告・未確定項目</h3>
-    {_issues_table(outcome, effective)}
-  </section>
-  <footer class="print-footer"><span>Policy: {escape(outcome.policy_version)}</span>
-    <span>Performance: {escape(outcome.performance_table_version or "未確定")}</span></footer>
 </main>
 """
 
@@ -675,7 +697,7 @@ def render_transfer_aid_document(
         )
         suffix = "" if not blockers else f" ({', '.join(blockers)})"
         raise ValueError(
-            "転記補助HTMLは未確定項目を解消し、警告を承認してから出力してください。" + suffix
+            "転記補助HTMLは未確定項目を解消し、確認事項を承認してから出力してください。" + suffix
         )
     aid = render_transfer_aid_html(
         project,

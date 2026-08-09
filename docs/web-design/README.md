@@ -1,13 +1,13 @@
 # AutoNavLog Web design system
 
 This directory freezes the implementation reference for the responsive Web UI
-introduced after the Colab distribution was retired.
+introduced when Colab moved to a compatibility and migration-only path.
 
 ## Concept images
 
 - `primary-workspace.png`: KML/KMZ import, flight-plan input, route map, and
   readiness status in one desktop workspace.
-- `calculated-review.png`: calculated NAV LOG, warning acknowledgement, and
+- `calculated-review.png`: calculated NAV LOG, confirmation items, and
   transfer-aid output state.
 
 The images are visual references only. All labels, inputs, tables, map markers,
@@ -20,7 +20,7 @@ and actions remain code-native and accessible.
 | `--color-navy-950` | `#0b1f33` | top bar and primary actions |
 | `--color-navy-800` | `#173b5e` | headings and route line |
 | `--color-teal-700` | `#0c7c78` | selected/VREP/automatic success |
-| `--color-amber-700` | `#a8660d` | warnings and confirmation |
+| `--color-amber-700` | `#a8660d` | confirmation items |
 | `--color-red-700` | `#b42318` | blockers and unavailable values |
 | `--color-slate-50` | `#f7f9fb` | utility rails |
 | `--color-slate-200` | `#d8e0e8` | borders and dividers |
@@ -46,13 +46,14 @@ decorative cards. Shadows are reserved for temporary overlays.
 - Three-step progress rail: Route, Flight plan, Review/output.
 - KML/KMZ drop zone and paste dialog.
 - Shape candidate list with a required route-use confirmation.
-- Flight-plan fields: DATE, ETD JST, FROM, TO, PILOT, SHIP, FUEL, VAR,
-  manual QNH, and TGL.
+- Flight-plan fields: DATE, ETD JST, FROM, TO, FUEL (default 90 gal), VAR,
+  QNH with hPa/inHg conversion, and TGL.
 - Route map with airport, waypoint, VREP, RCA, EOC, and CP markers.
 - Editable route/leg table with ALT and PHASE controls.
-- Readiness rail showing the next action, data provenance, blockers, warnings,
-  and warning acknowledgement controls.
-- NAV LOG result table and fuel summary.
+- Readiness rail showing the next action, data provenance, blockers, confirmation
+  items, and acknowledgement controls.
+- NAV LOG result table aligned to the 19-column 別添8-1 layout plus INFO and
+  TIME/FUEL summary; numeric results are not display-rounded.
 - A4 transcription-aid HTML output action.
 
 ## Container and responsive rules
@@ -62,8 +63,9 @@ decorative cards. Shadows are reserved for temporary overlays.
   map and tables.
 - Below 760 px, stack every region, keep actions full-width, and make data
   tables horizontally scrollable.
-- Do not hide blockers, warning acknowledgements, provenance, or action reasons
-  at any viewport width.
+- Do not hide blockers, confirmation controls, provenance, or action reasons
+  at any viewport width. Keep linked OpenStreetMap attribution visible even in
+  the empty-map overlay.
 
 ## Copy lock
 
@@ -72,7 +74,7 @@ the imported route controls, flight-plan labels, `準備状況`, its next action
 reference provenance, and the current primary action. Marketing copy, claims,
 metrics, badges, and unrelated navigation are prohibited.
 
-## Implementation fidelity ledger (2026-08-09)
+## Implementation fidelity ledger (2026-08-10)
 
 ### Render and inspection method
 
@@ -96,8 +98,8 @@ metrics, badges, and unrelated navigation are prohibited.
 | Workflow | Three numbered stages directly below header | Route, flight plan, review/output rail with completed states | Match |
 | Desktop layout | Input / route / readiness columns | 24% / fluid / 25% three-column workspace | Match |
 | Route workspace | Map over compact POINT/ROLE/ALT/PHASE table | Leaflet/OSM route, airport/VREP/RCA/EOC markers, editable Leg table | Match |
-| Readiness | Provenance, next action, blockers/warnings, primary/output actions | Same order; duplicate causes collapsed by code/Leg/segment | Match |
-| Calculated view | Dense NAV LOG and fuel strip below the workspace | Segmented RCA/EOC NAV LOG plus fuel plan strip | Match |
+| Readiness | Provenance, next action, blockers/confirmations, primary/output actions | Same order; duplicate causes collapsed by code/Leg/segment | Match |
+| Calculated view | Dense NAV LOG and fuel strip below the workspace | 別添8-1-aligned 19-column NAV LOG plus INFO and TIME/FUEL tables | Match |
 | Visual language | White canvas, navy/teal, amber/red status, thin borders, no gradients | Same token family and restrained radii | Match |
 | Mobile | Single-column stack with all safety/status content retained | 390 px stack, full-width controls, no body horizontal overflow | Match |
 
