@@ -4,6 +4,7 @@ import csv
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from autonavlog.domain.planning import PatternAltitudeValidationStatus
 from autonavlog.domain.project import Airport
 
 if TYPE_CHECKING:
@@ -32,7 +33,12 @@ class AirportRepository:
                     latitude_deg=row.latitude_deg,
                     longitude_deg=row.longitude_deg,
                     elevation_ft_msl=row.elevation_ft_msl,
-                    pattern_altitude_ft_msl=row.pattern_altitude_ft_msl,
+                    pattern_altitude_ft_msl=(
+                        row.pattern_altitude_ft_msl
+                        if row.pattern_altitude_validation_status
+                        == PatternAltitudeValidationStatus.VERIFIED
+                        else None
+                    ),
                     source=row.source,
                     source_revision=row.source_revision,
                 )

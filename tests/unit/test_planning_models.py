@@ -5,7 +5,8 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
 
-from autonavlog.domain.enums import AdoptedSource
+from autonavlog.application.arrival import calculate_arrival_altitude
+from autonavlog.domain.enums import AdoptedSource, RouteNodeRole
 from autonavlog.domain.planning import (
     ARRIVAL_ALTITUDE_RULE_VERSION,
     AirportSelection,
@@ -17,6 +18,8 @@ from autonavlog.domain.planning import (
     ReferenceDataSnapshot,
     load_persisted_ui_state,
 )
+from autonavlog.domain.project import Project
+from autonavlog.nav.geodesy import point_along_leg
 
 HEX = "a" * 64
 
@@ -104,6 +107,62 @@ def test_arrival_distance_boundary_uses_one_meter_tolerance() -> None:
         excess_rounded=0,
     )
     assert result.effective_distance_nm == 5.0
+
+
+@pytest.mark.parametrize(
+    ("distance_nm", "excess_rounded", "adopted_altitude"),
+    [
+        (5.49, 0, 2000),
+        (5.50, 1, 2200),
+    ],
+)
+def test_calculate_arrival_altitude_rounds_raw_elevation_and_distance(
+    project: Project,
+    distance_nm: float,
+    excess_rounded: int,
+    adopted_altitude: int,
+) -> None:
+    working = project.model_copy(deep=True)
+    vrep = working.route_nodes[-2]
+    destination_node = working.route_nodes[-1]
+    vrep.role = RouteNodeRole.VISUAL_REPORTING_POINT
+    vrep.latitude_deg, vrep.longitude_deg = point_along_leg(
+        destination_node.latitude_deg,
+        destination_node.longitude_deg,
+        180.0,
+        distance_nm,
+    )
+    destination = _airport(elevation=490).model_copy(
+        update={
+            "id": working.destination_airport_id,
+            "icao": working.destination_airport_id,
+            "latitude_deg": destination_node.latitude_deg,
+            "longitude_deg": destination_node.longitude_deg,
+        }
+    )
+    departure = destination.model_copy(
+        update={
+            "id": working.departure_airport_id,
+            "icao": working.departure_airport_id,
+            "latitude_deg": working.route_nodes[0].latitude_deg,
+            "longitude_deg": working.route_nodes[0].longitude_deg,
+        }
+    )
+    state = PersistedUiState(
+        arrival_plan=ArrivalPlan(visual_reporting_point_node_id=vrep.id),
+        reference_data_snapshot=ReferenceDataSnapshot(
+            departure_airport=departure,
+            destination_airport=destination,
+        ),
+    )
+
+    computation = calculate_arrival_altitude(working, state)
+
+    assert computation.issues == ()
+    assert computation.result is not None
+    assert computation.result.airport_elevation_rounded_ft_msl == 500
+    assert computation.result.excess_distance_nm_rounded == excess_rounded
+    assert computation.result.adopted_altitude_ft_msl == adopted_altitude
 
 
 def test_arrival_result_rejects_tampered_derived_values() -> None:

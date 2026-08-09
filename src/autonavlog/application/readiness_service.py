@@ -56,8 +56,10 @@ class ReadinessService:
             return None
         try:
             return load_persisted_ui_state(raw)
-        except (TypeError, ValueError):
-            return None
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "PROJECT_STATE_INVALID: 保存済みUI状態を安全に読み込めません。"
+            ) from error
 
     @staticmethod
     def _store_ui_state(project: Project, state: PersistedUiState) -> None:

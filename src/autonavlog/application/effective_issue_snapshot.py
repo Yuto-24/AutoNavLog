@@ -218,6 +218,13 @@ def build_snapshot_effective_issues(
             )
         )
     record_tuple = tuple(records)
+    bound = {
+        binding.index
+        for record in record_tuple
+        for binding in record.outcome_bindings
+    }
+    if bound != set(range(len(outcome.issues))):
+        raise EffectiveIssueSnapshotError("not all outcome issues are bound")
     return SnapshotEffectiveIssuesEnvelope(
         created_at_utc=created_at_utc or datetime.now(timezone.utc),
         calculated_against_fingerprint=calculated_against_fingerprint,

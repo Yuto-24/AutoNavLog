@@ -278,11 +278,15 @@ def _safe_table_path(root: Path, relative: str, expected: str) -> Path:
     return path
 
 
-def _csv_rows(path: Path, expected_fields: list[str]) -> list[dict[str, str]]:
+def _csv_rows(
+    content: bytes,
+    path: Path,
+    expected_fields: list[str],
+) -> list[dict[str, str]]:
     try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as error:
-        raise ReferenceDataError(f"cannot read reference table: {path}") from error
+        text = content.decode("utf-8")
+    except UnicodeError as error:
+        raise ReferenceDataError(f"cannot decode reference table: {path}") from error
     reader = csv.DictReader(io.StringIO(text, newline=""))
     if reader.fieldnames != expected_fields:
         raise ReferenceDataError(
@@ -436,7 +440,10 @@ class ReferenceDataCatalogRepository:
                 raise ReferenceDataError(f"cannot read reference table: {path}") from error
             if hashlib.sha256(content).hexdigest() != table.sha256:
                 raise ReferenceDataError(f"SHA-256 mismatch for {path.name}")
-            rows = [_validate_row(model, row) for row in _csv_rows(path, fields)]
+            rows = [
+                _validate_row(model, row)
+                for row in _csv_rows(content, path, fields)
+            ]
             if len(rows) != table.row_count:
                 raise ReferenceDataError(f"row count mismatch for {path.name}")
             parsed[kind] = rows

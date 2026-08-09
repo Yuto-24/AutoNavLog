@@ -140,4 +140,11 @@ def test_atomic_project_save_and_revision_conflict(tmp_path, project) -> None:
     with pytest.raises(RevisionConflictError) as captured:
         repository.save(project, expected_revision=0)
     assert captured.value.conflict_copy.exists()
+
+    with pytest.raises(RevisionConflictError) as second:
+        repository.save(project, expected_revision=0)
+
+    assert second.value.conflict_copy.exists()
+    assert second.value.conflict_copy != captured.value.conflict_copy
+    assert len(captured.value.conflict_copy.stem.rsplit("-", 1)[-1]) == 32
     assert repository.load(project.id) == saved.project

@@ -94,9 +94,13 @@ class ProjectService:
             normalized.metadata["ui_state"] = PersistedUiState().model_dump(mode="json")
             normalized.metadata["ui_state_reconfirmation_required"] = True
         else:
-            normalized.metadata["ui_state"] = load_persisted_ui_state(raw_state).model_dump(
-                mode="json"
-            )
+            try:
+                ui_state = load_persisted_ui_state(raw_state)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    "ProjectのPersistedUiStateを安全に読み込めません。"
+                ) from error
+            normalized.metadata["ui_state"] = ui_state.model_dump(mode="json")
         return normalized
 
     def load(self, project_id: UUID) -> Project:
@@ -136,9 +140,12 @@ class ProjectService:
         input_data = project.model_copy(deep=True)
         try:
             ui_state = self.ui_state(project)
-        except ValueError:
-            ui_state = None
-        calculated_against = None if ui_state is None else ui_state.calculated_against_fingerprint
+        except ValueError as error:
+            raise ValueError(
+                "PROJECT_STATE_INVALID: 保存済みUI状態を読み込めないProjectから"
+                "Snapshotを作成できません。"
+            ) from error
+        calculated_against = ui_state.calculated_against_fingerprint
         effective = list(
             outcome_effective_issues(
                 outcome,

@@ -14,6 +14,7 @@ from autonavlog.domain.planning import (
     PatternAltitudeValidationStatus,
     PointSelection,
 )
+from autonavlog.storage.airports import AirportRepository
 from autonavlog.storage.reference_data import (
     ReferenceCatalog,
     ReferenceDataCatalogRepository,
@@ -114,6 +115,36 @@ def test_publish_open_snapshot_and_origins_round_trip(tmp_path: Path) -> None:
     assert snapshot.destination_airport.origin is not None
     assert snapshot.destination_airport.origin.dataset_revision == "r1"
     assert len(snapshot.destination_airport.origin.row_fingerprint) == 64
+
+
+def test_catalog_rows_are_parsed_from_the_hashed_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = ReferenceDataCatalogRepository(tmp_path)
+    _publish(repository)
+    original_read_text = Path.read_text
+
+    def guarded_read_text(path: Path, *args: object, **kwargs: object) -> str:
+        if path.suffix == ".csv":
+            raise AssertionError("verified CSV must not be reopened")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
+    assert sorted(repository.open_active().airports) == ["RJFM", "RJFO"]
+
+
+def test_airport_repository_drops_unverified_pattern_altitudes(
+    tmp_path: Path,
+) -> None:
+    repository = ReferenceDataCatalogRepository(tmp_path)
+    catalog = _publish(repository, destination_verified=False)
+
+    airports = AirportRepository.from_reference_catalog(catalog)
+
+    assert airports.get("RJFM").pattern_altitude_ft_msl == 1020
+    assert airports.get("RJFO").pattern_altitude_ft_msl is None
 
 
 def test_revision_is_immutable_and_rollback_restores_previous(tmp_path: Path) -> None:

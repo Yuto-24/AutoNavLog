@@ -9,7 +9,7 @@ from geographiclib.geodesic import Geodesic
 from autonavlog.domain.calculation import Issue
 from autonavlog.domain.enums import IssueSeverity, VisualReferenceRole
 from autonavlog.domain.planning import CheckPointProjection
-from autonavlog.domain.project import NavSection, Project, RouteNode, VisualReference
+from autonavlog.domain.project import Project, RouteNode, VisualReference
 from autonavlog.nav.geodesy import METERS_PER_NM, geodesic_leg
 
 
@@ -97,12 +97,7 @@ def _closest_point_on_leg(
     return station_m, cross_track_m, latitude, longitude
 
 
-def _adopted_section_distance(
-    section: NavSection,
-    start: RouteNode,
-    end: RouteNode,
-) -> float:
-    del section
+def _adopted_section_distance(start: RouteNode, end: RouteNode) -> float:
     return (
         start.manual_distance_nm
         or geodesic_leg(
@@ -118,13 +113,21 @@ def project_check_points(project: Project) -> CheckPointProjectionComputation:
     nodes = {node.id: node for node in project.route_nodes}
     sections = {section.id: section for section in project.sections}
     ordered_sections = project.ordered_sections()
-    cumulative_before: dict[object, float] = {}
+    cumulative_before: dict[UUID, float | None] = {}
     cumulative = 0.0
+    cumulative_known = True
     for section in ordered_sections:
+        if not cumulative_known:
+            cumulative_before[section.id] = None
+            continue
         cumulative_before[section.id] = cumulative
-        start = nodes[section.from_node_id]
-        end = nodes[section.to_node_id]
-        cumulative += _adopted_section_distance(section, start, end)
+        start = nodes.get(section.from_node_id)
+        end = nodes.get(section.to_node_id)
+        if start is None or end is None:
+            cumulative_before[section.id] = None
+            cumulative_known = False
+            continue
+        cumulative += _adopted_section_distance(start, end)
 
     projected: list[tuple[int, float, float, CheckPointProjection]] = []
     issues: list[Issue] = []
@@ -157,8 +160,21 @@ def project_check_points(project: Project) -> CheckPointProjectionComputation:
             )
             continue
         section = linked_section
-        start = nodes[section.from_node_id]
-        end = nodes[section.to_node_id]
+        start = nodes.get(section.from_node_id)
+        end = nodes.get(section.to_node_id)
+        cumulative_start = cumulative_before.get(section.id)
+        if start is None or end is None or cumulative_start is None:
+            issues.append(
+                _blocker(
+                    "CP_LINK_REQUIRED",
+                    (
+                        f"Check Point「{check_point.name}」の関連Legの"
+                        "Route Nodeを解決できません。"
+                    ),
+                    section_id=section.id,
+                )
+            )
+            continue
         try:
             station_m, cross_track_m, latitude, longitude = _closest_point_on_leg(
                 start, end, check_point
@@ -205,7 +221,7 @@ def project_check_points(project: Project) -> CheckPointProjectionComputation:
             continue
         prior_stations.append(station_m)
         fraction = station_m / physical_length_m
-        adopted_distance = _adopted_section_distance(section, start, end)
+        adopted_distance = _adopted_section_distance(start, end)
         along_distance = fraction * adopted_distance
         projection = CheckPointProjection(
             checkpoint_id=check_point.id,
@@ -214,7 +230,7 @@ def project_check_points(project: Project) -> CheckPointProjectionComputation:
             abeam_longitude_deg=longitude,
             along_track_fraction=fraction,
             along_section_distance_nm=along_distance,
-            cumulative_distance_nm=(cumulative_before[section.id] + along_distance),
+            cumulative_distance_nm=(cumulative_start + along_distance),
             cross_track_distance_nm=cross_track_m / METERS_PER_NM,
             policy_version="CP_ABEAM_WGS84_V1",
         )

@@ -7,12 +7,14 @@ from io import BytesIO
 from math import hypot, isfinite
 from pathlib import Path, PurePosixPath
 from xml.etree.ElementTree import Element, ParseError
-from zipfile import BadZipFile, ZipFile, ZipInfo
+from zipfile import BadZipFile, ZipFile
 
 from defusedxml import ElementTree
 from defusedxml.common import DefusedXmlException
 
 from autonavlog.nav.geodesy import geodesic_leg
+
+_ARCHIVE_READ_CHUNK_BYTES = 64 * 1024
 
 
 class KmlImportError(ValueError):
@@ -373,11 +375,10 @@ def _safe_kml_members(
     members = archive.infolist()
     if len(members) > limits.max_files:
         raise KmlImportError("KMZ file count limit exceeded")
-    if sum(member.file_size for member in members) > limits.max_expanded_bytes:
-        raise KmlImportError("KMZ expanded size limit exceeded")
     seen_normalized: set[str] = set()
     seen_casefolded: set[str] = set()
-    kml_members: list[ZipInfo] = []
+    kml_members: list[tuple[str, bytes]] = []
+    expanded_bytes = 0
     for member in members:
         path = _safe_archive_path(member.filename)
         normalized = path.as_posix()
@@ -393,15 +394,29 @@ def _safe_kml_members(
             raise KmlImportError("KMZ contains a symbolic link")
         if member.is_dir():
             continue
-        if path.suffix.casefold() in {".zip", ".kmz"}:
+        suffix = path.suffix.casefold()
+        if suffix in {".zip", ".kmz"}:
             raise KmlImportError("KMZ contains a nested archive")
+        chunks: list[bytes] = []
+        signature = b""
         with archive.open(member) as handle:
-            signature = handle.read(4)
+            while True:
+                remaining = limits.max_expanded_bytes - expanded_bytes
+                chunk = handle.read(min(_ARCHIVE_READ_CHUNK_BYTES, remaining + 1))
+                if not chunk:
+                    break
+                expanded_bytes += len(chunk)
+                if expanded_bytes > limits.max_expanded_bytes:
+                    raise KmlImportError("KMZ expanded size limit exceeded")
+                if len(signature) < 4:
+                    signature = (signature + chunk)[:4]
+                if suffix == ".kml":
+                    chunks.append(chunk)
         if signature == b"PK\x03\x04":
             raise KmlImportError("KMZ contains a nested archive")
-        if path.suffix.casefold() == ".kml":
-            kml_members.append(member)
-    return [(member.filename, archive.read(member)) for member in kml_members]
+        if suffix == ".kml":
+            kml_members.append((member.filename, b"".join(chunks)))
+    return kml_members
 
 
 def _select_kmz_document(
@@ -526,7 +541,16 @@ def import_kml_or_kmz(
         display_name = filename or "upload.kml"
     else:
         path = Path(source)
-        data = path.read_bytes()
+        try:
+            source_size = path.stat().st_size
+        except OSError as error:
+            raise KmlImportError(f"cannot inspect KML/KMZ source: {path}") from error
+        if source_size > limits.max_archive_bytes:
+            raise KmlImportError("KML/KMZ archive size limit exceeded")
+        try:
+            data = path.read_bytes()
+        except OSError as error:
+            raise KmlImportError(f"cannot read KML/KMZ source: {path}") from error
         display_name = filename or path.name
     if len(data) > limits.max_archive_bytes:
         raise KmlImportError("KML/KMZ archive size limit exceeded")

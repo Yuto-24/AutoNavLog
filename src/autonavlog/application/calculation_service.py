@@ -1761,6 +1761,7 @@ class CalculationService:
                         ValueState.FIXED_RULE,
                         planned_altitude_metadata,
                     ),
+                    # DESIGN v2.6 keeps this field only for schema compatibility.
                     safe_enroute_altitude_ft_msl=_unavailable(),
                     loss_time_seconds=0.0,
                     pressure_altitude_exact_ft=_automatic(exact_pa),
@@ -1820,6 +1821,7 @@ class CalculationService:
                     cumulative_distance_nm=_automatic(cumulative_distance),
                     zone_ete_seconds=_automatic(ete_seconds),
                     cumulative_ete_seconds=_automatic(cumulative_seconds),
+                    # ETO is anchored to an in-flight actual time check, not planned ETD.
                     eto_utc=_unavailable(),
                     section_fuel_gal=_automatic(
                         section_fuel,
@@ -2136,10 +2138,11 @@ class CalculationService:
 
     @staticmethod
     def _status(project: Project, issues: list[Issue]) -> ProjectStatus:
-        if any(issue.code == "ROUTE_INCOMPLETE" for issue in issues):
+        blockers = [issue for issue in issues if issue.severity == IssueSeverity.BLOCKER]
+        if any(issue.code == "ROUTE_INCOMPLETE" for issue in blockers):
             return ProjectStatus.ROUTE_INCOMPLETE
-        if any(issue.severity == IssueSeverity.BLOCKER for issue in issues):
-            if any(issue.code.startswith(("FORECAST", "WEATHER")) for issue in issues):
+        if blockers:
+            if any(issue.code.startswith(("FORECAST", "WEATHER")) for issue in blockers):
                 return ProjectStatus.WEATHER_PENDING
             return ProjectStatus.MANUAL_INPUT_REQUIRED
         unacknowledged = [

@@ -88,6 +88,28 @@ def test_snapshot_effective_issues_round_trip_with_outcome_binding(
     assert outcome_record.outcome_bindings[0].index == 0
 
 
+def test_snapshot_effective_issues_rejects_incomplete_outcome_coverage(
+    project: Any,
+    airports: Any,
+    performance_repository: Any,
+) -> None:
+    outcome, _ = _snapshot_fixture(
+        project,
+        airports,
+        performance_repository,
+    )
+
+    with pytest.raises(
+        EffectiveIssueSnapshotError,
+        match="not all outcome issues are bound",
+    ):
+        build_snapshot_effective_issues(
+            [],
+            outcome,
+            calculated_against_fingerprint="a" * 64,
+        )
+
+
 @pytest.mark.parametrize("tamper", ("ack", "unknown", "outcome"))
 def test_snapshot_effective_issues_fail_closed_on_tampering(
     project: Any,
