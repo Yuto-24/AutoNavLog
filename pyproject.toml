@@ -17,7 +17,7 @@ dependencies = [
   "geographiclib>=2,<3",
   "ipywidgets>=8.1,<9",
   "pydantic>=2.8,<3",
-  "PyJWT[crypto]>=2.10,<3",
+  "PyJWT[crypto]>=2.13.0,<3",
   "uvicorn>=0.35,<1",
 ]
 
