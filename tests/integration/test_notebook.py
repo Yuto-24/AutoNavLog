@@ -13,7 +13,8 @@ def test_distribution_notebook_is_clean_and_thin() -> None:
     code = "\n".join(cell.source for cell in code_cells)
     assert "CalculationService" in code
     assert "PerformanceRepository.from_directory_for_application" in code
-    assert "except ReferenceDataError:" in code
+    assert "except ReferenceDataError as error:" in code
+    assert "参照データを読み込めません。空港候補は空です。原因:" in code
     assert "airports = AirportRepository([])" in code
     assert "solve_wind_triangle" not in code
     assert "pressure_altitude" not in code

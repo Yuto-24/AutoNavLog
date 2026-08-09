@@ -5,7 +5,7 @@ import json
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from threading import Barrier
+from threading import Barrier, Event
 
 import pytest
 
@@ -350,6 +350,70 @@ def test_parallel_queries_share_one_http_request_under_lock() -> None:
 
     assert len(transport.calls) == 1
     assert all(result.availability == Availability.AVAILABLE for result in results)
+
+
+def test_blocked_http_fetch_does_not_hold_cache_lock() -> None:
+    class BlockingTransport:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, Mapping[str, str], float]] = []
+            self.second_started = Event()
+            self.release_second = Event()
+
+        def __call__(
+            self,
+            url: str,
+            headers: Mapping[str, str],
+            timeout_seconds: float,
+        ) -> bytes:
+            self.calls.append((url, dict(headers), timeout_seconds))
+            if len(self.calls) == 1:
+                return _metar_payload()
+            if len(self.calls) == 2:
+                self.second_started.set()
+                if not self.release_second.wait(timeout=2):
+                    raise TimeoutError("test transport was not released")
+                return _metar_payload(
+                    station_icao="RJFO",
+                    altim=1007,
+                    raw_metar="METAR RJFO 291800Z AUTO 25008KT 9999 Q1007",
+                )
+            raise AssertionError("unexpected transport call")
+
+    clock = _Clock(OBSERVATION_TIME + timedelta(hours=1))
+    transport = BlockingTransport()
+    provider, _ = _prepared_provider(
+        transport,  # type: ignore[arg-type]
+        clock=clock,
+        cache_ttl_seconds=120,
+    )
+    first = provider.query_batch(
+        RUN_ID,
+        [_qnh_request("first", station_icao="RJFM")],
+    )[0]
+    assert first.availability == Availability.AVAILABLE
+    clock.now += timedelta(seconds=60)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        fetch_future = executor.submit(
+            provider.query_batch,
+            RUN_ID,
+            [_qnh_request("new", station_icao="RJFO")],
+        )
+        assert transport.second_started.wait(timeout=1)
+        cached_future = executor.submit(
+            provider.query_batch,
+            RUN_ID,
+            [_qnh_request("cached", station_icao="RJFM")],
+        )
+        try:
+            cached = cached_future.result(timeout=1)[0]
+        finally:
+            transport.release_second.set()
+        fetched = fetch_future.result(timeout=2)[0]
+
+    assert cached.availability == Availability.AVAILABLE
+    assert fetched.availability == Availability.AVAILABLE
+    assert len(transport.calls) == 2
 
 
 def test_missing_station_fails_closed_without_transport_call() -> None:

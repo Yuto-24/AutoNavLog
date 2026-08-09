@@ -113,6 +113,19 @@ def test_missing_link_is_a_blocker() -> None:
     assert {issue.code for issue in computed.issues} == {"CP_LINK_REQUIRED"}
 
 
+def test_missing_linked_section_endpoint_is_a_blocker_instead_of_key_error() -> None:
+    project = _project(_cp(latitude=1, longitude=0.5))
+    linked_section = project.sections[0]
+    project.route_nodes[:] = [
+        node for node in project.route_nodes if node.id != linked_section.to_node_id
+    ]
+
+    computed = project_check_points(project)
+
+    assert computed.projections == ()
+    assert {issue.code for issue in computed.issues} == {"CP_LINK_REQUIRED"}
+
+
 def test_endpoint_projection_requires_a_different_leg() -> None:
     computed = project_check_points(_project(_cp(latitude=0, longitude=0)))
     assert computed.projections == ()

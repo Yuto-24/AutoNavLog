@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from autonavlog.domain.project import Project
 from autonavlog.domain.snapshot import CalculationSnapshot
@@ -96,8 +96,12 @@ class LocalProjectRepository:
         if path.exists():
             existing = read_json_model(path, Project)
             if existing.revision != expected_revision:
-                stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-                conflict = path.with_name(f"project-conflict-{stamp}.json")
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+                while True:
+                    token = uuid4().hex
+                    conflict = path.with_name(f"project-conflict-{stamp}-{token}.json")
+                    if not conflict.exists():
+                        break
                 atomic_model_write(conflict, project, keep_backup=False)
                 raise RevisionConflictError(
                     f"expected revision {expected_revision}, found {existing.revision}",

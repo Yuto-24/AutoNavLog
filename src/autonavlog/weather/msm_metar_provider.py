@@ -173,6 +173,7 @@ class MsmMetarWeatherProvider:
         }
         self._prepared: dict[str, ForecastRequirement] = {}
         self._cache: dict[str, _CacheEntry] = {}
+        self._station_fetch_locks: dict[str, threading.Lock] = {}
         self._last_http_request_at_utc: datetime | None = None
         self._cache_lock = threading.Lock()
 
@@ -388,43 +389,71 @@ class MsmMetarWeatherProvider:
                 pending.append(station_icao)
             if not pending:
                 return lookups
+            fetch_locks = [
+                self._station_fetch_locks.setdefault(station_icao, threading.Lock())
+                for station_icao in sorted(set(pending))
+            ]
 
-            if self._last_http_request_at_utc is not None:
-                elapsed = now - self._last_http_request_at_utc
-                if elapsed < _MIN_HTTP_REQUEST_INTERVAL:
-                    elapsed_seconds = max(0.0, elapsed.total_seconds())
-                    retry_after_seconds = max(
-                        0.0,
-                        _MIN_HTTP_REQUEST_INTERVAL.total_seconds() - elapsed_seconds,
-                    )
-                    api_url = self._api_url(tuple(pending))
-                    for station_icao in pending:
-                        lookups[station_icao] = _MetarLookup(
-                            observation=None,
-                            reason_code="METAR_LOCAL_RATE_LIMIT",
-                            provenance={
-                                "source_label": METAR_QNH_LABEL,
-                                "api_url": api_url,
-                                "station_icao": station_icao,
-                                "request_suppressed": True,
-                                "last_http_request_time_utc": (
-                                    self._last_http_request_at_utc.isoformat()
-                                ),
-                                "retry_after_seconds": retry_after_seconds,
-                            },
-                        )
+        acquired: list[threading.Lock] = []
+        try:
+            for fetch_lock in fetch_locks:
+                fetch_lock.acquire()
+                acquired.append(fetch_lock)
+            with self._cache_lock:
+                pending = []
+                for station_icao in station_icaos:
+                    cached = self._cache.get(station_icao)
+                    if cached is not None:
+                        cache_age = now - cached.fetched_at_utc
+                        if abs(cache_age) < self._cache_ttl:
+                            lookups[station_icao] = cached.lookup
+                            continue
+                    if station_icao not in pending:
+                        pending.append(station_icao)
+                if not pending:
                     return lookups
 
-            self._last_http_request_at_utc = now
+                if self._last_http_request_at_utc is not None:
+                    elapsed = now - self._last_http_request_at_utc
+                    if elapsed < _MIN_HTTP_REQUEST_INTERVAL:
+                        elapsed_seconds = max(0.0, elapsed.total_seconds())
+                        retry_after_seconds = max(
+                            0.0,
+                            _MIN_HTTP_REQUEST_INTERVAL.total_seconds() - elapsed_seconds,
+                        )
+                        api_url = self._api_url(tuple(pending))
+                        for station_icao in pending:
+                            lookups[station_icao] = _MetarLookup(
+                                observation=None,
+                                reason_code="METAR_LOCAL_RATE_LIMIT",
+                                provenance={
+                                    "source_label": METAR_QNH_LABEL,
+                                    "api_url": api_url,
+                                    "station_icao": station_icao,
+                                    "request_suppressed": True,
+                                    "last_http_request_time_utc": (
+                                        self._last_http_request_at_utc.isoformat()
+                                    ),
+                                    "retry_after_seconds": retry_after_seconds,
+                                },
+                            )
+                        return lookups
+
+                self._last_http_request_at_utc = now
+
             fetched = self._fetch_metars(tuple(pending), now)
-            for station_icao in pending:
-                lookup = fetched[station_icao]
-                self._cache[station_icao] = _CacheEntry(
-                    fetched_at_utc=now,
-                    lookup=lookup,
-                )
-                lookups[station_icao] = lookup
+            with self._cache_lock:
+                for station_icao in pending:
+                    lookup = fetched[station_icao]
+                    self._cache[station_icao] = _CacheEntry(
+                        fetched_at_utc=now,
+                        lookup=lookup,
+                    )
+                    lookups[station_icao] = lookup
             return lookups
+        finally:
+            for fetch_lock in reversed(acquired):
+                fetch_lock.release()
 
     @staticmethod
     def _api_url(station_icaos: Sequence[str]) -> str:

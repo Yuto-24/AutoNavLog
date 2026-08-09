@@ -167,6 +167,11 @@ def test_legacy_safe_enroute_altitude_is_not_used_for_status_or_timing(
         safe_value,
         safe_value,
     ]
+    assert all(
+        result.safe_enroute_altitude_ft_msl.adopted() is None
+        and result.eto_utc.adopted() is None
+        for result in outcome.sections
+    )
     assert outcome.status == baseline.status
     assert not outcome.blockers
     assert not any(
@@ -638,6 +643,26 @@ def test_outcome_adoption_and_snapshot_round_trip(
     restored = repository.load_snapshot(saved.id, UUID(snapshot_path.stem))
     assert restored.calculation_results.model_dump(mode="json") == outcome.model_dump(mode="json")
     assert restored.input_data.revision == saved.revision
+
+
+def test_weather_warning_does_not_mask_an_unrelated_blocker_status(project) -> None:
+    issues = [
+        Issue(
+            code="WEATHER_OBSERVATION_STALE",
+            severity=IssueSeverity.WARNING,
+            message="weather warning",
+        ),
+        Issue(
+            code="AIRPORT_DATA_UNAVAILABLE",
+            severity=IssueSeverity.BLOCKER,
+            message="manual action required",
+        ),
+    ]
+
+    assert (
+        CalculationService._status(project, issues)
+        == ProjectStatus.MANUAL_INPUT_REQUIRED
+    )
 
 
 def test_unverified_performance_is_blocking(airports, project) -> None:

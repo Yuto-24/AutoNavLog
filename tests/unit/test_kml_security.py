@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import stat
 from io import BytesIO
+from pathlib import Path
 from zipfile import ZipFile, ZipInfo
 
 import pytest
 
+import autonavlog.importers.kml as kml_module
 from autonavlog.importers.kml import (
     ImportLimits,
     KmlDocumentSelectionRequired,
@@ -30,6 +32,22 @@ def _kmz(entries: list[tuple[str | ZipInfo, bytes]]) -> bytes:
         for name, content in entries:
             archive.writestr(name, content)
     return output.getvalue()
+
+
+class _ArchiveWithUntrustedSize:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+        self.member = ZipInfo("doc.kml")
+        self.member.file_size = 1
+        self.open_count = 0
+
+    def infolist(self) -> list[ZipInfo]:
+        return [self.member]
+
+    def open(self, member: ZipInfo) -> BytesIO:
+        assert member is self.member
+        self.open_count += 1
+        return BytesIO(self.payload)
 
 
 def _mark_first_entry_encrypted(raw: bytes) -> bytes:
@@ -105,6 +123,46 @@ def test_kmz_rejects_symlink_encryption_nested_archive_and_backslash() -> None:
             _kmz([("folder\\doc.kml", _kml("A", "131,31 132,32"))]),
             filename="route.kmz",
         )
+
+
+def test_kmz_expanded_limit_uses_bytes_read_not_advertised_size() -> None:
+    archive = _ArchiveWithUntrustedSize(b"x" * 11)
+
+    with pytest.raises(KmlImportError, match="expanded size"):
+        kml_module._safe_kml_members(
+            archive,  # type: ignore[arg-type]
+            ImportLimits(max_expanded_bytes=10),
+        )
+
+    assert archive.open_count == 1
+
+
+def test_path_source_is_rejected_by_stat_before_reading(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "oversized.kml"
+    source.write_bytes(b"xx")
+
+    def unexpected_read(_: Path) -> bytes:
+        raise AssertionError("oversized source must not be read")
+
+    monkeypatch.setattr(Path, "read_bytes", unexpected_read)
+
+    with pytest.raises(KmlImportError, match="archive size"):
+        import_kml_or_kmz(
+            source,
+            limits=ImportLimits(max_archive_bytes=1),
+        )
+
+
+def test_path_source_os_error_is_wrapped(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.kml"
+
+    with pytest.raises(KmlImportError, match="cannot inspect") as captured:
+        import_kml_or_kmz(missing)
+
+    assert isinstance(captured.value.__cause__, OSError)
 
 
 def test_kmz_document_selection_rules() -> None:
