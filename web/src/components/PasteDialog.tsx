@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect } from "react";
+import { useModalFocusTrap } from "../useModalFocusTrap";
 
 interface PasteDialogProps {
   open: boolean;
@@ -18,6 +19,8 @@ export function PasteDialog({
   onClose,
   onImport,
 }: PasteDialogProps) {
+  const dialogRef = useModalFocusTrap<HTMLElement>(open);
+
   useEffect(() => {
     if (!open) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -39,10 +42,12 @@ export function PasteDialog({
       }}
     >
       <section
+        ref={dialogRef}
         className="modal-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="paste-dialog-title"
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="modal-heading">
@@ -61,12 +66,12 @@ export function PasteDialog({
           </button>
         </div>
         <textarea
+          data-modal-autofocus
           value={value}
           onChange={(event) => onChange(event.target.value)}
           rows={16}
           spellCheck={false}
           placeholder="<?xml version=...><kml ...>"
-          autoFocus
         />
         <div className="modal-actions">
           <button

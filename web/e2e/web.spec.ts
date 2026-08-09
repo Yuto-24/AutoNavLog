@@ -19,10 +19,27 @@ const kml = `<?xml version="1.0" encoding="UTF-8"?>
   </coordinates></LineString></Placemark></Document>
 </kml>`;
 
+const multiDocumentKmz = Buffer.from(
+  "UEsDBBQAAAAIAG0kCl36V3yWdAAAAJwAAAAJAAAAZmlyc3Qua21sTY1BCgMhDEWvMsx6MKi7kuYEXRR6ApmmU1HjoAF7/NKu3H14vPcxlbx8SpZ+Xd+q5wVgjGHqyXLEboQVUsngjFsJ7znsXEJLhBIK0yu2rgj/jbco/NAW5SDca23PKEG5k/V283ax3m3eIcwIYZZgyv9O6QtQSwMEFAAAAAgAbSQKXeGCuSN0AAAAnQAAAAoAAABzZWNvbmQua21sTY1BCsMgEEWvErIODuouTOcEXRR6AjFDIuoYVLDHL+3K5efx3seY0/LJSdpjvXq/d4Axhio3yxmaEu4QcwKjzEr4Ss5zdjUSistMjX2RA+E/8BmE370GOQl9KfUI4jo30lZvVi/ams0ahBkhzBJM/d8rfQFQSwECFAMUAAAACABtJApd+ld8lnQAAACcAAAACQAAAAAAAAAAAAAAgAEAAAAAZmlyc3Qua21sUEsBAhQDFAAAAAgAbSQKXeGCuSN0AAAAnQAAAAoAAAAAAAAAAAAAAIABmwAAAHNlY29uZC5rbWxQSwUGAAAAAAIAAgBvAAAANwEAAAAA",
+  "base64",
+);
+
 async function calculateNavLog(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
+  await openPaste.click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
-  await dialog.getByRole("textbox").fill(kml);
+  const textbox = dialog.getByRole("textbox");
+  await expect(textbox).toBeFocused();
+  for (let index = 0; index < 5; index += 1) {
+    await page.keyboard.press("Tab");
+    await expect(dialog.locator(":focus")).toHaveCount(1);
+  }
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(openPaste).toBeFocused();
+
+  await openPaste.click();
+  await textbox.fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
 
   await expect(page.getByLabel("飛行経路にする形状")).toHaveValue("line:0");
@@ -89,4 +106,26 @@ test("calculated mobile layout has no body overflow", async ({ page }) => {
     path: path.join(repositoryRoot, "docs/web-design/implementation-mobile.png"),
     fullPage: true,
   });
+});
+
+test("KMZ document selection modal moves and traps focus", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await page.locator("#route-file").setInputFiles({
+    name: "multiple.kmz",
+    mimeType: "application/vnd.google-earth.kmz",
+    buffer: multiDocumentKmz,
+  });
+
+  const dialog = page.getByRole("dialog", { name: "KMZ内のKMLを選択" });
+  const documentSelect = dialog.getByLabel("KML文書");
+  await expect(dialog).toBeVisible();
+  await expect(documentSelect).toBeFocused();
+  for (let index = 0; index < 5; index += 1) {
+    await page.keyboard.press("Tab");
+    await expect(dialog.locator(":focus")).toHaveCount(1);
+  }
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
 });

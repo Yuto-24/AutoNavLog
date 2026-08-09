@@ -150,7 +150,12 @@ def _wind_cell(result: SectionResult) -> str:
 
 
 def _raw(value: Any | None) -> str:
-    return "" if value is None else str(value)
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        rendered = format(value, ".16g")
+        return f"{rendered}.0" if value.is_integer() and "e" not in rendered.lower() else rendered
+    return str(value)
 
 
 def _raw_adopted_cell(value: AdoptedValue[Any], css_class: str = "num") -> str:
@@ -296,8 +301,8 @@ def _info_table(outcome: CalculationOutcome) -> str:
     headings = "".join(f"<th>{escape(label)}</th>" for label, _ in values)
     cells = "".join(f"<td>{escape(value)}</td>" for _, value in values)
     return (
-        "<table class='info-table'><thead><tr><th rowspan='2'>INFO</th>"
-        f"{headings}</tr></thead><tbody><tr>{cells}</tr></tbody></table>"
+        "<table class='info-table'><thead><tr><th>INFO</th>"
+        f"{headings}</tr></thead><tbody><tr><td></td>{cells}</tr></tbody></table>"
     )
 
 

@@ -16,6 +16,7 @@ import { ProgressRail } from "./components/ProgressRail";
 import { RouteWorkspace } from "./components/RouteWorkspace";
 import { StatusPanel } from "./components/StatusPanel";
 import type { NavSection, WebState } from "./types";
+import { useModalFocusTrap } from "./useModalFocusTrap";
 
 interface PendingKmz {
   filename: string;
@@ -37,6 +38,7 @@ function App() {
   const [selectedKmzDocument, setSelectedKmzDocument] = useState("");
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const navLogRef = useRef<HTMLDivElement | null>(null);
+  const kmzDialogRef = useModalFocusTrap<HTMLElement>(Boolean(pendingKmz));
 
   const applyState = (next: WebState) => {
     setState(next);
@@ -454,10 +456,12 @@ function App() {
           }}
         >
           <section
+            ref={kmzDialogRef}
             className="modal-panel compact-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="kmz-dialog-title"
+            tabIndex={-1}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modal-heading">
@@ -469,6 +473,7 @@ function App() {
             <label className="field-group">
               <span>KML文書</span>
               <select
+                data-modal-autofocus
                 value={selectedKmzDocument}
                 onChange={(event) => setSelectedKmzDocument(event.target.value)}
               >

@@ -111,6 +111,9 @@ def test_ready_transfer_aid_is_dense_a4_landscape_table(
     assert "CHECK POINT ABEAM" not in html
     assert "ARRIVAL / VREP ALTITUDE" not in html
     assert "PWR_NOT_EXACTLY_65_PERCENT" not in html
+    info_table = html.split("<table class='info-table'>", 1)[1].split("</table>", 1)[0]
+    assert "rowspan" not in info_table
+    assert info_table.count("<th>") == info_table.count("<td") == 8
     assert render_clearcopy_html(ready_project, outcome) == html
 
     document = render_transfer_aid_document(ready_project, outcome)
@@ -383,7 +386,7 @@ def test_transfer_aid_preserves_raw_distance_time_and_fuel_values(
                 adopted_source=AdoptedSource.AUTOMATIC,
             ),
             "zone_ete_seconds": AdoptedValue[float](
-                automatic_value=61.2345,
+                automatic_value=61.20000000000001,
                 automatic_status=ValueState.AUTO,
                 adopted_source=AdoptedSource.AUTOMATIC,
             ),
@@ -409,7 +412,8 @@ def test_transfer_aid_preserves_raw_distance_time_and_fuel_values(
     html = render_transfer_aid_html(ready_project, raw_outcome)
 
     assert "12.34567" in html
-    assert str(61.2345 / 60) in html
+    assert "1.02" in html
+    assert "1.0200000000000002" not in html
     assert "1.23456" in html
     assert "90.12345" in html
     assert "1.54321" in html

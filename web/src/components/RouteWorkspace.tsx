@@ -39,15 +39,15 @@ const roleLabels: Record<string, string> = {
   DESTINATION: "到着",
 };
 
-function FitBounds({ signature }: { signature: string }) {
+function FitBounds({
+  coordinates,
+  signature,
+}: {
+  coordinates: [number, number][];
+  signature: string;
+}) {
   const map = useMap();
   useEffect(() => {
-    const coordinates = signature
-      ? signature.split(";").map((pair) => {
-          const [latitude, longitude] = pair.split(",").map(Number);
-          return [latitude, longitude] as [number, number];
-        })
-      : [];
     if (coordinates.length >= 2) {
       map.fitBounds(coordinates as LatLngBoundsExpression, { padding: [28, 28] });
     } else if (coordinates.length === 1 && coordinates[0]) {
@@ -162,7 +162,7 @@ export function RouteWorkspace({
               </Tooltip>
             </CircleMarker>
           ))}
-          <FitBounds signature={coordinateSignature} />
+          <FitBounds coordinates={coordinates} signature={coordinateSignature} />
         </MapContainer>
         {!coordinates.length && (
           <div className="map-empty">

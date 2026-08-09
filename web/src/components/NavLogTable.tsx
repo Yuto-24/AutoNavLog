@@ -130,7 +130,12 @@ function CombinedEteCell({
     manual: firstValue.manual || secondValue.manual,
     unavailable: firstValue.unavailable || secondValue.unavailable,
   };
-  return <td className={valueClass(formatted)}>{formatted.text}</td>;
+  return (
+    <td className={valueClass(formatted)}>
+      {formatted.text}
+      {formatted.manual && <small>手入力</small>}
+    </td>
+  );
 }
 
 export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
