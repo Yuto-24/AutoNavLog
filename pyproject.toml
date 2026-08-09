@@ -12,16 +12,22 @@ license = "LicenseRef-Proprietary"
 authors = [{name = "AutoNavLog contributors"}]
 dependencies = [
   "defusedxml>=0.7.1,<1",
+  "fastapi>=0.116,<1",
   "folium>=0.17,<1",
   "geographiclib>=2,<3",
   "ipywidgets>=8.1,<9",
   "pydantic>=2.8,<3",
+  "uvicorn>=0.35,<1",
 ]
+
+[project.scripts]
+autonavlog-web = "autonavlog.web.__main__:main"
 
 [project.optional-dependencies]
 msm = ["jma-msm-wind==0.2.1"]
 test = [
   "build>=1.2,<2",
+  "httpx>=0.28,<1",
   "mypy>=1.11,<2",
   "nbclient>=0.10,<1",
   "nbformat>=5.10,<6",
@@ -34,7 +40,11 @@ test = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-autonavlog = ["py.typed"]
+autonavlog = [
+  "py.typed",
+  "web/static/*",
+  "web/static/assets/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

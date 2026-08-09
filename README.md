@@ -7,7 +7,7 @@ AutoNavLogは、航空大学校 宮崎課程 NAV2の航法LOG作成を支援す�
 
 ## 現在の検証状態
 
-アプリケーション、計算Policy、MSM連携、保存、KML/KMZ取込、Colab UI、テスト基盤を
+アプリケーション、計算Policy、MSM連携、保存、KML/KMZ取込、Web UI、旧Colab UI、テスト基盤を
 実装しています。`data/performance`にはSR22 G6 POH P/N 13772-006 Reissue Aの上昇
 19行・巡航159行を収録し、原典PDFからの再抽出と全行差分比較を完了しています。上昇表の
 ISA温度および標準より10℃高いごとの10%増加もmanifestで明示したPolicyとして適用します。
@@ -19,10 +19,58 @@ ISA温度および標準より10℃高いごとの10%増加もmanifestで明示�
 既存schemaのSEA fieldは旧Projectの読込互換だけに残しています。
 
 
+## Web版（主配布）
+
+実行環境にはDocker EngineとDocker Composeを使用します。Node.jsによるReact buildと
+Python packageのinstallはmulti-stage image build内で完結し、hostの`.venv`は使用しません。
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+ブラウザで `http://127.0.0.1:8123` を開きます。Project、参照データのactive版、
+気象cacheはnamed volume `autonavlog-data` に保存されます。hostへ公開するportはloopbackだけで、
+containerは非root・read-only root filesystem・全capability削除で動作します。
+
+```bash
+docker compose logs -f autonavlog
+docker compose down
+```
+
+標準imageの `--weather fake` は決定論的な画面・計算確認用です。必ず
+`DEVELOPMENT_WEATHER_PROVIDER` を表示し、A4転記補助HTMLを出力しません。
+実気象用imageを作る場合はprivate配布の `jma-msm-wind==0.2.1` をimageへ導入し、
+起動引数を `--weather msm` または `--weather msm-metar` に変更してください。
+
+RJFM/RJFOの場周経路高度は画面上で100 ft単位に丸めて `1,000 ft` と表示し、
+5 NM VREPは `1,500 ft` とします。ただし同梱参照行は一次資料の出典検証が未完了なので
+`UNVERIFIED` のままです。経路取込・入力確認・下書き保存はできますが、
+`PATTERN_ALTITUDE_REQUIRED` が転記出力を止めます。
+
+### Cloudflare Tunnel
+
+接続済みのremotely-managed tunnelでPublished applicationを追加し、Service URLを
+`http://localhost:8123` にします。AutoNavLogはloopback bindのまま運用してください。
+外部共有時はCloudflare Accessのself-hosted applicationとAllow policyを必ず設定します。
+ブラウザsession tokenは作業状態の識別子であり、認証機能ではありません。
+
+一時的な開発確認だけなら次も使えますが、Quick Tunnelは正式公開には使いません。
+
+```bash
+cloudflared tunnel --url http://localhost:8123
+```
+
+詳細は [Cloudflare公開手順](docs/cloudflare_tunnel.md) を参照してください。
+Cloudflare公式: [Published application](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/)、
+[Quick Tunnels](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)、
+[Access applications](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/)。
+
 ## 開発
 
 Python 3.12を主対象とし、3.10〜3.12をサポートします。MSM実連携は
-`jma-msm-wind` v0.2.1へ固定しています。
+`jma-msm-wind` v0.2.1へ固定しています。以下はlibrary開発・test用であり、Web serviceの
+通常起動には不要です。
 
 ```bash
 uv venv --python 3.12
@@ -39,7 +87,7 @@ python scripts/export_schemas.py --check
 MSM契約試験やColabリリースでは、Privateリポジトリから作成した
 `jma_msm_wind-0.2.1` wheelをAutoNavLog wheelと同時にインストールします。
 
-## Colab配布
+## 旧Colab配布（互換・移行確認用）
 
 ### Colab操作プレビュー
 
@@ -93,8 +141,10 @@ AutoNavLogは既存ファイルを上書きせず`project-conflict-*.json`を保
 - `src/autonavlog/performance`: 性能CSV検証、上昇補間、巡航セル選択
 - `src/autonavlog/weather`: FakeとMSM v0.2.1アダプター
 - `src/autonavlog/storage`: Local/Google Drive保存とrevision管理
-- `src/autonavlog/presentation`: Colab UIとA4横の非公式転記補助表
-- `notebooks/AutoNavLog.ipynb`: 利用者向け起動Notebook
+- `src/autonavlog/web`: FastAPI、Web façade、ビルド済みReact asset
+- `web`: React/TypeScript/Vite UIとPlaywright試験
+- `src/autonavlog/presentation`: 旧Colab UIとA4横の非公式転記補助表
+- `notebooks/AutoNavLog.ipynb`: 旧Colab互換・移行確認用Notebook
 
 詳細は[アーキテクチャ](docs/architecture.md)、
 [計算規則](docs/calculation_rules.md)、

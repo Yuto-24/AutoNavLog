@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+from datetime import date
+from typing import Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from autonavlog.domain.enums import FlightPhase
+from autonavlog.domain.planning import ArrivalAltitudeMode
+
+
+class WebRequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class ImportRouteRequest(WebRequestModel):
+    filename: str = Field(default="pasted.kml", min_length=1, max_length=255)
+    content_base64: str | None = None
+    kml_text: str | None = None
+    kmz_kml_filename: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def require_exactly_one_source(self) -> ImportRouteRequest:
+        supplied = int(self.content_base64 is not None) + int(self.kml_text is not None)
+        if supplied != 1:
+            raise ValueError("content_base64 or kml_text must be supplied, but not both")
+        return self
+
+
+class ConfirmRouteRequest(WebRequestModel):
+    candidate_kind: Literal["line", "polygon", "points"]
+    candidate_index: int = Field(default=0, ge=0)
+    point_indices: list[int] = Field(default_factory=list, max_length=500)
+    route_use_confirmed: bool
+    polygon_route_confirmed: bool = False
+    flight_date: date
+    departure_time_jst: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    departure_airport_id: str = Field(min_length=1, max_length=64)
+    destination_airport_id: str = Field(min_length=1, max_length=64)
+    pilot_name: str = Field(default="", max_length=100)
+    ship_identifier: str = Field(default="", max_length=100)
+    total_usable_fuel_gal: float = Field(default=81.0, gt=0, le=200)
+    default_variation_deg_east: float = Field(default=8.0, ge=-30, le=30)
+    manual_qnh_hpa: float | None = Field(default=None, gt=800, lt=1100)
+    tgl_count: int = Field(default=0, ge=0, le=20)
+    all_leg_altitude_ft_msl: float = Field(default=3000, gt=0, le=25_000)
+    use_penultimate_as_vrep: bool = True
+    defaults_confirmed: bool = False
+    manual_qnh_confirmed: bool = False
+
+
+class SectionUpdate(WebRequestModel):
+    section_id: UUID
+    planned_altitude_ft_msl: float = Field(gt=0, le=25_000)
+    phase: FlightPhase
+    manual_wind_direction_deg: float | None = Field(default=None, ge=0, lt=360)
+    manual_wind_speed_kt: float | None = Field(default=None, ge=0, le=200)
+    manual_temperature_c: float | None = Field(default=None, ge=-80, le=60)
+    manual_tas_kt: float | None = Field(default=None, gt=0, le=300)
+
+    @model_validator(mode="after")
+    def validate_wind_pair(self) -> SectionUpdate:
+        if (self.manual_wind_direction_deg is None) != (self.manual_wind_speed_kt is None):
+            raise ValueError("manual wind direction and speed must be supplied together")
+        return self
+
+
+class UpdateProjectRequest(WebRequestModel):
+    flight_date: date
+    departure_time_jst: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    pilot_name: str = Field(default="", max_length=100)
+    ship_identifier: str = Field(default="", max_length=100)
+    total_usable_fuel_gal: float = Field(gt=0, le=200)
+    default_variation_deg_east: float = Field(ge=-30, le=30)
+    manual_qnh_hpa: float | None = Field(default=None, gt=800, lt=1100)
+    tgl_count: int = Field(default=0, ge=0, le=20)
+    sections: list[SectionUpdate] = Field(default_factory=list, max_length=500)
+    visual_reporting_point_node_id: UUID | None = None
+    arrival_altitude_mode: ArrivalAltitudeMode = ArrivalAltitudeMode.STANDARD_DISTANCE_RULE
+    manual_vrep_altitude_ft_msl: int | None = Field(
+        default=None,
+        ge=-1000,
+        le=25_000,
+        multiple_of=100,
+    )
+    manual_vrep_reason: str | None = Field(default=None, max_length=500)
+    defaults_confirmed: bool = False
+    manual_qnh_confirmed: bool = False
+
+
+class AcknowledgeRequest(WebRequestModel):
+    checked: bool
+
+
+class SaveProjectRequest(WebRequestModel):
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+
+
+class LoadProjectRequest(WebRequestModel):
+    project_id: UUID
