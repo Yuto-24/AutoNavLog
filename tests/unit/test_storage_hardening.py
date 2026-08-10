@@ -68,6 +68,47 @@ def test_project_index_is_rebuilt_by_directory_scan_when_corrupt(
     assert rebuilt.projects == summaries
 
 
+def test_project_index_v1_rebuilds_with_web_owner_metadata(
+    tmp_path: Path,
+    project: Project,
+) -> None:
+    repository = LocalProjectRepository(tmp_path)
+    owned = project.model_copy(deep=True)
+    owned.metadata["web_owner_id"] = "pilot@example.com"
+    repository.save(owned, expected_revision=0)
+    repository.index_path.write_text(
+        '{"schema_version":1,"projects":[]}',
+        encoding="utf-8",
+    )
+
+    summaries = repository.list_projects()
+
+    assert len(summaries) == 1
+    assert summaries[0].web_owner_id == "pilot@example.com"
+    migrated = read_json_model(repository.index_path, ProjectIndex)
+    assert migrated.schema_version == 2
+
+
+def test_project_save_updates_valid_index_without_rescanning_projects(
+    tmp_path: Path,
+    project: Project,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = LocalProjectRepository(tmp_path)
+    first = repository.save(project, expected_revision=0)
+
+    def unexpected_scan() -> list[object]:
+        pytest.fail("valid index update must not rescan every Project")
+
+    monkeypatch.setattr(repository, "_scan_projects", unexpected_scan)
+    renamed = first.project.model_copy(update={"name": "renamed"})
+
+    second = repository.save(renamed, expected_revision=1)
+
+    assert repository.list_projects()[0].name == "renamed"
+    assert second.project.revision == 2
+
+
 def test_failed_post_publish_validation_restores_previous_bytes(
     tmp_path: Path,
 ) -> None:

@@ -14,6 +14,7 @@ from autonavlog.importers.kml import (
     KmlImportError,
     import_kml_or_kmz,
     import_kml_text,
+    named_waypoints_from_line,
     select_imported_line,
     select_imported_polygon_outer,
 )
@@ -271,3 +272,62 @@ def test_polygon_keeps_full_outer_ring_then_enforces_selected_limit() -> None:
             0,
             limits=ImportLimits(max_coordinates_in_selected_polygon_outer=6),
         )
+
+
+def test_delimited_line_name_does_not_guess_simplified_vertex_names() -> None:
+    result = import_kml_or_kmz(
+        _kml(
+            "小丸～日振島～祝島～ゴルフコース",
+            (
+                "131.4488055215004,31.87716585260077,0 "
+                "131.4317398539069,31.98214589070221,0 "
+                "131.4734489929498,32.16275095638636,0 "
+                "132.2948734240414,33.1802236311398,0 "
+                "131.9894319344609,33.78695544494976,0 "
+                "131.67890296839,33.62999835453385,0 "
+                "131.7371811724867,33.47957070171427,0"
+            ),
+        ),
+        filename="named-route.kml",
+    )
+
+    assert named_waypoints_from_line(select_imported_line(result, 0)) == ()
+
+
+def test_delimited_line_name_maps_only_one_name_per_original_coordinate() -> None:
+    result = import_kml_or_kmz(
+        _kml(
+            "小丸～日振島～祝島～ゴルフコース",
+            (
+                "131.4488055215004,31.87716585260077,0 "
+                "131.4734489929498,32.16275095638636,0 "
+                "131.9894319344609,33.78695544494976,0 "
+                "131.7371811724867,33.47957070171427,0"
+            ),
+        ),
+        filename="named-route.kml",
+    )
+
+    named = named_waypoints_from_line(select_imported_line(result, 0))
+
+    assert [point.name for point in named] == [
+        "小丸",
+        "日振島",
+        "祝島",
+        "ゴルフコース",
+    ]
+    assert [(point.latitude_deg, point.longitude_deg) for point in named] == [
+        (31.87716585260077, 131.4488055215004),
+        (32.16275095638636, 131.4734489929498),
+        (33.78695544494976, 131.9894319344609),
+        (33.47957070171427, 131.7371811724867),
+    ]
+
+
+def test_ambiguous_delimited_line_name_falls_back() -> None:
+    result = import_kml_or_kmz(
+        _kml("A～B～C～D～E", "131,31 131.1,31.1 131.2,31.2 131.3,31.3"),
+        filename="ambiguous-route.kml",
+    )
+
+    assert named_waypoints_from_line(select_imported_line(result, 0)) == ()

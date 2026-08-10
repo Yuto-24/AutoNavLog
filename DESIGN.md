@@ -1,9 +1,104 @@
 # AutoNavLog UI改善 要求仕様書
 
-- 版: 2.6.0
-- 日付: 2026-08-09
-- 対象: AutoNavLog 0.2.0（本改修で0.1.0から更新） / jma-msm-wind 0.2.1 / 配布Notebook
+- 版: 2.7.2
+- 日付: 2026-08-10
+- 対象: AutoNavLog 0.2.0 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
 - 実装担当: 別エージェント
+
+## v2.7.2 Docker Web service・Access所有権・別添8-1整合（本節を最優先）
+
+本節は利用者決定「ColabではなくWeb公開し、`.venv`ではなくDocker serviceで動かす」
+に基づく配布方式の差分仕様である。
+本節と旧本文のNotebook／Colab／Google Drive配布に関する記述が矛盾する場合は、
+**本節を優先する**。航法計算、Issue、参照データ、保存、フェイルクローズ、
+転記補助HTMLの契約はv2.6.0を維持する。
+
+### D-30 主UIと実行形態
+
+- 主UIは `web/` のReact + TypeScript + Vite SPAとする。
+- APIと静的ファイルは `autonavlog.web` のFastAPIアプリが同一オリジンで配信する。
+- Node buildとPython runtimeを分離したmulti-stage `Dockerfile` でSPAをpackageへ組み込み、
+  `docker compose up -d --build` でserviceとして起動できること。hostの`.venv`へ依存しない。
+- container内では `0.0.0.0:8000` をlistenし、Composeのpublished portはhostの
+  `127.0.0.1:8123` だけへbindする。LANやInternetへ直接portを公開しない。
+- runtimeは非root、read-only root filesystem、全Linux capability削除、
+  `no-new-privileges` で動作し、health checkとrestart policyを持つ。
+- Colab Notebookは旧Projectの確認・移行用として残してよいが、主配布物・主UIではない。
+
+### D-31 Cloudflare公開境界
+
+- 公開経路は既存のCloudflare Tunnel connectorから `http://localhost:8123` へ接続する。
+- 恒常公開はremotely-managed tunnelのPublished applicationを用いる。
+  Quick Tunnelは開発確認に限り、正式公開には用いない。
+- 外部共有時はCloudflare Accessのself-hosted applicationとAllow policyを必須とする。
+  originはCloudflareが付与する `Cf-Access-Authenticated-User-Email` を認証済みidentityとして
+  受け取り、sessionと保存Projectをそのidentityへ拘束する。異なるidentityには存在自体を返さない。
+- originはloopbackのままとし、Cloudflareを迂回する受信ポートを開けない。
+- Tunnel token、Access credential、API tokenをリポジトリ、Project、ログ、ブラウザへ保存しない。
+
+### D-32 Web状態・保存
+
+- session tokenはJavaScriptから参照できない `HttpOnly; Secure; SameSite=Strict` Cookieで
+  同一オリジンへ送る。logout時にサーバー側sessionを無効化し、再起動時に失効してよい。
+- サーバーの作業sessionはidentity所有者付きLRUで最大128件とし、操作lockはsession単位とする。
+  Project本体は既存 `LocalProjectRepository` のrevision付き原子的JSON保存を用い、
+  保存metadataのownerとAccess identityが一致するProjectだけを一覧・読込対象にする。
+- Docker serviceの保存rootは `/var/lib/autonavlog` とし、named volume
+  `autonavlog-data` をmountする。参照データ、Project、MSM cacheを同root配下へ分離する。
+- POST/PUTおよびAPI応答は `Cache-Control: no-store` とし、CSP、frame拒否、
+  MIME sniffing拒否、権限policyを付与する。
+- KML/KMZは既存のbounded parserへ渡し、Web境界ではbase64文字数と展開前10 MiB上限を課す。
+
+### D-33 Web画面
+
+- 3段階の進行表示（経路／飛行計画／確認・出力）、入力rail、地図・Leg表、
+  準備状況rail、NAV LOG結果を1画面に配置する。
+- desktopは3列、tabletは2列、760 px未満は1列とし、表は領域内横scrollを許可する。
+- KML/KMZのdrop・file選択・XML貼付、複数形状選択、Polygon確認、
+  FROM/TO、DATE/ETD、FUEL（既定90 gal）/VAR/QNH（hPa・inHg自動変換）/TGL、
+  Leg計画高度/Phase、確認事項、保存・読込、計算、転記補助HTMLをcode-nativeなcontrolで提供する。
+  PILOT/SHIPは入力させず、KMLの名称は区切り名またはPoint名を優先し、WPはfallbackに限る。
+- CRUISE LegはMC 0〜179°で3,500 ftから奇数千+500、180〜359°で4,500 ftから
+  偶数千+500の候補を示す。任意高度も許可するが候補外は赤い要確認表示とし、
+  航空法第82条の900 m閾値と地表高未判定の制約を同時表示する。
+  法令根拠は[e-Gov 航空法第82条](https://laws.e-gov.go.jp/law/327AC0000000231?occasion_date=20260423)と
+  [e-Gov 航空法施行規則第177条](https://laws.e-gov.go.jp/law/327M50000800056?occasion_date=20260316)
+  を参照する。
+- 計算成功後はNAV LOGへscrollしfocusを移す。画面上で「WARNING／警告」を見出しに使わず、
+  利用者向けには「確認事項」と表示する。
+- 日本語fontはWeb assetへ同梱し、実行OSのfont有無に依存しない。
+- OpenStreetMap tileは地図背景だけに用い、tile取得失敗でも入力・Issue・表を隠さない。
+
+### D-34 気象・出力の安全ゲート
+
+- 既定の `--weather fake` は画面と計算の開発確認専用とし、
+  `DEVELOPMENT_WEATHER_PROVIDER`（BLOCKER）を必ず追加して転記出力を止める。
+- 実運用候補は `--weather msm` または `--weather msm-metar` とし、
+  既存の欠損フォールバック禁止とForecast固定契約を維持する。
+- RJFM/RJFOの表示上の場周経路高度は、保存値を100 ft単位half-upしていずれも
+  **1,000 ft MSL** と表示する。5 NM VREPの標準高度はさらに500 ftを加え
+  **1,500 ft MSL** とする。
+- 数値の丸め確認だけで参照行を `VERIFIED` へ変更してはならない。
+  一次資料と出典版の検証が完了するまでは `PATTERN_ALTITUDE_REQUIRED` を維持し、
+  経路取込・入力確認・下書き保存は許可するが転記出力は止める。
+- 転記補助の主表は別添8-1の19列（FROM〜SECT/REM FUEL）に揃え、上段9欄と
+  下段INFO・TIME/FUEL欄を持つ。ETO/ATO/ATEは機上実績欄として空欄を維持し、
+  距離・時間・燃料・航法値を表示時に丸めない。独自PHASE/ALT列やIssue一覧を混在させない。
+
+### Web受け入れ基準
+
+- **W-1**: clean checkoutから `docker compose up -d --build` が成功してserviceがhealthyとなり、
+  hostのloopback経由で `/healthz` と `/` が200を返す。Access headerまたは明示した
+  trusted local identityなしの `/api/session` は401、認証済みでは200を返す。
+- **W-2**: Chromium 1440×1000でKML貼付→形状選択→経路確定→計算→NAV LOG表示・focusが動作し、
+  JavaScript例外と開発overlayがない。
+- **W-3**: 390×844で計算後の主要操作とNAV LOGが存在し、document bodyに水平overflowがない。
+- **W-4**: 未検証場周高度と開発用気象の各Blockerが1件ずつ表示され、
+  A4転記補助HTMLがAPIと画面の双方で無効である。
+- **W-5**: Cloudflare Published applicationのService URLを
+  `http://localhost:8123` としたとき、同一オリジンのSPA/APIとして動作する。
+- **W-6**: Docker image build、Compose config、Python統合テスト、ruff、mypy、
+  TypeScript typecheck、Vite build、Playwright desktop/mobile試験がすべて成功する。
 - **根拠ソース（基準）**: 次の2点で**固定**する（v1.8で改訂。再レビュー指摘: v1.7の「作業ツリーを正とする」は、作業ツリーが変化し続けるため第三者が同じ状態を復元できず、基準として再現不能だった）。
   1. commit `10ea6ec307e88ce5a683b3c6c0a5f83a7218071a`（`Implement NAV2 MVP`）
   2. **基準アーカイブ** `docs/baseline/design-baseline-20260802.tar.gz`（SHA-256: `5ee8a608d6044bdb64e087aaf45fc83517a80a6072ab97a76de1ce5c6af10c86`）。2026-08-02時点の作業ツリーの設計対象ファイル一式（`pyproject.toml` / `README.md` / `src/` / `data/` / `scripts/` / `tests/` / `notebooks/` / `docs/`。本書自身と `docs/baseline/` を除く）を決定論的tar（`--sort=name --mtime=2026-08-02T00:00Z --owner=0 --group=0` + `gzip -n`）で固定したもの
@@ -13,6 +108,9 @@
   - **成果物条件（v2.6.0で完了）**: 基準アーカイブと `.sha256` は commit `24058c1`（`Add frozen design baseline archive`）でリポジトリへ固定した。SHA-256は上記記載値と一致する
   - 基準アーカイブは基準commitから次の点で進んでいる（**情報としての変更履歴。規範は上記アーカイブ自体**）: `importers/kml.py` のPolygon解析・保持（第0.5節・FR-15・D-10）／ `presentation/colab.py` の確認付きPolygon Route化・`kml_text` 貼付欄ほか一式のUI（第0.5節）／ `calculation_service.py` のSEA参照と `SAFE_ENROUTE_ALTITUDE_REQUIRED` / `PLANNED_ALTITUDE_BELOW_SAFE_ENROUTE` 生成（第0.2節・A.7）／空港seed 2行と性能データ、性能manifest `VERIFIED`（空港の場周経路高度はv2.5検証未合格。第0.1節）
 - 変更履歴:
+  - **v2.7.2はPR #2レビューを反映した版**。Cloudflare Access identity所有権、HttpOnly Secure Cookie、session単位lock、KML名称保持、VFR高度候補、QNH単位変換、別添8-1の19列・無丸め出力、計算後focus、Docker build成果物分離をD-31〜D-34とW-1〜W-6へ追加した
+  - **v2.7.1は、Web版の主実行方式をhost `.venv` からDocker serviceへ変更した版**。multi-stage build、非root runtime、read-only root、loopback限定port、named volume、health check、restart policyをD-30〜D-32とW-1/W-6へ追加した
+  - **v2.7.0は、主配布をColabからローカルWeb版へ変更した版**。React/Vite + FastAPIの同一オリジン構成、loopback bind、Cloudflare Tunnel + Access、Web session、ローカルProject保存、desktop/mobile受け入れ試験をD-30〜D-34とW-1〜W-6に定義した。航法計算とフェイルクローズ契約はv2.6.0を維持する
   - **v2.6.0は、SEAおよび陸域マスクを現バージョンの対象から除外した版**。DEM10B取得、SEA自動算出・手入力・確認、ALTとの比較、SEA列・清書出力、陸域マスク、DEMのDrive二次cache、関連fixture・実測ゲート、`numpy` / `Pillow` の追加を実装しない。既存schemaの `safe_enroute_altitude_ft_msl` は読込互換のため残してよいが、新規Projectでは未設定とし、航法計算・fingerprint・Issue・ProjectStatus・転記補助HTMLへ使用しない。将来SEAを別表として追加する場合は、現NAV LOG計算から独立した新しい要求・データ契約として再設計する。`docs/baseline/` は commit `24058c1` で固定済み。内部UI状態は `state_schema_version=4`、Project/Snapshot本体は `schema_version=1` を維持する
   - **v2.5.3は、VREP基準高度の最終訂正を反映した版**。(1) 目的空港の `elevation_ft_msl` を100 ft単位でhalf-upする（490 ft→500 ft、19 ft→0 ft）、(2) 丸めた空港標高へ1,000 ftを加えて教範4-3の場周経路高度（AGL+1,000 ft）をMSLへ展開し、さらに教範4-4・8-4-9(2)どおり500 ftを加えて5 NM VREP高度を得る、(3) 5 NM境界±1 mおよび5 NM超過距離の整数NM half-up×200 ft/NMは維持する、(4) masterの場周経路高度は事前参照情報として別に保持・表示する。したがって本式を「教範と異なる」とするv2.5.2の記述は撤回する。`ARRIVAL_ALTITUDE_RULE_VERSION` は `CAC_REV19_8_4_9_V3` とする。内部UI状態は `state_schema_version=3`、Project/Snapshot本体は `schema_version=1` を維持する
   - **v2.5.2は、VREP基準高度に関する途中訂正を反映した版（**1,000 ft単位丸めと教範差異の解釈はv2.5.3で撤回**）**。(1) 距離は引き続きVREPから目的空港ARP座標までのWGS84距離を用いる、(2) 高度基準は場周経路高度ではなく、目的空港の `elevation_ft_msl`（利用者のいうARPの空港標高）を1,000 ft単位でhalf-upし、+500 ftする、(3) 5 NM境界±1 mおよび5 NM超過距離の整数NM half-up×200 ft/NMは維持する、(4) 場周経路高度は必須の参照情報として保持するが自動VREP高度の算式には使用しない、(5) 教範8-4-9(2)の場周経路高度基準とは異なる利用者指定のアプリ規則であることを画面・転記補助HTMLへ明示する。`ARRIVAL_ALTITUDE_RULE_VERSION` は `AUTONAVLOG_AIRPORT_ELEVATION_V3` とする。内部UI状態は `state_schema_version=3`、Project/Snapshot本体は `schema_version=1` を維持する
@@ -33,7 +131,7 @@
   - **v2.0は v1.9 への再レビュー指摘11件（CodeRabbit由来6件＋手動照合5件）を反映した版**。(1) pack lockの解放を「owner token確認→自token専用release pathへのrename→再確認→削除」の所有権付き解放へ全面改訂し、token喪失時は現行lockへ一切触れない契約とした（第8.9節・C-52）、(2) `index.json` 更新へpack lockと同じfencing token手順（取得〜所有権付き解放）を適用し、`manifest.json` の `revision`・`index.json` の `generation` のschema契約（型・初期値・単調増分・期待値取得時点・破損時初期化）を新設（第8.9節・C-58）、(3) lock取得timeout時の動作（本名を上書きせず `_locktimeout_` 別名へ退避・警告・索引不更新）を本文へ明記しC-52と整合（第8.9節）、(4) `IssueContext` を再帰的に不変な値（凍結identity＋正準JSON文字列＋構築時確定のキー）へ改め、`create_effective_issue()` を唯一のfactoryとした（第6.3節・F-17）、(5) Route上限超過からの復帰を「SEA算出対象からの除外（Route・NavSection非変更）＋再preflight」として確定（第8.8節・C-56）、(6) 無効化表へSEA確定値変更・`dem_cache_version`・タイル上限の行を追加（第10.3節・C-57）、(7) E-23(a)を「Snapshot読込」ケースへ、E-23(c)/F-16を「入力fingerprintまたはcause metadataが変わった新outcomeの場合のみ再承認」へ訂正（第14章）、(8) `cause` 構成の個別規則をcode別・producer非依存へ改めF-14のcross-source dedupeを成立させた（第6.3節）、(9) S-9/E-24の「未算出」を「一度も確定結果がないLegのみ」に限定（第13.2節・第14章）、(10) performance実測digestを起動時・明示再読込時は必ず再hashする契約へ強化（第10.2節・E-25）、(11) 実装開始条件の表現を「文書内容の未決はA.10/B.1、実装handoffには加えて基準アーカイブの固定が必須」へ2箇所とも訂正（本節・第15章）。
   - **v1.9は v1.8 への再レビュー指摘15件を反映した版**。(1) pack lockのstale回収をquarantine rename＋fencing token方式へ全面改訂（第8.9節）、(2) 基準の優先順位を「現状記述はアーカイブが正・あるべき姿は本書が正」へ訂正（本節）、(3) `index.json` 更新を専用lock内の不可分操作へ（第8.9節）、(4) SEAジョブ結果のguard順を短絡評価列へ固定し、1件の例外でqueue処理を止めない（第8.7節）、(5) `IssueContext.cause` を生成時にnormalize＋deep freezeし指紋を生成時に確定（第6.3節）、(6) `dedupe` の集約規則を完全定義（第6.3節）、(7) outcome由来ctxの再起動・Snapshot再構築契約を新設（第6.3節・E-23）、(8) S-9の正規化対象を永続モデル上で定義（第13.2節・E-24）、(9) `sea_input_fingerprint` へ `dem_cache_version`・実効タイル上限を追加（第10.5節）、(10) S-3の読込側拒否を `parse_constant` 方式で明記（第13.2節）、(11) DEMデコードのdtype契約を追加（第8.3節）、(12) C-7を `unknown_pixels == 0` に限定しC-38と整合、(13) datetimeのaware判定へ `utcoffset() is not None` を追加（第10.1a節）、(14) `performance_fingerprint` の `table_sha256` を実CSV bytesからの実測digestへ変更（第10.2節）、(15) 基準アーカイブのcommitを成果物条件として明記（本節）。
 
-> **現行規範の優先順位:** v2.5.3以前のSEA・DEM・陸域マスク関連記述は、上記変更履歴および基準アーカイブの現状説明としてのみ残す。現行の要求・受け入れ基準はv2.6.0本文であり、内容が矛盾する場合はv2.6.0を優先する。
+> **現行規範の優先順位:** 配布方式とUI実行形態はv2.7.1のD-30〜D-34／W-1〜W-6を最優先する。航法計算・データ・安全ゲートはv2.6.0本文を維持する。v2.5.3以前のSEA・DEM・陸域マスク関連記述は履歴・現状説明としてのみ残す。
 
 ## 本書の位置づけと実装開始条件
 
@@ -42,13 +140,13 @@
 ```
 実装開始条件
 
-1. 改修対象UI（D-19）が `autonavlog.presentation.colab.AutoNavLogApp` に確定している
+1. 改修対象UI（D-30）が `autonavlog.web` と `web/` の同一オリジンWebアプリに確定している
 2. VREP高度・Loss Time・CP abeam・参照データ方式（D-25〜D-29）が確定している
 3. 基準アーカイブと `.sha256` がリポジトリへ固定されている
 4. 本書 `DESIGN.md` がcommitまたは不変artifactとして実装者に固定提供されている
 ```
 
-1〜3は充足済みである。基準アーカイブは commit `24058c1` に固定した。4は未完了で、`DESIGN.md` は現在git未追跡である。実装handoff前にcommitするか、内容を不変artifactとして固定提供する必要がある。旧版で未完了だった陸域マスク（A.10/D-16）、SEA fixture（B.1/D-15）、Drive FUSE primitive実測（B.2a）は、依存するSEA・DEM二次cache自体を本版から除外したため実装開始条件ではない。
+1〜4は充足済みである。基準アーカイブは commit `24058c1` に固定し、本書は実装変更と同じcommit／PRで固定提供する。旧版で未完了だった陸域マスク（A.10/D-16）、SEA fixture（B.1/D-15）、Drive FUSE primitive実測（B.2a）は、依存するSEA・DEM二次cache自体を本版から除外したため実装開始条件ではない。
 
 ```
 転記補助出力のリリース条件（実装開始条件とは別）
@@ -209,7 +307,7 @@ UIは未知の `Issue.code` も落とさず、`severity`、`message`、`section_
 
 Polygonの扱いも同様に修正が必要である。**作業ツリーの `importers/kml.py` は `Polygon` を解析して `ImportedPolygon`（外周・内周・高度）として保持し、`colab.py` は確認Checkbox付きでPolygonの外周をRoute化できる。** 「Polygonは既に無視されている」は基準commitに対しては真だが、作業ツリーに対しては偽である（FR-15・D-10・第11.1節を v1.7 で更新）。
 
-- **決定済（D-19）**: 改修対象は作業ツリーの `presentation/colab.py`（`AutoNavLogApp`）とする。配布Notebookはbootstrapのみとし、UIロジックを重複実装しない（第15章参照）
+- **v2.7.0で置換（旧D-19）**: 主UIはD-30の `autonavlog.web` + `web/` とする。`presentation/colab.py` と配布Notebookは互換・移行確認用に残せるが、主配布UIではない
 - FR-4a が削除対象とする「cell 3 の `app.departure/destination` 固定設定」は、参照した実装のNotebook（3セル構成）には存在しない
 
 ---
@@ -526,11 +624,11 @@ Route追加時の並べ替え操作（既存UIに存在する上下移動等の�
 
 受け入れ条件: スクリーンリーダー・ツールチップいずれかでボタンの機能が文言として取得できること。
 
-### FR-18 Notebookセルの `#@title` 非表示 【必須】
+### FR-18 Notebookセルの `#@title` 非表示 【旧Colab互換のみ】
 
-配布Notebookの実装セル（Repository/WeatherProvider構築、UI描画呼び出し等）に `#@title` を付与し、Colab上でコード本体を隠しUI操作のみを見せる。既に一部セルへ適用済み（第3.1節「#@title でコード非表示」）である適用範囲を、本改修で追加する全セルへ拡張する。
+旧Notebookを保守する場合だけ従来の `#@title` 契約を維持する。v2.7.0の主配布受け入れ条件には含めず、Web版はcode-nativeなHTML controlとbundle済みassetで構成する。
 
-受け入れ条件: A-4「コードセルが見えない」（第14章）を満たすこと。
+受け入れ条件: Web版はW-1〜W-6を満たすこと。A-4は旧Notebookを再配布する場合だけ適用する。
 
 ### FR-19 出典・免責表示 【必須】
 
@@ -578,9 +676,9 @@ SEA job、進捗、中止、部分成功のUI・状態は実装しない。
 
 SEA手入力・提案比較・承認は実装しない。
 
-### FR-31 Drive永続化 【必須】
+### FR-31 Project永続化 【v2.7.0で置換】
 
-Project保存は既存の `GoogleDriveProjectRepository` を使用する。DEMタイルcacheや `MyDrive/AutoNavLog/cache/` 配下のSEA用保存機構は追加しない。
+Web版のProject保存はD-32どおり既存の `LocalProjectRepository` を使用する。Google Drive repositoryは旧Colab互換のため残してよいが、WebサーバーからDrive mountへ依存しない。DEM/SEA用保存機構は追加しない。
 
 ### FR-32 気象値の可用性表示 【必須】
 

@@ -1,0 +1,30 @@
+name: autonavlog
+
+services:
+  autonavlog:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: autonavlog:local
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:8123:8000"
+    environment:
+      AUTONAVLOG_TRUSTED_LOCAL_IDENTITY: "${AUTONAVLOG_TRUSTED_LOCAL_IDENTITY:-}"
+      AUTONAVLOG_CLOUDFLARE_TEAM_DOMAIN: "${AUTONAVLOG_CLOUDFLARE_TEAM_DOMAIN:-}"
+      AUTONAVLOG_CLOUDFLARE_ACCESS_AUDIENCE: "${AUTONAVLOG_CLOUDFLARE_ACCESS_AUDIENCE:-}"
+    volumes:
+      - autonavlog-data:/var/lib/autonavlog
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 15s
+
+volumes:
+  autonavlog-data:

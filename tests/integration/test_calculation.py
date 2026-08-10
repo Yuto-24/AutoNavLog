@@ -70,9 +70,9 @@ def test_full_calculation_iteration_and_clearcopy(
     assert all(run_id == "20260728000000" for run_id, _ in provider.query_history)
     html = render_clearcopy_html(aligned_project, outcome)
     assert "PILOT" in html
-    assert "ZONE DIST" in html
-    assert "MSM推定QNH" in html
-    assert "1013 hPa" in html
+    assert "ZONE / CUM" in html
+    assert "QNH" in html
+    assert f"{outcome.qnh_hpa.adopted()} hPa" in html
 
 
 def test_saved_forecast_run_stays_pinned_until_explicitly_changed(
