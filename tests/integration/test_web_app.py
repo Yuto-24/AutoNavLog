@@ -438,7 +438,7 @@ async def test_session_capacity_evicts_the_least_recent_session(tmp_path: Path) 
 
 
 @pytest.mark.anyio
-async def test_ambiguous_line_name_preserves_every_original_coordinate(
+async def test_intermediate_line_names_preserve_every_original_coordinate(
     tmp_path: Path,
 ) -> None:
     named_kml = """<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
@@ -475,7 +475,15 @@ async def test_ambiguous_line_name_preserves_every_original_coordinate(
         names = [node["name"] for node in nodes]
 
         assert len(nodes) == 7
-        assert names == ["RJFM", "WP2", "WP3", "WP4", "WP5", "WP6", "RJFO"]
+        assert names == [
+            "RJFM",
+            "小丸",
+            "日振島",
+            "祝島",
+            "ゴルフコース",
+            "WP6",
+            "RJFO",
+        ]
         assert [(node["latitude_deg"], node["longitude_deg"]) for node in nodes[1:-1]] == [
             (31.98214589070221, 131.4317398539069),
             (32.16275095638636, 131.4734489929498),

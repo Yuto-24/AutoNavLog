@@ -30,9 +30,9 @@ from autonavlog.importers.kml import (
     KmlImportError,
     KmlImportResult,
     imported_line_length_nm,
-    named_waypoints_from_line,
     select_imported_line,
     select_imported_polygon_outer,
+    waypoint_name_slots_from_line,
 )
 from autonavlog.nav.geodesy import geodesic_leg
 from autonavlog.performance.repository import PerformanceRepository
@@ -704,26 +704,25 @@ class AutoNavLogWebApplication:
                     "ROUTE_CANDIDATE_NOT_FOUND",
                     "選択したLineStringが現在のKMLにありません。",
                 ) from error
-            named = named_waypoints_from_line(line)
-            if named:
-                return [
+            names_by_index = waypoint_name_slots_from_line(line)
+            entries: list[RouteEntry] = []
+            for index, (lat, lon) in enumerate(line.coordinates):
+                line_name = names_by_index[index]
+                entries.append(
                     (
-                        point.name,
-                        point.latitude_deg,
-                        point.longitude_deg,
-                        "KML/KMZ LineString name",
+                        line_name
+                        or self._nearest_point_name(result, lat, lon)
+                        or f"WP{index + 1}",
+                        lat,
+                        lon,
+                        (
+                            "KML/KMZ LineString name"
+                            if line_name
+                            else "KML/KMZ LineString"
+                        ),
                     )
-                    for point in named
-                ]
-            return [
-                (
-                    self._nearest_point_name(result, lat, lon) or f"WP{index + 1}",
-                    lat,
-                    lon,
-                    "KML/KMZ LineString",
                 )
-                for index, (lat, lon) in enumerate(line.coordinates)
-            ]
+            return entries
         if request.candidate_kind == "polygon":
             if not request.polygon_route_confirmed:
                 raise WebApplicationError(
