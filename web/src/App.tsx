@@ -292,12 +292,26 @@ function App() {
 
   const updatePayload = () => {
     if (!state?.project) throw new Error("Projectがありません。");
-    const missingAltitude = state.project.sections.some(
-      (section) => !(altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)).trim(),
+    const plannedAltitudes = new Map(
+      state.project.sections.map((section) => {
+        const rawAltitude = (
+          altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)
+        ).trim();
+        if (!rawAltitude) {
+          throw new Error("すべてのLegに計画高度を入力してください。");
+        }
+        const altitude = Number(rawAltitude);
+        if (
+          !Number.isFinite(altitude) ||
+          altitude < 100 ||
+          altitude > 25000 ||
+          altitude % 100 !== 0
+        ) {
+          throw new Error("計画高度は100～25,000 ftの範囲で100 ft単位にしてください。");
+        }
+        return [section.id, altitude] as const;
+      }),
     );
-    if (missingAltitude) {
-      throw new Error("すべてのLegに計画高度を入力してください。");
-    }
     const arrival = state.project.metadata.ui_state?.arrival_plan ?? null;
     const orderedNodes = [...state.project.route_nodes].sort((a, b) => a.sequence - b.sequence);
     const fallbackVrep = orderedNodes.length >= 3 ? orderedNodes.at(-2)?.id ?? null : null;
@@ -310,7 +324,8 @@ function App() {
       tgl_count: form.tglCount,
       sections: state.project.sections.map((section) => ({
         section_id: section.id,
-        planned_altitude_ft_msl: section.planned_altitude_ft_msl,
+        planned_altitude_ft_msl:
+          plannedAltitudes.get(section.id) ?? section.planned_altitude_ft_msl,
         phase: section.phase,
         manual_wind_direction_deg: section.manual_wind_direction_deg,
         manual_wind_speed_kt: section.manual_wind_speed_kt,
