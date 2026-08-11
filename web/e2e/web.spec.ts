@@ -51,7 +51,7 @@ async function calculateNavLog(page: Page): Promise<void> {
   const altitudeInputs = page.locator(".table-number-input");
   await expect(altitudeInputs.first()).toHaveValue("");
   for (let index = 0; index < await altitudeInputs.count(); index += 1) {
-    await altitudeInputs.nth(index).fill("3000");
+    await altitudeInputs.nth(index).fill("4500");
   }
   const patternAltitude = page.getByLabel("今回採用する場周経路高度");
   const confirmDestination = page.getByRole("button", {
@@ -66,9 +66,11 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(patternAltitude).toHaveValue("1300");
   await confirmDestination.click();
   await expect(patternAltitude).toHaveValue("1300");
-  await expect(altitudeInputs.first()).toHaveValue("3000");
+  await expect(altitudeInputs.first()).toHaveValue("4500");
   await page.getByRole("button", { name: "NAV LOGを作る" }).click();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
+  const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
+  await expect(firstRow.locator("td").nth(2)).toHaveText("4500");
 }
 
 test("desktop workflow renders and stays fail-closed", async ({ page }) => {
