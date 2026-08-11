@@ -22,6 +22,48 @@ export interface PlanningForm {
 }
 
 const HPA_PER_INHG = 33.8638866667;
+const EARTH_RADIUS_NM = 3440.065;
+const DESTINATION_MATCH_LIMIT_NM = 5;
+
+function distanceNm(
+  first: [number, number],
+  second: [number, number],
+): number {
+  const toRadians = (degrees: number) => degrees * Math.PI / 180;
+  const latitudeDelta = toRadians(second[0] - first[0]);
+  const longitudeDelta = toRadians(second[1] - first[1]);
+  const firstLatitude = toRadians(first[0]);
+  const secondLatitude = toRadians(second[0]);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(firstLatitude) * Math.cos(secondLatitude) *
+      Math.sin(longitudeDelta / 2) ** 2;
+  return 2 * EARTH_RADIUS_NM * Math.asin(Math.min(1, Math.sqrt(haversine)));
+}
+
+export function destinationAirportForCandidate(
+  candidate: RouteCandidate | null,
+  airports: AirportOption[],
+): AirportOption | null {
+  const endpoint = candidate?.coordinates.at(-1);
+  if (!endpoint) return null;
+  const nearest = airports.reduce<{ airport: AirportOption; distance: number } | null>(
+    (current, airport) => {
+      const distance = distanceNm(endpoint, [airport.latitudeDeg, airport.longitudeDeg]);
+      return current === null || distance < current.distance
+        ? { airport, distance }
+        : current;
+    },
+    null,
+  );
+  return nearest && nearest.distance <= DESTINATION_MATCH_LIMIT_NM
+    ? nearest.airport
+    : null;
+}
+
+export function variationForDeparture(airport: AirportOption | undefined): number {
+  return airport && airport.latitudeDeg < 32 ? 7 : 8;
+}
 
 function tomorrowIso(): string {
   const tomorrow = new Date(Date.now() + 86_400_000);
@@ -73,20 +115,14 @@ export function convertQnhValue(
 
 export function initialPlanningForm(airports: AirportOption[] = []): PlanningForm {
   const departure = airports.find((airport) => airport.id === "RJFM") ?? airports[0];
-  const destination =
-    airports.find((airport) => airport.id === "RJFO") ??
-    airports.find((airport) => airport.id !== departure?.id) ??
-    departure;
   return {
     flightDate: tomorrowIso(),
     departureTimeJst: "09:00",
     departureAirportId: departure?.id ?? "",
-    destinationAirportId: destination?.id ?? "",
-    destinationPatternAltitudeFtMsl: String(
-      destination?.patternAltitudeFtMsl ?? 1000,
-    ),
+    destinationAirportId: "",
+    destinationPatternAltitudeFtMsl: "",
     totalUsableFuelGal: 90,
-    variationDegEast: 8,
+    variationDegEast: variationForDeparture(departure),
     manualQnhValue: "",
     qnhUnit: "hPa",
     tglCount: 0,
