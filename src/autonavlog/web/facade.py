@@ -705,25 +705,27 @@ class AutoNavLogWebApplication:
                     "選択したLineStringが現在のKMLにありません。",
                 ) from error
             named = named_waypoints_from_line(line)
-            if named:
-                return [
+            names_by_coordinate = {
+                (point.latitude_deg, point.longitude_deg): point.name for point in named
+            }
+            entries: list[RouteEntry] = []
+            for index, (lat, lon) in enumerate(line.coordinates):
+                line_name = names_by_coordinate.get((lat, lon))
+                entries.append(
                     (
-                        point.name,
-                        point.latitude_deg,
-                        point.longitude_deg,
-                        "KML/KMZ LineString name",
+                        line_name
+                        or self._nearest_point_name(result, lat, lon)
+                        or f"WP{index + 1}",
+                        lat,
+                        lon,
+                        (
+                            "KML/KMZ LineString name"
+                            if line_name
+                            else "KML/KMZ LineString"
+                        ),
                     )
-                    for point in named
-                ]
-            return [
-                (
-                    self._nearest_point_name(result, lat, lon) or f"WP{index + 1}",
-                    lat,
-                    lon,
-                    "KML/KMZ LineString",
                 )
-                for index, (lat, lon) in enumerate(line.coordinates)
-            ]
+            return entries
         if request.candidate_kind == "polygon":
             if not request.polygon_route_confirmed:
                 raise WebApplicationError(
