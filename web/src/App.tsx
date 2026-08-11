@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApiClient, ApiError, fileToBase64 } from "./api";
 import {
   candidateFromKey,
+  destinationAirportForCandidate,
   formFromProject,
   initialPlanningForm,
   patternAltitudeFtMsl,
@@ -29,6 +30,7 @@ function App() {
   const api = useMemo(() => new ApiClient(), []);
   const [state, setState] = useState<WebState | null>(null);
   const [form, setForm] = useState<PlanningForm>(() => initialPlanningForm());
+  const [altitudeInputs, setAltitudeInputs] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -79,6 +81,29 @@ function App() {
       active = false;
     };
   }, [api, bootstrapAttempt]);
+
+  useEffect(() => {
+    if (!state || state.project) return;
+    const candidate = candidateFromKey(state.import.candidates, form.candidateKey);
+    const destination = destinationAirportForCandidate(candidate, state.airports);
+    setForm((current) => {
+      const destinationAirportId = destination?.id ?? "";
+      const destinationPatternAltitudeFtMsl = destination
+        ? String(destination.patternAltitudeFtMsl)
+        : "";
+      if (
+        current.destinationAirportId === destinationAirportId &&
+        current.destinationPatternAltitudeFtMsl === destinationPatternAltitudeFtMsl
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        destinationAirportId,
+        destinationPatternAltitudeFtMsl,
+      };
+    });
+  }, [form.candidateKey, state]);
 
   useEffect(() => {
     if (!pendingKmz) return;
@@ -184,7 +209,11 @@ function App() {
       setError("飛行経路にする形状を選択してください。");
       return;
     }
-    await run(
+    if (!form.destinationAirportId) {
+      setError("KML終点から5 NM以内に目的空港が見つかりません。経路終点を確認してください。");
+      return;
+    }
+    const confirmed = await run(
       () =>
         api.request<WebState>("/api/route/confirm", {
           method: "POST",
@@ -209,6 +238,11 @@ function App() {
         }),
       "経路を確定しました。目的空港と場周経路高度を確認してください。",
     );
+    if (confirmed?.project) {
+      setAltitudeInputs(
+        Object.fromEntries(confirmed.project.sections.map((section) => [section.id, ""])),
+      );
+    }
   };
 
   const handleConfirmDestination = async () => {
@@ -233,6 +267,14 @@ function App() {
     );
   };
 
+  const handleAltitudeInputChange = (sectionId: string, value: string) => {
+    setAltitudeInputs((current) => ({ ...current, [sectionId]: value }));
+    const altitude = Number(value);
+    if (value.trim() && Number.isFinite(altitude)) {
+      handleSectionChange(sectionId, { planned_altitude_ft_msl: altitude });
+    }
+  };
+
   const handleSectionChange = (sectionId: string, changes: Partial<NavSection>) => {
     setState((current) => {
       if (!current?.project) return current;
@@ -250,6 +292,12 @@ function App() {
 
   const updatePayload = () => {
     if (!state?.project) throw new Error("Projectがありません。");
+    const missingAltitude = state.project.sections.some(
+      (section) => !(altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)).trim(),
+    );
+    if (missingAltitude) {
+      throw new Error("すべてのLegに計画高度を入力してください。");
+    }
     const arrival = state.project.metadata.ui_state?.arrival_plan ?? null;
     const orderedNodes = [...state.project.route_nodes].sort((a, b) => a.sequence - b.sequence);
     const fallbackVrep = orderedNodes.length >= 3 ? orderedNodes.at(-2)?.id ?? null : null;
@@ -427,18 +475,18 @@ function App() {
           form={form}
           setForm={setForm}
           projectExists={Boolean(state.project)}
-          destinationConfirmed={destinationConfirmed}
           busy={busy}
           onFile={handleFile}
           onPaste={() => setPasteOpen(true)}
           onConfirmRoute={handleConfirmRoute}
-          onConfirmDestination={handleConfirmDestination}
         />
         <RouteWorkspace
           candidate={selectedCandidate}
           project={state.project}
           altitudeGuidance={state.altitudeGuidance}
           outcome={state.outcome}
+          altitudeInputs={altitudeInputs}
+          onAltitudeInputChange={handleAltitudeInputChange}
           onSectionChange={handleSectionChange}
         />
         <StatusPanel
@@ -446,9 +494,12 @@ function App() {
           readiness={state.readiness}
           projectExists={Boolean(state.project)}
           canCalculate={destinationConfirmed}
+          destinationConfirmed={destinationConfirmed}
+          destinationReady={patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl) !== null}
           outcomeExists={Boolean(state.outcome)}
           busy={busy}
           onCalculate={handleCalculate}
+          onConfirmDestination={handleConfirmDestination}
           onAcknowledge={handleAcknowledge}
           onDownload={handleDownload}
         />
