@@ -69,10 +69,13 @@ class ImportedLine:
     name: str
     coordinates: tuple[tuple[float, float], ...]
     display_coordinates: tuple[tuple[float, float], ...] = ()
+    original_coordinate_count: int = 0
 
     def __post_init__(self) -> None:
         if not self.display_coordinates:
             object.__setattr__(self, "display_coordinates", self.coordinates)
+        if not self.original_coordinate_count:
+            object.__setattr__(self, "original_coordinate_count", len(self.coordinates))
 
 
 @dataclass(frozen=True)
@@ -174,15 +177,22 @@ def _simplify(points: list[tuple[float, float]], maximum: int) -> tuple[tuple[fl
 
 
 def named_waypoints_from_line(line: ImportedLine) -> tuple[ImportedPoint, ...]:
-    """Map names only when every original LineString coordinate has one name.
+    """Map ordered names to unambiguous LineString coordinates.
 
-    A LineString name does not encode which vertices its delimited labels refer
-    to. Adopting labels after geometric simplification can therefore assign a
-    valid name to the wrong location.
+    A full list maps one-to-one. A shorter list maps from the first intermediate
+    coordinate, leaving the endpoints and any trailing operational points
+    unnamed. Names are not adopted after coordinate deduplication because that
+    can shift a valid label onto the wrong location.
     """
 
     names = tuple(part.strip() for part in _ROUTE_NAME_SEPARATOR.split(line.name) if part.strip())
-    if len(names) < 2 or len(names) != len(line.coordinates):
+    if len(names) < 2 or line.original_coordinate_count != len(line.coordinates):
+        return ()
+    if len(names) == len(line.coordinates):
+        offset = 0
+    elif len(names) <= len(line.coordinates) - 2:
+        offset = 1
+    else:
         return ()
     return tuple(
         ImportedPoint(
@@ -190,7 +200,11 @@ def named_waypoints_from_line(line: ImportedLine) -> tuple[ImportedPoint, ...]:
             latitude_deg=latitude,
             longitude_deg=longitude,
         )
-        for name, (latitude, longitude) in zip(names, line.coordinates, strict=True)
+        for name, (latitude, longitude) in zip(
+            names,
+            line.coordinates[offset : offset + len(names)],
+            strict=True,
+        )
     )
 
 
@@ -532,6 +546,7 @@ def select_imported_line(
             list(coordinates),
             limits.max_display_vertices,
         ),
+        original_coordinate_count=line.original_coordinate_count,
     )
 
 
