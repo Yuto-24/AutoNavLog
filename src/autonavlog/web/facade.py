@@ -30,9 +30,9 @@ from autonavlog.importers.kml import (
     KmlImportError,
     KmlImportResult,
     imported_line_length_nm,
-    waypoint_name_slots_from_line,
     select_imported_line,
     select_imported_polygon_outer,
+    waypoint_name_slots_from_line,
 )
 from autonavlog.nav.geodesy import geodesic_leg
 from autonavlog.performance.repository import PerformanceRepository
