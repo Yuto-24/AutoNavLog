@@ -10,7 +10,7 @@ from autonavlog.nav.airspeed import (
     tas_from_cas,
 )
 from autonavlog.nav.geodesy import geodesic_leg, point_along_route
-from autonavlog.nav.rounding import round_half_up
+from autonavlog.nav.rounding import DisplayRoundingPolicy, round_half_up
 from autonavlog.nav.wind_triangle import WindTriangleError, solve_wind_triangle
 
 
@@ -64,3 +64,4 @@ def test_compressible_cas_tas_round_trip() -> None:
 def test_half_up_rounding() -> None:
     assert round_half_up(1.25, 0.5) == 1.5
     assert round_half_up(2.25, 0.5) == 2.5
+    assert DisplayRoundingPolicy().speed(114.5) == 115

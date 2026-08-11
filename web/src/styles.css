@@ -561,7 +561,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .nav-log-heading { margin-bottom: 12px; }
 .nav-log-heading > span { color: var(--slate-500); font-size: 10px; }
 .nav-log-scroll { border: 1px solid var(--slate-200); border-radius: var(--radius-sm); }
-.nav-log-table { min-width: 2100px; }
+.nav-log-tables { display: flex; align-items: flex-start; gap: 1em; width: max-content; min-width: 100%; }
+.nav-log-table { flex: 0 0 auto; min-width: 2100px; }
 .nav-log-table th { text-align: center; line-height: 1.25; }
 .nav-log-table th small { font-size: 8px; font-weight: 650; }
 .nav-log-table td { color: #172d42; font-size: 11px; text-align: center; white-space: nowrap; }
@@ -573,19 +574,21 @@ tbody tr:last-child td { border-bottom: 0; }
 .manual-value { color: var(--teal-700) !important; font-weight: 700; }
 .unavailable-value { color: var(--red-700) !important; font-weight: 700; }
 
-.fuel-summary {
-  margin-top: 10px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  overflow: hidden;
-  border: 1px solid #7990a5;
-  border-radius: var(--radius-sm);
-}
-
-.fuel-summary > div { display: flex; align-items: baseline; justify-content: space-between; gap: 9px; padding: 11px 14px; border-right: 1px solid var(--slate-200); }
-.fuel-summary > div:last-child { border-right: 0; }
-.fuel-summary span { color: #4c6277; font-size: 10px; font-weight: 700; }
-.fuel-summary strong { color: var(--navy-950); font-size: 15px; }
+.fuel-plan-table { flex: 0 0 560px; width: 560px; table-layout: fixed; border-left: 2px solid #7990a5; font-size: 11px; line-height: 1.15; }
+.fuel-plan-table col:nth-child(1) { width: 10%; }
+.fuel-plan-table col:nth-child(2) { width: 15.5%; }
+.fuel-plan-table col:nth-child(3) { width: 25.2%; }
+.fuel-plan-table col:nth-child(4) { width: 24%; }
+.fuel-plan-table col:nth-child(5) { width: 25.3%; }
+.fuel-plan-table th, .fuel-plan-table td { height: 30px; padding: 5px 7px; box-sizing: border-box; vertical-align: middle; white-space: nowrap; font-weight: 400; }
+.fuel-plan-table thead th { height: auto; text-align: center; font-size: 10px; font-weight: 750; }
+.fuel-plan-table .fuel-gray { background: #dfe4e8; }
+.fuel-plan-table .fuel-strong, .fuel-plan-table .fuel-bof { text-align: center; font-weight: 700; }
+.fuel-plan-table .fuel-phase { text-align: left; }
+.fuel-time { display: grid; grid-template-columns: 1fr .5fr 1fr; align-items: center; text-align: center; width: 100%; }
+.fuel-amount { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+.fuel-reserve-row td, .fuel-min-row td { border-bottom-width: 2px; border-bottom-color: #7990a5; }
+.fuel-extra-row td { border-bottom: 3px double #7990a5; }
 .nav-log-disclaimer { margin: 10px 0 0; color: #4e6174; font-size: 10px; line-height: 1.5; }
 
 .app-footer {

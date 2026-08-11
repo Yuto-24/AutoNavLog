@@ -14,6 +14,7 @@ from autonavlog.domain.enums import ProjectStatus, ValueState
 from autonavlog.domain.planning import load_persisted_ui_state
 from autonavlog.domain.project import Project
 from autonavlog.domain.values import AdoptedValue
+from autonavlog.nav.rounding import round_half_up
 
 from .formatting import ROUNDING, format_clock
 
@@ -165,21 +166,29 @@ def _raw_adopted_cell(value: AdoptedValue[Any], css_class: str = "num") -> str:
     return f"<td class='{classes}'>{escape(shown)}</td>"
 
 
+def _formatted_adopted_cell(
+    value: AdoptedValue[float],
+    formatter: Callable[[float], str],
+    css_class: str = "num",
+) -> str:
+    adopted = value.adopted()
+    shown = "—（未確定）" if adopted is None else formatter(adopted)
+    classes = css_class + (" missing" if adopted is None else "")
+    return f"<td class='{classes}'>{escape(shown)}</td>"
+
+
 def _combined_adopted_cell(
     primary: AdoptedValue[float],
     cumulative: AdoptedValue[float],
     *,
-    seconds_to_minutes: bool = False,
+    formatter: Callable[[float], str],
 ) -> str:
     primary_value = primary.adopted()
     cumulative_value = cumulative.adopted()
-    if seconds_to_minutes:
-        primary_value = None if primary_value is None else primary_value / 60
-        cumulative_value = None if cumulative_value is None else cumulative_value / 60
     missing = primary_value is None or cumulative_value is None
     classes = "num combined" + (" missing" if missing else "")
-    primary_text = "—" if primary_value is None else _raw(primary_value)
-    cumulative_text = "—" if cumulative_value is None else _raw(cumulative_value)
+    primary_text = "—" if primary_value is None else formatter(primary_value)
+    cumulative_text = "—" if cumulative_value is None else formatter(cumulative_value)
     return (
         f"<td class='{classes}'><span>{escape(primary_text)}</span>"
         f"<small>{escape(cumulative_text)}</small></td>"
@@ -194,7 +203,7 @@ def _raw_wind_cell(result: SectionResult) -> str:
     elif speed is None or direction is None:
         shown = "—（未確定）"
     else:
-        shown = f"{_raw(direction)}/{_raw(speed)}"
+        shown = f"{ROUNDING.bearing(direction):03.0f}/{ROUNDING.speed(speed):.0f}"
     classes = "num" + (" missing" if speed is None or (speed != 0 and direction is None) else "")
     return f"<td class='{classes}'>{escape(shown)}</td>"
 
@@ -205,23 +214,32 @@ def _section_row(result: SectionResult) -> str:
         _text_cell(result.to_name, "route-name"),
         _raw_adopted_cell(result.pressure_altitude_planning_ft),
         _raw_adopted_cell(result.temperature_c),
-        _raw_adopted_cell(result.cas_kt),
-        _raw_adopted_cell(result.tas_kt),
-        _raw_adopted_cell(result.true_course_deg),
+        _formatted_adopted_cell(result.cas_kt, lambda value: f"{ROUNDING.speed(value):.0f}"),
+        _formatted_adopted_cell(result.tas_kt, lambda value: f"{ROUNDING.speed(value):.0f}"),
+        _formatted_adopted_cell(
+            result.true_course_deg, lambda value: f"{ROUNDING.bearing(value):03.0f}"
+        ),
         _raw_adopted_cell(result.variation_deg_east),
-        _raw_adopted_cell(result.magnetic_course_deg),
+        _formatted_adopted_cell(
+            result.magnetic_course_deg, lambda value: f"{ROUNDING.bearing(value):03.0f}"
+        ),
         _raw_wind_cell(result),
         _raw_adopted_cell(result.wca_deg),
-        _raw_adopted_cell(result.magnetic_heading_deg),
+        _formatted_adopted_cell(
+            result.magnetic_heading_deg, lambda value: f"{ROUNDING.bearing(value):03.0f}"
+        ),
         _combined_adopted_cell(
             result.zone_distance_nm,
             result.cumulative_distance_nm,
+            formatter=lambda value: f"{ROUNDING.distance(value):.1f}",
         ),
-        _raw_adopted_cell(result.ground_speed_kt),
+        _formatted_adopted_cell(
+            result.ground_speed_kt, lambda value: f"{ROUNDING.speed(value):.0f}"
+        ),
         _combined_adopted_cell(
             result.zone_ete_seconds,
             result.cumulative_ete_seconds,
-            seconds_to_minutes=True,
+            formatter=lambda value: f"{ROUNDING.duration_minutes(value):.1f}",
         ),
         _text_cell("", "num"),
         _text_cell("", "num"),
@@ -229,6 +247,7 @@ def _section_row(result: SectionResult) -> str:
         _combined_adopted_cell(
             result.section_fuel_gal,
             result.remaining_fuel_gal,
+            formatter=lambda value: f"{ROUNDING.fuel(value):.1f}",
         ),
     ]
     return "<tr>" + "".join(cells) + "</tr>"
@@ -244,8 +263,14 @@ def _project_summary(project: Project, outcome: CalculationOutcome) -> str:
         ("SHIP", project.ship_identifier or ""),
         ("FROM", project.departure_airport_id),
         ("TO", project.destination_airport_id),
-        ("TTL DIST", _raw(total_distance)),
-        ("TTL TIME", _raw(None if total_time is None else total_time / 60)),
+        (
+            "TTL DIST",
+            "" if total_distance is None else f"{ROUNDING.distance(total_distance):.1f}",
+        ),
+        (
+            "TTL TIME",
+            "" if total_time is None else f"{ROUNDING.duration_minutes(total_time):.1f}",
+        ),
         ("TAKE OFF", project.planned_departure_time_jst.strftime("%H:%M")),
         ("LANDING", ""),
         ("PILOT", project.pilot_name or ""),
@@ -312,46 +337,133 @@ def _phase_minutes(outcome: CalculationOutcome, phases: set[str]) -> float | Non
         for section in outcome.sections
         if section.phase.value in phases
     ]
-    if not values or any(value is None for value in values):
+    if not outcome.sections or any(value is None for value in values):
         return None
     return sum(value for value in values if value is not None) / 60
 
 
+def _fuel_time(minutes: float | None) -> str:
+    if minutes is None:
+        return ""
+    rounded = int(round_half_up(minutes, 1.0))
+    hours, remaining_minutes = divmod(rounded, 60)
+    return (
+        "<div class='fuel-time'>"
+        f"<span>{hours}</span><span>:</span><span>{remaining_minutes:02d}</span>"
+        "</div>"
+    )
+
+
+def _fuel_amount(amount: float | None) -> str:
+    shown = "" if amount is None else f"{ROUNDING.fuel(amount):.1f}"
+    return f"<div class='fuel-amount'><span>{shown}</span><span>G</span></div>"
+
+
+def _fuel_row(
+    label: str,
+    minutes: float | None,
+    amount: float | None,
+    *,
+    row_class: str = "",
+    label_class: str = "",
+) -> str:
+    class_attribute = f" class='{row_class}'" if row_class else ""
+    return (
+        f"<tr{class_attribute}><td colspan='3' class='{label_class}'>{escape(label)}</td>"
+        f"<td class='fuel-time-cell'>{_fuel_time(minutes)}</td>"
+        f"<td class='fuel-amount-cell'>{_fuel_amount(amount)}</td></tr>"
+    )
+
+
 def _fuel_table(outcome: CalculationOutcome) -> str:
     fuel = outcome.fuel_plan
-    total_time = outcome.sections[-1].cumulative_ete_seconds.adopted() if outcome.sections else None
-    rows = [
-        ("TAXI-RUN UP", None, fuel.taxi_runup_gal),
-        ("BOF CLIMB", _phase_minutes(outcome, {"CLIMB"}), fuel.climb_gal),
-        ("BOF CRUISE", _phase_minutes(outcome, {"CRUISE"}), fuel.cruise_gal),
-        (
-            "BOF DESCENT",
-            _phase_minutes(outcome, {"DESCENT", "VISUAL_ARRIVAL"}),
-            fuel.descent_gal,
-        ),
-        ("BOF TGL", None, fuel.tgl_gal),
-        ("BOF ADDITIONAL", None, fuel.additional_gal),
-        ("RESERVE", None, fuel.reserve_gal),
-        ("MIN REQUIRED", None, fuel.min_required_gal),
-        (
-            "EXTRA",
-            None if fuel.extra_endurance_seconds is None else fuel.extra_endurance_seconds / 60,
-            fuel.extra_gal,
-        ),
-        ("TOTAL", None if total_time is None else total_time / 60, fuel.total_usable_gal),
+    climb_minutes = _phase_minutes(outcome, {"CLIMB"})
+    cruise_minutes = _phase_minutes(outcome, {"CRUISE"})
+    descent_minutes = _phase_minutes(outcome, {"DESCENT", "VISUAL_ARRIVAL"})
+    tgl_minutes = fuel.tgl_gal / 2.0 * 7.0
+    required_parts = [
+        10.0,
+        climb_minutes,
+        cruise_minutes,
+        descent_minutes,
+        tgl_minutes,
+        10.0,
+        45.0,
     ]
-    body = "".join(
+    min_required_minutes = (
+        None
+        if any(value is None for value in required_parts)
+        else sum(value for value in required_parts if value is not None)
+    )
+    extra_minutes = (
+        None if fuel.extra_endurance_seconds is None else fuel.extra_endurance_seconds / 60
+    )
+    total_minutes = (
+        None
+        if min_required_minutes is None or extra_minutes is None
+        else min_required_minutes + extra_minutes
+    )
+    bof_rows = [
+        ("CLIMB", climb_minutes, fuel.climb_gal),
+        ("CRUISE", cruise_minutes, fuel.cruise_gal),
+        ("DESCENT", descent_minutes, fuel.descent_gal),
+        ("TGL", tgl_minutes, fuel.tgl_gal),
+        ("ADDITIONAL", 10.0, fuel.additional_gal),
+    ]
+    bof_html = "".join(
         "<tr>"
-        f"<th>{escape(label)}</th>"
-        f"<td class='num'>{escape(_raw(time))}</td>"
-        f"<td class='num'>{escape(_raw(amount))}</td>"
-        "</tr>"
-        for label, time, amount in rows
+        + (
+            "<td rowspan='6' class='fuel-gray'></td>"
+            "<td rowspan='5' class='fuel-bof'>BOF</td>"
+            if index == 0
+            else ""
+        )
+        + f"<td class='fuel-phase'>{escape(label)}</td>"
+        + f"<td class='fuel-time-cell'>{_fuel_time(minutes)}</td>"
+        + f"<td class='fuel-amount-cell'>{_fuel_amount(amount)}</td></tr>"
+        for index, (label, minutes, amount) in enumerate(bof_rows)
     )
-    return (
-        "<table class='fuel-table'><thead><tr><th></th><th>TIME</th><th>FUEL</th>"
-        f"</tr></thead><tbody>{body}</tbody></table>"
+    reserve = (
+        "<tr class='fuel-reserve-row'><td colspan='2' class='fuel-strong'>RESERVE</td>"
+        f"<td class='fuel-time-cell'>{_fuel_time(45.0)}</td>"
+        f"<td class='fuel-amount-cell'>{_fuel_amount(fuel.reserve_gal)}</td></tr>"
     )
+    min_required_row = _fuel_row(
+        "MIN REQUIRED",
+        min_required_minutes,
+        fuel.min_required_gal,
+        row_class="fuel-min-row",
+        label_class="fuel-gray fuel-strong",
+    )
+    extra_row = _fuel_row(
+        "EXTRA",
+        extra_minutes,
+        fuel.extra_gal,
+        row_class="fuel-extra-row",
+        label_class="fuel-strong",
+    )
+    total_row = _fuel_row(
+        "TOTAL",
+        total_minutes,
+        fuel.total_usable_gal,
+        label_class="fuel-strong",
+    )
+    return f"""
+<table class='fuel-table'>
+  <colgroup><col><col><col><col><col></colgroup>
+  <thead><tr><th colspan='3'></th><th>TIME</th><th>FUEL</th></tr></thead>
+  <tbody>
+    <tr><td class='fuel-gray'></td><td colspan='2' class='fuel-strong'>TAXI・RUN UP</td>
+      <td class='fuel-time-cell'>{_fuel_time(10.0)}</td>
+      <td class='fuel-amount-cell'>{_fuel_amount(fuel.taxi_runup_gal)}</td></tr>
+    {bof_html}
+    {reserve}
+    {min_required_row}
+    {extra_row}
+    {total_row}
+  </tbody>
+</table>
+"""
 
 
 def _segment_sequence_label(sequences: list[int | None]) -> str:
@@ -631,7 +743,24 @@ def render_transfer_aid_html(
   align-items:start; }}
 .info-table,.fuel-table {{ table-layout:fixed; font-size:6.5px; }}
 .info-table td {{ height:22px; }}
-.fuel-table th:first-child {{ width:48%; text-align:left; }}
+.fuel-table {{ border:2px solid #111 !important; font-family:"Arial Narrow",Arial,sans-serif; }}
+.fuel-table col:nth-child(1) {{ width:10%; }}
+.fuel-table col:nth-child(2) {{ width:15.5%; }}
+.fuel-table col:nth-child(3) {{ width:25.2%; }}
+.fuel-table col:nth-child(4) {{ width:24%; }}
+.fuel-table col:nth-child(5) {{ width:25.3%; }}
+.fuel-table th,.fuel-table td {{ height:22px; padding:0 4px; font-weight:400; }}
+.fuel-table thead th {{ height:24px; border-bottom:3px solid #111; font-weight:700; }}
+.fuel-gray {{ background:#bfbfbf; }}
+.fuel-strong,.fuel-bof {{ text-align:center; font-weight:700 !important; }}
+.fuel-bof {{ border-left:3px solid #111 !important; }}
+.fuel-phase {{ text-align:left; }}
+.fuel-time,.fuel-amount {{ display:grid; align-items:center; width:100%; }}
+.fuel-time {{ grid-template-columns:1fr .5fr 1fr; text-align:center; }}
+.fuel-amount {{ grid-template-columns:1fr auto; gap:4px; }}
+.fuel-amount span:first-child {{ text-align:right; }}
+.fuel-reserve-row td,.fuel-min-row td {{ border-bottom:3px solid #111; }}
+.fuel-extra-row td {{ border-bottom:3px double #111; }}
 @media print {{
   html,body {{ margin:0; padding:0; background:#fff; }}
   .autonavlog-transfer-aid {{ max-width:none; width:auto; margin:0; padding:0; }}

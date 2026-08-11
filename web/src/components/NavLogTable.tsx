@@ -31,10 +31,14 @@ const integer = fixedQuantum(1, 0);
 const distance = fixedQuantum(0.5, 1);
 const durationMinutes = fixedQuantum(0.5, 1);
 const fuelAmount = fixedQuantum(0.1, 1);
+const CLIMB_PHASES = new Set<string>(["CLIMB"]);
+const CRUISE_PHASES = new Set<string>(["CRUISE"]);
+const DESCENT_PHASES = new Set<string>(["DESCENT", "VISUAL_ARRIVAL"]);
+
 const bearing = (value: number) => {
   const normalized = ((value % 360) + 360) % 360;
   const rounded = roundHalfUp(normalized, 1) % 360;
-  return `${rounded.toFixed(0)}°`;
+  return `${rounded.toFixed(0).padStart(3, "0")}°`;
 };
 const signedAngle = (value: number) => {
   const rounded = roundHalfUp(value, 1);
@@ -175,8 +179,103 @@ function CombinedEteCell({
   );
 }
 
-export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
+
+function phaseMinutes(outcome: CalculationOutcome, phases: Set<string>): number | null {
+  const matching = outcome.sections.filter((section) => phases.has(section.phase));
+  const seconds = matching.map((section) => adopted(section.zone_ete_seconds));
+  if (outcome.sections.length === 0 || seconds.some((value) => value === null)) return null;
+  return seconds.reduce<number>((sum, value) => sum + (value ?? 0), 0) / 60;
+}
+
+function FuelTime({ minutes }: { minutes: number | null }) {
+  if (minutes === null) return <div className="fuel-time" />;
+  const rounded = roundHalfUp(minutes, 1);
+  const hours = Math.floor(rounded / 60);
+  const remaining = Math.round(rounded % 60);
+  return (
+    <div className="fuel-time">
+      <span>{hours}</span>
+      <span>:</span>
+      <span>{remaining.toString().padStart(2, "0")}</span>
+    </div>
+  );
+}
+
+function FuelAmount({ amount }: { amount: number | null }) {
+  return (
+    <div className="fuel-amount">
+      <span>{amount === null ? "" : fuelAmount(amount)}</span>
+      <span>G</span>
+    </div>
+  );
+}
+
+function FuelPlanTable({ outcome }: { outcome: CalculationOutcome }) {
   const fuel = outcome.fuel_plan;
+  const climb = phaseMinutes(outcome, CLIMB_PHASES);
+  const cruise = phaseMinutes(outcome, CRUISE_PHASES);
+  const descent = phaseMinutes(outcome, DESCENT_PHASES);
+  const tgl = fuel.tgl_gal / 2 * 7;
+  const required = [10, climb, cruise, descent, tgl, 10, 45];
+  const minRequired = required.some((value) => value === null)
+    ? null
+    : required.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+  const extra =
+    fuel.extra_endurance_seconds === null ? null : fuel.extra_endurance_seconds / 60;
+  const total = minRequired === null || extra === null ? null : minRequired + extra;
+  const bofRows = [
+    ["CLIMB", climb, fuel.climb_gal],
+    ["CRUISE", cruise, fuel.cruise_gal],
+    ["DESCENT", descent, fuel.descent_gal],
+    ["TGL", tgl, fuel.tgl_gal],
+    ["ADDITIONAL", 10, fuel.additional_gal],
+  ] as const;
+  return (
+    <table className="fuel-plan-table">
+        <colgroup><col /><col /><col /><col /><col /></colgroup>
+        <thead><tr><th colSpan={3} /><th>TIME</th><th>FUEL</th></tr></thead>
+        <tbody>
+          <tr>
+            <td className="fuel-gray" />
+            <td colSpan={2} className="fuel-strong">TAXI・RUN UP</td>
+            <td><FuelTime minutes={10} /></td>
+            <td><FuelAmount amount={fuel.taxi_runup_gal} /></td>
+          </tr>
+          {bofRows.map(([label, minutes, amount], index) => (
+            <tr key={label}>
+              {index === 0 && <td rowSpan={6} className="fuel-gray" />}
+              {index === 0 && <td rowSpan={5} className="fuel-bof">BOF</td>}
+              <td className="fuel-phase">{label}</td>
+              <td><FuelTime minutes={minutes} /></td>
+              <td><FuelAmount amount={amount} /></td>
+            </tr>
+          ))}
+          <tr className="fuel-reserve-row">
+            <td colSpan={2} className="fuel-strong">RESERVE</td>
+            <td><FuelTime minutes={45} /></td>
+            <td><FuelAmount amount={fuel.reserve_gal} /></td>
+          </tr>
+          <tr className="fuel-min-row">
+            <td colSpan={3} className="fuel-gray fuel-strong">MIN REQUIRED</td>
+            <td className="fuel-gray"><FuelTime minutes={minRequired} /></td>
+            <td className="fuel-gray"><FuelAmount amount={fuel.min_required_gal} /></td>
+          </tr>
+          <tr className="fuel-extra-row">
+            <td colSpan={3} className="fuel-strong">EXTRA</td>
+            <td><FuelTime minutes={extra} /></td>
+            <td><FuelAmount amount={fuel.extra_gal} /></td>
+          </tr>
+          <tr>
+            <td colSpan={3} className="fuel-strong">TOTAL</td>
+            <td><FuelTime minutes={total} /></td>
+            <td><FuelAmount amount={fuel.total_usable_gal} /></td>
+          </tr>
+        </tbody>
+    </table>
+  );
+}
+
+export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
   return (
     <section className="nav-log-section" aria-labelledby="nav-log-title">
       <div className="nav-log-heading">
@@ -187,7 +286,8 @@ export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
         <span>Forecast Run: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
       <div className="table-scroll nav-log-scroll">
-        <table className="nav-log-table official-nav-log-table">
+        <div className="nav-log-tables">
+          <table className="nav-log-table official-nav-log-table">
           <thead>
             <tr>
               <th>FROM</th>
@@ -265,21 +365,8 @@ export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
               );
             })}
           </tbody>
-        </table>
-      </div>
-      <div className="fuel-summary">
-        <div><span>搭載</span><strong>{fuelAmount(fuel.total_usable_gal)} gal</strong></div>
-        <div>
-          <span>最低必要</span>
-          <strong>
-            {fuel.min_required_gal === null ? "未確定" : fuelAmount(fuel.min_required_gal)} gal
-          </strong>
-        </div>
-        <div><span>予備</span><strong>{fuelAmount(fuel.reserve_gal)} gal</strong></div>
-        <div><span>TGL</span><strong>{fuelAmount(fuel.tgl_gal)} gal</strong></div>
-        <div>
-          <span>EXTRA</span>
-          <strong>{fuel.extra_gal === null ? "未確定" : fuelAmount(fuel.extra_gal)} gal</strong>
+          </table>
+          <FuelPlanTable outcome={outcome} />
         </div>
       </div>
       <p className="nav-log-disclaimer">

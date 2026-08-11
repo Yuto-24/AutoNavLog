@@ -16,6 +16,7 @@ class DisplayRoundingPolicy:
     temperature_c = 1.0
     qnh_hpa = 1.0
     fuel_gal = 0.1
+    speed_kt = 1.0
 
     def bearing(self, value: float) -> float:
         return round_half_up(value % 360, self.bearing_deg) % 360
@@ -37,3 +38,6 @@ class DisplayRoundingPolicy:
 
     def fuel(self, value: float) -> float:
         return round_half_up(value, self.fuel_gal)
+
+    def speed(self, value: float) -> float:
+        return round_half_up(value, self.speed_kt)

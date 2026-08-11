@@ -116,8 +116,8 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
 
   const firstRow = page.locator(".nav-log-table tbody tr").first();
   await expect(firstRow.locator("td").nth(2)).toHaveText("5500");
-  await expect(firstRow.locator("td").nth(6)).toHaveText(/^\d{1,3}°$/);
-  await expect(firstRow.locator("td").nth(8)).toHaveText(/^\d{1,3}°$/);
+  await expect(firstRow.locator("td").nth(6)).toHaveText(/^\d{3}°$/);
+  await expect(firstRow.locator("td").nth(8)).toHaveText(/^\d{3}°$/);
   await expect(firstRow.locator("td").nth(12)).toHaveText(
     /^\d+\.[05] \/ \d+\.[05]$/,
   );
@@ -127,6 +127,25 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   await expect(firstRow.locator("td").nth(18)).toHaveText(
     /^\d+\.\d \/ \d+\.\d$/,
   );
+
+  const fuelTable = page.locator(".fuel-plan-table");
+  await expect(fuelTable.locator("col")).toHaveCount(5);
+  await expect(fuelTable.getByText("TAXI・RUN UP", { exact: true })).toBeVisible();
+  await expect(fuelTable.getByText("MIN REQUIRED", { exact: true })).toBeVisible();
+  await expect(fuelTable.locator("tbody tr")).toHaveCount(10);
+  const tableLayout = await page.locator(".nav-log-tables").evaluate((container) => {
+    const navTable = container.querySelector<HTMLElement>(".nav-log-table");
+    const planTable = container.querySelector<HTMLElement>(".fuel-plan-table");
+    if (navTable === null || planTable === null) throw new Error("NAV LOG tables are missing");
+    return {
+      gap: planTable.offsetLeft - (navTable.offsetLeft + navTable.offsetWidth),
+      fuelWidth: planTable.offsetWidth,
+      navWidth: navTable.offsetWidth,
+    };
+  });
+  expect(tableLayout.gap).toBeGreaterThanOrEqual(15);
+  expect(tableLayout.gap).toBeLessThanOrEqual(17);
+  expect(tableLayout.fuelWidth).toBeLessThan(tableLayout.navWidth / 2);
 });
 
 test("calculated mobile layout has no body overflow", async ({ page }) => {
