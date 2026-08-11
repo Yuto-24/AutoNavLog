@@ -153,7 +153,15 @@ def test_descent_end_at_vrep_keeps_physical_point_name() -> None:
     assert result.descent_end_point is not None
     assert result.descent_end_point.label == "C"
     assert result.descent_end_point.source_name == "C"
+    assert (
+        result.descent_end_point.latitude_deg,
+        result.descent_end_point.longitude_deg,
+    ) == (31.1, 131.2)
     assert result.segments[-1].start.label == "C"
+    assert (
+        result.segments[-1].start.latitude_deg,
+        result.segments[-1].start.longitude_deg,
+    ) == (31.1, 131.2)
 
 
 def test_coincident_rca_and_eoc_preserve_both_markers() -> None:
