@@ -7,7 +7,7 @@ import pytest
 
 from autonavlog.application.calculation_service import CalculationService
 from autonavlog.application.project_service import ProjectService
-from autonavlog.domain.enums import ProjectStatus
+from autonavlog.domain.enums import AdoptedSource, ProjectStatus
 from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.presentation.colab import AutoNavLogApp, ViewMode
 from autonavlog.storage.local import LocalProjectRepository
@@ -394,6 +394,7 @@ def test_one_click_creates_project_seeds_airports_route_altitude_and_calculates(
     arrival_plan = state.arrival_plan
     assert arrival_plan is not None
     assert arrival_plan.selected_pattern_altitude_ft_msl == 1000
+    assert arrival_plan.selected_pattern_altitude_source == AdoptedSource.AUTOMATIC
     assert app.departure.value == "RJFM"
     assert app.destination.value == "RJFO"
     assert [node.name for node in app.project.route_nodes] == [
@@ -433,6 +434,18 @@ def test_one_click_creates_project_seeds_airports_route_altitude_and_calculates(
     assert len(downloads) == 1
     assert "A4横で印刷" in downloads[0].read_text(encoding="utf-8")
     assert "A4印刷用HTMLを保存しました" in app.download_transfer_aid_status.value
+
+    app.destination_pattern_altitude.value = 1300
+    edited_state = app.readiness_service.ui_state(app.project)
+    assert edited_state is not None
+    assert edited_state.arrival_plan is not None
+    assert edited_state.arrival_plan.selected_pattern_altitude_ft_msl is None
+    assert edited_state.arrival_plan.selected_pattern_altitude_source is None
+    assert app.readiness_evaluation is not None
+    assert any(
+        item.issue.code == "PATTERN_ALTITUDE_REQUIRED"
+        for item in app.readiness_evaluation.effective_issues
+    )
 
 
 def test_one_click_uses_point_as_route_candidate_between_seeded_airports(

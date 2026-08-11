@@ -190,7 +190,7 @@
 
 **v1.6までの本節は「同梱データが空である」を前提としていたが、これは基準commit時点の状態であり作業ツリーとは一致しない**（再レビュー指摘11）。v2.7.3作業ツリー（2026-08-11）の実測値は次のとおりである。
 
-| ファイル | 実測値（2026-08-02 作業ツリー） |
+| ファイル | 実測値（2026-08-11 作業ツリー） |
 |---|---|
 | `data/reference/default/airports.csv` | **14件**（RJFC/RJFE/RJFG/RJFK/RJFM/RJFO/RJFS/RJFT/RJFU/RJOA/RJOB/RJOK/RJOM/RJOT）。全行にAIP由来ARP座標・標高、場周高度、固有出典・revision、`VERIFIED` を記録済み |
 | `data/performance/climb_time_fuel_distance.csv` | **19行**（ヘッダ除く） |

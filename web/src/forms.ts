@@ -7,7 +7,7 @@ export interface PlanningForm {
   departureTimeJst: string;
   departureAirportId: string;
   destinationAirportId: string;
-  destinationPatternAltitudeFtMsl: number;
+  destinationPatternAltitudeFtMsl: string;
   totalUsableFuelGal: number;
   variationDegEast: number;
   manualQnhValue: string;
@@ -42,6 +42,21 @@ export function qnhHpa(form: PlanningForm): number | null {
   return form.qnhUnit === "hPa" ? entered : entered * HPA_PER_INHG;
 }
 
+export function patternAltitudeFtMsl(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const altitude = Number(trimmed);
+  if (
+    !Number.isInteger(altitude) ||
+    altitude < 100 ||
+    altitude > 25000 ||
+    altitude % 100 !== 0
+  ) {
+    return null;
+  }
+  return altitude;
+}
+
 export function convertQnhValue(
   value: string,
   from: QnhUnit,
@@ -67,9 +82,9 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     departureTimeJst: "09:00",
     departureAirportId: departure?.id ?? "",
     destinationAirportId: destination?.id ?? "",
-    destinationPatternAltitudeFtMsl:
-      destination?.patternAltitudeFtMsl ??
-      1000,
+    destinationPatternAltitudeFtMsl: String(
+      destination?.patternAltitudeFtMsl ?? 1000,
+    ),
     totalUsableFuelGal: 90,
     variationDegEast: 8,
     manualQnhValue: "",
@@ -99,10 +114,11 @@ export function formFromProject(
     departureTimeJst: project.planned_departure_time_jst.slice(11, 16),
     departureAirportId: project.departure_airport_id,
     destinationAirportId: project.destination_airport_id,
-    destinationPatternAltitudeFtMsl:
+    destinationPatternAltitudeFtMsl: String(
       arrival?.selected_pattern_altitude_ft_msl ??
       destinationMaster?.patternAltitudeFtMsl ??
       previous.destinationPatternAltitudeFtMsl,
+    ),
     totalUsableFuelGal: project.total_usable_fuel_gal,
     variationDegEast: project.default_variation_deg_east,
     manualQnhValue:

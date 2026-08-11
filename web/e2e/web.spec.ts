@@ -47,8 +47,15 @@ async function calculateNavLog(page: Page): Promise<void> {
   await page.getByRole("button", { name: "経路を確定" }).click();
 
   await expect(page.getByText("VREP", { exact: true }).first()).toBeVisible();
-  await expect(page.getByLabel("今回採用する場周経路高度")).toHaveValue("1000");
-  await page.getByRole("button", { name: "目的空港・場周高度を確定" }).click();
+  const patternAltitude = page.getByLabel("今回採用する場周経路高度");
+  const confirmDestination = page.getByRole("button", {
+    name: "目的空港・場周高度を確定",
+  });
+  await expect(patternAltitude).toHaveValue("1000");
+  await patternAltitude.fill("");
+  await expect(confirmDestination).toBeDisabled();
+  await patternAltitude.fill("1000");
+  await confirmDestination.click();
   await page.getByRole("button", { name: "NAV LOGを作る" }).click();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
 }

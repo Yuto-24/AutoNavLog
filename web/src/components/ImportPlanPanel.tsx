@@ -1,6 +1,6 @@
 import { ClipboardPaste, FileUp, Route } from "lucide-react";
 import type { Dispatch, DragEvent, SetStateAction } from "react";
-import { convertQnhValue } from "../forms";
+import { convertQnhValue, patternAltitudeFtMsl } from "../forms";
 import type { PlanningForm, QnhUnit } from "../forms";
 import type { AirportOption, ImportState } from "../types";
 
@@ -45,6 +45,9 @@ export function ImportPlanPanel({
   const selectedKind = form.candidateKey.split(":", 1)[0] ?? "";
   const selectedDestination = airports.find(
     (airport) => airport.id === form.destinationAirportId,
+  );
+  const validPatternAltitude = patternAltitudeFtMsl(
+    form.destinationPatternAltitudeFtMsl,
   );
 
   const acceptDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -216,7 +219,10 @@ export function ImportPlanPanel({
                 update("destinationAirportId", destinationId);
                 const airport = airports.find((item) => item.id === destinationId);
                 if (airport) {
-                  update("destinationPatternAltitudeFtMsl", airport.patternAltitudeFtMsl);
+                  update(
+                    "destinationPatternAltitudeFtMsl",
+                    String(airport.patternAltitudeFtMsl),
+                  );
                 }
               }}
             >
@@ -237,22 +243,21 @@ export function ImportPlanPanel({
                 max="25000"
                 step="100"
                 value={form.destinationPatternAltitudeFtMsl}
-                onChange={(event) => {
-                  const altitude = event.target.valueAsNumber;
-                  if (
-                    Number.isInteger(altitude) &&
-                    altitude >= 100 &&
-                    altitude <= 25000 &&
-                    altitude % 100 === 0
-                  ) {
-                    update("destinationPatternAltitudeFtMsl", altitude);
-                  }
-                }}
+                aria-invalid={validPatternAltitude === null}
+                onChange={(event) =>
+                  update("destinationPatternAltitudeFtMsl", event.target.value)
+                }
               />
               <small className="field-help">
                 master {selectedDestination?.patternAltitudeFtMsl.toLocaleString("ja-JP") ?? "-"} ft
                 {selectedDestination ? " / " + selectedDestination.patternAltitudeSource : ""}
                 <br />東西場周など運用差がある場合は、今回使う100 ft単位のMSL高度へ編集してください。
+                {validPatternAltitude === null && (
+                  <>
+                    <br />
+                    100～25,000 ftの範囲で100 ft単位の整数を入力してください。
+                  </>
+                )}
               </small>
             </label>
           )}
@@ -365,7 +370,7 @@ export function ImportPlanPanel({
             className="secondary-button full-width"
             type="button"
             onClick={onConfirmDestination}
-            disabled={destinationConfirmed || busy}
+            disabled={destinationConfirmed || validPatternAltitude === null || busy}
           >
             目的空港・場周高度を確定
           </button>

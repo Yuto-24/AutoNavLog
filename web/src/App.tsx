@@ -5,6 +5,7 @@ import {
   candidateFromKey,
   formFromProject,
   initialPlanningForm,
+  patternAltitudeFtMsl,
   qnhHpa,
 } from "./forms";
 import type { PlanningForm } from "./forms";
@@ -212,14 +213,20 @@ function App() {
 
   const handleConfirmDestination = async () => {
     if (!state?.project) return;
+    const selectedPatternAltitude = patternAltitudeFtMsl(
+      form.destinationPatternAltitudeFtMsl,
+    );
+    if (selectedPatternAltitude === null) {
+      setError("場周経路高度は100～25,000 ftの範囲で100 ft単位にしてください。");
+      return;
+    }
     await run(
       () =>
         api.request<WebState>("/api/destination/confirm", {
           method: "POST",
           body: {
             destination_airport_id: form.destinationAirportId,
-            selected_pattern_altitude_ft_msl:
-              form.destinationPatternAltitudeFtMsl,
+            selected_pattern_altitude_ft_msl: selectedPatternAltitude,
           },
         }),
       "目的空港と今回採用する場周経路高度を確定しました。",
@@ -376,7 +383,7 @@ function App() {
       selectedArrival.selected_pattern_altitude_source &&
       state.project.destination_airport_id === form.destinationAirportId &&
       selectedArrival.selected_pattern_altitude_ft_msl ===
-        form.destinationPatternAltitudeFtMsl,
+        patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl),
   );
 
   return (

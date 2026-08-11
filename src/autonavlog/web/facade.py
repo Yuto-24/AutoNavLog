@@ -272,7 +272,7 @@ class AutoNavLogWebApplication:
                     "project_name_generated": project.name,
                     "web_import_filename": session.import_filename,
                     "web_owner_id": session.owner_id,
-                    "web_original_destination_coordinate": (original_destination_coordinate),
+                    "web_original_destination_coordinate": list(original_destination_coordinate),
                 }
             )
             self._install_route(
