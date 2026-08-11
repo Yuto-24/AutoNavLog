@@ -394,7 +394,12 @@ def _point_at_distance(
             geometry.initial_true_course_deg,
             geometry.distance_nm * fraction,
         )
-    label = "/".join(marker_tuple) if marker_tuple else source_name
+    # DESCENT_END is an internal calculation boundary, not a NAV LOG waypoint.
+    # At the physical VREP boundary, retain the imported point name for display.
+    display_markers = tuple(marker for marker in marker_tuple if marker != DESCENT_END_LABEL)
+    label = "/".join(display_markers) if display_markers else source_name
+    if label is None and DESCENT_END_LABEL in marker_tuple:
+        label = DESCENT_END_LABEL
     if label is None:
         raise PhaseSegmentationError("an internal split point is missing a stable label")
     return SegmentPoint(
