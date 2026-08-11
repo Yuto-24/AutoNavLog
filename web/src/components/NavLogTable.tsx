@@ -1,4 +1,5 @@
-import type { AdoptedValue, CalculationOutcome } from "../types";
+import { Fragment } from "react";
+import type { AdoptedValue, CalculationOutcome, SectionResult } from "../types";
 
 function adopted<T>(value: AdoptedValue<T>): T | null {
   return value.adopted_source === "MANUAL"
@@ -175,8 +176,73 @@ function CombinedEteCell({
   );
 }
 
+function ResultCells({ section }: { section: SectionResult }) {
+  const variationValue = adopted(section.variation_deg_east);
+  const variation: FormattedValue = {
+    text:
+      variationValue === null
+        ? "未取得"
+        : (variationValue >= 0 ? "E " : "W ") +
+          integer(Math.abs(variationValue)) + "°",
+    manual: section.variation_deg_east.adopted_source === "MANUAL",
+    unavailable: variationValue === null,
+  };
+  return (
+    <>
+      <ValueCell value={section.planned_altitude_ft_msl} />
+      <ValueCell value={section.temperature_c} />
+      <ValueCell value={section.cas_kt} />
+      <ValueCell value={section.tas_kt} />
+      <ValueCell value={section.true_course_deg} formatter={bearing} />
+      <td className={valueClass(variation)}>
+        {variation.text}
+        {variation.manual && <small>手入力</small>}
+      </td>
+      <ValueCell value={section.magnetic_course_deg} formatter={bearing} />
+      <WindCell
+        direction={section.wind_direction_deg_from}
+        speed={section.wind_speed_kt}
+      />
+      <ValueCell value={section.wca_deg} formatter={signedAngle} />
+      <ValueCell value={section.magnetic_heading_deg} formatter={bearing} />
+      <CombinedValueCell
+        first={section.zone_distance_nm}
+        second={section.cumulative_distance_nm}
+        formatter={distance}
+      />
+      <ValueCell value={section.ground_speed_kt} />
+      <CombinedEteCell
+        first={section.zone_ete_seconds}
+        second={section.cumulative_ete_seconds}
+      />
+      <td className="manual-entry-cell" aria-label="ETO転記欄" />
+      <td className="manual-entry-cell" aria-label="ATO転記欄" />
+      <td className="manual-entry-cell" aria-label="ATE転記欄" />
+      <CombinedValueCell
+        first={section.section_fuel_gal}
+        second={section.remaining_fuel_gal}
+        formatter={fuelAmount}
+      />
+    </>
+  );
+}
+
+function groupByPhysicalLeg(sections: SectionResult[]): SectionResult[][] {
+  const groups: SectionResult[][] = [];
+  for (const section of sections) {
+    const current = groups.at(-1);
+    if (current?.[0]?.section_id === section.section_id) {
+      current.push(section);
+    } else {
+      groups.push([section]);
+    }
+  }
+  return groups;
+}
+
 export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
   const fuel = outcome.fuel_plan;
+  const physicalLegs = groupByPhysicalLeg(outcome.sections);
   return (
     <section className="nav-log-section" aria-labelledby="nav-log-title">
       <div className="nav-log-heading">
@@ -212,56 +278,31 @@ export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
             </tr>
           </thead>
           <tbody>
-            {outcome.sections.map((section) => {
-              const variationValue = adopted(section.variation_deg_east);
-              const variation: FormattedValue = {
-                text:
-                  variationValue === null
-                    ? "未取得"
-                    : (variationValue >= 0 ? "E " : "W ") +
-                      integer(Math.abs(variationValue)) + "°",
-                manual: section.variation_deg_east.adopted_source === "MANUAL",
-                unavailable: variationValue === null,
-              };
+            {physicalLegs.map((leg) => {
+              const first = leg[0];
+              const last = leg.at(-1);
+              if (!first || !last) return null;
               return (
-                <tr key={section.section_id}>
-                  <td className="route-name-cell">{section.from_name}</td>
-                  <td className="route-name-cell">{section.to_name}</td>
-                  <ValueCell value={section.planned_altitude_ft_msl} />
-                  <ValueCell value={section.temperature_c} />
-                  <ValueCell value={section.cas_kt} />
-                  <ValueCell value={section.tas_kt} />
-                  <ValueCell value={section.true_course_deg} formatter={bearing} />
-                  <td className={valueClass(variation)}>
-                    {variation.text}
-                    {variation.manual && <small>手入力</small>}
-                  </td>
-                  <ValueCell value={section.magnetic_course_deg} formatter={bearing} />
-                  <WindCell
-                    direction={section.wind_direction_deg_from}
-                    speed={section.wind_speed_kt}
-                  />
-                  <ValueCell value={section.wca_deg} formatter={signedAngle} />
-                  <ValueCell value={section.magnetic_heading_deg} formatter={bearing} />
-                  <CombinedValueCell
-                    first={section.zone_distance_nm}
-                    second={section.cumulative_distance_nm}
-                    formatter={distance}
-                  />
-                  <ValueCell value={section.ground_speed_kt} />
-                  <CombinedEteCell
-                    first={section.zone_ete_seconds}
-                    second={section.cumulative_ete_seconds}
-                  />
-                  <td className="manual-entry-cell" aria-label="ETO転記欄" />
-                  <td className="manual-entry-cell" aria-label="ATO転記欄" />
-                  <td className="manual-entry-cell" aria-label="ATE転記欄" />
-                  <CombinedValueCell
-                    first={section.section_fuel_gal}
-                    second={section.remaining_fuel_gal}
-                    formatter={fuelAmount}
-                  />
-                </tr>
+                <Fragment key={first.section_id}>
+                  <tr className="nav-leg-heading-row">
+                    <td className="route-name-cell">{first.from_name}</td>
+                    <td className="route-name-cell">{last.to_name}</td>
+                    <td colSpan={17} aria-hidden="true" />
+                  </tr>
+                  {leg.map((section) => (
+                    <tr
+                      className="nav-leg-detail-row"
+                      key={`${section.section_id}-${section.sequence}`}
+                    >
+                      <td aria-hidden="true" />
+                      <td className="route-name-cell">{section.to_name}</td>
+                      <ResultCells section={section} />
+                    </tr>
+                  ))}
+                  <tr className="nav-leg-spacer-row" aria-hidden="true">
+                    <td colSpan={19} />
+                  </tr>
+                </Fragment>
               );
             })}
           </tbody>
