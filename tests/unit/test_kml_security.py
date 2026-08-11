@@ -16,6 +16,7 @@ from autonavlog.importers.kml import (
     import_kml_text,
     named_waypoints_from_line,
     select_imported_line,
+    waypoint_name_slots_from_line,
     select_imported_polygon_outer,
 )
 
@@ -353,3 +354,22 @@ def test_delimited_line_name_rejects_mapping_after_coordinate_deduplication() ->
     )
 
     assert named_waypoints_from_line(select_imported_line(result, 0)) == ()
+
+
+def test_delimited_line_names_keep_nonconsecutive_duplicate_positions() -> None:
+    result = import_kml_or_kmz(
+        _kml("A～B～C～D", "131,31 131.1,31.1 131.2,31.2 131.1,31.1"),
+        filename="revisited-point-route.kml",
+    )
+    line = select_imported_line(result, 0)
+
+    assert waypoint_name_slots_from_line(line) == ("A", "B", "C", "D")
+    assert [
+        (point.name, point.latitude_deg, point.longitude_deg)
+        for point in named_waypoints_from_line(line)
+    ] == [
+        ("A", 31.0, 131.0),
+        ("B", 31.1, 131.1),
+        ("C", 31.2, 131.2),
+        ("D", 31.1, 131.1),
+    ]
