@@ -141,6 +141,21 @@ def test_boundary_exactly_on_physical_node_keeps_coordinate_and_stable_label() -
     assert all(segment.distance_nm > 0 for segment in result.segments)
 
 
+
+def test_descent_end_at_vrep_keeps_physical_point_name() -> None:
+    result = split_route_into_phase_segments(
+        _legs(),
+        eoc_distance_nm=25.0,
+        descent_end_distance_nm=30.0,
+        visual_leg_source_id="leg-c",
+    )
+
+    assert result.descent_end_point is not None
+    assert result.descent_end_point.label == "C"
+    assert result.descent_end_point.source_name == "C"
+    assert result.segments[-1].start.label == "C"
+
+
 def test_coincident_rca_and_eoc_preserve_both_markers() -> None:
     result = split_route_into_phase_segments(
         _legs(),
