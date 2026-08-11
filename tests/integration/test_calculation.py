@@ -364,11 +364,10 @@ def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
         longitude_deg=131.737,
         role=RouteNodeRole.DESTINATION,
     )
-    three_leg = project.model_copy(deep=True)
-    three_leg.route_nodes = [departure, first_turn, vrep, destination]
-    three_leg.sections = [
+    route_nodes = [departure, first_turn, vrep, destination]
+    sections = [
         NavSection(
-            project_id=three_leg.id,
+            project_id=project.id,
             sequence=0,
             from_node_id=departure.id,
             to_node_id=first_turn.id,
@@ -376,7 +375,7 @@ def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
             planned_altitude_ft_msl=5000,
         ),
         NavSection(
-            project_id=three_leg.id,
+            project_id=project.id,
             sequence=1,
             from_node_id=first_turn.id,
             to_node_id=vrep.id,
@@ -384,7 +383,7 @@ def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
             planned_altitude_ft_msl=5000,
         ),
         NavSection(
-            project_id=three_leg.id,
+            project_id=project.id,
             sequence=2,
             from_node_id=vrep.id,
             to_node_id=destination.id,
@@ -392,6 +391,13 @@ def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
             planned_altitude_ft_msl=2500,
         ),
     ]
+    three_leg = project.__class__.model_validate(
+        project.model_dump()
+        | {
+            "route_nodes": [node.model_dump() for node in route_nodes],
+            "sections": [section.model_dump() for section in sections],
+        }
+    )
 
     outcome = CalculationService(airports, performance_repository).calculate(
         three_leg,
