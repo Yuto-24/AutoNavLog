@@ -1069,7 +1069,12 @@ class CalculationService:
     ) -> float | None:
         last_cas: float | None = None
         for environment in environments[: end_index + 1]:
-            if environment.geometry.section.phase != FlightPhase.CRUISE:
+            # A DESCENT-designated physical Section still contains the cruise
+            # portion before EOC, so it can provide the descent-entry CAS.
+            if environment.geometry.section.phase not in {
+                FlightPhase.CRUISE,
+                FlightPhase.DESCENT,
+            }:
                 continue
             temperature = environment.temperature_c
             wind_speed = environment.wind_speed_kt
@@ -1522,7 +1527,7 @@ class CalculationService:
             magnetic_course = (
                 None
                 if adopted_course is None
-                else (adopted_course - project.default_variation_deg_east) % 360
+                else (adopted_course + project.default_variation_deg_east) % 360
             )
 
             wind_direction = environment.wind_direction_deg_from
