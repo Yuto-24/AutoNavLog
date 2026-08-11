@@ -30,7 +30,7 @@ from autonavlog.importers.kml import (
     KmlImportError,
     KmlImportResult,
     imported_line_length_nm,
-    named_waypoints_from_line,
+    waypoint_name_slots_from_line,
     select_imported_line,
     select_imported_polygon_outer,
 )
@@ -704,13 +704,10 @@ class AutoNavLogWebApplication:
                     "ROUTE_CANDIDATE_NOT_FOUND",
                     "選択したLineStringが現在のKMLにありません。",
                 ) from error
-            named = named_waypoints_from_line(line)
-            names_by_coordinate = {
-                (point.latitude_deg, point.longitude_deg): point.name for point in named
-            }
+            names_by_index = waypoint_name_slots_from_line(line)
             entries: list[RouteEntry] = []
             for index, (lat, lon) in enumerate(line.coordinates):
-                line_name = names_by_coordinate.get((lat, lon))
+                line_name = names_by_index[index]
                 entries.append(
                     (
                         line_name
