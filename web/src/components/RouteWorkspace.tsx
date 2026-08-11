@@ -267,7 +267,7 @@ export function RouteWorkspace({
                         />
                         {guidance && (
                           <small className="altitude-course">
-                            MC {Math.round(guidance.magneticCourseDeg)}°
+                            MC {Math.round(guidance.magneticCourseDeg)}
                             {requiresAltitudeReview ? "・候補外（要確認）" : ""}
                           </small>
                         )}

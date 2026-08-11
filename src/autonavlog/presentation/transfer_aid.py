@@ -219,7 +219,7 @@ def _section_row(result: SectionResult) -> str:
         _formatted_adopted_cell(
             result.true_course_deg, lambda value: f"{ROUNDING.bearing(value):03.0f}"
         ),
-        _raw_adopted_cell(result.variation_deg_east),
+        _formatted_adopted_cell(result.variation_deg_east, lambda value: f"{value:+g}"),
         _formatted_adopted_cell(
             result.magnetic_course_deg, lambda value: f"{ROUNDING.bearing(value):03.0f}"
         ),

@@ -116,8 +116,11 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
 
   const firstRow = page.locator(".nav-log-table tbody tr").first();
   await expect(firstRow.locator("td").nth(2)).toHaveText("5500");
-  await expect(firstRow.locator("td").nth(6)).toHaveText(/^\d{3}°$/);
-  await expect(firstRow.locator("td").nth(8)).toHaveText(/^\d{3}°$/);
+  await expect(firstRow.locator("td").nth(6)).toHaveText(/^\d{3}$/);
+  await expect(firstRow.locator("td").nth(7)).toHaveText(/^[+-]\d+$/);
+  await expect(firstRow.locator("td").nth(8)).toHaveText(/^\d{3}$/);
+  await expect(firstRow.locator("td").nth(10)).toHaveText(/^[+-]\d+$/);
+  await expect(firstRow.locator("td").nth(11)).toHaveText(/^\d{3}$/);
   await expect(firstRow.locator("td").nth(12)).toHaveText(
     /^\d+\.[05] \/ \d+\.[05]$/,
   );

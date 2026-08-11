@@ -38,11 +38,11 @@ const DESCENT_PHASES = new Set<string>(["DESCENT", "VISUAL_ARRIVAL"]);
 const bearing = (value: number) => {
   const normalized = ((value % 360) + 360) % 360;
   const rounded = roundHalfUp(normalized, 1) % 360;
-  return `${rounded.toFixed(0).padStart(3, "0")}°`;
+  return rounded.toFixed(0).padStart(3, "0");
 };
-const signedAngle = (value: number) => {
+const signedInteger = (value: number) => {
   const rounded = roundHalfUp(value, 1);
-  return `${rounded >= 0 ? "+" : ""}${rounded.toFixed(0)}°`;
+  return `${rounded >= 0 ? "+" : ""}${rounded.toFixed(0)}`;
 };
 
 function numberValue(
@@ -318,8 +318,7 @@ export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
                 text:
                   variationValue === null
                     ? "未取得"
-                    : (variationValue >= 0 ? "E " : "W ") +
-                      integer(Math.abs(variationValue)) + "°",
+                    : signedInteger(variationValue),
                 manual: section.variation_deg_east.adopted_source === "MANUAL",
                 unavailable: variationValue === null,
               };
@@ -341,7 +340,7 @@ export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
                     direction={section.wind_direction_deg_from}
                     speed={section.wind_speed_kt}
                   />
-                  <ValueCell value={section.wca_deg} formatter={signedAngle} />
+                  <ValueCell value={section.wca_deg} formatter={signedInteger} />
                   <ValueCell value={section.magnetic_heading_deg} formatter={bearing} />
                   <CombinedValueCell
                     first={section.zone_distance_nm}
