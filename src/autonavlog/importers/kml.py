@@ -176,6 +176,23 @@ def _simplify(points: list[tuple[float, float]], maximum: int) -> tuple[tuple[fl
     return tuple(simplified)
 
 
+def waypoint_name_slots_from_line(line: ImportedLine) -> tuple[str | None, ...]:
+    """Return an index-aligned name slot for every selected coordinate."""
+
+    slots: list[str | None] = [None] * len(line.coordinates)
+    names = tuple(part.strip() for part in _ROUTE_NAME_SEPARATOR.split(line.name) if part.strip())
+    if len(names) < 2 or line.original_coordinate_count != len(line.coordinates):
+        return tuple(slots)
+    if len(names) == len(line.coordinates):
+        offset = 0
+    elif len(names) <= len(line.coordinates) - 2:
+        offset = 1
+    else:
+        return tuple(slots)
+    slots[offset : offset + len(names)] = names
+    return tuple(slots)
+
+
 def named_waypoints_from_line(line: ImportedLine) -> tuple[ImportedPoint, ...]:
     """Map ordered names to unambiguous LineString coordinates.
 
@@ -185,26 +202,14 @@ def named_waypoints_from_line(line: ImportedLine) -> tuple[ImportedPoint, ...]:
     can shift a valid label onto the wrong location.
     """
 
-    names = tuple(part.strip() for part in _ROUTE_NAME_SEPARATOR.split(line.name) if part.strip())
-    if len(names) < 2 or line.original_coordinate_count != len(line.coordinates):
-        return ()
-    if len(names) == len(line.coordinates):
-        offset = 0
-    elif len(names) <= len(line.coordinates) - 2:
-        offset = 1
-    else:
-        return ()
     return tuple(
         ImportedPoint(
             name=name,
-            latitude_deg=latitude,
-            longitude_deg=longitude,
+            latitude_deg=line.coordinates[index][0],
+            longitude_deg=line.coordinates[index][1],
         )
-        for name, (latitude, longitude) in zip(
-            names,
-            line.coordinates[offset : offset + len(names)],
-            strict=True,
-        )
+        for index, name in enumerate(waypoint_name_slots_from_line(line))
+        if name is not None
     )
 
 
