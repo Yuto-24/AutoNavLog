@@ -425,6 +425,7 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
 }
 .qnh-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 82px; gap: 6px; }
 .field-help { color: var(--slate-500); font-size: 10px; line-height: 1.45; }
+.field-error { color: var(--red-700); font-weight: 700; }
 .drop-zone.is-disabled {
   color: var(--slate-500);
   background: var(--slate-100);
@@ -531,6 +532,21 @@ tbody tr:last-child td { border-bottom: 0; }
 .demo-weather-warning p, .demo-weather-warning strong { display: block; margin: 0; }
 .demo-weather-warning p { font-size: 11px; line-height: 1.5; }
 
+.destination-confirmation-action { margin: 12px 0; }
+.destination-confirmed-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 10px;
+  color: var(--green-700);
+  background: #effaf5;
+  border: 1px solid #83bfa6;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .issue-summary {
   display: flex;
   justify-content: space-between;
@@ -566,6 +582,22 @@ tbody tr:last-child td { border-bottom: 0; }
 .nav-log-table th small { font-size: 8px; font-weight: 650; }
 .nav-log-table td { color: #172d42; font-size: 11px; text-align: center; white-space: nowrap; }
 .nav-log-table .route-name-cell { min-width: 120px; text-align: left; white-space: normal; }
+.nav-leg-heading-row td {
+  color: var(--navy-950);
+  background: #eaf1f7;
+  border-bottom-color: #9dafbf;
+  font-weight: 800;
+}
+.nav-leg-heading-row td:nth-child(n + 3) { background: #f3f6f8; }
+.nav-leg-detail-row td:first-child { background: #f7f9fb; }
+.nav-leg-detail-row td:nth-child(2) { padding-left: 20px; }
+.nav-leg-spacer-row td {
+  height: 9px;
+  padding: 0;
+  background: #ffffff;
+  border-right: 0;
+  border-bottom-color: #9dafbf;
+}
 .manual-value small { display: block; margin-top: 2px; color: var(--teal-700); font-size: 8px; font-weight: 700; }
 .manual-entry-cell { min-width: 62px; background: #fffdf5; }
 .nav-log-focus-target { scroll-margin-top: 14px; }
