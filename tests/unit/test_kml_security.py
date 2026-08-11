@@ -274,7 +274,7 @@ def test_polygon_keeps_full_outer_ring_then_enforces_selected_limit() -> None:
         )
 
 
-def test_delimited_line_name_does_not_guess_simplified_vertex_names() -> None:
+def test_delimited_line_name_maps_ordered_intermediate_vertex_names() -> None:
     result = import_kml_or_kmz(
         _kml(
             "小丸～日振島～祝島～ゴルフコース",
@@ -291,7 +291,20 @@ def test_delimited_line_name_does_not_guess_simplified_vertex_names() -> None:
         filename="named-route.kml",
     )
 
-    assert named_waypoints_from_line(select_imported_line(result, 0)) == ()
+    named = named_waypoints_from_line(select_imported_line(result, 0))
+
+    assert [point.name for point in named] == [
+        "小丸",
+        "日振島",
+        "祝島",
+        "ゴルフコース",
+    ]
+    assert [(point.latitude_deg, point.longitude_deg) for point in named] == [
+        (31.98214589070221, 131.4317398539069),
+        (32.16275095638636, 131.4734489929498),
+        (33.1802236311398, 132.2948734240414),
+        (33.78695544494976, 131.9894319344609),
+    ]
 
 
 def test_delimited_line_name_maps_only_one_name_per_original_coordinate() -> None:
@@ -328,6 +341,15 @@ def test_ambiguous_delimited_line_name_falls_back() -> None:
     result = import_kml_or_kmz(
         _kml("A～B～C～D～E", "131,31 131.1,31.1 131.2,31.2 131.3,31.3"),
         filename="ambiguous-route.kml",
+    )
+
+    assert named_waypoints_from_line(select_imported_line(result, 0)) == ()
+
+
+def test_delimited_line_name_rejects_mapping_after_coordinate_deduplication() -> None:
+    result = import_kml_or_kmz(
+        _kml("A～B", "131,31 131,31 131.1,31.1"),
+        filename="duplicate-route.kml",
     )
 
     assert named_waypoints_from_line(select_imported_line(result, 0)) == ()
