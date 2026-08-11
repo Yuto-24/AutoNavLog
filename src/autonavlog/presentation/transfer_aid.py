@@ -433,8 +433,12 @@ def _arrival_table(outcome: CalculationOutcome) -> str:
             "空港標高（100 ft half-up）",
             f"{arrival.airport_elevation_rounded_ft_msl} ft",
         ),
-        ("導出場周経路高度", f"{arrival.derived_pattern_altitude_ft_msl} ft"),
         ("master場周経路高度", f"{arrival.pattern_altitude_ft_msl:.0f} ft"),
+        (
+            "採用場周経路高度",
+            f"{arrival.selected_pattern_altitude_ft_msl} ft / "
+            f"{arrival.selected_pattern_altitude_source.value}",
+        ),
         ("5 NM基準高度", f"{arrival.base_vrep_altitude_ft_msl} ft"),
         (
             "5 NM超過（整数half-up）",

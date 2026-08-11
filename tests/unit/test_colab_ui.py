@@ -386,6 +386,14 @@ def test_one_click_creates_project_seeds_airports_route_altitude_and_calculates(
 
     assert app.project is not None
     assert app.project.name == "One click NAV"
+    assert not hasattr(app, "defaults_review_confirmation")
+    assert not hasattr(app, "confirm_defaults_button")
+    assert app.destination_pattern_altitude.value == 1000
+    state = app.readiness_service.ui_state(app.project)
+    assert state is not None
+    arrival_plan = state.arrival_plan
+    assert arrival_plan is not None
+    assert arrival_plan.selected_pattern_altitude_ft_msl == 1000
     assert app.departure.value == "RJFM"
     assert app.destination.value == "RJFO"
     assert [node.name for node in app.project.route_nodes] == [

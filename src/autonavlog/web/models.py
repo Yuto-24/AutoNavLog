@@ -56,6 +56,15 @@ class ConfirmRouteRequest(WebRequestModel):
     manual_qnh_confirmed: bool = False
 
 
+class ConfirmDestinationRequest(WebRequestModel):
+    destination_airport_id: str = Field(min_length=1, max_length=64)
+    selected_pattern_altitude_ft_msl: int = Field(
+        ge=100,
+        le=25_000,
+        multiple_of=100,
+    )
+
+
 class SectionUpdate(WebRequestModel):
     section_id: UUID
     planned_altitude_ft_msl: float = Field(gt=0, le=25_000)

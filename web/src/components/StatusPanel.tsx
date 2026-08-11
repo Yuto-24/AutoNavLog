@@ -12,6 +12,7 @@ interface StatusPanelProps {
   runtime: RuntimeState;
   readiness: ReadinessState;
   projectExists: boolean;
+  canCalculate: boolean;
   outcomeExists: boolean;
   busy: boolean;
   onCalculate: () => void;
@@ -23,6 +24,7 @@ export function StatusPanel({
   runtime,
   readiness,
   projectExists,
+  canCalculate,
   outcomeExists,
   busy,
   onCalculate,
@@ -111,7 +113,7 @@ export function StatusPanel({
           className="primary-button full-width"
           type="button"
           onClick={onCalculate}
-          disabled={!projectExists || busy}
+          disabled={!canCalculate || busy}
         >
           <Calculator aria-hidden="true" size={18} />
           {outcomeExists ? "NAV LOGを再計算" : "NAV LOGを作る"}

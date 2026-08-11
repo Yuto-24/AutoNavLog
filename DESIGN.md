@@ -1,11 +1,11 @@
 # AutoNavLog UI改善 要求仕様書
 
-- 版: 2.7.2
-- 日付: 2026-08-10
+- 版: 2.7.3
+- 日付: 2026-08-11
 - 対象: AutoNavLog 0.2.0 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
 - 実装担当: 別エージェント
 
-## v2.7.2 Docker Web service・Access所有権・別添8-1整合（本節を最優先）
+## v2.7.3 Docker Web service・目的空港場周高度・別添8-1整合（本節を最優先）
 
 本節は利用者決定「ColabではなくWeb公開し、`.venv`ではなくDocker serviceで動かす」
 に基づく配布方式の差分仕様である。
@@ -75,15 +75,31 @@
   `DEVELOPMENT_WEATHER_PROVIDER`（BLOCKER）を必ず追加して転記出力を止める。
 - 実運用候補は `--weather msm` または `--weather msm-metar` とし、
   既存の欠損フォールバック禁止とForecast固定契約を維持する。
-- RJFM/RJFOの表示上の場周経路高度は、保存値を100 ft単位half-upしていずれも
-  **1,000 ft MSL** と表示する。5 NM VREPの標準高度はさらに500 ftを加え
-  **1,500 ft MSL** とする。
-- 数値の丸め確認だけで参照行を `VERIFIED` へ変更してはならない。
-  一次資料と出典版の検証が完了するまでは `PATTERN_ALTITUDE_REQUIRED` を維持し、
-  経路取込・入力確認・下書き保存は許可するが転記出力は止める。
+- RJFM/RJFOのmaster場周経路高度はいずれも **1,000 ft MSL** とする。VREPの
+  標準高度はProjectで確定した採用場周高度を基準にし、5 NMでは+500 ftとする。
+  大分東側1,000 ftなら1,500 ft、西側1,300 ftなら1,800 ftであり、東西を
+  滑走路方向だけから自動決定しない。
+- 場周経路高度は利用者提供資料の明示値を優先し、全資料で確認できない空港は
+  第6.6節の式フォールバック値を正解として `VERIFIED` にできる。今回の同梱14空港は
+  この手順による出典・revisionを持つ。
 - 転記補助の主表は別添8-1の19列（FROM〜SECT/REM FUEL）に揃え、上段9欄と
   下段INFO・TIME/FUEL欄を持つ。ETO/ATO/ATEは機上実績欄として空欄を維持し、
   距離・時間・燃料・航法値を表示時に丸めない。独自PHASE/ALT列やIssue一覧を混在させない。
+
+### D-35 目的空港・採用場周高度と既定値確認UI
+
+- 経路確定前のTOは端点照合用の候補とし、経路確定後に目的空港を最終確認する。
+  確定後だけ100 ft単位の「今回採用する場周経路高度（ft MSL）」Inputを表示し、
+  master値を初期表示する。〔目的空港・場周高度を確定〕で `ArrivalPlan` の
+  `selected_pattern_altitude_ft_msl` と `selected_pattern_altitude_source` を保存する。
+  master一致は `AUTOMATIC`、編集値は `MANUAL` とする。
+- 採用場周高度を確定するまでNAV LOG計算を許可しない。目的空港またはInputを変更したら
+  再確定を要求する。保存Project読込時は確定値と採用元を復元する。
+- 「ALT・Phase・FUEL・VAR・TGLを原資料と照合しました」および同義の既定値一括確認
+  Checkbox／記録ButtonはWeb・Colabの双方から削除する。各入力値は画面で直接確認し、
+  変更時の再計算は計算入力fingerprintで保証する。`defaults_review_fingerprint` と
+  `DEFAULTS_NOT_REVIEWED` は旧Project/Snapshot読込互換のためモデルに残してよいが、
+  主UIのreadiness gateでは生成しない。
 
 ### Web受け入れ基準
 
@@ -93,12 +109,16 @@
 - **W-2**: Chromium 1440×1000でKML貼付→形状選択→経路確定→計算→NAV LOG表示・focusが動作し、
   JavaScript例外と開発overlayがない。
 - **W-3**: 390×844で計算後の主要操作とNAV LOGが存在し、document bodyに水平overflowがない。
-- **W-4**: 未検証場周高度と開発用気象の各Blockerが1件ずつ表示され、
-  A4転記補助HTMLがAPIと画面の双方で無効である。
+- **W-4**: 未確定の採用場周高度は `PATTERN_ALTITUDE_REQUIRED` で計算を止める。
+  確定後は同Issueを解消し、開発用気象のBlockerによりA4転記補助HTMLを止める。
 - **W-5**: Cloudflare Published applicationのService URLを
   `http://localhost:8123` としたとき、同一オリジンのSPA/APIとして動作する。
 - **W-6**: Docker image build、Compose config、Python統合テスト、ruff、mypy、
   TypeScript typecheck、Vite build、Playwright desktop/mobile試験がすべて成功する。
+- **W-7**: 同梱masterはRJFC/RJFE/RJFG/RJFK/RJFM/RJFO/RJFS/RJFT/RJFU/RJOA/
+  RJOB/RJOK/RJOM/RJOTの14空港を持ち、全行が `VERIFIED` かつ固有出典・revision付きである。
+- **W-8**: 大分で1,300 ftを編集確定すると採用元が `MANUAL`、5 NM基準高度が
+  1,800 ftとなる。指定された既定値一括照合CheckboxはDOMにも存在しない。
 - **根拠ソース（基準）**: 次の2点で**固定**する（v1.8で改訂。再レビュー指摘: v1.7の「作業ツリーを正とする」は、作業ツリーが変化し続けるため第三者が同じ状態を復元できず、基準として再現不能だった）。
   1. commit `10ea6ec307e88ce5a683b3c6c0a5f83a7218071a`（`Implement NAV2 MVP`）
   2. **基準アーカイブ** `docs/baseline/design-baseline-20260802.tar.gz`（SHA-256: `5ee8a608d6044bdb64e087aaf45fc83517a80a6072ab97a76de1ce5c6af10c86`）。2026-08-02時点の作業ツリーの設計対象ファイル一式（`pyproject.toml` / `README.md` / `src/` / `data/` / `scripts/` / `tests/` / `notebooks/` / `docs/`。本書自身と `docs/baseline/` を除く）を決定論的tar（`--sort=name --mtime=2026-08-02T00:00Z --owner=0 --group=0` + `gzip -n`）で固定したもの
@@ -108,6 +128,9 @@
   - **成果物条件（v2.6.0で完了）**: 基準アーカイブと `.sha256` は commit `24058c1`（`Add frozen design baseline archive`）でリポジトリへ固定した。SHA-256は上記記載値と一致する
   - 基準アーカイブは基準commitから次の点で進んでいる（**情報としての変更履歴。規範は上記アーカイブ自体**）: `importers/kml.py` のPolygon解析・保持（第0.5節・FR-15・D-10）／ `presentation/colab.py` の確認付きPolygon Route化・`kml_text` 貼付欄ほか一式のUI（第0.5節）／ `calculation_service.py` のSEA参照と `SAFE_ENROUTE_ALTITUDE_REQUIRED` / `PLANNED_ALTITUDE_BELOW_SAFE_ENROUTE` 生成（第0.2節・A.7）／空港seed 2行と性能データ、性能manifest `VERIFIED`（空港の場周経路高度はv2.5検証未合格。第0.1節）
 - 変更履歴:
+  - **v2.7.3は、14空港masterと経路確定後の採用場周高度InputをWeb/Colabへ統合した版**。利用者提供7 PDFの明示値を優先し、確認できない空港は第6.6節の式を正解として `VERIFIED` にした。大分はmaster 1,000 ftを初期表示し、西側等では1,300 ftへ編集してProject単位に`MANUAL`保存できる。VREP規則を `CAC_REV19_8_4_9_V4` とし、指定されたALT・Phase・FUEL・VAR・TGLの一括照合Checkboxを削除した
+  - **v2.6.2は、訓練利用空港masterをRJFMを含む14空港へ拡張した版**。RJFM/RJFS/RJFTは資料明示値、残る11空港は資料確認後の式フォールバック値を採用した
+  - **v2.6.1は、目的空港の場周高度を利用者提供資料優先・確認不能時は式フォールバックの順で決定する規則を確定した版**
   - **v2.7.2はPR #2レビューを反映した版**。Cloudflare Access identity所有権、HttpOnly Secure Cookie、session単位lock、KML名称保持、VFR高度候補、QNH単位変換、別添8-1の19列・無丸め出力、計算後focus、Docker build成果物分離をD-31〜D-34とW-1〜W-6へ追加した
   - **v2.7.1は、Web版の主実行方式をhost `.venv` からDocker serviceへ変更した版**。multi-stage build、非root runtime、read-only root、loopback限定port、named volume、health check、restart policyをD-30〜D-32とW-1/W-6へ追加した
   - **v2.7.0は、主配布をColabからローカルWeb版へ変更した版**。React/Vite + FastAPIの同一オリジン構成、loopback bind、Cloudflare Tunnel + Access、Web session、ローカルProject保存、desktop/mobile受け入れ試験をD-30〜D-34とW-1〜W-6に定義した。航法計算とフェイルクローズ契約はv2.6.0を維持する
@@ -165,16 +188,16 @@
 
 ### 0.1 同梱データの現状（v1.7で更新）
 
-**v1.6までの本節は「同梱データが空である」を前提としていたが、これは基準commit時点の状態であり作業ツリーとは一致しない**（再レビュー指摘11）。作業ツリー（2026-08-02）の実測値は次のとおりである。ただしv2.5で追加したVREP高度契約に照らすと、**性能データは検証済みだが参照データはseed段階であり、全体を「整備済み」とは扱わない**。
+**v1.6までの本節は「同梱データが空である」を前提としていたが、これは基準commit時点の状態であり作業ツリーとは一致しない**（再レビュー指摘11）。v2.7.3作業ツリー（2026-08-11）の実測値は次のとおりである。
 
 | ファイル | 実測値（2026-08-02 作業ツリー） |
 |---|---|
-| `data/airports/airports.csv` | **2件**（`RJFM` 宮崎 / `RJFO` 大分）。`source` / `source_revision` 記入済み。ただし `pattern_altitude_ft_msl` は両行とも標高+1,000 ftの機械生成値であり、第6.8節の実運用値検証には未合格 |
+| `data/reference/default/airports.csv` | **14件**（RJFC/RJFE/RJFG/RJFK/RJFM/RJFO/RJFS/RJFT/RJFU/RJOA/RJOB/RJOK/RJOM/RJOT）。全行にAIP由来ARP座標・標高、場周高度、固有出典・revision、`VERIFIED` を記録済み |
 | `data/performance/climb_time_fuel_distance.csv` | **19行**（ヘッダ除く） |
 | `data/performance/cruise_performance.csv` | **159行**（ヘッダ除く） |
 | `data/performance/manifest.json` | `validation_status: "VERIFIED"`、`climb_temperature_policy: "ISA_BASELINE_10_PERCENT_PER_10C_ABOVE"`、両CSVの `sha256` 記載済みで実ファイルと**一致**、`source_page` 記入済み |
 
-したがって性能計算だけについて「データが空で転記補助出力へ到達できない」という v1.6 の前提はもはや成立しない。一方、到着地の事前参照情報を含む地上準備のリリースには選択空港の場周経路高度検証が別途必要である。場周経路高度はv2.5.2以降の自動VREP高度算式には使わないが、利用者指定の必須参照情報として検証を維持する。**リリース条件（第1章）と `PERFORMANCE_DATA_UNVERIFIED` の要件は削除しない。** 配布物・別環境・データ差し替え時には再び未整備・未検証となりうるため、以下は**データ状態に依存しない一般的なフェイルセーフ要件**として規定する。
+したがって「同梱データが空で転記補助出力へ到達できない」という v1.6 の前提はもはや成立しない。場周経路高度は、提供資料の明示値または第6.6節の式フォールバックで検証したmaster値を初期表示し、Projectで確定した採用値を自動VREP高度算式へ使う。**リリース条件（第1章）と `PERFORMANCE_DATA_UNVERIFIED` の要件は削除しない。** 配布物・別環境・データ差し替え時には再び未整備・未検証となりうるため、以下は**データ状態に依存しない一般的なフェイルセーフ要件**として規定する。
 
 > **一般則**: UIは同梱データの充足状況を起動時に検査し、不足・未検証・改ざんを検知した場合は印刷を止める。「整備済みであること」を前提に検査を省略してはならない。
 
@@ -660,9 +683,9 @@ ALTだけを変更した場合も通常の航法再計算を行い、KML再取�
 
 `RECALCULATION_REQUIRED` により印刷を止める。
 
-### FR-27 既定値の印刷前確認 【必須】
+### FR-27 既定値一括確認UIの廃止 【必須】
 
-`DEFAULTS_NOT_REVIEWED`。単一boolではなくfingerprintで管理する（第10.4節）。
+ALT・Phase・FUEL・VAR・TGLは各入力欄で直接確認する。これらを一括して原資料と照合したことを求めるCheckbox／Buttonと `DEFAULTS_NOT_REVIEWED` の主UI生成を廃止する。計算後の入力変更は計算入力fingerprintと `RECALCULATION_REQUIRED` で検知する。
 
 ### FR-28: 欠番（SEA非同期jobをv2.6.0で対象外化）
 
@@ -722,7 +745,7 @@ Loss Timeは機上で事前計算結果を修正する値とし、地上計画�
 
 ### FR-40 VREP通過高度 【必須】
 
-目的空港ARP座標からVREPまでのWGS84距離と、目的空港の `elevation_ft_msl` から、第6.6節の式でVREP計画高度を求める。空港標高を100 ft単位でhalf-upし、1,000 ftを加えて場周経路高度を導出し、さらに500 ftを加えて5 NM基準高度とする。masterの場周経路高度は事前参照情報として併記する。算出高度を降下目標、EOC、降下・到着区間の気象代表高度および転記補助ALTへ一貫して使用する。
+経路確定後に目的空港を最終確認し、master場周経路高度を100 ft単位のInputへ初期表示する。東西場周等の運用差がある場合は今回採用するMSL高度へ編集し、確定値を `ArrivalPlan` へ保存する。目的空港ARP座標からVREPまでのWGS84距離と採用場周高度から第6.6節の式でVREP計画高度を求める。5 NMでは採用場周高度+500 ft、以遠は超過整数NM×200 ftとし、降下目標、EOC、降下・到着区間の気象代表高度および転記補助ALTへ一貫して使用する。未確定なら計算を許可しない。
 
 ### FR-41 経路外Check Pointのabeam処理 【必須】
 
@@ -903,13 +926,62 @@ planned_endpoint_time_utc = planned_departure_time_jst + planned_elapsed_seconds
 
 #### 入力と計算式
 
-目的空港として使用するAirport snapshotは、MSLの `elevation_ft_msl` と、NAV2で実際に用いるMSLの `pattern_altitude_ft_msl` を必須で持つ。`elevation_ft_msl` は自動VREP高度の算式入力であり、欠損・非finite・範囲外または空港行の出典不備は `AIRPORT_DATA_UNAVAILABLE`（BLOCKER）とする。`pattern_altitude_ft_msl` は利用者指定どおり事前参照情報として別に保持・表示する。欠損・出典未確認は従来どおり `PATTERN_ALTITUDE_REQUIRED`（BLOCKER）とする。
+目的空港として使用するAirport snapshotは、MSLの `elevation_ft_msl` とmasterの `pattern_altitude_ft_msl` を必須で持つ。経路を確定するまで目的空港・場周高度Inputは無効とし、確定後に目的空港を選択するとmaster値を初期表示する。利用者は東西場周、機種、管制調整その他の当該運用に応じて100 ft単位で編集できる。〔目的空港・場周高度を確定〕で `ArrivalPlan.selected_pattern_altitude_ft_msl` と `selected_pattern_altitude_source`（masterと一致なら `AUTOMATIC`、異なれば `MANUAL`）へ保存する。
 
-距離計算ではARPのWGS84座標 `arp_coordinate` を使用し、高度計算ではARPに対応する空港標高 `elevation_ft_msl` を使用する。空港標高は100 ft単位のhalf-up（50 ft境界は上側）で四捨五入する。丸めた空港標高へ1,000 ftを加えた値を `derived_pattern_altitude_ft_msl` とし、さらに500 ftを加えて5 NM基準高度とする。
+距離計算ではARPのWGS84座標 `arp_coordinate` を使用する。高度計算ではArrivalPlanで確定した `selected_pattern_altitude_ft_msl` を `selected_pattern_altitude_ft_msl` とし、これへ500 ftを加えて5 NM基準高度とする。空港標高の100 ft half-up + 1,000 ftは、資料で明示値を確認できない場合にmaster初期値を作るフォールバックに限って使用し、確定済みの実運用高度を上書きしない。
 
-この式は、教範4-3の「場周経路高度（AGL+1,000 ft）」をMSLへ展開し、教範4-4および8-4-9(2)の「場周経路高度+500 ft」を適用したものである。画面・転記補助HTMLには、空港標高の原値・100 ft丸め値・導出場周経路高度・masterの参照場周経路高度・5 NM基準高度を並べて表示する。本式を教範と異なるアプリ固有規則と表現してはならない。
+画面・転記補助HTMLには、master場周高度、ArrivalPlan採用場周高度、採用元（`AUTOMATIC / MANUAL`）、5 NM基準高度を並べて表示する。大分の例では、東側を採用するProjectは1,000 ft→5 NM 1,500 ft、西側を採用するProjectはInputを1,300 ftへ編集し→5 NM 1,800 ftとする。滑走路方向だけから東西場周を自動決定してはならず、計画・管制調整に基づき利用者が確定する。
 
-`ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V3"` とする。
+#### master場周経路高度の決定順序
+
+参照データの整備時に、目的空港ごとに次の資料集合を全て検索する。同名の宮崎空港資料2ファイルは内容が同一でも、提供された2ファイルを確認対象として記録する。
+
+1. `第８章_改正17.pdf`（SHA-256: `9d0d5b7571a5ecf701085bb5780418e00c1aafb941fba681bb4f5ebb5c08d795`）
+2. `宮崎空港及びその周辺における訓練飛行実施要領（R6.5.1改正） (1).pdf`（SHA-256: `29b21992454cc2c9995512dec2f011004ddd839ef9b7784d5b4696fa13e4eab7`）
+3. `航空大学校所属航空機の他空港利用に関する調整事項[2026.4.1].pdf`（SHA-256: `dbf6a3c53e2fe67ac4cbf21f07c05fc2f8c83dc6894825254cd55f6e72c8e379`）
+4. `航大版　運航情報サーキュラー.pdf`（SHA-256: `985a08f71f37888aa2c42ad8aae02b4ea3e5c91474c5b100e24abae45fb79d49`）
+5. `鹿屋進入管制区及び鹿屋管制圏における航空大学校所属機の訓練飛行の実施に関する申し合わせ.pdf`（SHA-256: `bd72d2176d58716fb50cdadab57f813eacbdbcd97f193280ff7f05b9a0e31ff3`）
+6. `民間訓練試験空域（鹿児島）使用要領_2.pdf`（SHA-256: `19172fb00e9a272968646ab9bc3e7081a24b6397292f8d32e7a399013b01d5ac`）
+7. `宮崎空港及びその周辺における訓練飛行実施要領（R6.5.1改正）.pdf`（SHA-256: `29b21992454cc2c9995512dec2f011004ddd839ef9b7784d5b4696fa13e4eab7`）
+
+決定順序は次のとおりとする。
+
+1. **資料明示値を優先**: 目的空港を特定し、航空大学校所属機の対象運用へ適用される「場周経路の高度」を明示する記載があれば、そのMSL値を正解とする。出典にはファイル名、改正日または版、章・項、文書上のページを保存する。
+2. **確認できなければ式を正解とする**: 全資料に明示値がない、適用対象を一意に決められない、または記載同士の優先関係を確定できない場合は、`derived_pattern_altitude_ft_msl = round_half_up_100(elevation_ft_msl) + 1,000 ft` を正解とする。この値は暫定値や未検証値ではなく、`VERIFIED` として扱う。
+
+資料中のVREP通過高度、進入最低通過高度、出発時の維持高度、待機高度、訓練空域の上下限、障害物回避高度、および他機種・他運用だけに適用される高度は、場周経路高度の明示値として扱わない。「1,500 ft以上で進入する」等の記載から差し引いて推定してはならない。
+
+判定方法は次の閉集合で管理する。現行schemaでは独立列を増やさず、下表の判定方法を
+`pattern_altitude_source` と `pattern_altitude_source_revision` の来歴へ保存する。
+
+- `DOCUMENTED_OPERATIONAL_VALUE`: 資料に当該空港・対象運用の場周経路高度が明記されている
+- `DESIGN_FORMULA_FALLBACK`: 全資料を確認したが明示値を確定できず、第6.6節の式を正解として採用した
+
+`DESIGN_FORMULA_FALLBACK` の `pattern_altitude_source` は `DESIGN.md §6.6 formula after review of provided 7-PDF operational bundle` とし、`pattern_altitude_source_revision` には本書の版、資料集合の照合日、空港標高の出典revisionを含める。したがって、根拠のない「標高+1,000 ft」の入力は引き続き `VERIFIED` にできないが、全資料の照合結果と100 ft単位half-upの入力来歴を記録した本フォールバック値は `VERIFIED` にできる。
+
+今回の資料照合による同梱空港の正解値は次のとおりである。
+マスター対象は、提供資料の「他空港AVGAS給油有無および同時駐機可能機数」に掲載された13空港へ基地空港RJFMを加えた14空港とする。同資料の「空港施設使用届及び着陸料減免申請空港一覧」だけに現れる壱岐・対馬・小値賀・上五島は、訓練利用13空港の表に含まれないため同梱seedには含めない。利用対象へ追加する場合は、資料上の位置付けを確認して新しい不変revisionを作る。
+
+ARP座標と `elevation_ft_msl` はAIP Japan AD 2.2を正とし、気象庁「航空気候情報2025年版」の空港名・座標・標高で照合する。AIPと気象観測地点の座標または標高が異なる場合、VREP距離と式フォールバックにはAIPのARP・AD elevationを使用する。取得経路がAIP公開ミラーの場合はURL、取得日、AD2-1有効日を `source_revision` に残し、リリース前に最新AIS Japanとの差分を再確認する。
+
+| 空港 | AIP標高 | 正解値（MSL） | 判定方法 | 根拠 |
+|---|---:|---:|---|---|
+| RJFC 屋久島 | 122 ft | 1,100 ft | `DESIGN_FORMULA_FALLBACK` | 122 → 100 + 1,000 |
+| RJFE 福江 | 251 ft | 1,300 ft | `DESIGN_FORMULA_FALLBACK` | 251 → 300 + 1,000 |
+| RJFG 種子島 | 768 ft | 1,800 ft | `DESIGN_FORMULA_FALLBACK` | 768 → 800 + 1,000 |
+| RJFK 鹿児島 | 891 ft | 1,900 ft | `DESIGN_FORMULA_FALLBACK` | 891 → 900 + 1,000 |
+| RJFM 宮崎 | 19 ft | 1,000 ft | `DOCUMENTED_OPERATIONAL_VALUE` | 「宮崎空港及びその周辺における訓練飛行実施要領（R6.5.1改正）」Ⅵ 1.(1)、文書p.9 |
+| RJFO 大分 | 17 ft | 1,000 ft | `DESIGN_FORMULA_FALLBACK` | 17 → 0 + 1,000 |
+| RJFS 佐賀 | 6 ft | 1,000 ft | `DOCUMENTED_OPERATIONAL_VALUE` | 「他空港利用に関する調整事項」PDF p.74、航大SR-22 |
+| RJFT 熊本 | 632 ft | 1,700 ft | `DOCUMENTED_OPERATIONAL_VALUE` | 「他空港利用に関する調整事項」PDF p.34、南側場周経路。2020-10-01調整 |
+| RJFU 長崎 | 8 ft | 1,000 ft | `DESIGN_FORMULA_FALLBACK` | 8 → 0 + 1,000 |
+| RJOA 広島 | 1,086 ft | 2,100 ft | `DESIGN_FORMULA_FALLBACK` | 1,086 → 1,100 + 1,000 |
+| RJOB 岡山 | 785 ft | 1,800 ft | `DESIGN_FORMULA_FALLBACK` | 785 → 800 + 1,000 |
+| RJOK 高知 | 29 ft | 1,000 ft | `DESIGN_FORMULA_FALLBACK` | 29 → 0 + 1,000 |
+| RJOM 松山 | 13 ft | 1,000 ft | `DESIGN_FORMULA_FALLBACK` | 13 → 0 + 1,000 |
+| RJOT 高松 | 607 ft | 1,600 ft | `DESIGN_FORMULA_FALLBACK` | 607 → 600 + 1,000 |
+
+`ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"` とする。
 
 ```python
 def round_half_up_nonnegative(value: float) -> int:
@@ -925,16 +997,8 @@ if abs(d_nm_exact - 5.0) * 1852.0 <= 1.0:
 else:
     effective_d_nm = d_nm_exact
 
-airport_elevation_rounded_ft_msl = (
-    100
-    * round_half_up_nonnegative(
-        destination_airport.elevation_ft_msl / 100.0
-    )
-)
-derived_pattern_altitude_ft_msl = (
-    airport_elevation_rounded_ft_msl + 1000
-)
-base_vrep_altitude_ft_msl = derived_pattern_altitude_ft_msl + 500
+selected_pattern_altitude_ft_msl = arrival_plan.selected_pattern_altitude_ft_msl
+base_vrep_altitude_ft_msl = selected_pattern_altitude_ft_msl + 500
 
 excess_distance_nm_exact = max(0.0, effective_d_nm - 5.0)
 excess_distance_nm_rounded = round_half_up_nonnegative(
@@ -950,11 +1014,13 @@ vrep_altitude_ft_msl = (
 
 例:
 
-- 空港標高490 ft → 500 ftへhalf-up → 導出場周経路高度1,500 ft → 5 NM基準高度2,000 ft
-- 空港標高19 ft → 0 ftへhalf-up → 導出場周経路高度1,000 ft → 5 NM基準高度1,500 ft
-- 空港標高300 ft、距離8.0 NM → 導出場周経路高度1,300 ft → 5 NM基準1,800 ft＋超過3 NM×200 ft＝2,400 ft（教範8-4-9(2)の例と一致）
-- 空港標高490 ftの空港で5.49 NM → 超過0.49 NMを0 NM → 2,000 ft
-- 同じ空港で5.50 NM → 超過0.50 NMを1 NM → 2,200 ft
+- 採用場周高度1,500 ft → 5 NM基準高度2,000 ft
+- 採用場周高度1,000 ft → 5 NM基準高度1,500 ft
+- 採用場周高度1,300 ft、距離8.0 NM → 5 NM基準1,800 ft＋超過3 NM×200 ft＝2,400 ft（教範8-4-9(2)の例と一致）
+- RJFO東側を1,000 ftで確定 → 5 NM基準高度1,500 ft
+- RJFO西側を1,300 ftで確定 → 5 NM基準高度1,800 ft
+- 採用場周高度1,500 ftで5.49 NM → 超過0.49 NMを0 NM → 2,000 ft
+- 同じ採用高度で5.50 NM → 超過0.50 NMを1 NM → 2,200 ft
 
 ```python
 class ArrivalAltitudeMode(StrEnum):
@@ -964,6 +1030,10 @@ class ArrivalAltitudeMode(StrEnum):
 class ArrivalPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
     visual_reporting_point_node_id: UUID
+    selected_pattern_altitude_ft_msl: int | None = Field(
+        default=None, ge=100, le=25000, multiple_of=100
+    )
+    selected_pattern_altitude_source: AdoptedSource | None = None
     altitude_mode: ArrivalAltitudeMode = ArrivalAltitudeMode.STANDARD_DISTANCE_RULE
     manual_vrep_altitude_ft_msl: int | None = Field(
         default=None, ge=-1000, le=25000, multiple_of=100
@@ -972,6 +1042,10 @@ class ArrivalPlan(BaseModel):
 
     @model_validator(mode="after")
     def validate_mode_fields(self) -> "ArrivalPlan":
+        if (self.selected_pattern_altitude_ft_msl is None) != (
+            self.selected_pattern_altitude_source is None
+        ):
+            raise ValueError("selected pattern altitude and source must be supplied together")
         if self.altitude_mode == ArrivalAltitudeMode.STANDARD_DISTANCE_RULE:
             if (
                 self.manual_vrep_altitude_ft_msl is not None
@@ -994,8 +1068,10 @@ class ArrivalAltitudeResult(CalculationModel):
     boundary_tolerance_m: Literal[1.0] = 1.0
     airport_elevation_ft_msl: FiniteFloat = Field(ge=0)
     airport_elevation_rounded_ft_msl: int = Field(ge=0, multiple_of=100)
-    derived_pattern_altitude_ft_msl: int = Field(ge=1000, multiple_of=100)
-    pattern_altitude_ft_msl: FiniteFloat = Field(ge=0)  # masterの事前参照情報
+    pattern_altitude_ft_msl: FiniteFloat = Field(ge=0)  # master値
+    selected_pattern_altitude_ft_msl: int = Field(ge=100, multiple_of=100)
+    selected_pattern_altitude_source: AdoptedSource
+    derived_pattern_altitude_ft_msl: int = Field(ge=100, multiple_of=100)  # 互換field。selectedと同値
     base_vrep_altitude_ft_msl: int = Field(multiple_of=100)
     excess_distance_nm_exact: FiniteFloat = Field(ge=0)
     excess_distance_nm_rounded: int = Field(ge=0)
@@ -1004,14 +1080,14 @@ class ArrivalAltitudeResult(CalculationModel):
     adopted_source: AdoptedSource
     manual_override_reason: str | None = None
     selected_reference_fingerprint: Sha256Hex
-    rule_version: Literal["CAC_REV19_8_4_9_V3"]
+    rule_version: Literal["CAC_REV19_8_4_9_V4"]
 ```
 
-`ArrivalAltitudeResult` のmodel validatorは、`effective_distance_nm`、`airport_elevation_rounded_ft_msl`、`derived_pattern_altitude_ft_msl`、`base_vrep_altitude_ft_msl`、`excess_distance_nm_*`、`automatic_altitude_ft_msl` を第6.6節の式から再導出し、保存値との完全一致を要求する。masterの `pattern_altitude_ft_msl` は再導出式へ渡してはならず、座標・空港標高・rule versionが同じならmasterの場周経路高度だけを変更しても `automatic_altitude_ft_msl` は変化しない。
+`ArrivalAltitudeResult` のmodel validatorは、`effective_distance_nm`、`selected_pattern_altitude_ft_msl`、`base_vrep_altitude_ft_msl`、`excess_distance_nm_*`、`automatic_altitude_ft_msl` を第6.6節の式から再導出し、保存値との完全一致を要求する。Projectの採用場周高度を変更した場合は計算入力fingerprintを変え、降下・EOC・VREP高度を再計算する。
 
 Direct Base等の変則Entryは `MANUAL_NON_STANDARD_ENTRY` とし、100 ft単位の高度と空でない理由を必須にする。理由欠損は `ARRIVAL_ALTITUDE_OVERRIDE_REASON_REQUIRED`（BLOCKER）。自動値は比較・監査用に併記する。
 
-Projectと参照snapshotを突き合わせるcross-model検証で、結果の `airport_elevation_ft_msl` とmaster由来の `pattern_altitude_ft_msl` が目的空港snapshotと一致することを必須とする。`derived_pattern_altitude_ft_msl` はsnapshot値を信頼せず空港標高から再導出する。手動採用高度は `destination_airport.elevation_ft_msl` より高くなければならない。同値以下は `VISUAL_REPORTING_POINT_ROUTE_INVALID`（BLOCKER）とし、低い値を自動補正しない。STANDARDでは採用高度が自動値と一致し、MANUALでは理由と手動値が一致することを `ArrivalAltitudeResult` のmodel validatorでも検証する。
+Projectと参照snapshotを突き合わせるcross-model検証で、結果の `airport_elevation_ft_msl` とmasterの `pattern_altitude_ft_msl` が目的空港snapshotと一致し、`selected_pattern_altitude_ft_msl` と `selected_pattern_altitude_source` がArrivalPlanの確定値と一致することを必須とする。採用場周高度は100 ft単位かつ `destination_airport.elevation_ft_msl` より高くなければならない。未確定または同値以下は `PATTERN_ALTITUDE_REQUIRED`（BLOCKER）とし、低い値を自動補正しない。STANDARDではVREP採用高度が自動値と一致し、MANUAL_NON_STANDARD_ENTRYでは理由と手動VREP高度が一致することを検証する。
 
 #### 経路条件と利用先
 
@@ -1123,7 +1199,7 @@ class ReferenceDataSnapshot(BaseModel):
 
 計算入力fingerprintには全catalogではなく、選択済みsnapshot、ProjectへコピーしたRouteNode、選択済みCPと `CP_PROJECTION_POLICY_VERSION` だけを含める。active catalogへの無関係な行の追加・削除で既存Projectを陳腐化させてはならない。
 
-目的空港snapshotの `pattern_altitude_ft_msl` は必須であり、出典はNAV2で使用する実際の場周経路高度を示さなければならない。「空港標高+1,000 ft」の機械生成値だけを根拠に `VERIFIED` としてはならない。同梱RJFM/RJFOを含め、実運用値を一次資料と照合することをリリースゲートとする。
+目的空港snapshotの `pattern_altitude_ft_msl`、固有出典・revision、`VERIFIED` は必須である。提供資料に対象運用の明示値がある場合はその値を用い、全資料で確認できない場合は第6.6節の式と照合来歴を根拠に `VERIFIED` とする。根拠と来歴のない機械生成値だけを `VERIFIED` にしてはならない。
 ---
 
 ## 8. SEA・地形機能（本版では対象外）
@@ -1348,16 +1424,9 @@ manual_qnh_fingerprint = make_fingerprint(
 
 DATE、ETD、出発地の変更で一致しなくなった場合はQNH値を保持したまま `MANUAL_QNH_RECONFIRM_REQUIRED` を提示する。日時は事前に文字列化せず、date/tz-aware datetimeのまま `normalize()` へ渡す。
 
-### 10.4 既定値確認
+### 10.4 既定値確認（旧Project互換のみ）
 
-```python
-defaults_review_fingerprint: str | None
-# make_fingerprint(kind="defaults_review", fields={...}) の結果（第10.1a節）
-```
-
-対象フィールド: ALT既定値、各Sectionが既定ALTを使用しているか、FUEL、VAR、TGL、**各SectionのPhase**、`aircraft_profile_id`、`performance_table_version`、`policy_version`。いずれかが変われば再確認とする。v1.5では利用者が編集するPhaseが対象から漏れ、特に全Legが既定で`CRUISE`になる点を未確認のまま印刷できてしまう欠陥があった（レビュー指摘）。旧LOSSはv2.5.1で入力・計算対象から外れたため、このfingerprintにも含めない。`defaults_review_fingerprint` は `PersistedUiState`（第3.2節）に保持する。
-
-`aircraft_profile_id` はUIの入力欄には出さない方針（第4.2節）を維持するが、印刷前レビュー画面（フェーズB3）には読み取り専用で表示する。
+`PersistedUiState.defaults_review_fingerprint` と `DEFAULTS_NOT_REVIEWED` は旧Project／Snapshotの厳格読込と履歴表示のため保持してよい。主UIの `ReadinessService` は `require_defaults_review=False` とし、既定値一括照合Checkbox、記録Button、再確認fingerprintを転記条件にしない。ALT、Phase、FUEL、VAR、TGL、機体・性能・Policyの計算影響値は通常の計算入力fingerprintへ含め、変更後は `RECALCULATION_REQUIRED` により再計算を要求する。
 
 ### 10.5 SEA関連fingerprint（本版では使用しない）
 
@@ -1506,8 +1575,8 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 | N-1 | ZONE ETE、CUM ETE、TTL TIME、Forecast用planned elapsedへLoss Timeを加えない |
 | N-2 | ETD基準の内部時刻をETOとして表示せず、機上実績時刻欄を空欄にする |
 | N-3 | 旧Projectの非0 `loss_time_seconds` が航法時間・燃料・fingerprintを変えない |
-| N-4 | 空港標高490 ft→500 ft→場周経路高度1,500 ft→5 NMで2,000 ft、19 ft→0 ft→場周経路高度1,000 ft→5 NMで1,500 ftとなる |
-| N-5 | 空港標高300 ft・8 NMは、1,300+500+3×200=2,400 ftとなり教範8-4-9(2)の例と一致する |
+| N-4 | 採用場周高度1,000 ftの5 NMは1,500 ft、1,300 ftの5 NMは1,800 ftとなる |
+| N-5 | 採用場周高度1,300 ft・8 NMは、1,300+500+3×200=2,400 ftとなり教範8-4-9(2)の例と一致する |
 | N-6 | 5 NM±1 mは5 NM、5.49 NMの超過は0 NM、5.50 NMの超過は1 NMとして扱う |
 | N-7 | 算出VREP高度を降下目標、降下ETE、EOC、到着区間代表高度、転記ALTへ一貫して渡す |
 | N-8 | 変則Entryは100 ft単位の手動高度と理由を必須とする |
@@ -1532,7 +1601,7 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 
 ### 14.2 リリース時に判定するもの
 
-- 選択経路の空港・地点・CP参照データと実運用場周経路高度が一次資料で検証済みである
+- 選択経路の空港・地点・CP参照データと、提供資料明示値または第6.6節の式で決定したmaster場周経路高度が検証済みである
 - サンプルKMLでFROM/TO候補、気象、RCA/EOC、VREP高度、CP abeam、燃料、転記補助HTMLが一貫する
 - 気象欠損を0・無風・1013.25 hPaで補わない
 - 開発に関与していない利用者2名以上が手順書なしで転記補助HTML出力まで到達できる
@@ -1549,7 +1618,7 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 |---|---|
 | 成果物 | KMLからNAV LOGの地上準備を完了する転記補助HTML |
 | ETO / Loss Time | 地上計画へLossを入れず、実績時刻欄は空欄 |
-| VREP高度 | 空港標高を100 ft half-up、+1,000 ftで場周経路高度、5 NMでさらに+500 ft、超過整数NM×200 ft |
+| VREP高度 | ArrivalPlanで確定した採用場周高度へ500 ftを加え、5 NM超過の整数NM×200 ftを加算 |
 | 経路外CP | 関連Leg上のabeam点で区間分割 |
 | 参照データ | manifest付き別CSV pack、CRUD・差替え・rollback、選択行snapshot |
 | NAV2の風 | 欠損を無風補完しない。到着固定規則だけ例外 |
@@ -1557,7 +1626,7 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 | 基準アーカイブ | commit `24058c1` で固定済み |
 | アプリ版 | `0.2.0` |
 
-実運用場周経路高度の一次資料照合と参照データpack整備はリリースゲートであり、コード実装開始を止めない。
+提供資料の全件照合、式フォールバックの来歴記録、参照データpack整備はリリースゲートであり、コード実装開始を止めない。
 
 ## 付録A 外部インタフェース契約
 
@@ -1604,17 +1673,17 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 
 | 項目 | 内容 |
 |---|---|
-| 同梱既定pack | `data/reference/default/reference-manifest.json`、`airports.csv`、`points.csv`、`checkpoints.csv`。現行 `data/airports/airports.csv` は実装時にこのpackへ移行するseedであり、runtime固定pathとして残さない |
+| 同梱既定pack | `data/reference/default/reference-manifest.json`、`airports.csv`、`points.csv`、`checkpoints.csv`。airportsは訓練利用14空港を持ち、manifestのrow count・SHA-256と一致する |
 | 利用者pack | `MyDrive/AutoNavLog/reference-data/catalogs/{dataset_id}/{revision}/`。revisionは不変、`active.json` が選択版を指す |
 | schema | 第6.8節の列定義。全モデルはPydantic `extra="forbid"`、strict validation、非finite拒否、緯度 ±90・経度 ±180、kind内ID一意 |
-| Airport固有 | 自動VREP高度の入力となる `elevation_ft_msl` と、参照表示用の `pattern_altitude_ft_msl` およびその固有source/revision/validation statusを持つ。目的空港は空港標高が有効で、場周経路高度が `VERIFIED` の場合のみ選択可 |
+| Airport固有 | `elevation_ft_msl` とmaster `pattern_altitude_ft_msl` および固有source/revision/validation statusを持つ。目的空港は空港標高が有効で、場周高度が `VERIFIED` の場合のみ選択可。計算にはProjectで確定した採用場周高度を使う |
 | 読込 | `ReferenceDataCatalogRepository.open_active()` がmanifest/hash/row countを検証し、Airport/Point/CP viewを生成する |
 | 参照 | `Project.departure_airport_id` / `destination_airport_id` は選択Airport rowの `id`。完全な選択行は `ReferenceDataSnapshot` に保存する |
 | 距離 | 既存 `nav/geodesy.py` のWGS84測地線。同距離の空港候補は `icao`、次に`id`昇順 |
 | 欠損 | active packに無いIDを新規選択しようとした場合は該当kindのdata unavailable Issue。保存Projectはsnapshotが有効ならmaster削除後も読込可能 |
 | 変更 | UIでpack取込・書出・有効化・rollback、および各kindの追加・編集・削除を行う。編集は新revisionを作り旧版を上書きしない |
 | fingerprint | active pack全体ではなくProjectが選択したcanonical row snapshotだけを `selected_reference_fingerprint` に含める（第10.2節） |
-| **現状**（2026-08-02作業ツリー） | RJFM/RJFO 2件は存在するが、場周経路高度は標高+1,000 ftの機械生成値で、v2.5の目的空港検証には未合格 |
+| **現状**（2026-08-11） | 訓練利用14空港を同梱し、資料明示値または第6.6節の式フォールバック規則により全行 `VERIFIED` |
 
 ### A.3a performance manifest
 
@@ -1678,10 +1747,10 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | 入力 | `Project`（deep copyされる） |
 | 出力 | `CalculationOutcome`（`sections: list[SectionResult]` / `derived_points` / `arrival_altitude: ArrivalAltitudeResult` / `check_point_projections: list[CheckPointProjection]` / `fuel_plan` / `issues` / `iterations` / `converged` / `status` / `policy_version` / `performance_table_version` / `qnh_hpa`） |
 | 各値 | `AdoptedValue[T]`。`adopted()` で採用値、`state` で `ValueState` |
-| Policy | v2.5.3実装時に `CalculationPolicies.version` を既存 `nav2-v1` から `nav2-v2` へ更新し、VREP個別規則は `ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V3"` とする |
+| Policy | `CalculationPolicies.version = "nav2-v2"`。v2.7.3のVREP個別規則は `ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"` とする |
 | エラー | 例外ではなく `Issue` として返る。`blockers` プロパティで抽出 |
 | SEAの使用 | **なし（v2.6.0）**。`safe_enroute_altitude_ft_msl` は互換fieldとして残してよいが、計算・Issue・fingerprint・status・表示・出力へ使用しない |
-| 丸め | 通常の中間値は丸めず、表示時にhalf-upで方位1°・距離0.5 NM・時間0.5 min・燃料0.1 gal。例外としてVREP計画高度は、目的空港の空港標高を100 ft単位でhalf-upし、+1,000 ftで場周経路高度を導出、+500 ftで5 NM基準高度とした後、5 NM超過距離を整数NMへhalf-upして200 ft/NMを加えた第6.6節の**採用計算値**を降下・EOC・気象へ渡す。master場周経路高度は別に参照表示する |
+| 丸め | 通常の中間値は丸めず、表示時にhalf-upで方位1°・距離0.5 NM・時間0.5 min・燃料0.1 gal。例外としてVREP計画高度は、ArrivalPlanで100 ft単位に確定した採用場周高度へ500 ftを加えて5 NM基準高度とし、5 NM超過距離を整数NMへhalf-upして200 ft/NMを加えた第6.6節の**採用計算値**を降下・EOC・気象へ渡す。master場周経路高度は別に参照表示する |
 
 ### A.8 SHIP / 機体Profile
 

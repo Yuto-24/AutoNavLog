@@ -240,7 +240,7 @@ def test_unverified_destination_cannot_be_snapshotted(tmp_path: Path) -> None:
         )
 
 
-def test_bundled_default_pack_is_valid_but_seed_is_unverified(
+def test_bundled_default_pack_has_verified_training_airports(
     tmp_path: Path,
 ) -> None:
     bundled_default = Path(__file__).resolve().parents[2] / "data" / "reference" / "default"
@@ -249,13 +249,36 @@ def test_bundled_default_pack_is_valid_but_seed_is_unverified(
         bundled_default=bundled_default,
     ).open_active()
 
-    assert sorted(catalog.airports) == ["RJFM", "RJFO"]
+    expected_pattern_altitudes = {
+        "RJFC": 1100,
+        "RJFE": 1300,
+        "RJFG": 1800,
+        "RJFK": 1900,
+        "RJFM": 1000,
+        "RJFO": 1000,
+        "RJFS": 1000,
+        "RJFT": 1700,
+        "RJFU": 1000,
+        "RJOA": 2100,
+        "RJOB": 1800,
+        "RJOK": 1000,
+        "RJOM": 1000,
+        "RJOT": 1600,
+    }
+    assert {
+        airport_id: airport.pattern_altitude_ft_msl
+        for airport_id, airport in catalog.airports.items()
+    } == expected_pattern_altitudes
+    assert all(
+        airport.pattern_altitude_validation_status == PatternAltitudeValidationStatus.VERIFIED
+        for airport in catalog.airports.values()
+    )
     assert (
         hashlib.sha256((bundled_default / "airports.csv").read_bytes()).hexdigest()
         == catalog.manifest.tables[0].sha256
     )
-    with pytest.raises(ReferenceDataError, match="not verified"):
-        catalog.snapshot(
-            departure_airport_id="RJFM",
-            destination_airport_id="RJFO",
-        )
+    snapshot = catalog.snapshot(
+        departure_airport_id="RJFM",
+        destination_airport_id="RJFO",
+    )
+    assert snapshot.destination_airport.pattern_altitude_ft_msl == 1000

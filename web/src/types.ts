@@ -23,6 +23,8 @@ export interface AirportOption {
   elevationFtMsl: number;
   patternAltitudeFtMsl: number;
   patternAltitudeValidationStatus: string;
+  patternAltitudeSource: string;
+  patternAltitudeSourceRevision: string;
 }
 
 export interface RouteCandidate {
@@ -66,6 +68,8 @@ export interface NavSection {
 
 export interface ArrivalPlan {
   visual_reporting_point_node_id: string;
+  selected_pattern_altitude_ft_msl: number | null;
+  selected_pattern_altitude_source: "AUTOMATIC" | "MANUAL" | null;
   altitude_mode: "STANDARD_DISTANCE_RULE" | "MANUAL_NON_STANDARD_ENTRY";
   manual_vrep_altitude_ft_msl: number | null;
   manual_override_reason: string | null;

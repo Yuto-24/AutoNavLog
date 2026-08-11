@@ -1,14 +1,14 @@
 {
-  "created_at_utc": "2026-08-02T00:00:00Z",
+  "created_at_utc": "2026-08-11T00:00:00Z",
   "dataset_id": "autonavlog-default",
-  "revision": "2026-08-02-seed",
+  "revision": "2026-08-11-training-airports-v1",
   "schema_version": 1,
   "tables": [
     {
       "kind": "AIRPORT",
       "path": "airports.csv",
-      "row_count": 2,
-      "sha256": "e2ce009211a7116fe2345099237c90b6bb18128abe1f32813110f6ba70232e5c"
+      "row_count": 14,
+      "sha256": "00feae339cb41dfa8d515c2da2cbbbcb9108874aed9030ca880223dce2032aa4"
     },
     {
       "kind": "POINT",

@@ -10,10 +10,12 @@ interface ImportPlanPanelProps {
   form: PlanningForm;
   setForm: Dispatch<SetStateAction<PlanningForm>>;
   projectExists: boolean;
+  destinationConfirmed: boolean;
   busy: boolean;
   onFile: (file: File) => void;
   onPaste: () => void;
   onConfirmRoute: () => void;
+  onConfirmDestination: () => void;
 }
 
 function destinationAirportLabel(airport: AirportOption): string {
@@ -30,15 +32,20 @@ export function ImportPlanPanel({
   form,
   setForm,
   projectExists,
+  destinationConfirmed,
   busy,
   onFile,
   onPaste,
   onConfirmRoute,
+  onConfirmDestination,
 }: ImportPlanPanelProps) {
   const update = <Key extends keyof PlanningForm>(key: Key, value: PlanningForm[Key]) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
   const selectedKind = form.candidateKey.split(":", 1)[0] ?? "";
+  const selectedDestination = airports.find(
+    (airport) => airport.id === form.destinationAirportId,
+  );
 
   const acceptDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -161,7 +168,14 @@ export function ImportPlanPanel({
       </section>
 
       <section className="rail-section flight-plan-section">
-        <h2>飛行計画</h2>
+        <div className="section-heading-row">
+          <h2>飛行計画</h2>
+          {projectExists && (
+            <span className="quiet-state">
+              {destinationConfirmed ? "目的空港・場周高度 確定済み" : "目的空港・場周高度 要確定"}
+            </span>
+          )}
+        </div>
         <div className="form-grid">
           <label>
             <span>DATE</span>
@@ -197,8 +211,14 @@ export function ImportPlanPanel({
             <span>TO</span>
             <select
               value={form.destinationAirportId}
-              onChange={(event) => update("destinationAirportId", event.target.value)}
-              disabled={projectExists}
+              onChange={(event) => {
+                const destinationId = event.target.value;
+                update("destinationAirportId", destinationId);
+                const airport = airports.find((item) => item.id === destinationId);
+                if (airport) {
+                  update("destinationPatternAltitudeFtMsl", airport.patternAltitudeFtMsl);
+                }
+              }}
             >
               {airports.map((airport) => (
                 <option key={airport.id} value={airport.id}>
@@ -207,6 +227,35 @@ export function ImportPlanPanel({
               ))}
             </select>
           </label>
+          {projectExists && (
+            <label className="span-two">
+              <span>今回採用する場周経路高度（ft MSL）</span>
+              <input
+                aria-label="今回採用する場周経路高度"
+                type="number"
+                min="100"
+                max="25000"
+                step="100"
+                value={form.destinationPatternAltitudeFtMsl}
+                onChange={(event) => {
+                  const altitude = event.target.valueAsNumber;
+                  if (
+                    Number.isInteger(altitude) &&
+                    altitude >= 100 &&
+                    altitude <= 25000 &&
+                    altitude % 100 === 0
+                  ) {
+                    update("destinationPatternAltitudeFtMsl", altitude);
+                  }
+                }}
+              />
+              <small className="field-help">
+                master {selectedDestination?.patternAltitudeFtMsl.toLocaleString("ja-JP") ?? "-"} ft
+                {selectedDestination ? " / " + selectedDestination.patternAltitudeSource : ""}
+                <br />東西場周など運用差がある場合は、今回使う100 ft単位のMSL高度へ編集してください。
+              </small>
+            </label>
+          )}
           <label>
             <span>FUEL gal</span>
             <input
@@ -311,6 +360,16 @@ export function ImportPlanPanel({
             </label>
           )}
         </div>
+        {projectExists && (
+          <button
+            className="secondary-button full-width"
+            type="button"
+            onClick={onConfirmDestination}
+            disabled={destinationConfirmed || busy}
+          >
+            目的空港・場周高度を確定
+          </button>
+        )}
         {form.manualQnhValue && (
           <div className="confirmation-box confirmation-box-plan">
             <label className="checkbox-row">

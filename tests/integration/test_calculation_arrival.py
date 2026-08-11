@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 
 from autonavlog.application.calculation_service import CalculationService
-from autonavlog.domain.enums import FlightPhase, RouteNodeRole, WeatherRequestKind
+from autonavlog.domain.enums import (
+    AdoptedSource,
+    FlightPhase,
+    RouteNodeRole,
+    WeatherRequestKind,
+)
 from autonavlog.domain.planning import (
     AirportSelection,
     ArrivalPlan,
@@ -118,7 +123,11 @@ def _arrival_project(project: Project) -> Project:
         project.model_dump() | {"route_nodes": list(nodes), "sections": sections}
     )
     state = PersistedUiState(
-        arrival_plan=ArrivalPlan(visual_reporting_point_node_id=vrep.id),
+        arrival_plan=ArrivalPlan(
+            visual_reporting_point_node_id=vrep.id,
+            selected_pattern_altitude_ft_msl=1000,
+            selected_pattern_altitude_source=AdoptedSource.AUTOMATIC,
+        ),
         reference_data_snapshot=ReferenceDataSnapshot(
             departure_airport=_selection(
                 airport_id="RJFM",
@@ -126,7 +135,7 @@ def _arrival_project(project: Project) -> Project:
                 latitude_deg=departure.latitude_deg,
                 longitude_deg=departure.longitude_deg,
                 elevation_ft_msl=20.0,
-                pattern_altitude_ft_msl=1_020.0,
+                pattern_altitude_ft_msl=1_000.0,
             ),
             destination_airport=_selection(
                 airport_id="RJFO",
@@ -134,7 +143,7 @@ def _arrival_project(project: Project) -> Project:
                 latitude_deg=destination.latitude_deg,
                 longitude_deg=destination.longitude_deg,
                 elevation_ft_msl=19.0,
-                pattern_altitude_ft_msl=1_019.0,
+                pattern_altitude_ft_msl=1_000.0,
             ),
         ),
     )
