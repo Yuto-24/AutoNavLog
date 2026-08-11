@@ -15,8 +15,10 @@ from autonavlog.domain.enums import (
     FlightPhase,
     IssueSeverity,
     ProjectStatus,
+    RouteNodeRole,
     WeatherRequestKind,
 )
+from autonavlog.domain.project import NavSection, RouteNode
 from autonavlog.domain.weather import WeatherResult
 from autonavlog.nav.airspeed import (
     pressure_altitude_exact_ft,
@@ -326,6 +328,88 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
         abs=1e-6,
     )
     assert [point.type.value for point in outcome.derived_points] == ["EOC"]
+
+
+
+def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    departure = RouteNode(
+        sequence=0,
+        name="RJFM",
+        latitude_deg=31.87724387987135,
+        longitude_deg=131.4485520078941,
+        role=RouteNodeRole.AIRPORT,
+    )
+    first_turn = RouteNode(
+        sequence=1,
+        name="米ノ津",
+        latitude_deg=32.11545443632519,
+        longitude_deg=130.3371470683687,
+        role=RouteNodeRole.TURN_POINT,
+    )
+    vrep = RouteNode(
+        sequence=2,
+        name="大牟田",
+        latitude_deg=33.4000000000,
+        longitude_deg=131.7000000000,
+        role=RouteNodeRole.VISUAL_REPORTING_POINT,
+    )
+    destination = RouteNode(
+        sequence=3,
+        name="RJFO",
+        latitude_deg=33.479,
+        longitude_deg=131.737,
+        role=RouteNodeRole.DESTINATION,
+    )
+    three_leg = project.model_copy(deep=True)
+    three_leg.route_nodes = [departure, first_turn, vrep, destination]
+    three_leg.sections = [
+        NavSection(
+            project_id=three_leg.id,
+            sequence=0,
+            from_node_id=departure.id,
+            to_node_id=first_turn.id,
+            phase=FlightPhase.CLIMB,
+            planned_altitude_ft_msl=5000,
+        ),
+        NavSection(
+            project_id=three_leg.id,
+            sequence=1,
+            from_node_id=first_turn.id,
+            to_node_id=vrep.id,
+            phase=FlightPhase.DESCENT,
+            planned_altitude_ft_msl=5000,
+        ),
+        NavSection(
+            project_id=three_leg.id,
+            sequence=2,
+            from_node_id=vrep.id,
+            to_node_id=destination.id,
+            phase=FlightPhase.VISUAL_ARRIVAL,
+            planned_altitude_ft_msl=2500,
+        ),
+    ]
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        three_leg,
+        FakeWeatherProvider(),
+    )
+
+    unexpected = {
+        "DESCENT_TAS_UNAVAILABLE",
+        "CALCULATION_OUTPUT_INCOMPLETE",
+        "DERIVED_PHASE_POINT_MISSING",
+    }
+    assert not unexpected.intersection(issue.code for issue in outcome.blockers)
+    assert {point.type.value for point in outcome.derived_points} == {"RCA", "EOC"}
+    first_segment = outcome.sections[0]
+    true_course = first_segment.true_course_deg.adopted()
+    magnetic_course = first_segment.magnetic_course_deg.adopted()
+    assert true_course == pytest.approx(284.0, abs=1.0)
+    assert magnetic_course == pytest.approx((true_course + 8.0) % 360.0)
 
 
 def test_incomplete_descent_output_and_missing_eoc_cannot_be_ready(
