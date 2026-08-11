@@ -55,7 +55,11 @@ async function calculateNavLog(page: Page): Promise<void> {
   await patternAltitude.fill("");
   await expect(confirmDestination).toBeDisabled();
   await patternAltitude.fill("1000");
+  await expect(confirmDestination).toBeEnabled();
+  await patternAltitude.fill("1300");
+  await expect(patternAltitude).toHaveValue("1300");
   await confirmDestination.click();
+  await expect(patternAltitude).toHaveValue("1300");
   await page.getByRole("button", { name: "NAV LOGを作る" }).click();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
 }

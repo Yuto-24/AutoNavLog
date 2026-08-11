@@ -211,7 +211,7 @@ class ArrivalAltitudeResult(PlanningModel):
     airport_elevation_rounded_ft_msl: int = Field(ge=0, multiple_of=100)
     derived_pattern_altitude_ft_msl: int = Field(ge=100, multiple_of=100)
     pattern_altitude_ft_msl: FiniteFloat = Field(ge=0)
-    selected_pattern_altitude_ft_msl: int = Field(ge=100, multiple_of=100)
+    selected_pattern_altitude_ft_msl: int = Field(ge=100, le=25_000, multiple_of=100)
     selected_pattern_altitude_source: AdoptedSource
     base_vrep_altitude_ft_msl: int = Field(multiple_of=100)
     excess_distance_nm_exact: FiniteFloat = Field(ge=0)

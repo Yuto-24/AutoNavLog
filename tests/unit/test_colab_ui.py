@@ -7,7 +7,7 @@ import pytest
 
 from autonavlog.application.calculation_service import CalculationService
 from autonavlog.application.project_service import ProjectService
-from autonavlog.domain.enums import AdoptedSource, ProjectStatus
+from autonavlog.domain.enums import AdoptedSource, IssueSeverity, ProjectStatus
 from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.presentation.colab import AutoNavLogApp, ViewMode
 from autonavlog.storage.local import LocalProjectRepository
@@ -444,6 +444,7 @@ def test_one_click_creates_project_seeds_airports_route_altitude_and_calculates(
     assert app.readiness_evaluation is not None
     assert any(
         item.issue.code == "PATTERN_ALTITUDE_REQUIRED"
+        and item.issue.severity == IssueSeverity.BLOCKER
         for item in app.readiness_evaluation.effective_issues
     )
 

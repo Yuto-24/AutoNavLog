@@ -222,6 +222,7 @@
           "type": "string"
         },
         "selected_pattern_altitude_ft_msl": {
+          "maximum": 25000,
           "minimum": 100,
           "multipleOf": 100,
           "title": "Selected Pattern Altitude Ft Msl",
