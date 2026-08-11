@@ -43,8 +43,8 @@ def test_candidates_cover_the_full_below_29000_foot_legal_table_when_requested()
 
 
 def test_magnetic_course_applies_east_variation_and_wraps() -> None:
-    assert magnetic_course_deg(8.0, 8.0) == pytest.approx(0.0)
-    assert magnetic_course_deg(2.0, 8.0) == pytest.approx(354.0)
+    assert magnetic_course_deg(284.0, 8.0) == pytest.approx(292.0)
+    assert magnetic_course_deg(356.0, 8.0) == pytest.approx(4.0)
 
 
 def test_custom_altitude_match_is_exact_to_display_precision() -> None:
