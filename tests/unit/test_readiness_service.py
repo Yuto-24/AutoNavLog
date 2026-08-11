@@ -92,3 +92,30 @@ def test_record_calculation_rejects_corrupted_ui_state_without_replacing_it(
         service.record_calculation(project, outcome)
 
     assert project.metadata["ui_state"]["unserializable"] is unserializable
+
+
+def test_defaults_review_gate_can_be_disabled(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    calculation = CalculationService(airports, performance_repository)
+    outcome = calculation.calculate(project, FakeWeatherProvider())
+    strict = ReadinessService(
+        calculation,
+        msm_package_version=None,
+    ).record_calculation(project, outcome)
+    relaxed = ReadinessService(
+        calculation,
+        msm_package_version=None,
+        require_defaults_review=False,
+    ).record_calculation(project, outcome)
+
+    assert any(
+        effective.ctx.code == "DEFAULTS_NOT_REVIEWED"
+        for effective in strict.evaluation.effective_issues
+    )
+    assert all(
+        effective.ctx.code != "DEFAULTS_NOT_REVIEWED"
+        for effective in relaxed.evaluation.effective_issues
+    )

@@ -311,16 +311,8 @@ export function ImportPlanPanel({
             </label>
           )}
         </div>
-        <div className="confirmation-box confirmation-box-plan">
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.defaultsConfirmed}
-              onChange={(event) => update("defaultsConfirmed", event.target.checked)}
-            />
-            <span>ALT・Phase・FUEL・VAR・TGLを原資料と照合しました</span>
-          </label>
-          {form.manualQnhValue && (
+        {form.manualQnhValue && (
+          <div className="confirmation-box confirmation-box-plan">
             <label className="checkbox-row">
               <input
                 type="checkbox"
@@ -329,8 +321,8 @@ export function ImportPlanPanel({
               />
               <span>このDATE・ETD・FROMのQNHとして確認しました</span>
             </label>
-          )}
-        </div>
+          </div>
+        )}
         {!projectExists && (
           <button
             className="primary-button full-width"

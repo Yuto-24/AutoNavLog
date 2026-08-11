@@ -13,7 +13,6 @@ interface StatusPanelProps {
   readiness: ReadinessState;
   projectExists: boolean;
   outcomeExists: boolean;
-  calculateEnabled: boolean;
   busy: boolean;
   onCalculate: () => void;
   onAcknowledge: (ackKey: string, checked: boolean) => void;
@@ -25,7 +24,6 @@ export function StatusPanel({
   readiness,
   projectExists,
   outcomeExists,
-  calculateEnabled,
   busy,
   onCalculate,
   onAcknowledge,
@@ -113,14 +111,11 @@ export function StatusPanel({
           className="primary-button full-width"
           type="button"
           onClick={onCalculate}
-          disabled={!projectExists || !calculateEnabled || busy}
+          disabled={!projectExists || busy}
         >
           <Calculator aria-hidden="true" size={18} />
           {outcomeExists ? "NAV LOGを再計算" : "NAV LOGを作る"}
         </button>
-        {!calculateEnabled && projectExists && (
-          <p className="button-reason">既定値確認を選択すると計算できます。</p>
-        )}
         <button
           className="secondary-button full-width output-button"
           type="button"

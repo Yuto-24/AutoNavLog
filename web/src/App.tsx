@@ -203,7 +203,6 @@ function App() {
             tgl_count: form.tglCount,
             all_leg_altitude_ft_msl: form.allLegAltitudeFtMsl,
             use_penultimate_as_vrep: form.usePenultimateAsVrep,
-            defaults_confirmed: form.defaultsConfirmed,
             manual_qnh_confirmed: form.manualQnhConfirmed,
           },
         }),
@@ -224,7 +223,6 @@ function App() {
         },
       };
     });
-    setForm((current) => ({ ...current, defaultsConfirmed: false }));
   };
 
   const updatePayload = () => {
@@ -252,7 +250,6 @@ function App() {
       arrival_altitude_mode: arrival?.altitude_mode ?? "STANDARD_DISTANCE_RULE",
       manual_vrep_altitude_ft_msl: arrival?.manual_vrep_altitude_ft_msl ?? null,
       manual_vrep_reason: arrival?.manual_override_reason ?? null,
-      defaults_confirmed: form.defaultsConfirmed,
       manual_qnh_confirmed: form.manualQnhConfirmed,
     };
   };
@@ -414,7 +411,6 @@ function App() {
           readiness={state.readiness}
           projectExists={Boolean(state.project)}
           outcomeExists={Boolean(state.outcome)}
-          calculateEnabled={form.defaultsConfirmed}
           busy={busy}
           onCalculate={handleCalculate}
           onAcknowledge={handleAcknowledge}
