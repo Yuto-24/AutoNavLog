@@ -147,11 +147,15 @@ export interface DerivedPoint {
 export interface FuelPlan {
   total_usable_gal: number;
   taxi_runup_gal: number;
+  climb_gal: number | null;
+  cruise_gal: number | null;
+  descent_gal: number | null;
   additional_gal: number;
   tgl_gal: number;
   reserve_gal: number;
   min_required_gal: number | null;
   extra_gal: number | null;
+  extra_endurance_seconds: number | null;
 }
 
 export interface CalculationOutcome {

@@ -310,9 +310,9 @@ def test_transfer_aid_distinguishes_every_value_state(
     html = render_transfer_aid_html(ready_project, marked)
 
     assert "5500.125" in html
-    assert "123.456" in html
-    assert "7.125" in html
-    assert "2.375" in html
+    assert ">123<" in html
+    assert ">+7<" in html
+    assert ">+2<" in html
     assert "—（未確定）" in html
     assert "state-" not in html
     assert "source_page=5-32" not in html
@@ -368,7 +368,7 @@ def test_transfer_aid_escapes_project_text(
     assert "&lt;script&gt;alert" in html
 
 
-def test_transfer_aid_preserves_raw_distance_time_and_fuel_values(
+def test_transfer_aid_formats_nav_values_at_required_precision(
     project,
     airports,
     performance_repository,
@@ -395,9 +395,19 @@ def test_transfer_aid_preserves_raw_distance_time_and_fuel_values(
                 automatic_status=ValueState.AUTO,
                 adopted_source=AdoptedSource.AUTOMATIC,
             ),
+            "cas_kt": AdoptedValue[float](
+                automatic_value=114.07694052991398,
+                automatic_status=ValueState.AUTO,
+                adopted_source=AdoptedSource.AUTOMATIC,
+            ),
+            "true_course_deg": AdoptedValue[float](
+                automatic_value=7.5,
+                automatic_status=ValueState.AUTO,
+                adopted_source=AdoptedSource.AUTOMATIC,
+            ),
         }
     )
-    raw_outcome = outcome.model_copy(
+    formatted_outcome = outcome.model_copy(
         update={
             "sections": [first, *outcome.sections[1:]],
             "fuel_plan": outcome.fuel_plan.model_copy(
@@ -409,11 +419,39 @@ def test_transfer_aid_preserves_raw_distance_time_and_fuel_values(
         }
     )
 
-    html = render_transfer_aid_html(ready_project, raw_outcome)
+    html = render_transfer_aid_html(ready_project, formatted_outcome)
+    route_table = html.split('<table class="route-table">', 1)[1].split("</table>", 1)[0]
+    fuel_table = html.split("<table class='fuel-table'>", 1)[1].split("</table>", 1)[0]
 
-    assert "12.34567" in html
-    assert "1.02" in html
-    assert "1.0200000000000002" not in html
-    assert "1.23456" in html
-    assert "90.12345" in html
-    assert "1.54321" in html
+    assert "12.5" in route_table
+    assert "1.0" in route_table
+    assert "1.2" in route_table
+    assert ">114<" in route_table
+    assert ">008<" in route_table
+    assert "12.34567" not in route_table
+    assert "114.07694052991398" not in route_table
+    assert "90.1" in fuel_table
+    assert "1.5" in fuel_table
+
+
+def test_transfer_aid_uses_requested_five_column_fuel_table(
+    project,
+    airports,
+    performance_repository,
+) -> None:
+    ready_project, outcome = _outcome_with_sections(
+        project,
+        airports,
+        performance_repository,
+    )
+
+    html = render_transfer_aid_html(ready_project, outcome)
+    fuel_table = html.split("<table class='fuel-table'>", 1)[1].split("</table>", 1)[0]
+
+    assert "<colgroup><col><col><col><col><col></colgroup>" in fuel_table
+    assert "rowspan='6'" in fuel_table
+    assert "rowspan='5'" in fuel_table
+    assert "TAXI・RUN UP" in fuel_table
+    assert "MIN REQUIRED" in fuel_table
+    assert "<span>0</span><span>:</span><span>10</span>" in fuel_table
+    assert "<span>0</span><span>:</span><span>45</span>" in fuel_table
