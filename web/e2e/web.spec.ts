@@ -44,7 +44,6 @@ async function calculateNavLog(page: Page): Promise<void> {
 
   await expect(page.getByLabel("飛行経路にする形状")).toHaveValue("line:0");
   await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByLabel("ALT・Phase・FUEL・VAR・TGLを原資料と照合しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
 
   await expect(page.getByText("VREP", { exact: true }).first()).toBeVisible();
@@ -87,6 +86,34 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   });
 
   expect(pageErrors).toEqual([]);
+});
+
+test("changed ALT appears in PA with lesson display precision", async ({ page }) => {
+  await page.goto("/");
+  await calculateNavLog(page);
+
+  await expect(
+    page.getByLabel("ALT・Phase・FUEL・VAR・TGLを原資料と照合しました"),
+  ).toHaveCount(0);
+  const calculate = page.getByRole("button", { name: "NAV LOGを再計算" });
+  await page.locator(".table-number-input").first().fill("5500");
+
+  await expect(calculate).toBeEnabled();
+  await calculate.click();
+
+  const firstRow = page.locator(".nav-log-table tbody tr").first();
+  await expect(firstRow.locator("td").nth(2)).toHaveText("5500");
+  await expect(firstRow.locator("td").nth(6)).toHaveText(/^\d{1,3}°$/);
+  await expect(firstRow.locator("td").nth(8)).toHaveText(/^\d{1,3}°$/);
+  await expect(firstRow.locator("td").nth(12)).toHaveText(
+    /^\d+\.[05] \/ \d+\.[05]$/,
+  );
+  await expect(firstRow.locator("td").nth(14)).toHaveText(
+    /^\d+\.[05] \/ \d+\.[05]$/,
+  );
+  await expect(firstRow.locator("td").nth(18)).toHaveText(
+    /^\d+\.\d \/ \d+\.\d$/,
+  );
 });
 
 test("calculated mobile layout has no body overflow", async ({ page }) => {

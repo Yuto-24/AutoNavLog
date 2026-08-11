@@ -46,10 +46,12 @@ class ReadinessService:
         *,
         msm_package_version: str | None,
         require_crew_identification: bool = True,
+        require_defaults_review: bool = True,
     ) -> None:
         self.calculation_service = calculation_service
         self.msm_package_version = msm_package_version
         self.require_crew_identification = require_crew_identification
+        self.require_defaults_review = require_defaults_review
 
     @staticmethod
     def ui_state(project: Project) -> PersistedUiState | None:
@@ -284,7 +286,11 @@ class ReadinessService:
         else:
             fingerprints = self.fingerprints(project, outcome, state)
             current_calculation = fingerprints.calculation_input
-            current_defaults = fingerprints.defaults_review
+            current_defaults = (
+                fingerprints.defaults_review
+                if self.require_defaults_review
+                else None
+            )
             current_manual = fingerprints.manual_qnh
         evaluation = evaluate_readiness(
             project,

@@ -72,7 +72,6 @@ ISSUE_ACTIONS: dict[str, str] = {
     "PERFORMANCE_DATA_UNVERIFIED": "性能データの版とSHA-256を確認してください。",
     "ROUTE_INCOMPLETE": "KML/KMZから2点以上の経路を確定してください。",
     "RECALCULATION_REQUIRED": "現在の入力でNAV LOGを再計算してください。",
-    "DEFAULTS_NOT_REVIEWED": "ALT・Phase・FUEL・VAR・TGLを確認してください。",
     "MANUAL_QNH_RECONFIRM_REQUIRED": "DATE・ETD・FROMに対するQNHを再確認してください。",
     "VISUAL_REPORTING_POINT_REQUIRED": "目的空港直前のVREPを選択してください。",
     "VISUAL_REPORTING_POINT_ROUTE_INVALID": "VREPの位置と到着順序を確認してください。",
@@ -168,6 +167,7 @@ class AutoNavLogWebApplication:
                     calculation,
                     msm_package_version=getattr(weather, "package_version", None),
                     require_crew_identification=False,
+                    require_defaults_review=False,
                 ),
             )
             self._sessions[token] = session

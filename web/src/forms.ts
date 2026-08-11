@@ -16,7 +16,6 @@ export interface PlanningForm {
   candidateKey: string;
   routeUseConfirmed: boolean;
   polygonRouteConfirmed: boolean;
-  defaultsConfirmed: boolean;
   manualQnhConfirmed: boolean;
   usePenultimateAsVrep: boolean;
 }
@@ -71,7 +70,6 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     candidateKey: "",
     routeUseConfirmed: false,
     polygonRouteConfirmed: false,
-    defaultsConfirmed: false,
     manualQnhConfirmed: false,
     usePenultimateAsVrep: true,
   };
