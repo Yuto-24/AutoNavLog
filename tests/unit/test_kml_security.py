@@ -16,8 +16,8 @@ from autonavlog.importers.kml import (
     import_kml_text,
     named_waypoints_from_line,
     select_imported_line,
-    waypoint_name_slots_from_line,
     select_imported_polygon_outer,
+    waypoint_name_slots_from_line,
 )
 
 
