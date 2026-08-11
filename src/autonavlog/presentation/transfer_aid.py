@@ -98,6 +98,14 @@ def _optional_number(value: float | None, formatter: Callable[[float], str]) -> 
     return "未確定" if value is None else formatter(value)
 
 
+def _signed_integer(value: float) -> str:
+    rounded = round_half_up(value, 1.0)
+    # Normalize -0.0 to +0
+    if rounded == 0:
+        rounded = 0.0
+    return f"{rounded:+.0f}"
+
+
 def _format_wind(result: SectionResult) -> str:
     speed = result.wind_speed_kt.adopted()
     direction = result.wind_direction_deg_from.adopted()
@@ -219,12 +227,12 @@ def _section_row(result: SectionResult) -> str:
         _formatted_adopted_cell(
             result.true_course_deg, lambda value: f"{ROUNDING.bearing(value):03.0f}"
         ),
-        _formatted_adopted_cell(result.variation_deg_east, lambda value: f"{value:+g}"),
+        _formatted_adopted_cell(result.variation_deg_east, _signed_integer),
         _formatted_adopted_cell(
             result.magnetic_course_deg, lambda value: f"{ROUNDING.bearing(value):03.0f}"
         ),
         _raw_wind_cell(result),
-        _raw_adopted_cell(result.wca_deg),
+        _formatted_adopted_cell(result.wca_deg, _signed_integer),
         _formatted_adopted_cell(
             result.magnetic_heading_deg, lambda value: f"{ROUNDING.bearing(value):03.0f}"
         ),

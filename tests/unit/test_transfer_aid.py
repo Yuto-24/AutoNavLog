@@ -311,8 +311,8 @@ def test_transfer_aid_distinguishes_every_value_state(
 
     assert "5500.125" in html
     assert ">123<" in html
-    assert ">+7.125<" in html
-    assert "2.375" in html
+    assert ">+7<" in html
+    assert ">+2<" in html
     assert "—（未確定）" in html
     assert "state-" not in html
     assert "source_page=5-32" not in html

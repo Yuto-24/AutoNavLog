@@ -14,13 +14,83 @@ interface FormattedValue {
 
 type NumberFormatter = (value: number) => string;
 
+/**
+ * Round half-up with exact decimal semantics matching Python's round_half_up().
+ * Replicates: Decimal(str(value)) / Decimal(str(quantum)), quantize with ROUND_HALF_UP.
+ *
+ * Uses exact integer arithmetic (BigInt) to avoid floating-point precision errors.
+ *
+ * Examples:
+ *   roundHalfUp(0.35, 0.1) => 0.4     // Rounds up (half-up)
+ *   roundHalfUp(-0.35, 0.1) => -0.4   // Negative half-up
+ *   roundHalfUp(1.005, 0.01) => 1.01  // Rounds up
+ *   roundHalfUp(2.5, 1) => 3          // Positive half-way case
+ *   roundHalfUp(-2.5, 1) => -3        // Negative half-way case
+ *   roundHalfUp(7.125, 1) => 7        // Rounds down
+ *   roundHalfUp(7.5, 1) => 8          // Rounds up
+ *   roundHalfUp(2.375, 1) => 2        // Rounds down
+ *   roundHalfUp(-0.4, 1) => 0         // Normalizes -0 to +0
+ */
 function roundHalfUp(value: number, quantum: number): number {
-  const scaled = Math.abs(value) / quantum;
-  const rounded =
-    Math.sign(value) *
-    Math.floor(scaled + 0.5 + Number.EPSILON * Math.max(1, scaled)) *
-    quantum;
-  return Object.is(rounded, -0) ? 0 : rounded;
+  // Parse decimal strings into { sign, integer, fraction, scale }
+  const parseDecimal = (str: string) => {
+    const trimmed = str.trim();
+    const sign = trimmed.startsWith("-") ? -1 : 1;
+    const unsigned = trimmed.replace(/^[+-]/, "");
+    const [intPart = "0", fracPart = ""] = unsigned.split(".");
+    return { sign, integer: intPart, fraction: fracPart, scale: fracPart.length };
+  };
+
+  const v = parseDecimal(value.toString());
+  const q = parseDecimal(quantum.toString());
+
+  // Combine integer and fraction parts into exact BigInt representations
+  // Scale both to a common denominator: 10^(max(v.scale, q.scale))
+  const maxScale = Math.max(v.scale, q.scale);
+  const scaleFactor = 10n ** BigInt(maxScale);
+
+  const vInt = BigInt(v.integer + v.fraction.padEnd(maxScale, "0"));
+  const qInt = BigInt(q.integer + q.fraction.padEnd(maxScale, "0"));
+
+  // Perform exact division: scaled = vInt / qInt (with half-up rounding)
+  // Half-up: if remainder >= divisor/2, round up
+  const absVInt = vInt < 0n ? -vInt : vInt;
+  const absQInt = qInt < 0n ? -qInt : qInt;
+
+  const quotient = absVInt / absQInt;
+  const remainder = absVInt % absQInt;
+
+  // Half-up: round up if remainder * 2 >= divisor
+  const roundedQuotient = remainder * 2n >= absQInt ? quotient + 1n : quotient;
+
+  // Apply original signs
+  const resultSign = v.sign * q.sign;
+  const signedQuotient = resultSign < 0 ? -roundedQuotient : roundedQuotient;
+
+  // Convert back: result = signedQuotient * quantum
+  // Build result string from exact integer arithmetic
+  const resultInt = signedQuotient * qInt;
+  const resultStr = resultInt.toString();
+  const resultSign2 = resultStr.startsWith("-") ? "-" : "";
+  const resultUnsigned = resultStr.replace(/^-/, "");
+
+  // Special case: when maxScale === 0, no fractional part exists
+  let resultDecimal: string;
+  if (maxScale === 0) {
+    resultDecimal = resultSign2 + resultUnsigned;
+  } else {
+    const resultPadded = resultUnsigned.padStart(maxScale + 1, "0");
+    const resultIntPart = resultPadded.slice(0, resultPadded.length - maxScale) || "0";
+    const resultFracPart = resultPadded.slice(resultPadded.length - maxScale);
+    resultDecimal = resultFracPart
+      ? resultSign2 + resultIntPart + "." + resultFracPart
+      : resultSign2 + resultIntPart;
+  }
+
+  const result = parseFloat(resultDecimal);
+
+  // Normalize -0 to +0
+  return Object.is(result, -0) ? 0 : result;
 }
 
 function fixedQuantum(quantum: number, fractionDigits: number): NumberFormatter {
