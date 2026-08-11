@@ -22,6 +22,8 @@ interface RouteWorkspaceProps {
   project: Project | null;
   outcome: CalculationOutcome | null;
   altitudeGuidance: AltitudeGuidance;
+  altitudeInputs: Record<string, string>;
+  onAltitudeInputChange: (sectionId: string, value: string) => void;
   onSectionChange: (sectionId: string, changes: Partial<NavSection>) => void;
 }
 
@@ -62,6 +64,8 @@ export function RouteWorkspace({
   project,
   outcome,
   altitudeGuidance,
+  altitudeInputs,
+  onAltitudeInputChange,
   onSectionChange,
 }: RouteWorkspaceProps) {
   const nodes = useMemo(
@@ -235,9 +239,7 @@ export function RouteWorkspace({
                             }
                             onChange={(event) => {
                               if (event.target.value !== "custom") {
-                                onSectionChange(section.id, {
-                                  planned_altitude_ft_msl: Number(event.target.value),
-                                });
+                                onAltitudeInputChange(section.id, event.target.value);
                               }
                             }}
                           >
@@ -256,14 +258,11 @@ export function RouteWorkspace({
                           min="100"
                           max="25000"
                           step="100"
-                          value={section.planned_altitude_ft_msl}
-                          onChange={(event) => {
-                            if (Number.isFinite(event.target.valueAsNumber)) {
-                              onSectionChange(section.id, {
-                                planned_altitude_ft_msl: event.target.valueAsNumber,
-                              });
-                            }
-                          }}
+                          value={altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)}
+                          placeholder="入力"
+                          onChange={(event) =>
+                            onAltitudeInputChange(section.id, event.target.value)
+                          }
                         />
                         {guidance && (
                           <small className="altitude-course">

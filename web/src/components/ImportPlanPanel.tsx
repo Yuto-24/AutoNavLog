@@ -1,6 +1,6 @@
 import { ClipboardPaste, FileUp, Route } from "lucide-react";
 import type { Dispatch, DragEvent, SetStateAction } from "react";
-import { convertQnhValue, patternAltitudeFtMsl } from "../forms";
+import { convertQnhValue, patternAltitudeFtMsl, variationForDeparture } from "../forms";
 import type { PlanningForm, QnhUnit } from "../forms";
 import type { AirportOption, ImportState } from "../types";
 
@@ -10,12 +10,10 @@ interface ImportPlanPanelProps {
   form: PlanningForm;
   setForm: Dispatch<SetStateAction<PlanningForm>>;
   projectExists: boolean;
-  destinationConfirmed: boolean;
   busy: boolean;
   onFile: (file: File) => void;
   onPaste: () => void;
   onConfirmRoute: () => void;
-  onConfirmDestination: () => void;
 }
 
 function destinationAirportLabel(airport: AirportOption): string {
@@ -32,12 +30,10 @@ export function ImportPlanPanel({
   form,
   setForm,
   projectExists,
-  destinationConfirmed,
   busy,
   onFile,
   onPaste,
   onConfirmRoute,
-  onConfirmDestination,
 }: ImportPlanPanelProps) {
   const update = <Key extends keyof PlanningForm>(key: Key, value: PlanningForm[Key]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -173,11 +169,7 @@ export function ImportPlanPanel({
       <section className="rail-section flight-plan-section">
         <div className="section-heading-row">
           <h2>飛行計画</h2>
-          {projectExists && (
-            <span className="quiet-state">
-              {destinationConfirmed ? "目的空港・場周高度 確定済み" : "目的空港・場周高度 要確定"}
-            </span>
-          )}
+          {projectExists && <span className="quiet-state">経路 確定済み</span>}
         </div>
         <div className="form-grid">
           <label>
@@ -200,35 +192,20 @@ export function ImportPlanPanel({
             <span>FROM</span>
             <select
               value={form.departureAirportId}
-              onChange={(event) => update("departureAirportId", event.target.value)}
+              onChange={(event) => {
+                const departureAirportId = event.target.value;
+                const departure = airports.find((airport) => airport.id === departureAirportId);
+                setForm((current) => ({
+                  ...current,
+                  departureAirportId,
+                  variationDegEast: variationForDeparture(departure),
+                }));
+              }}
               disabled={projectExists}
             >
               {airports.map((airport) => (
                 <option key={airport.id} value={airport.id}>
                   {airport.icao} {airport.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>TO</span>
-            <select
-              value={form.destinationAirportId}
-              onChange={(event) => {
-                const destinationId = event.target.value;
-                update("destinationAirportId", destinationId);
-                const airport = airports.find((item) => item.id === destinationId);
-                if (airport) {
-                  update(
-                    "destinationPatternAltitudeFtMsl",
-                    String(airport.patternAltitudeFtMsl),
-                  );
-                }
-              }}
-            >
-              {airports.map((airport) => (
-                <option key={airport.id} value={airport.id}>
-                  {destinationAirportLabel(airport)}
                 </option>
               ))}
             </select>
@@ -249,7 +226,8 @@ export function ImportPlanPanel({
                 }
               />
               <small className="field-help">
-                master {selectedDestination?.patternAltitudeFtMsl.toLocaleString("ja-JP") ?? "-"} ft
+                飛行場標高 {selectedDestination?.elevationFtMsl.toLocaleString("ja-JP") ?? "-"} ft
+                {" / "}master {selectedDestination?.patternAltitudeFtMsl.toLocaleString("ja-JP") ?? "-"} ft
                 {selectedDestination ? " / " + selectedDestination.patternAltitudeSource : ""}
                 <br />東西場周など運用差がある場合は、今回使う100 ft単位のMSL高度へ編集してください。
                 {validPatternAltitude === null && (
@@ -261,6 +239,22 @@ export function ImportPlanPanel({
               </small>
             </label>
           )}
+          <label className="span-two">
+            <span>TO（経路終点から自動設定）</span>
+            <input
+              aria-label="TO"
+              type="text"
+              readOnly
+              value={selectedDestination ? destinationAirportLabel(selectedDestination) : ""}
+              placeholder="経路を選択すると自動設定"
+              aria-invalid={Boolean(form.candidateKey && !selectedDestination)}
+            />
+            {form.candidateKey && !selectedDestination && (
+              <small className="field-help field-error">
+                KML終点から5 NM以内に目的空港が見つかりません。
+              </small>
+            )}
+          </label>
           <label>
             <span>FUEL gal</span>
             <input
@@ -344,37 +338,7 @@ export function ImportPlanPanel({
               }}
             />
           </label>
-          {!projectExists && (
-            <label className="span-two">
-              <span>初期計画高度（ft MSL）</span>
-              <input
-                type="number"
-                min="100"
-                max="25000"
-                step="100"
-                value={form.allLegAltitudeFtMsl}
-                onChange={(event) => {
-                  if (Number.isFinite(event.target.valueAsNumber)) {
-                    update("allLegAltitudeFtMsl", event.target.valueAsNumber);
-                  }
-                }}
-              />
-              <small className="field-help">
-                経路確定時に各Legへ設定します。確定後はLegごとに変更できます。
-              </small>
-            </label>
-          )}
         </div>
-        {projectExists && (
-          <button
-            className="secondary-button full-width"
-            type="button"
-            onClick={onConfirmDestination}
-            disabled={destinationConfirmed || validPatternAltitude === null || busy}
-          >
-            目的空港・場周高度を確定
-          </button>
-        )}
         {form.manualQnhValue && (
           <div className="confirmation-box confirmation-box-plan">
             <label className="checkbox-row">

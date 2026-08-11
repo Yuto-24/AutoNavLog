@@ -1068,8 +1068,17 @@ class CalculationService:
         cruise_policy: CruisePerformanceSelectionPolicy,
     ) -> float | None:
         last_cas: float | None = None
-        for environment in environments[: end_index + 1]:
-            if environment.geometry.section.phase != FlightPhase.CRUISE:
+        for index, environment in enumerate(environments[: end_index + 1]):
+            phase = environment.geometry.section.phase
+            # A DESCENT-designated physical Section can contain the cruise
+            # portion before EOC, but only when a preceding leg establishes
+            # that pre-descent cruise portion.
+            is_descent_entry = (
+                phase == FlightPhase.DESCENT
+                and index == end_index
+                and end_index > 0
+            )
+            if phase != FlightPhase.CRUISE and not is_descent_entry:
                 continue
             temperature = environment.temperature_c
             wind_speed = environment.wind_speed_kt
@@ -1522,7 +1531,7 @@ class CalculationService:
             magnetic_course = (
                 None
                 if adopted_course is None
-                else (adopted_course - project.default_variation_deg_east) % 360
+                else (adopted_course + project.default_variation_deg_east) % 360
             )
 
             wind_direction = environment.wind_direction_deg_from

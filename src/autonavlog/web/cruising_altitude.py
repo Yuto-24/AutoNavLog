@@ -11,7 +11,7 @@ TERRAIN_LIMITATION_NOTE_JA = (
 
 
 def magnetic_course_deg(true_course_deg: float, variation_deg_east: float) -> float:
-    return (true_course_deg - variation_deg_east) % 360.0
+    return (true_course_deg + variation_deg_east) % 360.0
 
 
 def vfr_cruising_altitude_candidates(

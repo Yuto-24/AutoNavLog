@@ -43,10 +43,16 @@ async function calculateNavLog(page: Page): Promise<void> {
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
 
   await expect(page.getByLabel("飛行経路にする形状")).toHaveValue("line:0");
+  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
 
   await expect(page.getByText("VREP", { exact: true }).first()).toBeVisible();
+  const altitudeInputs = page.locator(".table-number-input");
+  await expect(altitudeInputs.first()).toHaveValue("");
+  for (let index = 0; index < await altitudeInputs.count(); index += 1) {
+    await altitudeInputs.nth(index).fill("4500");
+  }
   const patternAltitude = page.getByLabel("今回採用する場周経路高度");
   const confirmDestination = page.getByRole("button", {
     name: "目的空港・場周高度を確定",
@@ -60,8 +66,11 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(patternAltitude).toHaveValue("1300");
   await confirmDestination.click();
   await expect(patternAltitude).toHaveValue("1300");
+  await expect(altitudeInputs.first()).toHaveValue("4500");
   await page.getByRole("button", { name: "NAV LOGを作る" }).click();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
+  const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
+  await expect(firstRow.locator("td").nth(2)).toHaveText("4500");
 }
 
 test("desktop workflow renders and stays fail-closed", async ({ page }) => {
@@ -73,9 +82,7 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await expect(page.locator("body")).not.toBeEmpty();
   await expect(page.getByText("開発用固定気象（出力不可）", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("TO").locator("option:checked")).toContainText(
-    "場周 1,000 ft",
-  );
+  await expect(page.getByLabel("TO")).toHaveValue("");
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
   ).toHaveCount(0);
@@ -114,7 +121,7 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   await expect(calculate).toBeEnabled();
   await calculate.click();
 
-  const firstRow = page.locator(".nav-log-table tbody tr").first();
+  const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
   await expect(firstRow.locator("td").nth(2)).toHaveText("5500");
   await expect(firstRow.locator("td").nth(6)).toHaveText(/^\d{3}$/);
   await expect(firstRow.locator("td").nth(7)).toHaveText(/^[+-]\d+$/);
@@ -130,6 +137,8 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   await expect(firstRow.locator("td").nth(18)).toHaveText(
     /^\d+\.\d \/ \d+\.\d$/,
   );
+  await expect(page.getByText("DESCENT_END", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".nav-leg-heading-row")).not.toHaveCount(0);
 
   const fuelTable = page.locator(".fuel-plan-table");
   await expect(fuelTable.locator("col")).toHaveCount(5);
