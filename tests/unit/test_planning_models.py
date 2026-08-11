@@ -45,12 +45,13 @@ def _result(
     *,
     elevation: float,
     distance: float,
+    selected_pattern: int,
     rounded_elevation: int,
     excess_rounded: int,
 ) -> ArrivalAltitudeResult:
     effective = 5.0 if abs(distance - 5.0) * 1852 <= 1 + 1e-9 else distance
-    derived_pattern = rounded_elevation + 1000
-    base = derived_pattern + 500
+    derived_pattern = selected_pattern
+    base = selected_pattern + 500
     automatic = base + 200 * excess_rounded
     return ArrivalAltitudeResult(
         vrep_node_id=uuid4(),
@@ -60,7 +61,9 @@ def _result(
         airport_elevation_ft_msl=elevation,
         airport_elevation_rounded_ft_msl=rounded_elevation,
         derived_pattern_altitude_ft_msl=derived_pattern,
-        pattern_altitude_ft_msl=1500,
+        pattern_altitude_ft_msl=selected_pattern,
+        selected_pattern_altitude_ft_msl=selected_pattern,
+        selected_pattern_altitude_source=AdoptedSource.AUTOMATIC,
         base_vrep_altitude_ft_msl=base,
         excess_distance_nm_exact=max(0.0, effective - 5.0),
         excess_distance_nm_rounded=excess_rounded,
@@ -73,17 +76,25 @@ def _result(
 
 
 @pytest.mark.parametrize(
-    ("elevation", "distance", "rounded_elevation", "excess", "altitude"),
+    (
+        "elevation",
+        "selected_pattern",
+        "distance",
+        "rounded_elevation",
+        "excess",
+        "altitude",
+    ),
     [
-        (490, 5.0, 500, 0, 2000),
-        (19, 5.0, 0, 0, 1500),
-        (300, 8.0, 300, 3, 2400),
-        (490, 5.49, 500, 0, 2000),
-        (490, 5.50, 500, 1, 2200),
+        (490, 1500, 5.0, 500, 0, 2000),
+        (19, 1000, 5.0, 0, 0, 1500),
+        (300, 1300, 8.0, 300, 3, 2400),
+        (490, 1500, 5.49, 500, 0, 2000),
+        (490, 1500, 5.50, 500, 1, 2200),
     ],
 )
 def test_arrival_altitude_rule_examples(
     elevation: float,
+    selected_pattern: int,
     distance: float,
     rounded_elevation: int,
     excess: int,
@@ -92,6 +103,7 @@ def test_arrival_altitude_rule_examples(
     result = _result(
         elevation=elevation,
         distance=distance,
+        selected_pattern=selected_pattern,
         rounded_elevation=rounded_elevation,
         excess_rounded=excess,
     )
@@ -103,6 +115,7 @@ def test_arrival_distance_boundary_uses_one_meter_tolerance() -> None:
     result = _result(
         elevation=490,
         distance=within,
+        selected_pattern=1500,
         rounded_elevation=500,
         excess_rounded=0,
     )
@@ -149,7 +162,11 @@ def test_calculate_arrival_altitude_rounds_raw_elevation_and_distance(
         }
     )
     state = PersistedUiState(
-        arrival_plan=ArrivalPlan(visual_reporting_point_node_id=vrep.id),
+        arrival_plan=ArrivalPlan(
+            visual_reporting_point_node_id=vrep.id,
+            selected_pattern_altitude_ft_msl=1500,
+            selected_pattern_altitude_source=AdoptedSource.AUTOMATIC,
+        ),
         reference_data_snapshot=ReferenceDataSnapshot(
             departure_airport=departure,
             destination_airport=destination,
@@ -169,6 +186,7 @@ def test_arrival_result_rejects_tampered_derived_values() -> None:
     result = _result(
         elevation=490,
         distance=5.5,
+        selected_pattern=1500,
         rounded_elevation=500,
         excess_rounded=1,
     )

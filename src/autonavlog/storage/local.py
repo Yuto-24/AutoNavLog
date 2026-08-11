@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
+from typing import Any
 from uuid import UUID, uuid4
 
+from autonavlog.domain.enums import AdoptedSource
+from autonavlog.domain.planning import ARRIVAL_ALTITUDE_RULE_VERSION
 from autonavlog.domain.project import Project
 from autonavlog.domain.snapshot import CalculationSnapshot
 
@@ -12,7 +16,9 @@ from .repository import ProjectIndex, ProjectSummary, SaveResult
 from .safe_json import (
     JsonStorageError,
     atomic_model_write,
+    parse_json_bytes,
     read_json_model,
+    validate_json_bytes,
 )
 
 
@@ -20,6 +26,47 @@ class RevisionConflictError(RuntimeError):
     def __init__(self, message: str, conflict_copy: Path):
         super().__init__(message)
         self.conflict_copy = conflict_copy
+
+
+def _migrate_v3_arrival_snapshot(payload: Any) -> tuple[Any, bool]:
+    if not isinstance(payload, dict):
+        return payload, False
+    calculation_results = payload.get("calculation_results")
+    if not isinstance(calculation_results, dict):
+        return payload, False
+    arrival = calculation_results.get("arrival_altitude")
+    if not isinstance(arrival, dict):
+        return payload, False
+    if arrival.get("rule_version") != "CAC_REV19_8_4_9_V3":
+        return payload, False
+
+    selected_pattern = arrival.get("derived_pattern_altitude_ft_msl")
+    master_pattern = arrival.get("pattern_altitude_ft_msl")
+    if (
+        isinstance(selected_pattern, bool)
+        or not isinstance(selected_pattern, int)
+        or isinstance(master_pattern, bool)
+        or not isinstance(master_pattern, (int, float))
+    ):
+        return payload, False
+    selected_source = (
+        AdoptedSource.AUTOMATIC if selected_pattern == master_pattern else AdoptedSource.MANUAL
+    )
+    arrival["selected_pattern_altitude_ft_msl"] = selected_pattern
+    arrival["selected_pattern_altitude_source"] = selected_source.value
+    arrival["rule_version"] = ARRIVAL_ALTITUDE_RULE_VERSION
+
+    input_data = payload.get("input_data")
+    if isinstance(input_data, dict):
+        metadata = input_data.get("metadata")
+        if isinstance(metadata, dict):
+            ui_state = metadata.get("ui_state")
+            if isinstance(ui_state, dict):
+                arrival_plan = ui_state.get("arrival_plan")
+                if isinstance(arrival_plan, dict):
+                    arrival_plan["selected_pattern_altitude_ft_msl"] = selected_pattern
+                    arrival_plan["selected_pattern_altitude_source"] = selected_source.value
+    return payload, True
 
 
 class LocalProjectRepository:
@@ -157,7 +204,21 @@ class LocalProjectRepository:
 
     def load_snapshot(self, project_id: UUID, snapshot_id: UUID) -> CalculationSnapshot:
         path = self.root / "snapshots" / str(project_id) / f"{snapshot_id}.json"
-        snapshot = read_json_model(path, CalculationSnapshot)
+        try:
+            raw = path.read_bytes()
+        except OSError as error:
+            raise JsonStorageError(f"cannot read JSON file: {path}") from error
+        payload = parse_json_bytes(raw)
+        payload, migrated = _migrate_v3_arrival_snapshot(payload)
+        if migrated:
+            try:
+                serialized = json.dumps(
+                    payload, ensure_ascii=False, sort_keys=True, allow_nan=False
+                )
+            except (TypeError, ValueError) as error:
+                raise JsonStorageError("cannot migrate legacy snapshot JSON") from error
+            raw = (serialized + "\n").encode("utf-8")
+        snapshot = validate_json_bytes(raw, CalculationSnapshot)
         if snapshot.project_id != project_id or snapshot.id != snapshot_id:
             raise JsonStorageError("snapshot identity does not match its storage path")
         return snapshot

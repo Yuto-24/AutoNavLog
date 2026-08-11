@@ -7,6 +7,7 @@ export interface PlanningForm {
   departureTimeJst: string;
   departureAirportId: string;
   destinationAirportId: string;
+  destinationPatternAltitudeFtMsl: string;
   totalUsableFuelGal: number;
   variationDegEast: number;
   manualQnhValue: string;
@@ -41,6 +42,21 @@ export function qnhHpa(form: PlanningForm): number | null {
   return form.qnhUnit === "hPa" ? entered : entered * HPA_PER_INHG;
 }
 
+export function patternAltitudeFtMsl(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const altitude = Number(trimmed);
+  if (
+    !Number.isInteger(altitude) ||
+    altitude < 100 ||
+    altitude > 25000 ||
+    altitude % 100 !== 0
+  ) {
+    return null;
+  }
+  return altitude;
+}
+
 export function convertQnhValue(
   value: string,
   from: QnhUnit,
@@ -56,11 +72,19 @@ export function convertQnhValue(
 }
 
 export function initialPlanningForm(airports: AirportOption[] = []): PlanningForm {
+  const departure = airports.find((airport) => airport.id === "RJFM") ?? airports[0];
+  const destination =
+    airports.find((airport) => airport.id === "RJFO") ??
+    airports.find((airport) => airport.id !== departure?.id) ??
+    departure;
   return {
     flightDate: tomorrowIso(),
     departureTimeJst: "09:00",
-    departureAirportId: airports[0]?.id ?? "",
-    destinationAirportId: airports[1]?.id ?? airports[0]?.id ?? "",
+    departureAirportId: departure?.id ?? "",
+    destinationAirportId: destination?.id ?? "",
+    destinationPatternAltitudeFtMsl: String(
+      destination?.patternAltitudeFtMsl ?? 1000,
+    ),
     totalUsableFuelGal: 90,
     variationDegEast: 8,
     manualQnhValue: "",
@@ -78,13 +102,23 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
 export function formFromProject(
   project: Project,
   previous: PlanningForm,
+  airports: AirportOption[],
 ): PlanningForm {
+  const arrival = project.metadata.ui_state?.arrival_plan ?? null;
+  const destinationMaster = airports.find(
+    (airport) => airport.id === project.destination_airport_id,
+  );
   return {
     ...previous,
     flightDate: project.flight_date,
     departureTimeJst: project.planned_departure_time_jst.slice(11, 16),
     departureAirportId: project.departure_airport_id,
     destinationAirportId: project.destination_airport_id,
+    destinationPatternAltitudeFtMsl: String(
+      arrival?.selected_pattern_altitude_ft_msl ??
+      destinationMaster?.patternAltitudeFtMsl ??
+      previous.destinationPatternAltitudeFtMsl,
+    ),
     totalUsableFuelGal: project.total_usable_fuel_gal,
     variationDegEast: project.default_variation_deg_east,
     manualQnhValue:

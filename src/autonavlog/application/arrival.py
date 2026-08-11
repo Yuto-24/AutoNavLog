@@ -42,20 +42,17 @@ def _round_half_up_nonnegative(value: float) -> int:
         raise ValueError("arrival altitude input must be non-negative")
     return floor(value + 0.5)
 
+
 def standard_vrep_altitude_ft_msl(
     distance_nm: float,
-    airport_elevation_ft_msl: float,
+    selected_pattern_altitude_ft_msl: float,
 ) -> int:
     """Return the NAV2 standard VREP altitude for a route preview or calculation."""
     if distance_nm < 0:
         raise ValueError("VREP distance must be non-negative")
-    effective_distance = (
-        5.0 if abs(distance_nm - 5.0) * 1852.0 <= 1.0 + 1e-9 else distance_nm
-    )
-    rounded_elevation = 100 * _round_half_up_nonnegative(airport_elevation_ft_msl / 100.0)
+    effective_distance = 5.0 if abs(distance_nm - 5.0) * 1852.0 <= 1.0 + 1e-9 else distance_nm
     excess_rounded = _round_half_up_nonnegative(max(0.0, effective_distance - 5.0))
-    return rounded_elevation + 1500 + 200 * excess_rounded
-
+    return int(selected_pattern_altitude_ft_msl) + 500 + 200 * excess_rounded
 
 
 def _validate_route_vrep(
@@ -135,6 +132,43 @@ def calculate_arrival_altitude(
                 ),
             ),
         )
+    selected_pattern = plan.selected_pattern_altitude_ft_msl
+    selected_pattern_source = plan.selected_pattern_altitude_source
+    if selected_pattern is None or selected_pattern_source is None:
+        return ArrivalAltitudeComputation(
+            None,
+            (
+                _blocker(
+                    "PATTERN_ALTITUDE_REQUIRED",
+                    "今回採用する目的空港の場周経路高度を確定してください。",
+                ),
+            ),
+        )
+    expected_pattern_source = (
+        AdoptedSource.AUTOMATIC
+        if selected_pattern == destination.pattern_altitude_ft_msl
+        else AdoptedSource.MANUAL
+    )
+    if selected_pattern_source != expected_pattern_source:
+        return ArrivalAltitudeComputation(
+            None,
+            (
+                _blocker(
+                    "PROJECT_STATE_INVALID",
+                    "採用場周経路高度と採用元が一致しません。再確定してください。",
+                ),
+            ),
+        )
+    if selected_pattern <= destination.elevation_ft_msl:
+        return ArrivalAltitudeComputation(
+            None,
+            (
+                _blocker(
+                    "PATTERN_ALTITUDE_REQUIRED",
+                    "採用場周経路高度は目的空港標高より高くしてください。",
+                ),
+            ),
+        )
     vrep, route_issue = _validate_route_vrep(project, plan)
     if route_issue is not None or vrep is None:
         return ArrivalAltitudeComputation(
@@ -152,11 +186,11 @@ def calculate_arrival_altitude(
     rounded_elevation = 100 * _round_half_up_nonnegative(
         float(destination.elevation_ft_msl) / 100.0
     )
-    derived_pattern = rounded_elevation + 1000
-    base_altitude = derived_pattern + 500
+    derived_pattern = selected_pattern
+    base_altitude = selected_pattern + 500
     excess_exact = max(0.0, effective_distance - 5.0)
     excess_rounded = _round_half_up_nonnegative(excess_exact)
-    automatic = standard_vrep_altitude_ft_msl(distance, destination.elevation_ft_msl)
+    automatic = standard_vrep_altitude_ft_msl(distance, selected_pattern)
     if plan.altitude_mode == ArrivalAltitudeMode.STANDARD_DISTANCE_RULE:
         adopted = automatic
         source = AdoptedSource.AUTOMATIC
@@ -196,6 +230,8 @@ def calculate_arrival_altitude(
         airport_elevation_rounded_ft_msl=rounded_elevation,
         derived_pattern_altitude_ft_msl=derived_pattern,
         pattern_altitude_ft_msl=destination.pattern_altitude_ft_msl,
+        selected_pattern_altitude_ft_msl=selected_pattern,
+        selected_pattern_altitude_source=selected_pattern_source,
         base_vrep_altitude_ft_msl=base_altitude,
         excess_distance_nm_exact=excess_exact,
         excess_distance_nm_rounded=excess_rounded,
@@ -204,6 +240,6 @@ def calculate_arrival_altitude(
         adopted_source=source,
         manual_override_reason=reason,
         selected_reference_fingerprint=selected_reference_fingerprint(snapshot),
-        rule_version="CAC_REV19_8_4_9_V3",
+        rule_version="CAC_REV19_8_4_9_V4",
     )
     return ArrivalAltitudeComputation(result, ())

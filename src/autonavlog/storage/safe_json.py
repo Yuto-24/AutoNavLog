@@ -37,6 +37,21 @@ def _pairs_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return output
 
 
+def parse_json_bytes(raw: bytes) -> Any:
+    """Parse trusted persisted JSON while rejecting ambiguous or non-finite values."""
+
+    try:
+        text = raw.decode("utf-8", errors="strict")
+        return json.loads(
+            text,
+            object_pairs_hook=_pairs_without_duplicates,
+            parse_constant=_reject_constant,
+            parse_float=_finite_float,
+        )
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise JsonStorageError("invalid persisted JSON") from error
+
+
 def validate_json_bytes(
     raw: bytes,
     model: type[JsonModelT],
@@ -44,15 +59,9 @@ def validate_json_bytes(
     """Validate syntax and the Pydantic model against the exact same bytes."""
 
     try:
-        text = raw.decode("utf-8", errors="strict")
-        json.loads(
-            text,
-            object_pairs_hook=_pairs_without_duplicates,
-            parse_constant=_reject_constant,
-            parse_float=_finite_float,
-        )
+        parse_json_bytes(raw)
         return model.model_validate_json(raw, strict=True)
-    except (UnicodeError, json.JSONDecodeError, ValidationError) as error:
+    except ValidationError as error:
         raise JsonStorageError(f"invalid persisted {model.__name__} JSON") from error
 
 

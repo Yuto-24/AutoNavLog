@@ -168,7 +168,7 @@
           "type": "number"
         },
         "derived_pattern_altitude_ft_msl": {
-          "minimum": 1000,
+          "minimum": 100,
           "multipleOf": 100,
           "title": "Derived Pattern Altitude Ft Msl",
           "type": "integer"
@@ -216,10 +216,20 @@
           "type": "number"
         },
         "rule_version": {
-          "const": "CAC_REV19_8_4_9_V3",
-          "default": "CAC_REV19_8_4_9_V3",
+          "const": "CAC_REV19_8_4_9_V4",
+          "default": "CAC_REV19_8_4_9_V4",
           "title": "Rule Version",
           "type": "string"
+        },
+        "selected_pattern_altitude_ft_msl": {
+          "maximum": 25000,
+          "minimum": 100,
+          "multipleOf": 100,
+          "title": "Selected Pattern Altitude Ft Msl",
+          "type": "integer"
+        },
+        "selected_pattern_altitude_source": {
+          "$ref": "#/$defs/AdoptedSource"
         },
         "selected_reference_fingerprint": {
           "pattern": "^[0-9a-f]{64}$",
@@ -241,6 +251,8 @@
         "airport_elevation_rounded_ft_msl",
         "derived_pattern_altitude_ft_msl",
         "pattern_altitude_ft_msl",
+        "selected_pattern_altitude_ft_msl",
+        "selected_pattern_altitude_source",
         "base_vrep_altitude_ft_msl",
         "excess_distance_nm_exact",
         "excess_distance_nm_rounded",

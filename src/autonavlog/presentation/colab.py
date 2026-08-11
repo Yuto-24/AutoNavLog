@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from enum import Enum
 from html import escape
-from math import isclose, isfinite
+from math import floor, isclose, isfinite
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -13,12 +13,14 @@ import folium
 import ipywidgets as widgets
 from IPython.display import display
 
+from autonavlog.application.arrival import standard_vrep_altitude_ft_msl
 from autonavlog.application.calculation_service import CalculationService
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.readiness import ReadinessEvaluation
 from autonavlog.application.readiness_service import ReadinessService
 from autonavlog.domain.calculation import CalculationOutcome
 from autonavlog.domain.enums import (
+    AdoptedSource,
     DerivedPointType,
     FlightPhase,
     IssueSeverity,
@@ -87,6 +89,26 @@ class ViewMode(str, Enum):
 
 
 JST = ZoneInfo("Asia/Tokyo")
+
+
+def _pattern_altitude_input_value(value: float | None) -> int:
+    if value is None:
+        raise ValueError("目的空港のmaster場周経路高度がありません。")
+    return max(100, min(25_000, 100 * floor(float(value) / 100.0 + 0.5)))
+
+
+def _pattern_altitude_source(
+    selected_pattern_altitude_ft_msl: int,
+    master_pattern_altitude_ft_msl: float | None,
+) -> AdoptedSource:
+    return (
+        AdoptedSource.AUTOMATIC
+        if selected_pattern_altitude_ft_msl
+        == _pattern_altitude_input_value(master_pattern_altitude_ft_msl)
+        else AdoptedSource.MANUAL
+    )
+
+
 RouteEntry = tuple[str, float, float, str]
 FT_TO_M = 0.3048
 
@@ -169,6 +191,7 @@ class AutoNavLogApp:
         self.readiness_service = ReadinessService(
             calculation_service,
             msm_package_version=getattr(weather_provider, "package_version", None),
+            require_defaults_review=False,
         )
         repository_name = project_service.repository.__class__.__name__
         if repository_name == "GoogleDriveProjectRepository":
@@ -471,20 +494,27 @@ class AutoNavLogApp:
         )
         self.manual_vrep_altitude = widgets.Text(description="手動VREP ft")
         self.manual_vrep_reason = widgets.Text(description="変則理由")
+        self.destination_pattern_altitude = widgets.BoundedIntText(
+            description="場周高度 MSL",
+            min=100,
+            max=25_000,
+            step=100,
+            value=1000,
+            disabled=True,
+        )
+        self.destination_pattern_altitude_help = widgets.HTML(
+            "<small>master値を初期表示します。東西場周など運用差がある場合は、"
+            "今回使う100 ft単位のMSL高度へ編集してください。</small>"
+        )
         self.apply_arrival_plan_button = widgets.Button(
-            description="VREP・到着方式を確定",
+            description="目的空港・場周高度・VREPを確定",
             icon="check",
+        )
+        self.destination_pattern_altitude.observe(
+            self._destination_pattern_altitude_changed,
+            names="value",
         )
         self.apply_arrival_plan_button.on_click(self._apply_arrival_plan)
-        self.defaults_review_confirmation = widgets.Checkbox(
-            description=("ALT・Phase・FUEL・VAR・TGL・機体Profile・性能/Policyを確認した"),
-            indent=False,
-        )
-        self.confirm_defaults_button = widgets.Button(
-            description="既定値確認を記録",
-            icon="check",
-        )
-        self.confirm_defaults_button.on_click(self._confirm_defaults)
         self.manual_qnh_confirmation = widgets.Checkbox(
             description="DATE・ETD・出発地に対する手動QNHを確認した",
             indent=False,
@@ -601,11 +631,12 @@ class AutoNavLogApp:
     @staticmethod
     def _legacy_airport_selection(airport: Airport) -> AirportSelection:
         verified_fixture = airport.source_revision.lower().startswith("fixture")
-        pattern_altitude = (
+        raw_pattern_altitude = (
             airport.pattern_altitude_ft_msl
             if airport.pattern_altitude_ft_msl is not None
             else airport.elevation_ft_msl + 1000.0
         )
+        pattern_altitude = float(_pattern_altitude_input_value(raw_pattern_altitude))
         return AirportSelection(
             id=airport.id,
             icao=airport.icao,
@@ -798,6 +829,7 @@ class AutoNavLogApp:
                     selected_departure.id,
                     selected_destination.id,
                 )
+                state = self.readiness_service.ui_state(self.project) or PersistedUiState()
             else:
                 updated = snapshot.model_copy(
                     deep=True,
@@ -806,11 +838,23 @@ class AutoNavLogApp:
                         "destination_airport": selected_destination,
                     },
                 )
-                self.project_service.set_ui_state(
-                    self.project,
-                    state.model_copy(update={"reference_data_snapshot": updated}),
-                    reconfirmed=True,
-                )
+                state = state.model_copy(update={"reference_data_snapshot": updated})
+            if not departure:
+                arrival_plan = state.arrival_plan
+                if arrival_plan is not None:
+                    arrival_plan = arrival_plan.model_copy(
+                        update={
+                            "selected_pattern_altitude_ft_msl": None,
+                            "selected_pattern_altitude_source": None,
+                        }
+                    )
+                state = state.model_copy(update={"arrival_plan": arrival_plan})
+                self._set_destination_pattern_altitude(selected_destination.pattern_altitude_ft_msl)
+            self.project_service.set_ui_state(
+                self.project,
+                state,
+                reconfirmed=True,
+            )
             self._refresh_selected_reference_updates()
             self._refresh_readiness()
             label = "FROM" if departure else "TO"
@@ -820,6 +864,37 @@ class AutoNavLogApp:
             )
         except (KeyError, TypeError, ValueError) as error:
             self._notify(str(error), error=True)
+
+    def _set_destination_pattern_altitude(self, value: float | None) -> None:
+        previous_suspend = self._suspend_readiness_sync
+        self._suspend_readiness_sync = True
+        try:
+            self.destination_pattern_altitude.value = _pattern_altitude_input_value(value)
+        finally:
+            self._suspend_readiness_sync = previous_suspend
+
+    def _destination_pattern_altitude_changed(self, change: dict[str, Any]) -> None:
+        if (
+            self._suspend_readiness_sync
+            or self.project is None
+            or change.get("old") == change.get("new")
+        ):
+            return
+        state = self.readiness_service.ui_state(self.project) or PersistedUiState()
+        arrival_plan = state.arrival_plan
+        if arrival_plan is not None:
+            cleared_plan = arrival_plan.model_copy(
+                update={
+                    "selected_pattern_altitude_ft_msl": None,
+                    "selected_pattern_altitude_source": None,
+                }
+            )
+            self.project_service.set_ui_state(
+                self.project,
+                state.model_copy(update={"arrival_plan": cleared_plan}),
+                reconfirmed=True,
+            )
+        self._refresh_readiness()
 
     def _refresh_reference_catalog(self) -> None:
         previous_departure = self.departure_reference.value
@@ -1466,6 +1541,16 @@ class AutoNavLogApp:
                     deep=True,
                     update={"destination_airport": airport},
                 )
+                current_plan = state.arrival_plan
+                if current_plan is not None:
+                    current_plan = current_plan.model_copy(
+                        update={
+                            "selected_pattern_altitude_ft_msl": None,
+                            "selected_pattern_altitude_source": None,
+                        }
+                    )
+                state = state.model_copy(update={"arrival_plan": current_plan})
+                self._set_destination_pattern_altitude(airport.pattern_altitude_ft_msl)
                 label = "TO"
             self.project_service.set_ui_state(
                 self.project,
@@ -1509,13 +1594,36 @@ class AutoNavLogApp:
                 if mode == ArrivalAltitudeMode.STANDARD_DISTANCE_RULE
                 else self.manual_vrep_reason.value.strip()
             )
+            state = self.readiness_service.ui_state(self.project) or PersistedUiState()
+            snapshot = state.reference_data_snapshot
+            if snapshot is None:
+                raise ValueError("目的空港の参照snapshotを先に確定してください。")
+            selected_pattern = int(self.destination_pattern_altitude.value)
+            selected_source = _pattern_altitude_source(
+                selected_pattern,
+                snapshot.destination_airport.pattern_altitude_ft_msl,
+            )
             plan = ArrivalPlan(
                 visual_reporting_point_node_id=vrep_id,
+                selected_pattern_altitude_ft_msl=selected_pattern,
+                selected_pattern_altitude_source=selected_source,
                 altitude_mode=mode,
                 manual_vrep_altitude_ft_msl=manual_altitude,
                 manual_override_reason=reason,
             )
-            state = self.readiness_service.ui_state(self.project) or PersistedUiState()
+            if self.project.sections:
+                destination = snapshot.destination_airport
+                distance_nm = geodesic_leg(
+                    ordered[-2].latitude_deg,
+                    ordered[-2].longitude_deg,
+                    destination.latitude_deg,
+                    destination.longitude_deg,
+                ).distance_nm
+                self.project.sections[-1].planned_altitude_ft_msl = (
+                    manual_altitude
+                    if manual_altitude is not None
+                    else standard_vrep_altitude_ft_msl(distance_nm, selected_pattern)
+                )
             self.project_service.set_ui_state(
                 self.project,
                 state.model_copy(update={"arrival_plan": plan}),
@@ -1525,18 +1633,6 @@ class AutoNavLogApp:
             self._refresh_readiness()
             self._notify("VREPと到着高度方式を確定しました。")
         except (TypeError, ValueError) as error:
-            self._notify(str(error), error=True)
-
-    def _confirm_defaults(self, _: Any) -> None:
-        if self.project is None or not self.defaults_review_confirmation.value:
-            self._notify("既定値の確認欄を選択してください。", error=True)
-            return
-        try:
-            self._sync_project_inputs()
-            self.readiness_service.confirm_defaults(self.project, self.outcome)
-            self._refresh_readiness()
-            self._notify("既定値確認を現在の入力fingerprintへ記録しました。")
-        except ValueError as error:
             self._notify(str(error), error=True)
 
     def _confirm_manual_qnh(self, _: Any) -> None:
@@ -1751,7 +1847,7 @@ class AutoNavLogApp:
             self.arrival_mode,
             self.manual_vrep_altitude,
             self.manual_vrep_reason,
-            self.defaults_review_confirmation,
+            self.destination_pattern_altitude,
             self.manual_qnh,
             self.manual_qnh_confirmation,
             self.tgl_count,
@@ -1801,7 +1897,7 @@ class AutoNavLogApp:
         self.apply_phase.disabled = not editable or not route_ready
         self.apply_all_leg_altitude_button.disabled = not editable or not route_ready
         self.apply_arrival_plan_button.disabled = not editable or not route_ready
-        self.confirm_defaults_button.disabled = not editable or not project_exists
+        self.destination_pattern_altitude.disabled = not editable or not route_ready
         self.confirm_manual_qnh_button.disabled = not editable or not project_exists
         self.quick_run_confirmation.disabled = not editable or self.import_result is None
         self.select_kmz_document_button.disabled = not editable or self._pending_kmz is None
@@ -2012,6 +2108,8 @@ class AutoNavLogApp:
                 self.apply_all_leg_altitude_button,
                 self.vrep_selector,
                 self.arrival_mode,
+                self.destination_pattern_altitude,
+                self.destination_pattern_altitude_help,
                 self.manual_vrep_altitude,
                 self.manual_vrep_reason,
                 self.apply_arrival_plan_button,
@@ -2023,8 +2121,6 @@ class AutoNavLogApp:
                 self.variation,
                 self.manual_qnh,
                 self.tgl_count,
-                self.defaults_review_confirmation,
-                self.confirm_defaults_button,
                 self.manual_qnh_confirmation,
                 self.confirm_manual_qnh_button,
                 self.issues,
@@ -2294,6 +2390,9 @@ class AutoNavLogApp:
                     self.departure_reference.value = snapshot.departure_airport.id
                 if snapshot.destination_airport.id in destination_values:
                     self.destination_reference.value = snapshot.destination_airport.id
+                self.destination_pattern_altitude.value = _pattern_altitude_input_value(
+                    snapshot.destination_airport.pattern_altitude_ft_msl
+                )
             if state is not None and state.arrival_plan is not None:
                 arrival = state.arrival_plan
                 vrep_value = str(arrival.visual_reporting_point_node_id)
@@ -2306,6 +2405,13 @@ class AutoNavLogApp:
                     else str(arrival.manual_vrep_altitude_ft_msl)
                 )
                 self.manual_vrep_reason.value = arrival.manual_override_reason or ""
+                selected_pattern = arrival.selected_pattern_altitude_ft_msl
+                if selected_pattern is None and state.reference_data_snapshot is not None:
+                    selected_pattern = _pattern_altitude_input_value(
+                        state.reference_data_snapshot.destination_airport.pattern_altitude_ft_msl
+                    )
+                if selected_pattern is not None:
+                    self.destination_pattern_altitude.value = selected_pattern
         finally:
             self._suspend_readiness_sync = False
 
@@ -3491,13 +3597,19 @@ class AutoNavLogApp:
                 update={
                     "arrival_plan": ArrivalPlan(
                         visual_reporting_point_node_id=vrep.id,
+                        selected_pattern_altitude_ft_msl=int(
+                            self.destination_pattern_altitude.value
+                        ),
+                        selected_pattern_altitude_source=_pattern_altitude_source(
+                            int(self.destination_pattern_altitude.value),
+                            destination.pattern_altitude_ft_msl,
+                        ),
                     )
                 }
             ),
             reconfirmed=True,
         )
         self._sync_project_inputs()
-        self.readiness_service.confirm_defaults(self.project, self.outcome)
         if self.project.manual_qnh_hpa is not None:
             self.readiness_service.confirm_manual_qnh(self.project, self.outcome)
         self._refresh_route()
@@ -3523,6 +3635,15 @@ class AutoNavLogApp:
             departure, destination, airport_note = self._seed_airport_inputs(route_coordinates)
             if airport_note:
                 steps.append(airport_note)
+            current_state = (
+                None if self.project is None else self.readiness_service.ui_state(self.project)
+            )
+            if (
+                current_state is None
+                or current_state.arrival_plan is None
+                or current_state.arrival_plan.selected_pattern_altitude_ft_msl is None
+            ):
+                self._set_destination_pattern_altitude(destination.pattern_altitude_ft_msl)
             if self.project is None:
                 self._create_project_from_inputs()
                 steps.append("入力欄からProjectを作成")

@@ -18,6 +18,7 @@ def _state(
     *,
     manual_altitude: int | None = None,
     manual_reason: str | None = None,
+    selected_pattern: int = 1000,
     validation: PatternAltitudeValidationStatus = (PatternAltitudeValidationStatus.VERIFIED),
 ) -> PersistedUiState:
     project.route_nodes[-2].role = RouteNodeRole.VISUAL_REPORTING_POINT
@@ -48,6 +49,12 @@ def _state(
     return PersistedUiState(
         arrival_plan=ArrivalPlan(
             visual_reporting_point_node_id=project.route_nodes[-2].id,
+            selected_pattern_altitude_ft_msl=selected_pattern,
+            selected_pattern_altitude_source=(
+                AdoptedSource.AUTOMATIC
+                if selected_pattern == destination.pattern_altitude_ft_msl
+                else AdoptedSource.MANUAL
+            ),
             altitude_mode=(
                 ArrivalAltitudeMode.MANUAL_NON_STANDARD_ENTRY
                 if manual
@@ -74,6 +81,21 @@ def test_standard_arrival_uses_verified_snapshot_and_route_vrep(
     assert computation.result.destination_airport_id == "RJFO"
     assert computation.result.airport_elevation_rounded_ft_msl == 0
     assert computation.result.base_vrep_altitude_ft_msl == 1500
+
+
+def test_oita_west_pattern_override_uses_1300_ft(
+    project: Project,
+) -> None:
+    working = project.model_copy(deep=True)
+    computation = calculate_arrival_altitude(
+        working,
+        _state(working, selected_pattern=1300),
+    )
+    assert computation.issues == ()
+    assert computation.result is not None
+    assert computation.result.selected_pattern_altitude_ft_msl == 1300
+    assert computation.result.selected_pattern_altitude_source == AdoptedSource.MANUAL
+    assert computation.result.base_vrep_altitude_ft_msl == 1800
 
 
 def test_unverified_pattern_altitude_blocks_arrival(
@@ -114,6 +136,8 @@ def test_vrep_must_be_immediately_before_destination(
     state = _state(working)
     state.arrival_plan = ArrivalPlan(
         visual_reporting_point_node_id=working.route_nodes[0].id,
+        selected_pattern_altitude_ft_msl=1000,
+        selected_pattern_altitude_source=AdoptedSource.AUTOMATIC,
     )
     working.route_nodes[0].role = RouteNodeRole.VISUAL_REPORTING_POINT
     computation = calculate_arrival_altitude(working, state)

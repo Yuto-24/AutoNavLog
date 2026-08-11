@@ -103,16 +103,65 @@ async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path)
             for issue in confirmed_state["readiness"]["issues"]
         )
 
+        unconfirmed = await client.post("/api/calculate")
+        assert unconfirmed.status_code == 409
+        assert unconfirmed.json()["error"]["code"] == "PATTERN_ALTITUDE_REQUIRED"
+
+        manual_arrival = await client.put(
+            "/api/project",
+            json={
+                "flight_date": "2026-08-10",
+                "departure_time_jst": "09:00",
+                "total_usable_fuel_gal": 90,
+                "default_variation_deg_east": 8,
+                "tgl_count": 0,
+                "sections": [
+                    {
+                        "section_id": section["id"],
+                        "planned_altitude_ft_msl": section["planned_altitude_ft_msl"],
+                        "phase": section["phase"],
+                    }
+                    for section in confirmed_state["project"]["sections"]
+                ],
+                "visual_reporting_point_node_id": confirmed_state["project"]["route_nodes"][-2][
+                    "id"
+                ],
+                "arrival_altitude_mode": "MANUAL_NON_STANDARD_ENTRY",
+                "manual_vrep_altitude_ft_msl": 2100,
+                "manual_vrep_reason": "Direct Base training entry",
+            },
+        )
+        assert manual_arrival.status_code == 200, manual_arrival.text
+
+        destination_confirmed = await client.post(
+            "/api/destination/confirm",
+            json={
+                "destination_airport_id": "RJFO",
+                "selected_pattern_altitude_ft_msl": 1300,
+            },
+        )
+        assert destination_confirmed.status_code == 200, destination_confirmed.text
+        destination_state = destination_confirmed.json()
+        arrival_plan = destination_state["project"]["metadata"]["ui_state"]["arrival_plan"]
+        assert arrival_plan["selected_pattern_altitude_ft_msl"] == 1300
+        assert arrival_plan["selected_pattern_altitude_source"] == "MANUAL"
+        assert arrival_plan["altitude_mode"] == "MANUAL_NON_STANDARD_ENTRY"
+        assert arrival_plan["manual_vrep_altitude_ft_msl"] == 2100
+        assert destination_state["project"]["sections"][-1]["planned_altitude_ft_msl"] == 2100
+        assert all(
+            issue["code"] != "PATTERN_ALTITUDE_REQUIRED"
+            for issue in destination_state["readiness"]["issues"]
+        )
+
         calculated = await client.post("/api/calculate")
         assert calculated.status_code == 200, calculated.text
         calculated_state = calculated.json()
         assert calculated_state["outcome"] is not None
-        assert (
-            sum(
-                issue["code"] == "PATTERN_ALTITUDE_REQUIRED"
-                for issue in calculated_state["readiness"]["issues"]
-            )
-            == 1
+        assert calculated_state["outcome"]["arrival_altitude"]["base_vrep_altitude_ft_msl"] == 1800
+        assert calculated_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 2100
+        assert all(
+            issue["code"] != "PATTERN_ALTITUDE_REQUIRED"
+            for issue in calculated_state["readiness"]["issues"]
         )
         assert any(
             issue["code"] == "DEVELOPMENT_WEATHER_PROVIDER"

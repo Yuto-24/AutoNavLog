@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import json
+from uuid import UUID
+
 import pytest
 
 from autonavlog.application.calculation_service import CalculationService
-from autonavlog.domain.enums import FlightPhase, RouteNodeRole, WeatherRequestKind
+from autonavlog.application.project_service import ProjectService
+from autonavlog.domain.enums import (
+    AdoptedSource,
+    FlightPhase,
+    RouteNodeRole,
+    WeatherRequestKind,
+)
 from autonavlog.domain.planning import (
     AirportSelection,
     ArrivalPlan,
@@ -15,6 +24,7 @@ from autonavlog.domain.project import NavSection, Project, RouteNode
 from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
 from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.storage.airports import AirportRepository
+from autonavlog.storage.local import LocalProjectRepository
 from autonavlog.weather.fake_provider import FakeWeatherProvider
 
 
@@ -118,7 +128,11 @@ def _arrival_project(project: Project) -> Project:
         project.model_dump() | {"route_nodes": list(nodes), "sections": sections}
     )
     state = PersistedUiState(
-        arrival_plan=ArrivalPlan(visual_reporting_point_node_id=vrep.id),
+        arrival_plan=ArrivalPlan(
+            visual_reporting_point_node_id=vrep.id,
+            selected_pattern_altitude_ft_msl=1000,
+            selected_pattern_altitude_source=AdoptedSource.AUTOMATIC,
+        ),
         reference_data_snapshot=ReferenceDataSnapshot(
             departure_airport=_selection(
                 airport_id="RJFM",
@@ -126,7 +140,7 @@ def _arrival_project(project: Project) -> Project:
                 latitude_deg=departure.latitude_deg,
                 longitude_deg=departure.longitude_deg,
                 elevation_ft_msl=20.0,
-                pattern_altitude_ft_msl=1_020.0,
+                pattern_altitude_ft_msl=1_000.0,
             ),
             destination_airport=_selection(
                 airport_id="RJFO",
@@ -134,7 +148,7 @@ def _arrival_project(project: Project) -> Project:
                 latitude_deg=destination.latitude_deg,
                 longitude_deg=destination.longitude_deg,
                 elevation_ft_msl=19.0,
-                pattern_altitude_ft_msl=1_019.0,
+                pattern_altitude_ft_msl=1_000.0,
             ),
         ),
     )
@@ -182,3 +196,60 @@ def test_arrival_altitude_flows_through_descent_eoc_weather_and_nav_alt(
     assert descent_request.metadata["lower_altitude_ft_msl"] == 1_500
     assert visual_request.metadata["upper_altitude_ft_msl"] == 1_500
     assert visual_request.altitude_ft_msl == pytest.approx((1_500 + 19) / 2)
+
+
+@pytest.mark.parametrize(
+    ("master_pattern", "expected_source"),
+    [(1000.0, AdoptedSource.AUTOMATIC), (1100.0, AdoptedSource.MANUAL)],
+)
+def test_v3_arrival_snapshot_is_migrated_on_load(
+    airports: AirportRepository,
+    performance_repository: PerformanceRepository,
+    project: Project,
+    master_pattern: float,
+    expected_source: AdoptedSource,
+    tmp_path,
+) -> None:
+    calculation = CalculationService(airports, performance_repository)
+    routed = _arrival_project(project)
+    outcome = calculation.calculate(routed, FakeWeatherProvider())
+    assert outcome.arrival_altitude is not None
+
+    repository = LocalProjectRepository(tmp_path)
+    projects = ProjectService(repository)
+    saved = projects.save(routed).project
+    snapshot_path = projects.snapshot(
+        saved,
+        outcome,
+        calculation,
+        msm_package_version=None,
+    )
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    arrival = payload["calculation_results"]["arrival_altitude"]
+    arrival["rule_version"] = "CAC_REV19_8_4_9_V3"
+    arrival["pattern_altitude_ft_msl"] = master_pattern
+    arrival.pop("selected_pattern_altitude_ft_msl")
+    arrival.pop("selected_pattern_altitude_source")
+    arrival_plan = payload["input_data"]["metadata"]["ui_state"]["arrival_plan"]
+    arrival_plan.pop("selected_pattern_altitude_ft_msl")
+    arrival_plan.pop("selected_pattern_altitude_source")
+    destination_snapshot = payload["input_data"]["metadata"]["ui_state"]["reference_data_snapshot"][
+        "destination_airport"
+    ]
+    destination_snapshot["pattern_altitude_ft_msl"] = master_pattern
+    snapshot_path.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    restored = repository.load_snapshot(saved.id, UUID(snapshot_path.stem))
+
+    restored_arrival = restored.calculation_results.arrival_altitude
+    assert restored_arrival is not None
+    assert restored_arrival.rule_version == "CAC_REV19_8_4_9_V4"
+    assert restored_arrival.selected_pattern_altitude_ft_msl == 1000
+    assert restored_arrival.selected_pattern_altitude_source == expected_source
+    restored_state = projects.ui_state(restored.input_data)
+    assert restored_state.arrival_plan is not None
+    assert restored_state.arrival_plan.selected_pattern_altitude_ft_msl == 1000
+    assert restored_state.arrival_plan.selected_pattern_altitude_source == expected_source

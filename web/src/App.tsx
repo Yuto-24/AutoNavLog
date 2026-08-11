@@ -5,6 +5,7 @@ import {
   candidateFromKey,
   formFromProject,
   initialPlanningForm,
+  patternAltitudeFtMsl,
   qnhHpa,
 } from "./forms";
 import type { PlanningForm } from "./forms";
@@ -49,7 +50,7 @@ function App() {
         updated = { ...current, ...seeded };
       }
       if (next.project) {
-        updated = formFromProject(next.project, updated);
+        updated = formFromProject(next.project, updated, next.airports);
       }
       const selectedExists = next.import.candidates.some(
         (candidate) => `${candidate.kind}:${candidate.index}` === updated.candidateKey,
@@ -206,7 +207,29 @@ function App() {
             manual_qnh_confirmed: form.manualQnhConfirmed,
           },
         }),
-      "経路とVREPを確定しました。Leg入力を確認してください。",
+      "経路を確定しました。目的空港と場周経路高度を確認してください。",
+    );
+  };
+
+  const handleConfirmDestination = async () => {
+    if (!state?.project) return;
+    const selectedPatternAltitude = patternAltitudeFtMsl(
+      form.destinationPatternAltitudeFtMsl,
+    );
+    if (selectedPatternAltitude === null) {
+      setError("場周経路高度は100～25,000 ftの範囲で100 ft単位にしてください。");
+      return;
+    }
+    await run(
+      () =>
+        api.request<WebState>("/api/destination/confirm", {
+          method: "POST",
+          body: {
+            destination_airport_id: form.destinationAirportId,
+            selected_pattern_altitude_ft_msl: selectedPatternAltitude,
+          },
+        }),
+      "目的空港と今回採用する場周経路高度を確定しました。",
     );
   };
 
@@ -352,6 +375,16 @@ function App() {
   }
 
   const selectedCandidate = candidateFromKey(state.import.candidates, form.candidateKey);
+  const selectedArrival = state.project?.metadata.ui_state?.arrival_plan ?? null;
+  const destinationConfirmed = Boolean(
+    state.project &&
+      selectedArrival?.selected_pattern_altitude_ft_msl !== null &&
+      selectedArrival?.selected_pattern_altitude_ft_msl !== undefined &&
+      selectedArrival.selected_pattern_altitude_source &&
+      state.project.destination_airport_id === form.destinationAirportId &&
+      selectedArrival.selected_pattern_altitude_ft_msl ===
+        patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl),
+  );
 
   return (
     <div className="app-shell">
@@ -394,10 +427,12 @@ function App() {
           form={form}
           setForm={setForm}
           projectExists={Boolean(state.project)}
+          destinationConfirmed={destinationConfirmed}
           busy={busy}
           onFile={handleFile}
           onPaste={() => setPasteOpen(true)}
           onConfirmRoute={handleConfirmRoute}
+          onConfirmDestination={handleConfirmDestination}
         />
         <RouteWorkspace
           candidate={selectedCandidate}
@@ -410,6 +445,7 @@ function App() {
           runtime={state.runtime}
           readiness={state.readiness}
           projectExists={Boolean(state.project)}
+          canCalculate={destinationConfirmed}
           outcomeExists={Boolean(state.outcome)}
           busy={busy}
           onCalculate={handleCalculate}

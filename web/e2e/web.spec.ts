@@ -47,6 +47,19 @@ async function calculateNavLog(page: Page): Promise<void> {
   await page.getByRole("button", { name: "経路を確定" }).click();
 
   await expect(page.getByText("VREP", { exact: true }).first()).toBeVisible();
+  const patternAltitude = page.getByLabel("今回採用する場周経路高度");
+  const confirmDestination = page.getByRole("button", {
+    name: "目的空港・場周高度を確定",
+  });
+  await expect(patternAltitude).toHaveValue("1000");
+  await patternAltitude.fill("");
+  await expect(confirmDestination).toBeDisabled();
+  await patternAltitude.fill("1000");
+  await expect(confirmDestination).toBeEnabled();
+  await patternAltitude.fill("1300");
+  await expect(patternAltitude).toHaveValue("1300");
+  await confirmDestination.click();
+  await expect(patternAltitude).toHaveValue("1300");
   await page.getByRole("button", { name: "NAV LOGを作る" }).click();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
 }
@@ -61,7 +74,7 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   await expect(page.locator("body")).not.toBeEmpty();
   await expect(page.getByText("開発用固定気象（出力不可）", { exact: true })).toBeVisible();
   await expect(page.getByLabel("TO").locator("option:checked")).toContainText(
-    "場周 1,000 ft・未検証",
+    "場周 1,000 ft",
   );
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
@@ -73,9 +86,9 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
 
   await calculateNavLog(page);
 
-  const patternAltitudeBlocker = page.getByText("PATTERN_ALTITUDE_REQUIRED", { exact: true });
-  await expect(patternAltitudeBlocker).toHaveCount(1);
-  await expect(patternAltitudeBlocker).toBeVisible();
+  await expect(
+    page.getByText("PATTERN_ALTITUDE_REQUIRED", { exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByText("DEVELOPMENT_WEATHER_PROVIDER", { exact: true }),
   ).toBeVisible();

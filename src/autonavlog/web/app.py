@@ -26,6 +26,7 @@ from .cloudflare_access import (
 from .facade import AutoNavLogWebApplication, WebApplicationError, WebSession
 from .models import (
     AcknowledgeRequest,
+    ConfirmDestinationRequest,
     ConfirmRouteRequest,
     ImportRouteRequest,
     LoadProjectRequest,
@@ -282,6 +283,13 @@ def create_app(
         session: SessionDependency,
     ) -> dict[str, Any]:
         return web.confirm_route(session, payload)
+
+    @app.post("/api/destination/confirm")
+    def confirm_destination(
+        payload: ConfirmDestinationRequest,
+        session: SessionDependency,
+    ) -> dict[str, Any]:
+        return web.confirm_destination(session, payload)
 
     @app.put("/api/project")
     def update_project(

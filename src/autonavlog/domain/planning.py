@@ -21,7 +21,7 @@ Sha256Hex = Annotated[
     StringConstraints(pattern=r"^[0-9a-f]{64}$"),
 ]
 
-ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V3"
+ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"
 CP_PROJECTION_POLICY_VERSION = "CP_ABEAM_WGS84_V1"
 
 
@@ -114,6 +114,13 @@ class ReferenceDataSnapshot(PlanningModel):
 
 class ArrivalPlan(PlanningModel):
     visual_reporting_point_node_id: UUID
+    selected_pattern_altitude_ft_msl: int | None = Field(
+        default=None,
+        ge=100,
+        le=25_000,
+        multiple_of=100,
+    )
+    selected_pattern_altitude_source: AdoptedSource | None = None
     altitude_mode: ArrivalAltitudeMode = ArrivalAltitudeMode.STANDARD_DISTANCE_RULE
     manual_vrep_altitude_ft_msl: int | None = Field(
         default=None,
@@ -125,6 +132,12 @@ class ArrivalPlan(PlanningModel):
 
     @model_validator(mode="after")
     def validate_mode_fields(self) -> ArrivalPlan:
+        selected_values = (
+            self.selected_pattern_altitude_ft_msl,
+            self.selected_pattern_altitude_source,
+        )
+        if (selected_values[0] is None) != (selected_values[1] is None):
+            raise ValueError("selected pattern altitude and source must be supplied together")
         if self.altitude_mode == ArrivalAltitudeMode.STANDARD_DISTANCE_RULE:
             if (
                 self.manual_vrep_altitude_ft_msl is not None
@@ -196,8 +209,10 @@ class ArrivalAltitudeResult(PlanningModel):
     boundary_tolerance_m: FiniteFloat = Field(default=1.0, ge=1.0, le=1.0)
     airport_elevation_ft_msl: FiniteFloat = Field(ge=0)
     airport_elevation_rounded_ft_msl: int = Field(ge=0, multiple_of=100)
-    derived_pattern_altitude_ft_msl: int = Field(ge=1000, multiple_of=100)
+    derived_pattern_altitude_ft_msl: int = Field(ge=100, multiple_of=100)
     pattern_altitude_ft_msl: FiniteFloat = Field(ge=0)
+    selected_pattern_altitude_ft_msl: int = Field(ge=100, le=25_000, multiple_of=100)
+    selected_pattern_altitude_source: AdoptedSource
     base_vrep_altitude_ft_msl: int = Field(multiple_of=100)
     excess_distance_nm_exact: FiniteFloat = Field(ge=0)
     excess_distance_nm_rounded: int = Field(ge=0)
@@ -206,7 +221,7 @@ class ArrivalAltitudeResult(PlanningModel):
     adopted_source: AdoptedSource
     manual_override_reason: str | None = None
     selected_reference_fingerprint: Sha256Hex
-    rule_version: Literal["CAC_REV19_8_4_9_V3"] = "CAC_REV19_8_4_9_V3"
+    rule_version: Literal["CAC_REV19_8_4_9_V4"] = "CAC_REV19_8_4_9_V4"
 
     @model_validator(mode="after")
     def validate_derived_values(self) -> ArrivalAltitudeResult:
@@ -219,8 +234,9 @@ class ArrivalAltitudeResult(PlanningModel):
         rounded_elevation = 100 * _round_half_up_nonnegative(
             float(self.airport_elevation_ft_msl) / 100.0
         )
-        derived_pattern = rounded_elevation + 1000
-        base_altitude = derived_pattern + 500
+        selected_pattern = self.selected_pattern_altitude_ft_msl
+        derived_pattern = selected_pattern
+        base_altitude = selected_pattern + 500
         excess_exact = max(0.0, effective_distance - 5.0)
         excess_rounded = _round_half_up_nonnegative(excess_exact)
         automatic = base_altitude + 200 * excess_rounded
@@ -249,6 +265,15 @@ class ArrivalAltitudeResult(PlanningModel):
                     raise ValueError(f"{key} does not match the arrival rule")
             elif actual_value != expected_value:
                 raise ValueError(f"{key} does not match the arrival rule")
+        expected_pattern_source = (
+            AdoptedSource.AUTOMATIC
+            if selected_pattern == self.pattern_altitude_ft_msl
+            else AdoptedSource.MANUAL
+        )
+        if self.selected_pattern_altitude_source != expected_pattern_source:
+            raise ValueError("selected pattern altitude source does not match the master value")
+        if selected_pattern <= self.airport_elevation_ft_msl:
+            raise ValueError("selected pattern altitude must be above airport elevation")
         if self.adopted_source == AdoptedSource.AUTOMATIC:
             if self.adopted_altitude_ft_msl != automatic:
                 raise ValueError("standard arrival must adopt the automatic value")
