@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Calculator,
   CloudSun,
+  CheckCircle2,
   Database,
   Download,
   XCircle,
@@ -13,9 +14,12 @@ interface StatusPanelProps {
   readiness: ReadinessState;
   projectExists: boolean;
   canCalculate: boolean;
+  destinationConfirmed: boolean;
+  destinationReady: boolean;
   outcomeExists: boolean;
   busy: boolean;
   onCalculate: () => void;
+  onConfirmDestination: () => void;
   onAcknowledge: (ackKey: string, checked: boolean) => void;
   onDownload: () => void;
 }
@@ -25,9 +29,12 @@ export function StatusPanel({
   readiness,
   projectExists,
   canCalculate,
+  destinationConfirmed,
+  destinationReady,
   outcomeExists,
   busy,
   onCalculate,
+  onConfirmDestination,
   onAcknowledge,
   onDownload,
 }: StatusPanelProps) {
@@ -64,6 +71,26 @@ export function StatusPanel({
             <strong>開発用気象モード</strong>
             固定気象で画面と計算を試せますが、転記補助HTMLは出力できません。
           </p>
+        </div>
+      )}
+
+      {projectExists && (
+        <div className="destination-confirmation-action">
+          {destinationConfirmed ? (
+            <p className="destination-confirmed-state">
+              <CheckCircle2 aria-hidden="true" size={18} />
+              目的空港・場周高度は確定済みです
+            </p>
+          ) : (
+            <button
+              className="primary-button full-width"
+              type="button"
+              onClick={onConfirmDestination}
+              disabled={!destinationReady || busy}
+            >
+              目的空港・場周高度を確定
+            </button>
+          )}
         </div>
       )}
 
