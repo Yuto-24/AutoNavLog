@@ -248,10 +248,6 @@ export function ImportPlanPanel({
               }}
             />
           </label>
-          <div className="form-grid-field">
-            <span>VAR E（Legごと自動）</span>
-            <strong>32.0°N以上 +8° / 未満 +7°</strong>
-          </div>
           <div className="form-grid-field span-two">
             <span>QNH（未入力は自動取得）</span>
             <div className="qnh-input-row">
