@@ -65,6 +65,16 @@ async function calculateNavLog(page: Page): Promise<void> {
   for (let index = 0; index < await altitudeInputs.count(); index += 1) {
     await altitudeInputs.nth(index).fill("4500");
   }
+  const altitudeCandidates = page.locator(".altitude-candidate-select");
+  const firstAltitudeCandidate = await altitudeCandidates
+    .first()
+    .locator("option")
+    .first()
+    .getAttribute("value");
+  if (firstAltitudeCandidate === null) throw new Error("Altitude candidate is missing");
+  for (let index = 0; index < await altitudeCandidates.count(); index += 1) {
+    await altitudeCandidates.nth(index).selectOption({ index: 0 });
+  }
   const cruiseAltitude = page.getByLabel(/出発Legの巡航高度候補/).first();
   const variationGuidance = page.locator(".altitude-course");
   await expect(variationGuidance.first()).toContainText("VAR +7°");
@@ -93,14 +103,14 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(patternAltitude).toHaveValue("1300");
   await confirmDestination.click();
   await expect(patternAltitude).toHaveValue("1300");
-  await expect(altitudeInputs.first()).toHaveValue("4500");
+  await expect(altitudeInputs.first()).toHaveValue(firstAltitudeCandidate);
   await expect(altitudeInputs.last()).toHaveValue("1800");
   await expect(cruiseAltitude).toHaveValue(cruiseCandidate);
   await expect(page.locator(".altitude-review-row")).toHaveCount(0);
   await page.getByRole("button", { name: "NAV LOGを作る" }).click();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
-  await expect(firstRow.locator("td").nth(2)).toHaveText("4500");
+  await expect(firstRow.locator("td").nth(2)).toHaveText(firstAltitudeCandidate);
   await expect(firstRow.locator("td").nth(7)).toHaveText("+7自動");
 }
 
