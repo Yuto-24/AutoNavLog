@@ -48,6 +48,31 @@ def anyio_backend() -> str:
 
 
 @pytest.mark.anyio
+async def test_trusted_http_session_cookie_is_reusable(tmp_path: Path) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            trusted_local_identity="local-test-user",
+            session_cookie_secure=False,
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://192.0.2.10",
+    ) as client:
+        created = await client.post("/api/session")
+        assert created.status_code == 200
+        cookie = created.headers["set-cookie"]
+        assert "HttpOnly" in cookie
+        assert "Secure" not in cookie
+        assert "SameSite=strict" in cookie
+
+        assert (await client.get("/api/state")).status_code == 200
+
+
+@pytest.mark.anyio
 async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path) -> None:
     app = create_app(
         WebRuntimeConfig(

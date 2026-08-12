@@ -33,7 +33,12 @@ from .models import (
     SaveProjectRequest,
     UpdateProjectRequest,
 )
-from .runtime import WeatherMode, WebRuntimeConfig, build_web_application
+from .runtime import (
+    WeatherMode,
+    WebRuntimeConfig,
+    build_web_application,
+    environment_bool,
+)
 
 MAX_BASE64_CHARACTERS = 14 * 1024 * 1024
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -146,6 +151,7 @@ def _environment_config() -> WebRuntimeConfig:
         trusted_local_identity=(
             os.environ.get("AUTONAVLOG_TRUSTED_LOCAL_IDENTITY", "").strip() or None
         ),
+        session_cookie_secure=environment_bool("AUTONAVLOG_SESSION_COOKIE_SECURE", default=True),
         cloudflare_team_domain=(
             os.environ.get("AUTONAVLOG_CLOUDFLARE_TEAM_DOMAIN", "").strip() or None
         ),
@@ -160,7 +166,15 @@ def create_app(
     *,
     web_application: AutoNavLogWebApplication | None = None,
 ) -> FastAPI:
-    web = web_application or build_web_application(config or _environment_config())
+    resolved_config = config
+    if web_application is None:
+        resolved_config = resolved_config or _environment_config()
+        web = build_web_application(resolved_config)
+    else:
+        web = web_application
+    session_cookie_secure = (
+        resolved_config.session_cookie_secure if resolved_config is not None else True
+    )
     app = FastAPI(
         title="AutoNavLog Web",
         version=__version__,
@@ -196,7 +210,7 @@ def create_app(
             key=SESSION_COOKIE_NAME,
             value=session.token,
             httponly=True,
-            secure=True,
+            secure=session_cookie_secure,
             samesite="strict",
             path="/",
         )
@@ -212,7 +226,7 @@ def create_app(
         response.delete_cookie(
             key=SESSION_COOKIE_NAME,
             httponly=True,
-            secure=True,
+            secure=session_cookie_secure,
             samesite="strict",
             path="/",
         )

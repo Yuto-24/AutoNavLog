@@ -50,9 +50,16 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(page.getByText("VREP", { exact: true }).first()).toBeVisible();
   const altitudeInputs = page.locator(".table-number-input");
   await expect(altitudeInputs.first()).toHaveValue("");
+  await expect(altitudeInputs.last()).toHaveValue("1500");
   for (let index = 0; index < await altitudeInputs.count(); index += 1) {
     await altitudeInputs.nth(index).fill("4500");
   }
+  const cruiseAltitude = page.getByLabel(/出発Legの巡航高度候補/).first();
+  const cruiseCandidate = await cruiseAltitude.locator("option").first().getAttribute("value");
+  if (cruiseCandidate === null) {
+    throw new Error("Cruise altitude candidate is missing");
+  }
+  await cruiseAltitude.selectOption(cruiseCandidate);
   const patternAltitude = page.getByLabel("今回採用する場周経路高度");
   const confirmDestination = page.getByRole("button", {
     name: "目的空港・場周高度を確定",
@@ -67,6 +74,9 @@ async function calculateNavLog(page: Page): Promise<void> {
   await confirmDestination.click();
   await expect(patternAltitude).toHaveValue("1300");
   await expect(altitudeInputs.first()).toHaveValue("4500");
+  await expect(altitudeInputs.last()).toHaveValue("1800");
+  await expect(cruiseAltitude).toHaveValue(cruiseCandidate);
+  await expect(page.locator(".altitude-review-row")).toHaveCount(0);
   await page.getByRole("button", { name: "NAV LOGを作る" }).click();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
@@ -109,6 +119,11 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
 });
 
 test("changed ALT appears in PA with lesson display precision", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+
   await page.goto("/");
   await calculateNavLog(page);
 
@@ -153,11 +168,23 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
       gap: planTable.offsetLeft - (navTable.offsetLeft + navTable.offsetWidth),
       fuelWidth: planTable.offsetWidth,
       navWidth: navTable.offsetWidth,
+      fuelRowHeight: planTable.querySelector<HTMLElement>("tbody tr")?.offsetHeight ?? 0,
+      fuelAmountAlignment: getComputedStyle(
+        planTable.querySelector<HTMLElement>(".fuel-amount")!,
+      ).justifyContent,
     };
   });
-  expect(tableLayout.gap).toBeGreaterThanOrEqual(15);
-  expect(tableLayout.gap).toBeLessThanOrEqual(17);
+  expect(tableLayout.gap).toBeGreaterThanOrEqual(11);
+  expect(tableLayout.gap).toBeLessThanOrEqual(13);
+  expect(tableLayout.navWidth).toBeLessThanOrEqual(1700);
+  expect(tableLayout.fuelWidth).toBeLessThanOrEqual(430);
   expect(tableLayout.fuelWidth).toBeLessThan(tableLayout.navWidth / 2);
+  expect(tableLayout.fuelRowHeight).toBeLessThanOrEqual(25);
+  expect(tableLayout.fuelAmountAlignment).toBe("center");
+  const unexpectedConsoleErrors = consoleErrors.filter(
+    (message) => !message.includes("401 (Unauthorized)"),
+  );
+  expect(unexpectedConsoleErrors).toEqual([]);
 });
 
 test("calculated mobile layout has no body overflow", async ({ page }) => {

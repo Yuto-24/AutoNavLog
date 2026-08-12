@@ -6,7 +6,22 @@ from typing import Any
 import pytest
 
 import autonavlog.web.runtime as runtime
-from autonavlog.web.runtime import WebRuntimeConfig
+from autonavlog.web.runtime import WebRuntimeConfig, environment_bool
+
+
+def test_environment_bool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TEST_BOOLEAN", raising=False)
+    assert environment_bool("TEST_BOOLEAN", default=True) is True
+    assert environment_bool("TEST_BOOLEAN", default=False) is False
+
+    monkeypatch.setenv("TEST_BOOLEAN", "yes")
+    assert environment_bool("TEST_BOOLEAN", default=False) is True
+    monkeypatch.setenv("TEST_BOOLEAN", "OFF")
+    assert environment_bool("TEST_BOOLEAN", default=True) is False
+
+    monkeypatch.setenv("TEST_BOOLEAN", "invalid")
+    with pytest.raises(RuntimeError, match="TEST_BOOLEAN must be true or false"):
+        environment_bool("TEST_BOOLEAN", default=True)
 
 
 def test_runtime_config_rejects_invalid_weather_and_session_limit(tmp_path: Path) -> None:
@@ -27,6 +42,21 @@ def test_runtime_config_rejects_invalid_weather_and_session_limit(tmp_path: Path
             data_root=tmp_path,
             storage_root=tmp_path,
             cloudflare_team_domain="https://test.cloudflareaccess.com",
+        )
+    with pytest.raises(ValueError, match="insecure session cookies"):
+        WebRuntimeConfig(
+            data_root=tmp_path,
+            storage_root=tmp_path,
+            session_cookie_secure=False,
+        )
+    with pytest.raises(ValueError, match="insecure session cookies"):
+        WebRuntimeConfig(
+            data_root=tmp_path,
+            storage_root=tmp_path,
+            trusted_local_identity="local-user",
+            session_cookie_secure=False,
+            cloudflare_team_domain="https://test.cloudflareaccess.com",
+            cloudflare_access_audience="test-audience",
         )
 
 

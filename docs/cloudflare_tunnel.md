@@ -69,8 +69,9 @@ remotely-managed tunnelはorigin側でtokenだけを使って接続し、route�
 無効化してCookieを削除します。他のidentityには一覧にも404応答にもProjectの存在を漏らしません。
 
 JWT検証に加えて、originは必ず`127.0.0.1:8123`だけへbindします。
-`AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` はloopback試験専用で、使用requestごとに警告を記録します。
-公開serviceでは必ず未設定にします。
+Cloudflare公開構成では `AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` はloopback試験だけに使用し、
+公開serviceでは必ず未設定にします。信頼済みLAN内のHTTP開発環境はREADMEの分離起動手順を
+使用してください。trusted local identityを使用したrequestは毎回警告を記録します。
 
 公式手順: [Add web applications](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/)、
 [Validate JWTs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)

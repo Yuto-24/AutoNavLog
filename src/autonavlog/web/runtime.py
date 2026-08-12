@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -22,6 +23,18 @@ from .facade import AutoNavLogWebApplication
 WeatherMode = Literal["fake", "msm", "msm-metar"]
 
 
+def environment_bool(name: str, *, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"{name} must be true or false")
+
+
 @dataclass(frozen=True)
 class WebRuntimeConfig:
     data_root: Path
@@ -31,6 +44,7 @@ class WebRuntimeConfig:
     terrain_cache_path: Path | None = None
     maximum_sessions: int = 128
     trusted_local_identity: str | None = None
+    session_cookie_secure: bool = True
     cloudflare_team_domain: str | None = None
     cloudflare_access_audience: str | None = None
 
@@ -43,6 +57,16 @@ class WebRuntimeConfig:
         if bool(self.cloudflare_team_domain) != bool(self.cloudflare_access_audience):
             raise ValueError(
                 "cloudflare_team_domain and cloudflare_access_audience must be set together"
+            )
+
+        trimmed_identity = (
+            self.trusted_local_identity.strip() if self.trusted_local_identity else ""
+        )
+        if not self.session_cookie_secure and (
+            not trimmed_identity or self.cloudflare_team_domain
+        ):
+            raise ValueError(
+                "insecure session cookies require trusted local identity without Cloudflare Access"
             )
 
 

@@ -240,7 +240,14 @@ function App() {
     );
     if (confirmed?.project) {
       setAltitudeInputs(
-        Object.fromEntries(confirmed.project.sections.map((section) => [section.id, ""])),
+        Object.fromEntries(
+          confirmed.project.sections.map((section) => [
+            section.id,
+            section.phase === "VISUAL_ARRIVAL"
+              ? String(section.planned_altitude_ft_msl)
+              : "",
+          ]),
+        ),
       );
     }
   };
@@ -254,7 +261,7 @@ function App() {
       setError("場周経路高度は100～25,000 ftの範囲で100 ft単位にしてください。");
       return;
     }
-    await run(
+    const confirmed = await run(
       () =>
         api.request<WebState>("/api/destination/confirm", {
           method: "POST",
@@ -265,6 +272,17 @@ function App() {
         }),
       "目的空港と今回採用する場周経路高度を確定しました。",
     );
+    const confirmedProject = confirmed?.project;
+    if (confirmedProject) {
+      setAltitudeInputs((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          confirmedProject.sections
+            .filter((section) => section.phase === "VISUAL_ARRIVAL")
+            .map((section) => [section.id, String(section.planned_altitude_ft_msl)]),
+        ),
+      }));
+    }
   };
 
   const handleAltitudeInputChange = (sectionId: string, value: string) => {

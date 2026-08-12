@@ -204,10 +204,20 @@ export function RouteWorkspace({
               const guidance = section
                 ? guidanceBySection.get(section.id)
                 : undefined;
+              const enteredAltitude = section ? altitudeInputs[section.id] : undefined;
+              const effectiveAltitude = section
+                ? enteredAltitude === undefined
+                  ? section.planned_altitude_ft_msl
+                  : enteredAltitude.trim() === ""
+                    ? null
+                    : Number(enteredAltitude)
+                : null;
               const isCandidateAltitude = Boolean(
+                effectiveAltitude !== null &&
+                Number.isFinite(effectiveAltitude) &&
                 guidance?.candidateAltitudesFtMsl.some(
                   (candidateAltitude) =>
-                    candidateAltitude === section?.planned_altitude_ft_msl,
+                    candidateAltitude === effectiveAltitude,
                 ),
               );
               const requiresAltitudeReview =
@@ -234,7 +244,7 @@ export function RouteWorkspace({
                             aria-label={node.name + "出発Legの巡航高度候補"}
                             value={
                               isCandidateAltitude
-                                ? String(section.planned_altitude_ft_msl)
+                                ? String(effectiveAltitude)
                                 : "custom"
                             }
                             onChange={(event) => {

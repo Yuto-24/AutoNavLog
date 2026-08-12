@@ -7,7 +7,7 @@ from pathlib import Path
 import uvicorn
 
 from .app import create_app
-from .runtime import WebRuntimeConfig
+from .runtime import WebRuntimeConfig, environment_bool
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -34,6 +34,12 @@ def _parser() -> argparse.ArgumentParser:
         "--trusted-local-identity",
         default=os.environ.get("AUTONAVLOG_TRUSTED_LOCAL_IDENTITY"),
         help="trusted local-only identity; leave unset behind Cloudflare Access",
+    )
+    parser.add_argument(
+        "--session-cookie-secure",
+        action=argparse.BooleanOptionalAction,
+        default=environment_bool("AUTONAVLOG_SESSION_COOKIE_SECURE", default=True),
+        help="mark session cookies Secure; disable only for trusted HTTP LAN development",
     )
     parser.add_argument(
         "--cloudflare-team-domain",
@@ -63,6 +69,7 @@ def main() -> None:
         terrain_cache_path=args.terrain_cache,
         trusted_local_identity=args.trusted_local_identity,
         cloudflare_team_domain=args.cloudflare_team_domain,
+        session_cookie_secure=args.session_cookie_secure,
         cloudflare_access_audience=args.cloudflare_access_audience,
     )
     uvicorn.run(
