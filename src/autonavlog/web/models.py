@@ -57,6 +57,7 @@ class ConfirmRouteRequest(WebRequestModel):
 
 
 class ConfirmDestinationRequest(WebRequestModel):
+    departure_airport_id: str | None = Field(default=None, min_length=1, max_length=64)
     destination_airport_id: str = Field(min_length=1, max_length=64)
     selected_pattern_altitude_ft_msl: int = Field(
         ge=100,

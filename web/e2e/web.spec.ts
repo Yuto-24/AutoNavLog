@@ -19,6 +19,16 @@ const kml = `<?xml version="1.0" encoding="UTF-8"?>
   </coordinates></LineString></Placemark></Document>
 </kml>`;
 
+const kmlFromRjfk = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document><Placemark><name>RJFK-RJFO</name><LineString><coordinates>
+    130.7194444444,31.8033333333,0
+    131.0000000000,32.4000000000,0
+    131.4000000000,33.1000000000,0
+    131.7372222222,33.4794444444,0
+  </coordinates></LineString></Placemark></Document>
+</kml>`;
+
 const multiDocumentKmz = Buffer.from(
   "UEsDBBQAAAAIAG0kCl36V3yWdAAAAJwAAAAJAAAAZmlyc3Qua21sTY1BCgMhDEWvMsx6MKi7kuYEXRR6ApmmU1HjoAF7/NKu3H14vPcxlbx8SpZ+Xd+q5wVgjGHqyXLEboQVUsngjFsJ7znsXEJLhBIK0yu2rgj/jbco/NAW5SDca23PKEG5k/V283ax3m3eIcwIYZZgyv9O6QtQSwMEFAAAAAgAbSQKXeGCuSN0AAAAnQAAAAoAAABzZWNvbmQua21sTY1BCsMgEEWvErIODuouTOcEXRR6AjFDIuoYVLDHL+3K5efx3seY0/LJSdpjvXq/d4Axhio3yxmaEu4QcwKjzEr4Ss5zdjUSistMjX2RA+E/8BmE370GOQl9KfUI4jo30lZvVi/ams0ahBkhzBJM/d8rfQFQSwECFAMUAAAACABtJApd+ld8lnQAAACcAAAACQAAAAAAAAAAAAAAgAEAAAAAZmlyc3Qua21sUEsBAhQDFAAAAAgAbSQKXeGCuSN0AAAAnQAAAAoAAAAAAAAAAAAAAIABmwAAAHNlY29uZC5rbWxQSwUGAAAAAAIAAgBvAAAANwEAAAAA",
   "base64",
@@ -242,4 +252,25 @@ test("KMZ document selection modal moves and traps focus", async ({ page }) => {
 
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
+});
+
+test("KML start automatically selects FROM and keeps manual override", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+
+  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await dialog.getByRole("textbox").fill(kmlFromRjfk);
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+
+  const departure = page.getByLabel("FROM");
+  await expect(page.getByLabel("飛行経路にする形状")).toHaveValue("line:0");
+  await expect(departure).toHaveValue("RJFK");
+  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
+
+  await departure.selectOption("RJFM");
+  await expect(departure).toHaveValue("RJFM");
+  await expect(
+    page.getByText("KML始点から5 NM以内に出発空港が見つかりません。"),
+  ).toHaveCount(0);
 });

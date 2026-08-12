@@ -240,6 +240,7 @@ class AutoNavLogWebApplication:
             if result is None:
                 raise WebApplicationError("KML_REQUIRED", "先にKML/KMZを読み込んでください。")
             entries = self._entries_from_candidate(result, request)
+            original_departure_coordinate = [entries[0][1], entries[0][2]]
             original_destination_coordinate = [entries[-1][1], entries[-1][2]]
             departure, destination = self._selected_airports(
                 request.departure_airport_id,
@@ -272,6 +273,7 @@ class AutoNavLogWebApplication:
                     "project_name_generated": project.name,
                     "web_import_filename": session.import_filename,
                     "web_owner_id": session.owner_id,
+                    "web_original_departure_coordinate": list(original_departure_coordinate),
                     "web_original_destination_coordinate": list(original_destination_coordinate),
                 }
             )
@@ -318,6 +320,9 @@ class AutoNavLogWebApplication:
                     "先に経路を確定してください。",
                 )
             try:
+                departure = self.reference_catalog.airports[
+                    request.departure_airport_id or session.project.departure_airport_id
+                ]
                 destination = self.reference_catalog.airports[request.destination_airport_id]
             except KeyError as error:
                 raise WebApplicationError(
@@ -346,6 +351,30 @@ class AutoNavLogWebApplication:
                     "ROUTE_INCOMPLETE",
                     "VREPを含む3点以上の経路を先に確定してください。",
                 )
+            departure_endpoint = ordered[0]
+            original_departure_coordinate = working.metadata.get(
+                "web_original_departure_coordinate"
+            )
+            if (
+                isinstance(original_departure_coordinate, list)
+                and len(original_departure_coordinate) == 2
+                and all(
+                    type(value) in (int, float) and isfinite(float(value))
+                    for value in original_departure_coordinate
+                )
+                and -90 <= float(original_departure_coordinate[0]) <= 90
+                and -180 <= float(original_departure_coordinate[1]) <= 180
+            ):
+                route_departure = (
+                    float(original_departure_coordinate[0]),
+                    float(original_departure_coordinate[1]),
+                )
+            else:
+                route_departure = (
+                    departure_endpoint.latitude_deg,
+                    departure_endpoint.longitude_deg,
+                )
+                working.metadata["web_original_departure_coordinate"] = list(route_departure)
             endpoint = ordered[-1]
             original_coordinate = working.metadata.get("web_original_destination_coordinate")
             if (
@@ -367,6 +396,11 @@ class AutoNavLogWebApplication:
                 # 移行元として記録し、5 NM検証を省略しない。
                 route_endpoint = (endpoint.latitude_deg, endpoint.longitude_deg)
                 working.metadata["web_original_destination_coordinate"] = list(route_endpoint)
+            if self._distance_to_airport(route_departure, departure) > 5:
+                raise WebApplicationError(
+                    "ROUTE_AIRPORT_ENDPOINT_MISMATCH",
+                    "KML始点から5 NM以内の出発空港を選択してください。",
+                )
             if self._distance_to_airport(route_endpoint, destination) > 5:
                 raise WebApplicationError(
                     "ROUTE_AIRPORT_ENDPOINT_MISMATCH",
@@ -381,12 +415,18 @@ class AutoNavLogWebApplication:
                 )
             endpoint.name = destination.icao
             endpoint.latitude_deg = destination.latitude_deg
+            departure_endpoint.name = departure.icao
+            departure_endpoint.latitude_deg = departure.latitude_deg
+            departure_endpoint.longitude_deg = departure.longitude_deg
+            departure_endpoint.role = RouteNodeRole.AIRPORT
+            departure_endpoint.source = f"REFERENCE:{departure.source_revision}"
             endpoint.longitude_deg = destination.longitude_deg
             endpoint.role = RouteNodeRole.DESTINATION
             endpoint.source = f"REFERENCE:{destination.source_revision}"
             working.destination_airport_id = destination.id
             current_plan = None if destination_changed else state.arrival_plan
             vrep = ordered[-2]
+            working.departure_airport_id = departure.id
             vrep.role = RouteNodeRole.VISUAL_REPORTING_POINT
             selected_source = (
                 AdoptedSource.AUTOMATIC
@@ -411,7 +451,10 @@ class AutoNavLogWebApplication:
             )
             updated_snapshot = snapshot.model_copy(
                 deep=True,
-                update={"destination_airport": destination},
+                update={
+                    "departure_airport": departure,
+                    "destination_airport": destination,
+                },
             )
             self.project_service.set_ui_state(
                 working,

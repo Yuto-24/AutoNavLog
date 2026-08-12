@@ -30,6 +30,24 @@ KML = """<?xml version="1.0" encoding="UTF-8"?>
 </kml>
 """
 
+KML_FROM_RJFK = """<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <name>RJFK-RJFO</name>
+      <LineString>
+        <coordinates>
+          130.7194444444,31.8033333333,0
+          131.0000000000,32.4000000000,0
+          131.4000000000,33.1000000000,0
+          131.7372222222,33.4794444444,0
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>
+"""
+
 
 class StubAccessVerifier:
     def __init__(self, identities: dict[str, str]) -> None:
@@ -213,6 +231,77 @@ async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path)
         assert saved.status_code == 200
         assert saved.json()["project"]["revision"] == 1
 
+
+@pytest.mark.anyio
+async def test_departure_override_uses_original_kml_start_and_keeps_old_payload_compatible(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        imported = await client.post(
+            "/api/import",
+            json={"filename": "rjfk-route.kml", "kml_text": KML_FROM_RJFK},
+        )
+        assert imported.status_code == 200
+
+        confirmed = await client.post(
+            "/api/route/confirm",
+            json={
+                "candidate_kind": "line",
+                "candidate_index": 0,
+                "route_use_confirmed": True,
+                "flight_date": "2026-08-10",
+                "departure_time_jst": "09:00",
+                "departure_airport_id": "RJFK",
+                "destination_airport_id": "RJFO",
+                "total_usable_fuel_gal": 90,
+                "default_variation_deg_east": 7,
+                "all_leg_altitude_ft_msl": 3000,
+            },
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        project = confirmed.json()["project"]
+        assert project["departure_airport_id"] == "RJFK"
+        assert project["route_nodes"][0]["name"] == "RJFK"
+        assert project["metadata"]["web_original_departure_coordinate"] == [
+            31.8033333333,
+            130.7194444444,
+        ]
+
+        incompatible_override = await client.post(
+            "/api/destination/confirm",
+            json={
+                "departure_airport_id": "RJFM",
+                "destination_airport_id": "RJFO",
+                "selected_pattern_altitude_ft_msl": 1000,
+            },
+        )
+        assert incompatible_override.status_code == 400
+        assert incompatible_override.json()["error"]["code"] == (
+            "ROUTE_AIRPORT_ENDPOINT_MISMATCH"
+        )
+        assert "KML始点" in incompatible_override.json()["error"]["message"]
+
+        compatible_old_payload = await client.post(
+            "/api/destination/confirm",
+            json={
+                "destination_airport_id": "RJFO",
+                "selected_pattern_altitude_ft_msl": 1000,
+            },
+        )
+        assert compatible_old_payload.status_code == 200, compatible_old_payload.text
+        compatible_project = compatible_old_payload.json()["project"]
+        assert compatible_project["departure_airport_id"] == "RJFK"
+        assert compatible_project["route_nodes"][0]["name"] == "RJFK"
 
 @pytest.mark.anyio
 async def test_web_session_and_upload_boundaries(tmp_path: Path) -> None:
