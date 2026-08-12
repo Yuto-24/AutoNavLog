@@ -221,6 +221,19 @@ def test_climb_leg_is_automatically_split_at_rca_without_losing_distance(
     )
     climb_sections = [section for section in outcome.sections if section.phase == FlightPhase.CLIMB]
     climb_metadata = climb_sections[0].performance_metadata
+    cruise_metadata = next(
+        section.performance_metadata
+        for section in outcome.sections
+        if section.phase == FlightPhase.CRUISE
+    )
+    assert cruise_metadata["reason"] == (
+        "PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR_NO_EXTRAPOLATION"
+    )
+    assert cruise_metadata["selected_cell"]["power_percent"] == 65.0
+    assert cruise_metadata["selected_cell"]["rpm"] is None
+    assert cruise_metadata["selected_cell"]["map_in_hg"] is None
+    assert cruise_metadata["interpolation"]["power_percent"] == 65.0
+    assert cruise_metadata["interpolation"]["corners"]
     adopted_qnh = outcome.qnh_hpa.adopted()
     assert adopted_qnh is not None
     departure_pressure_altitude = pressure_altitude_exact_ft(
