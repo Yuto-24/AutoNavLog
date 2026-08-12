@@ -59,8 +59,11 @@ class WebRuntimeConfig:
                 "cloudflare_team_domain and cloudflare_access_audience must be set together"
             )
 
+        trimmed_identity = (
+            self.trusted_local_identity.strip() if self.trusted_local_identity else ""
+        )
         if not self.session_cookie_secure and (
-            not self.trusted_local_identity or self.cloudflare_team_domain
+            not trimmed_identity or self.cloudflare_team_domain
         ):
             raise ValueError(
                 "insecure session cookies require trusted local identity without Cloudflare Access"

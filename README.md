@@ -50,7 +50,7 @@ docker compose down
 Compose project名を分けます。`hostname -I` の先頭のaddressを使用します。
 
 ```bash
-cd /home/yuto/dev/AutoNavLog-dev
+# リポジトリのルートから実行
 HOST_IP="$(hostname -I | awk '{print $1}')"
 
 AUTONAVLOG_BIND_ADDRESS="$HOST_IP" \
