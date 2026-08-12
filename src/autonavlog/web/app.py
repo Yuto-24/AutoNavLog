@@ -383,7 +383,13 @@ def create_app(
             session_token=session.token,
         )
         if snapshot is None:
-            raise RuntimeError("submitted calculation job disappeared")
+            return {
+                "job_id": job.id,
+                "status": "queued",
+                "queue_position": None,
+                "created_at_utc": job.created_at_utc.isoformat(),
+                "updated_at_utc": job.created_at_utc.isoformat(),
+            }
         return job_payload(snapshot)
 
     @app.get("/api/calculation-jobs/{job_id}")
