@@ -58,8 +58,10 @@
   FROM/TO、DATE/ETD、FUEL（既定90 gal）/VAR/QNH（hPa・inHg自動変換）/TGL、
   Leg計画高度/Phase、確認事項、保存・読込、計算、転記補助HTMLをcode-nativeなcontrolで提供する。
   PILOT/SHIPは入力させず、KMLの名称は区切り名またはPoint名を優先し、WPはfallbackに限る。
-- CRUISE LegはMC 0〜179°で3,500 ftから奇数千+500、180〜359°で4,500 ftから
-  偶数千+500の候補を示す。任意高度も許可するが候補外は赤い要確認表示とし、
+- CLIMB / CRUISE / DESCENT LegはMC 0〜179°で3,500 ftから奇数千+500、
+  180〜359°で4,500 ftから偶数千+500の候補を示す。ALTはCLIMBでは上昇先の
+  巡航高度、CRUISEではそのLegの巡航高度、DESCENTでは降下開始時の巡航高度を表す。
+  任意高度も許可するが候補外は赤い要確認表示とし、
   航空法第82条の900 m閾値と地表高未判定の制約を同時表示する。
   法令根拠は[e-Gov 航空法第82条](https://laws.e-gov.go.jp/law/327AC0000000231?occasion_date=20260423)と
   [e-Gov 航空法施行規則第177条](https://laws.e-gov.go.jp/law/327M50000800056?occasion_date=20260316)
