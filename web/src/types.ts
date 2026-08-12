@@ -105,8 +105,11 @@ export interface Project {
 
 export interface AdoptedValue<T> {
   automatic_value: T | null;
+  automatic_metadata: Record<string, unknown>;
+  automatic_status?: string;
   manual_override: T | null;
   adopted_source: "AUTOMATIC" | "MANUAL" | null;
+  warnings?: string[];
 }
 
 export interface SectionResult {
@@ -169,8 +172,10 @@ export interface CalculationOutcome {
 export interface SectionAltitudeGuidance {
   sectionId: string;
   magneticCourseDeg: number;
+  variationDegEast: number;
   candidateAltitudesFtMsl: number[];
   appliesToCruise: boolean;
+  appliesToCruisingAltitudeInput: boolean;
   requiresReview: boolean;
 }
 

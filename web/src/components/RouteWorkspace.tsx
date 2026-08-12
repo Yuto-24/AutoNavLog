@@ -8,8 +8,10 @@ import {
   useMap,
 } from "react-leaflet";
 import type { LatLngBoundsExpression } from "leaflet";
+import { patternAltitudeFtMsl } from "../forms";
 import type {
   AltitudeGuidance,
+  AirportOption,
   CalculationOutcome,
   FlightPhase,
   NavSection,
@@ -23,7 +25,10 @@ interface RouteWorkspaceProps {
   outcome: CalculationOutcome | null;
   altitudeGuidance: AltitudeGuidance;
   altitudeInputs: Record<string, string>;
+  destinationAirport: AirportOption | null;
+  destinationPatternAltitudeFtMsl: string;
   onAltitudeInputChange: (sectionId: string, value: string) => void;
+  onDestinationPatternAltitudeChange: (value: string) => void;
   onSectionChange: (sectionId: string, changes: Partial<NavSection>) => void;
 }
 
@@ -32,6 +37,13 @@ const phaseLabels: Record<FlightPhase, string> = {
   CRUISE: "巡航",
   DESCENT: "降下",
   VISUAL_ARRIVAL: "場周進入",
+};
+
+const altitudeBasisLabels: Record<FlightPhase, string> = {
+  CLIMB: "上昇先の巡航高度",
+  CRUISE: "このLegの巡航高度",
+  DESCENT: "降下開始時の巡航高度",
+  VISUAL_ARRIVAL: "場周進入の計画高度",
 };
 
 const roleLabels: Record<string, string> = {
@@ -65,9 +77,15 @@ export function RouteWorkspace({
   outcome,
   altitudeGuidance,
   altitudeInputs,
+  destinationAirport,
+  destinationPatternAltitudeFtMsl,
   onAltitudeInputChange,
+  onDestinationPatternAltitudeChange,
   onSectionChange,
 }: RouteWorkspaceProps) {
+  const validPatternAltitude = patternAltitudeFtMsl(
+    destinationPatternAltitudeFtMsl,
+  );
   const nodes = useMemo(
     () => [...(project?.route_nodes ?? [])].sort((a, b) => a.sequence - b.sequence),
     [project],
@@ -221,12 +239,14 @@ export function RouteWorkspace({
                 ),
               );
               const requiresAltitudeReview =
-                section?.phase === "CRUISE" && !isCandidateAltitude;
+                Boolean(guidance?.appliesToCruisingAltitudeInput) &&
+                !isCandidateAltitude;
               return (
                 <tr
                   key={node.id}
                   className={[
                     node.role === "VISUAL_REPORTING_POINT" ? "vrep-row" : "",
+                    node.role === "DESTINATION" ? "destination-row" : "",
                     requiresAltitudeReview ? "altitude-review-row" : "",
                   ].filter(Boolean).join(" ")}
                 >
@@ -238,10 +258,17 @@ export function RouteWorkspace({
                   <td className={requiresAltitudeReview ? "altitude-review-cell" : ""}>
                     {section ? (
                       <div className="altitude-controls">
-                        {guidance && section.phase === "CRUISE" && (
+                        {guidance?.appliesToCruisingAltitudeInput && (
                           <select
                             className="table-select altitude-candidate-select"
-                            aria-label={node.name + "出発Legの巡航高度候補"}
+                            aria-label={
+                              section.phase === "CRUISE"
+                                ? node.name + "出発Legの巡航高度候補"
+                                : node.name +
+                                  "出発Legの" +
+                                  altitudeBasisLabels[section.phase] +
+                                  "候補"
+                            }
                             value={
                               isCandidateAltitude
                                 ? String(effectiveAltitude)
@@ -276,10 +303,58 @@ export function RouteWorkspace({
                         />
                         {guidance && (
                           <small className="altitude-course">
-                            MC {Math.round(guidance.magneticCourseDeg)}
+                            {guidance.appliesToCruisingAltitudeInput
+                              ? altitudeBasisLabels[section.phase] + "・"
+                              : ""}
+                            VAR {guidance.variationDegEast > 0 ? "+" : ""}{guidance.variationDegEast}°
+                            {" / MC "}{Math.round(guidance.magneticCourseDeg)}
                             {requiresAltitudeReview ? "・候補外（要確認）" : ""}
                           </small>
                         )}
+                      </div>
+                    ) : node.role === "DESTINATION" ? (
+                      <div className="arrival-altitude-control">
+                        <div className="arrival-airport-reference">
+                          <span>飛行場標高</span>
+                          <strong>
+                            {destinationAirport?.elevationFtMsl.toLocaleString("ja-JP") ?? "—"}
+                            {" ft MSL"}
+                          </strong>
+                          {destinationAirport && (
+                            <small>
+                              {destinationAirport.icao} {destinationAirport.name}
+                            </small>
+                          )}
+                        </div>
+                        <label>
+                          <span>今回採用する場周経路高度</span>
+                          <input
+                            className="arrival-pattern-input"
+                            aria-label="今回採用する場周経路高度"
+                            aria-describedby={`${node.id}-pattern-altitude-help`}
+                            aria-invalid={validPatternAltitude === null}
+                            type="number"
+                            min="100"
+                            max="25000"
+                            step="100"
+                            value={destinationPatternAltitudeFtMsl}
+                            onChange={(event) =>
+                              onDestinationPatternAltitudeChange(event.target.value)
+                            }
+                          />
+                        </label>
+                        <small
+                          id={`${node.id}-pattern-altitude-help`}
+                          className={`arrival-altitude-help ${validPatternAltitude === null ? "field-error" : ""}`}
+                        >
+                          {destinationAirport
+                            ? `master ${destinationAirport.patternAltitudeFtMsl.toLocaleString("ja-JP")} ft MSL（標高差 ${(destinationAirport.patternAltitudeFtMsl - destinationAirport.elevationFtMsl).toLocaleString("ja-JP")} ft）`
+                            : "目的地空港のmaster値を確認してください。"}
+                          <br />
+                          {validPatternAltitude === null
+                            ? "100～25,000 ftの範囲で100 ft単位の整数を入力してください。"
+                            : "運用差がある場合は、今回使用するMSL高度へ編集してください。"}
+                        </small>
                       </div>
                     ) : (
                       "—"
@@ -315,6 +390,8 @@ export function RouteWorkspace({
       </div>
       {project && (
         <p className="altitude-guidance-note">
+          上昇のALTは上昇先、降下のALTは降下開始時の巡航高度です。いずれもMC候補から選択できます。
+          <br />
           {altitudeGuidance.legalThresholdNote}
           <br />
           {altitudeGuidance.terrainLimitationNote}

@@ -7,7 +7,10 @@ from pathlib import Path
 import pytest
 
 from autonavlog.performance.climb import ClimbCalculator, ClimbPerformanceError
-from autonavlog.performance.cruise import CruisePerformanceSelectionPolicy
+from autonavlog.performance.cruise import (
+    CruisePerformanceError,
+    CruisePerformanceSelectionPolicy,
+)
 from autonavlog.performance.repository import (
     PerformanceDataError,
     PerformanceRepository,
@@ -234,7 +237,7 @@ def test_isa_baseline_repository_rejects_multiple_rows_at_one_altitude() -> None
         PerformanceRepository(manifest, rows + [duplicate], [])
 
 
-def test_cruise_policy_returns_uninterpolated_adverse_cell(
+def test_cruise_policy_interpolates_exact_65_percent_with_trace(
     performance_repository: PerformanceRepository,
 ) -> None:
     result = CruisePerformanceSelectionPolicy(performance_repository.cruise_rows).select(
@@ -245,7 +248,83 @@ def test_cruise_policy_returns_uninterpolated_adverse_cell(
         wind_direction_deg_from=None,
         wind_speed_kt=0,
     )
-    assert result.row.pressure_altitude_ft in {4000, 6000}
-    assert result.row.isa_deviation_c in {-15, 15}
+
+    assert result.row.pressure_altitude_ft == 5000
+    assert result.row.isa_deviation_c == 0
     assert result.row.power_percent == 65
-    assert result.row.isa_deviation_c == 15
+    assert result.row.rpm is None
+    assert result.row.map_in_hg is None
+    assert result.row.ktas == pytest.approx(149.5)
+    assert result.row.gph == pytest.approx(15.5)
+    assert result.warnings == ()
+    assert result.interpolation is not None
+    assert result.interpolation.altitude.lower == 4000
+    assert result.interpolation.altitude.upper == 6000
+    assert result.interpolation.altitude.fraction == pytest.approx(0.5)
+    assert result.interpolation.isa_deviation.lower == -15
+    assert result.interpolation.isa_deviation.upper == 15
+    assert result.interpolation.isa_deviation.fraction == pytest.approx(0.5)
+    assert len(result.interpolation.corners) == 4
+
+
+@pytest.mark.parametrize(
+    ("pressure_altitude_ft", "isa_deviation_c", "expected_ktas", "expected_gph"),
+    (
+        (4_000, 0, 165.0, 15.5),
+        (5_000, 15, 165.0, 16.4),
+        (6_000, -30, 164.0, 15.4),
+        (12_000, 0, 178.0, 15.5),
+        (13_500, -30, 176.2, 15.4),
+    ),
+)
+def test_issue_15_cruise_workbook_golden_points(
+    pressure_altitude_ft: float,
+    isa_deviation_c: float,
+    expected_ktas: float,
+    expected_gph: float,
+) -> None:
+    repository = PerformanceRepository.from_directory(Path("data/performance"))
+
+    result = CruisePerformanceSelectionPolicy(repository.cruise_rows).select(
+        pressure_altitude_ft,
+        isa_deviation_c,
+        distance_nm=100,
+        true_course_deg=0,
+        wind_direction_deg_from=None,
+        wind_speed_kt=0,
+    )
+
+    assert result.row.ktas == expected_ktas
+    assert result.row.gph == expected_gph
+
+
+@pytest.mark.parametrize(
+    ("pressure_altitude_ft", "isa_deviation_c"),
+    ((1_500, 0), (5_000, 31), (2_000, 0)),
+)
+def test_cruise_multidimensional_interpolation_never_extrapolates(
+    pressure_altitude_ft: float,
+    isa_deviation_c: float,
+) -> None:
+    repository = PerformanceRepository.from_directory(Path("data/performance"))
+
+    with pytest.raises(CruisePerformanceError, match="outside the performance table"):
+        CruisePerformanceSelectionPolicy(repository.cruise_rows).select(
+            pressure_altitude_ft,
+            isa_deviation_c,
+            distance_nm=100,
+            true_course_deg=0,
+            wind_direction_deg_from=None,
+            wind_speed_kt=0,
+        )
+
+
+def test_issue_15_climb_table_contains_500ft_workbook_points() -> None:
+    repository = PerformanceRepository.from_directory(Path("data/performance"))
+    by_altitude = {row.pressure_altitude_ft: row for row in repository.climb_rows}
+
+    assert len(repository.climb_rows) == 36
+    assert by_altitude[500].cumulative_time_min == 0.4
+    assert by_altitude[7_500].cumulative_distance_nm == 14.15
+    assert by_altitude[14_500].cumulative_fuel_gal == 6.0
+    assert by_altitude[17_500].cumulative_time_min == 30.0

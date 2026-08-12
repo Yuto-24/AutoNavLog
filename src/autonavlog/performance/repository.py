@@ -190,14 +190,14 @@ class PerformanceRepository:
             (
                 row.pressure_altitude_ft,
                 row.isa_deviation_c,
-                row.rpm,
-                row.map_in_hg,
                 row.power_percent,
             )
             for row in self.cruise_rows
         ]
         if len(cruise_keys) != len(set(cruise_keys)):
-            raise PerformanceDataError("cruise table contains duplicate axis rows")
+            raise PerformanceDataError(
+                "cruise table contains duplicate altitude/ISA/power rows"
+            )
         self._validate_climb_monotonicity()
         if self.manifest.is_verified:
             pending_pages = [

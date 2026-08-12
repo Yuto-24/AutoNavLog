@@ -19,6 +19,16 @@ const kml = `<?xml version="1.0" encoding="UTF-8"?>
   </coordinates></LineString></Placemark></Document>
 </kml>`;
 
+const kmlFromRjfk = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document><Placemark><name>RJFK-RJFO</name><LineString><coordinates>
+    130.7194444444,31.8033333333,0
+    131.0000000000,32.4000000000,0
+    131.4000000000,33.1000000000,0
+    131.7372222222,33.4794444444,0
+  </coordinates></LineString></Placemark></Document>
+</kml>`;
+
 const multiDocumentKmz = Buffer.from(
   "UEsDBBQAAAAIAG0kCl36V3yWdAAAAJwAAAAJAAAAZmlyc3Qua21sTY1BCgMhDEWvMsx6MKi7kuYEXRR6ApmmU1HjoAF7/NKu3H14vPcxlbx8SpZ+Xd+q5wVgjGHqyXLEboQVUsngjFsJ7znsXEJLhBIK0yu2rgj/jbco/NAW5SDca23PKEG5k/V283ax3m3eIcwIYZZgyv9O6QtQSwMEFAAAAAgAbSQKXeGCuSN0AAAAnQAAAAoAAABzZWNvbmQua21sTY1BCsMgEEWvErIODuouTOcEXRR6AjFDIuoYVLDHL+3K5efx3seY0/LJSdpjvXq/d4Axhio3yxmaEu4QcwKjzEr4Ss5zdjUSistMjX2RA+E/8BmE370GOQl9KfUI4jo30lZvVi/ams0ahBkhzBJM/d8rfQFQSwECFAMUAAAACABtJApd+ld8lnQAAACcAAAACQAAAAAAAAAAAAAAgAEAAAAAZmlyc3Qua21sUEsBAhQDFAAAAAgAbSQKXeGCuSN0AAAAnQAAAAoAAAAAAAAAAAAAAIABmwAAAHNlY29uZC5rbWxQSwUGAAAAAAIAAgBvAAAANwEAAAAA",
   "base64",
@@ -48,22 +58,42 @@ async function calculateNavLog(page: Page): Promise<void> {
   await page.getByRole("button", { name: "経路を確定" }).click();
 
   await expect(page.getByText("VREP", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("32.0°N以上 +8° / 未満 +7°", { exact: true })).toBeVisible();
   const altitudeInputs = page.locator(".table-number-input");
   await expect(altitudeInputs.first()).toHaveValue("");
   await expect(altitudeInputs.last()).toHaveValue("1500");
   for (let index = 0; index < await altitudeInputs.count(); index += 1) {
     await altitudeInputs.nth(index).fill("4500");
   }
+  const altitudeCandidates = page.locator(".altitude-candidate-select");
+  const firstAltitudeCandidate = await altitudeCandidates
+    .first()
+    .locator("option")
+    .first()
+    .getAttribute("value");
+  if (firstAltitudeCandidate === null) throw new Error("Altitude candidate is missing");
+  for (let index = 0; index < await altitudeCandidates.count(); index += 1) {
+    await altitudeCandidates.nth(index).selectOption({ index: 0 });
+  }
   const cruiseAltitude = page.getByLabel(/出発Legの巡航高度候補/).first();
+  const variationGuidance = page.locator(".altitude-course");
+  await expect(variationGuidance.first()).toContainText("VAR +7°");
+  await expect(variationGuidance.nth(1)).toContainText("VAR +8°");
   const cruiseCandidate = await cruiseAltitude.locator("option").first().getAttribute("value");
   if (cruiseCandidate === null) {
     throw new Error("Cruise altitude candidate is missing");
   }
   await cruiseAltitude.selectOption(cruiseCandidate);
   const patternAltitude = page.getByLabel("今回採用する場周経路高度");
+  const arrivalRow = page.locator(".destination-row");
   const confirmDestination = page.getByRole("button", {
     name: "目的空港・場周高度を確定",
   });
+  await expect(page.locator(".input-rail").getByLabel("今回採用する場周経路高度")).toHaveCount(0);
+  await expect(arrivalRow.getByLabel("今回採用する場周経路高度")).toBeVisible();
+  await expect(arrivalRow.getByText("飛行場標高", { exact: true })).toBeVisible();
+  await expect(arrivalRow.getByText("17 ft MSL", { exact: true })).toBeVisible();
+  await expect(arrivalRow).toContainText("master 1,000 ft MSL（標高差 983 ft）");
   await expect(patternAltitude).toHaveValue("1000");
   await patternAltitude.fill("");
   await expect(confirmDestination).toBeDisabled();
@@ -73,14 +103,15 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(patternAltitude).toHaveValue("1300");
   await confirmDestination.click();
   await expect(patternAltitude).toHaveValue("1300");
-  await expect(altitudeInputs.first()).toHaveValue("4500");
+  await expect(altitudeInputs.first()).toHaveValue(firstAltitudeCandidate);
   await expect(altitudeInputs.last()).toHaveValue("1800");
   await expect(cruiseAltitude).toHaveValue(cruiseCandidate);
   await expect(page.locator(".altitude-review-row")).toHaveCount(0);
   await page.getByRole("button", { name: "NAV LOGを作る" }).click();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
-  await expect(firstRow.locator("td").nth(2)).toHaveText("4500");
+  await expect(firstRow.getByLabel(/計画高度$/)).toHaveValue(firstAltitudeCandidate);
+  await expect(firstRow.locator("td").nth(7)).toHaveText("+7自動");
 }
 
 test("desktop workflow renders and stays fail-closed", async ({ page }) => {
@@ -137,9 +168,9 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   await calculate.click();
 
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
-  await expect(firstRow.locator("td").nth(2)).toHaveText("5500");
+  await expect(firstRow.getByLabel(/計画高度$/)).toHaveValue("5500");
   await expect(firstRow.locator("td").nth(6)).toHaveText(/^\d{3}$/);
-  await expect(firstRow.locator("td").nth(7)).toHaveText(/^[+-]\d+$/);
+  await expect(firstRow.locator("td").nth(7)).toHaveText("+7自動");
   await expect(firstRow.locator("td").nth(8)).toHaveText(/^\d{3}$/);
   await expect(firstRow.locator("td").nth(10)).toHaveText(/^[+-]\d+$/);
   await expect(firstRow.locator("td").nth(11)).toHaveText(/^\d{3}$/);
@@ -181,10 +212,157 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   expect(tableLayout.fuelWidth).toBeLessThan(tableLayout.navWidth / 2);
   expect(tableLayout.fuelRowHeight).toBeLessThanOrEqual(25);
   expect(tableLayout.fuelAmountAlignment).toBe("center");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.locator(".destination-row").getByLabel("今回採用する場周経路高度"),
+  ).toBeVisible();
+  const mobileOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(mobileOverflow).toBeLessThanOrEqual(1);
+
   const unexpectedConsoleErrors = consoleErrors.filter(
     (message) => !message.includes("401 (Unauthorized)"),
   );
   expect(unexpectedConsoleErrors).toEqual([]);
+});
+
+test("climb and descent legs show magnetic-course altitude candidates", async ({ page }) => {
+  await page.goto("/");
+
+  const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
+  await openPaste.click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await dialog.getByRole("textbox").fill(kml);
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const phaseSelects = page.getByLabel(/出発LegのPhase/);
+  await phaseSelects.nth(0).selectOption("CLIMB");
+  await phaseSelects.nth(2).selectOption("DESCENT");
+
+  const climbCandidate = page.getByLabel(/出発Legの上昇先の巡航高度候補/);
+  const descentCandidate = page.getByLabel(/出発Legの降下開始時の巡航高度候補/);
+  await expect(climbCandidate).toBeVisible();
+  await expect(descentCandidate).toBeVisible();
+  await expect(climbCandidate.locator("option")).not.toHaveCount(0);
+  await expect(descentCandidate.locator("option")).not.toHaveCount(0);
+  await expect(
+    page.getByText(/上昇のALTは上昇先、降下のALTは降下開始時の巡航高度/),
+  ).toBeVisible();
+
+  const climbAltitude = await climbCandidate.locator("option").first().getAttribute("value");
+  const descentAltitude = await descentCandidate.locator("option").first().getAttribute("value");
+  if (climbAltitude === null || descentAltitude === null) {
+    throw new Error("Climb or descent altitude candidate is missing");
+  }
+  await climbCandidate.selectOption(climbAltitude);
+  await descentCandidate.selectOption(descentAltitude);
+  await expect(page.locator(".altitude-review-row")).toHaveCount(1);
+});
+
+test("NAV LOG safe inputs validate and recalculate automatically", async ({ page }) => {
+  await page.goto("/");
+  await calculateNavLog(page);
+
+  const recalculationRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/project/recalculate")) {
+      recalculationRequests.push(request.url());
+    }
+  });
+
+  const altitude = page.locator(".nav-log-table").getByLabel(/計画高度$/).first();
+  const altitudeResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project/recalculate") && response.ok(),
+  );
+  await altitude.fill("5500");
+  await altitudeResponse;
+  await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
+  const manualRecalculation = page.waitForResponse(
+    (response) => response.url().endsWith("/api/calculate") && response.ok(),
+  );
+  await page.getByRole("button", { name: "NAV LOGを再計算" }).click();
+  await manualRecalculation;
+  await expect(altitude).toHaveValue("5500");
+
+  const windDirection = page.locator(".nav-log-table").getByLabel(/手動風向$/).first();
+  const windSpeed = page.locator(".nav-log-table").getByLabel(/手動風速$/).first();
+  const requestCount = recalculationRequests.length;
+  await windDirection.fill("270");
+  await expect(page.getByText(/入力を確認してください。直前の正常な計算結果/)).toBeVisible();
+  await expect(windDirection).toHaveAttribute("aria-invalid", "true");
+  await page.waitForTimeout(850);
+  expect(recalculationRequests).toHaveLength(requestCount);
+  const saveResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/projects/save") && response.ok(),
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saveResponse;
+  await expect(windDirection).toHaveValue("270");
+  await expect(windDirection).toHaveAttribute("aria-invalid", "true");
+
+  const windResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project/recalculate") && response.ok(),
+  );
+  await windSpeed.fill("15");
+  await windResponse;
+  await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
+  await expect(windDirection).toHaveAttribute("aria-invalid", "false");
+  await expect(page.locator(".nav-log-table th").nth(6)).toHaveText("TC");
+  await expect(page.locator(".derived-readonly-cell").first()).toHaveAttribute("title", /読み取り専用/);
+});
+
+test("stale automatic recalculation cannot overwrite newer planning inputs", async ({ page }) => {
+  await page.goto("/");
+  await calculateNavLog(page);
+
+  let releaseFirstResponse = () => {};
+  let markFirstResponseReady = () => {};
+  const firstResponseReady = new Promise<void>((resolve) => {
+    markFirstResponseReady = resolve;
+  });
+  const firstResponseReleased = new Promise<void>((resolve) => {
+    releaseFirstResponse = resolve;
+  });
+  const recalculationBodies: Array<Record<string, unknown>> = [];
+  await page.route("**/api/project/recalculate", async (route) => {
+    recalculationBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    if (recalculationBodies.length === 1) {
+      const response = await route.fetch();
+      markFirstResponseReady();
+      await firstResponseReleased;
+      await route.fulfill({ response });
+      return;
+    }
+    await route.continue();
+  });
+
+  const altitude = page.locator(".nav-log-table").getByLabel(/計画高度$/).first();
+  await altitude.fill("5500");
+  await firstResponseReady;
+  const fuel = page.getByLabel("FUEL gal");
+  await fuel.fill("77");
+  const latestResponse = page.waitForResponse((response) => {
+    if (
+      !response.url().endsWith("/api/project/recalculate") ||
+      !response.ok()
+    ) {
+      return false;
+    }
+    const body = response.request().postDataJSON() as Record<string, unknown>;
+    return body.total_usable_fuel_gal === 77;
+  });
+  releaseFirstResponse();
+  await latestResponse;
+
+  await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
+  await expect(fuel).toHaveValue("77");
+  await expect(altitude).toHaveValue("5500");
+  expect(recalculationBodies).toHaveLength(2);
+  expect(recalculationBodies[1]?.total_usable_fuel_gal).toBe(77);
 });
 
 test("calculated mobile layout has no body overflow", async ({ page }) => {
@@ -226,4 +404,25 @@ test("KMZ document selection modal moves and traps focus", async ({ page }) => {
 
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
+});
+
+test("KML start automatically selects FROM and keeps manual override", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+
+  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await dialog.getByRole("textbox").fill(kmlFromRjfk);
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+
+  const departure = page.getByLabel("FROM");
+  await expect(page.getByLabel("飛行経路にする形状")).toHaveValue("line:0");
+  await expect(departure).toHaveValue("RJFK");
+  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
+
+  await departure.selectOption("RJFM");
+  await expect(departure).toHaveValue("RJFM");
+  await expect(
+    page.getByText("KML始点から5 NM以内に出発空港が見つかりません。"),
+  ).toHaveCount(0);
 });

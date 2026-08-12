@@ -23,7 +23,7 @@ export interface PlanningForm {
 
 const HPA_PER_INHG = 33.8638866667;
 const EARTH_RADIUS_NM = 3440.065;
-const DESTINATION_MATCH_LIMIT_NM = 5;
+const AIRPORT_MATCH_LIMIT_NM = 5;
 
 function distanceNm(
   first: [number, number],
@@ -41,24 +41,39 @@ function distanceNm(
   return 2 * EARTH_RADIUS_NM * Math.asin(Math.min(1, Math.sqrt(haversine)));
 }
 
-export function destinationAirportForCandidate(
+function airportForCandidateEndpoint(
   candidate: RouteCandidate | null,
   airports: AirportOption[],
+  endpoint: "departure" | "destination",
 ): AirportOption | null {
-  const endpoint = candidate?.coordinates.at(-1);
-  if (!endpoint) return null;
+  const coordinate = candidate?.coordinates.at(endpoint === "departure" ? 0 : -1);
+  if (!coordinate) return null;
   const nearest = airports.reduce<{ airport: AirportOption; distance: number } | null>(
     (current, airport) => {
-      const distance = distanceNm(endpoint, [airport.latitudeDeg, airport.longitudeDeg]);
+      const distance = distanceNm(coordinate, [airport.latitudeDeg, airport.longitudeDeg]);
       return current === null || distance < current.distance
         ? { airport, distance }
         : current;
     },
     null,
   );
-  return nearest && nearest.distance <= DESTINATION_MATCH_LIMIT_NM
+  return nearest && nearest.distance <= AIRPORT_MATCH_LIMIT_NM
     ? nearest.airport
     : null;
+}
+
+export function departureAirportForCandidate(
+  candidate: RouteCandidate | null,
+  airports: AirportOption[],
+): AirportOption | null {
+  return airportForCandidateEndpoint(candidate, airports, "departure");
+}
+
+export function destinationAirportForCandidate(
+  candidate: RouteCandidate | null,
+  airports: AirportOption[],
+): AirportOption | null {
+  return airportForCandidateEndpoint(candidate, airports, "destination");
 }
 
 export function variationForDeparture(airport: AirportOption | undefined): number {

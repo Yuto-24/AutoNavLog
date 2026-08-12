@@ -58,8 +58,10 @@
   FROM/TO、DATE/ETD、FUEL（既定90 gal）/VAR/QNH（hPa・inHg自動変換）/TGL、
   Leg計画高度/Phase、確認事項、保存・読込、計算、転記補助HTMLをcode-nativeなcontrolで提供する。
   PILOT/SHIPは入力させず、KMLの名称は区切り名またはPoint名を優先し、WPはfallbackに限る。
-- CRUISE LegはMC 0〜179°で3,500 ftから奇数千+500、180〜359°で4,500 ftから
-  偶数千+500の候補を示す。任意高度も許可するが候補外は赤い要確認表示とし、
+- CLIMB / CRUISE / DESCENT LegはMC 0〜179°で3,500 ftから奇数千+500、
+  180〜359°で4,500 ftから偶数千+500の候補を示す。ALTはCLIMBでは上昇先の
+  巡航高度、CRUISEではそのLegの巡航高度、DESCENTでは降下開始時の巡航高度を表す。
+  任意高度も許可するが候補外は赤い要確認表示とし、
   航空法第82条の900 m閾値と地表高未判定の制約を同時表示する。
   法令根拠は[e-Gov 航空法第82条](https://laws.e-gov.go.jp/law/327AC0000000231?occasion_date=20260423)と
   [e-Gov 航空法施行規則第177条](https://laws.e-gov.go.jp/law/327M50000800056?occasion_date=20260316)
@@ -87,8 +89,26 @@
   表示時にhalf-upで速度1 kt、方位1°（3桁ゼロ埋め）、距離0.5 NM、時間0.5分、
   燃料0.1 galへ丸める。独自PHASE/ALT列やIssue一覧を混在させない。
 
-### D-35 目的空港・採用場周高度と既定値確認UI
+### D-36 計算済みNAV LOGの安全な入力編集（Issue #20）
 
+- 計算済みNAV LOGでは、既存Project入力へ逆写像できる計画高度、手動気温、手動TAS、
+  手動風向・風速だけを編集可能にする。風向・風速は常に一組として検証し、空欄は
+  自動値への復帰を意味する。VISUAL_ARRIVALの高度・風・TASは到着規則または固定規則を
+  優先するため読み取り専用とする。
+- TC、VAR、MC、CAS、WCA、MH、距離、GS、ETE、燃料などの計算値を結果上で上書きしない。
+  読み取り専用であることを画面上に明示し、性能・気象のautomatic value、metadata、warning、
+  `adopted_source`を維持する。
+- 編集値はクライアントで範囲・必須・pairを検証し、入力停止後700 msを目安に自動再計算する。
+  更新と計算はsession lock内の単一API操作とし、deep copyしたProjectへの計算が成功した時だけ
+  Project、Outcome、Readinessを同時に置換する。検証・通信・計算エラー時は直前の正常な結果を
+  表示し続け、失敗したdraftを採用済み結果として扱わない。
+- 連続編集はクライアントで直列化し、新しいdraftがあるときは古い予約・応答を表示へ反映しない。
+  同じ物理LegがRCA/EOC等で複数segmentへ分割表示される場合も、各欄は同じ`section_id`の
+  Project入力を更新する。
+
+
+
+### D-35 目的空港・採用場周高度と既定値確認UI
 - 経路確定前のTOは端点照合用の候補とし、経路確定後に目的空港を最終確認する。
   確定後だけ100 ft単位の「今回採用する場周経路高度（ft MSL）」Inputを表示し、
   master値を初期表示する。〔目的空港・場周高度を確定〕で `ArrivalPlan` の
@@ -189,14 +209,14 @@
 
 ### 0.1 同梱データの現状（v1.7で更新）
 
-**v1.6までの本節は「同梱データが空である」を前提としていたが、これは基準commit時点の状態であり作業ツリーとは一致しない**（再レビュー指摘11）。v2.7.3作業ツリー（2026-08-11）の実測値は次のとおりである。
+**v1.6までの本節は「同梱データが空である」を前提としていたが、これは基準commit時点の状態であり作業ツリーとは一致しない**（再レビュー指摘11）。v2.7.3作業ツリー（2026-08-12）の実測値は次のとおりである。
 
-| ファイル | 実測値（2026-08-11 作業ツリー） |
+| ファイル | 実測値（2026-08-12 作業ツリー） |
 |---|---|
 | `data/reference/default/airports.csv` | **14件**（RJFC/RJFE/RJFG/RJFK/RJFM/RJFO/RJFS/RJFT/RJFU/RJOA/RJOB/RJOK/RJOM/RJOT）。全行にAIP由来ARP座標・標高、場周高度、固有出典・revision、`VERIFIED` を記録済み |
-| `data/performance/climb_time_fuel_distance.csv` | **19行**（ヘッダ除く） |
+| `data/performance/climb_time_fuel_distance.csv` | **36行**（原表19節点を500 ft刻みに線形補間、ヘッダ除く） |
 | `data/performance/cruise_performance.csv` | **159行**（ヘッダ除く） |
-| `data/performance/manifest.json` | `validation_status: "VERIFIED"`、`climb_temperature_policy: "ISA_BASELINE_10_PERCENT_PER_10C_ABOVE"`、両CSVの `sha256` 記載済みで実ファイルと**一致**、`source_page` 記入済み |
+| `data/performance/manifest.json` | `validation_status: "VERIFIED"`、上昇温度・巡航3軸補間Policy、Issue #15添付3件のURL/SHA-256、両CSVの `sha256` 記載済みで実ファイルと**一致**、`source_page` 記入済み |
 
 したがって「同梱データが空で転記補助出力へ到達できない」という v1.6 の前提はもはや成立しない。場周経路高度は、提供資料の明示値または第6.6節の式フォールバックで検証したmaster値を初期表示し、Projectで確定した採用値を自動VREP高度算式へ使う。**リリース条件（第1章）と `PERFORMANCE_DATA_UNVERIFIED` の要件は削除しない。** 配布物・別環境・データ差し替え時には再び未整備・未検証となりうるため、以下は**データ状態に依存しない一般的なフェイルセーフ要件**として規定する。
 
@@ -477,7 +497,7 @@ CB=計算ブロッカー、CD=計算必須・既定値あり、PB=転記ブロ�
 | ETD | `planned_departure_time_jst` | CD | `"09:00"` | 0900 JST（維持） | KML欄直下 |
 | ALT | `NavSection.planned_altitude_ft_msl` | CD | **5000 ft** | 維持 | 折りたたみ |
 | FUEL | `total_usable_fuel_gal` | CD | **81.0 gal** | 維持 | 折りたたみ |
-| VAR | `default_variation_deg_east` | CD | **8.0（東偏差、東を正）** | 維持 | 折りたたみ |
+| VAR | `SectionResult.variation_deg_east` | 自動 | **Project固定8.0** | **Leg出発緯度32.0°N以上+8°、未満+7°** | Leg設定・結果表 |
 | TGL | `tgl_count` | CD | **0（回数。`BoundedIntText(min=0)`）** | 維持 | 折りたたみ |
 | Phase | `NavSection.phase` | CD | **`CRUISE`** | 維持 | フェーズB |
 | 旧LOSS | `NavSection.loss_time_seconds` | — | **0固定** | v2.5.1で入力廃止。旧非0値は移行情報として読取専用表示し、計算には不使用 | 移行表示のみ |
@@ -1370,13 +1390,13 @@ SEA専用の固定vectorは本版では試験対象に含めない。
 | クラス | 対象 | 再計算 |
 |---|---|---|
 | DISPLAY | `pilot_name`、`ship_identifier`、Project名 | 不要 |
-| HEADING | `default_variation_deg_east` | 必要 |
+| HEADING | RouteNode座標（各Leg出発緯度からVARを導出） | 必要 |
 | FUEL | `total_usable_fuel_gal`、`tgl_count` | 必要 |
 | NAV | DATE/ETD、ALT、Phase、QNH、Forecast Run、経路、ArrivalPlan、選択参照データsnapshot、CP、Section手動気象、性能・policy・アプリ・MSM版 | 必要 |
 
 `current_calculation_input_fingerprint` は、第10.1a節の `make_fingerprint(kind="calculation_input", ...)` で次をcanonical化して作る。
 
-- 飛行日、tz-aware ETD、燃料、偏差、TGL、機体profile、手動QNH、選択Forecast Run
+- 飛行日、tz-aware ETD、燃料、TGL、機体profile、手動QNH、選択Forecast Run
 - RouteNodeのUUID、名称、座標、role、順序
 - NavSectionのUUID、from/to UUID、ALT、Phase、手動気象入力
 - ArrivalPlanのVREP、到着高度mode、手動高度・理由
@@ -1639,7 +1659,7 @@ A.1〜A.9を本版の外部インタフェース契約とする。旧A.10は履�
 |---|---|---|---|
 | ALT | 5000 | `FloatText`、ft MSL | `colab.py` `self.altitude` |
 | FUEL | 81.0 | `FloatText`、gal（`total_usable_fuel_gal`、`gt=0`） | `colab.py` `self.fuel` |
-| VAR | 8.0 | `FloatText`、度（東偏差を正） | `colab.py` `self.variation` |
+| VAR | 32.0°N以上+8°、未満+7° | Leg出発緯度から自動（東偏差を正） | `nav/variation.py` |
 | TGL | 0 | `BoundedIntText(min=0)`、回数 | `colab.py` `self.tgl_count` |
 | Phase | `CRUISE` | `Dropdown`（FlightPhase） | `colab.py` `self.phase` |
 | DATE | `date.today()` | `DatePicker` | 本改修で翌日へ変更 |
@@ -1748,7 +1768,8 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | 入力 | `Project`（deep copyされる） |
 | 出力 | `CalculationOutcome`（`sections: list[SectionResult]` / `derived_points` / `arrival_altitude: ArrivalAltitudeResult` / `check_point_projections: list[CheckPointProjection]` / `fuel_plan` / `issues` / `iterations` / `converged` / `status` / `policy_version` / `performance_table_version` / `qnh_hpa`） |
 | 各値 | `AdoptedValue[T]`。`adopted()` で採用値、`state` で `ValueState` |
-| Policy | `CalculationPolicies.version = "nav2-v2"`。v2.7.3のVREP個別規則は `ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"` とする |
+| Policy | `CalculationPolicies.version = "nav2-v3"`。Variationは`DEPARTURE_LATITUDE_32N_V1`、VREP個別規則は`ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"`とする |
+| 陳腐化判定 | 計算入力fingerprintは`calculation_policy_version`に加えて`variation_rule_version`を含み、Variation規則だけの変更でも再計算を要求する |
 | エラー | 例外ではなく `Issue` として返る。`blockers` プロパティで抽出 |
 | SEAの使用 | **なし（v2.6.0）**。`safe_enroute_altitude_ft_msl` は互換fieldとして残してよいが、計算・Issue・fingerprint・status・表示・出力へ使用しない |
 | 丸め | 通常の中間値は丸めず、表示時にhalf-upで方位1°・距離0.5 NM・時間0.5 min・燃料0.1 gal。例外としてVREP計画高度は、ArrivalPlanで100 ft単位に確定した採用場周高度へ500 ftを加えて5 NM基準高度とし、5 NM超過距離を整数NMへhalf-upして200 ft/NMを加えた第6.6節の**採用計算値**を降下・EOC・気象へ渡す。master場周経路高度は別に参照表示する |

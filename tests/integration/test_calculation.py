@@ -77,6 +77,39 @@ def test_full_calculation_iteration_and_clearcopy(
     assert f"{outcome.qnh_hpa.adopted()} hPa" in html
 
 
+def test_variation_changes_by_physical_leg_departure_and_ignores_legacy_default(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    legacy = project.model_copy(deep=True)
+    legacy.default_variation_deg_east = -12.5
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        legacy,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    source_departures = {
+        str(section.id): legacy.route_nodes[section.sequence].latitude_deg
+        for section in legacy.ordered_sections()
+    }
+    for result in outcome.sections:
+        expected = 8.0 if source_departures[str(result.section_id)] >= 32.0 else 7.0
+        assert result.variation_deg_east.adopted() == expected
+        assert result.variation_deg_east.adopted_source == AdoptedSource.AUTOMATIC
+        assert result.variation_deg_east.automatic_metadata == {
+            "rule_version": "DEPARTURE_LATITUDE_32N_V1",
+            "method": "LEG_DEPARTURE_LATITUDE_BAND",
+            "departure_latitude_deg": source_departures[str(result.section_id)],
+            "threshold_latitude_deg": 32.0,
+            "threshold_inclusive_side": "NORTH",
+            "selected_band": "NORTH" if expected == 8.0 else "SOUTH",
+            "degrees_east": expected,
+        }
+
+
 def test_saved_forecast_run_stays_pinned_until_explicitly_changed(
     airports,
     performance_repository,
@@ -221,6 +254,19 @@ def test_climb_leg_is_automatically_split_at_rca_without_losing_distance(
     )
     climb_sections = [section for section in outcome.sections if section.phase == FlightPhase.CLIMB]
     climb_metadata = climb_sections[0].performance_metadata
+    cruise_metadata = next(
+        section.performance_metadata
+        for section in outcome.sections
+        if section.phase == FlightPhase.CRUISE
+    )
+    assert cruise_metadata["reason"] == (
+        "PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR_NO_EXTRAPOLATION"
+    )
+    assert cruise_metadata["selected_cell"]["power_percent"] == 65.0
+    assert cruise_metadata["selected_cell"]["rpm"] is None
+    assert cruise_metadata["selected_cell"]["map_in_hg"] is None
+    assert cruise_metadata["interpolation"]["power_percent"] == 65.0
+    assert cruise_metadata["interpolation"]["corners"]
     adopted_qnh = outcome.qnh_hpa.adopted()
     assert adopted_qnh is not None
     departure_pressure_altitude = pressure_altitude_exact_ft(
@@ -415,7 +461,8 @@ def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
     true_course = first_segment.true_course_deg.adopted()
     magnetic_course = first_segment.magnetic_course_deg.adopted()
     assert true_course == pytest.approx(284.0, abs=1.0)
-    assert magnetic_course == pytest.approx((true_course + 8.0) % 360.0)
+    assert first_segment.variation_deg_east.adopted() == 7.0
+    assert magnetic_course == pytest.approx((true_course + 7.0) % 360.0)
 
 
 def test_incomplete_descent_output_and_missing_eoc_cannot_be_ready(

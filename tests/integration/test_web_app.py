@@ -30,6 +30,24 @@ KML = """<?xml version="1.0" encoding="UTF-8"?>
 </kml>
 """
 
+KML_FROM_RJFK = """<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <name>RJFK-RJFO</name>
+      <LineString>
+        <coordinates>
+          130.7194444444,31.8033333333,0
+          131.0000000000,32.4000000000,0
+          131.4000000000,33.1000000000,0
+          131.7372222222,33.4794444444,0
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>
+"""
+
 
 class StubAccessVerifier:
     def __init__(self, identities: dict[str, str]) -> None:
@@ -73,7 +91,10 @@ async def test_trusted_http_session_cookie_is_reusable(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path) -> None:
+async def test_web_route_calculation_save_and_fail_closed_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     app = create_app(
         WebRuntimeConfig(
             data_root=ROOT / "data",
@@ -90,6 +111,14 @@ async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path)
         created = await client.post("/api/session")
         assert created.status_code == 200
         assert set(created.json()) == {"state"}
+        destination = next(
+            airport
+            for airport in created.json()["state"]["airports"]
+            if airport["id"] == "RJFO"
+        )
+        assert destination["elevationFtMsl"] == 17
+        assert destination["patternAltitudeFtMsl"] == 1000
+        assert destination["patternAltitudeValidationStatus"] == "VERIFIED"
         cookie = created.headers["set-cookie"]
         assert "HttpOnly" in cookie
         assert "Secure" in cookie
@@ -123,6 +152,11 @@ async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path)
         assert len(confirmed_state["project"]["route_nodes"]) == 5
         assert confirmed_state["project"]["route_nodes"][-2]["role"] == ("VISUAL_REPORTING_POINT")
         assert confirmed_state["project"]["sections"][-1]["planned_altitude_ft_msl"] == 1500
+        guidance_variations = [
+            item["variationDegEast"]
+            for item in confirmed_state["altitudeGuidance"]["sections"]
+        ]
+        assert guidance_variations == [7.0, 8.0, 8.0, 8.0]
         assert any(
             issue["code"] == "PATTERN_ALTITUDE_REQUIRED"
             for issue in confirmed_state["readiness"]["issues"]
@@ -184,6 +218,16 @@ async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path)
         assert calculated_state["outcome"] is not None
         assert calculated_state["outcome"]["arrival_altitude"]["base_vrep_altitude_ft_msl"] == 1800
         assert calculated_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 2100
+        variations = [
+            section["variation_deg_east"]
+            for section in calculated_state["outcome"]["sections"]
+        ]
+        assert {item["automatic_value"] for item in variations} == {7.0, 8.0}
+        assert all(item["adopted_source"] == "AUTOMATIC" for item in variations)
+        assert all(
+            item["automatic_metadata"]["rule_version"] == "DEPARTURE_LATITUDE_32N_V1"
+            for item in variations
+        )
         assert all(
             issue["code"] != "PATTERN_ALTITUDE_REQUIRED"
             for issue in calculated_state["readiness"]["issues"]
@@ -193,6 +237,90 @@ async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path)
             for issue in calculated_state["readiness"]["issues"]
         )
         assert calculated_state["readiness"]["transferAidAllowed"] is False
+
+        editable_sections = destination_state["project"]["sections"]
+        first_editable_id = editable_sections[0]["id"]
+        atomic_payload = {
+            "flight_date": "2026-08-10",
+            "departure_time_jst": "09:00",
+            "total_usable_fuel_gal": 90,
+            "default_variation_deg_east": 8,
+            "tgl_count": 0,
+            "sections": [
+                {
+                    "section_id": section["id"],
+                    "planned_altitude_ft_msl": (
+                        4500
+                        if section["id"] == first_editable_id
+                        else section["planned_altitude_ft_msl"]
+                    ),
+                    "phase": section["phase"],
+                    "manual_wind_direction_deg": (
+                        270 if section["id"] == first_editable_id else None
+                    ),
+                    "manual_wind_speed_kt": (
+                        15 if section["id"] == first_editable_id else None
+                    ),
+                    "manual_temperature_c": (
+                        12 if section["id"] == first_editable_id else None
+                    ),
+                    "manual_tas_kt": (
+                        155 if section["id"] == first_editable_id else None
+                    ),
+                }
+                for section in editable_sections
+            ],
+            "visual_reporting_point_node_id": destination_state["project"]["route_nodes"][-2][
+                "id"
+            ],
+            "arrival_altitude_mode": "MANUAL_NON_STANDARD_ENTRY",
+            "manual_vrep_altitude_ft_msl": 2100,
+            "manual_vrep_reason": "Direct Base training entry",
+        }
+        recalculated = await client.post("/api/project/recalculate", json=atomic_payload)
+        assert recalculated.status_code == 200, recalculated.text
+        recalculated_state = recalculated.json()
+        edited_project_section = next(
+            section
+            for section in recalculated_state["project"]["sections"]
+            if section["id"] == first_editable_id
+        )
+        assert edited_project_section["planned_altitude_ft_msl"] == 4500
+        assert edited_project_section["manual_wind_direction_deg"] == 270
+        assert edited_project_section["manual_wind_speed_kt"] == 15
+        assert edited_project_section["manual_temperature_c"] == 12
+        assert edited_project_section["manual_tas_kt"] == 155
+        edited_result = next(
+            section
+            for section in recalculated_state["outcome"]["sections"]
+            if section["section_id"] == first_editable_id
+        )
+        for field in ("wind_direction_deg_from", "wind_speed_kt", "temperature_c", "tas_kt"):
+            assert edited_result[field]["adopted_source"] == "MANUAL"
+            assert edited_result[field]["manual_override"] is not None
+        assert edited_result["temperature_c"]["automatic_value"] is not None
+        assert edited_result["wind_speed_kt"]["automatic_value"] is not None
+
+        last_good_project = recalculated_state["project"]
+        last_good_outcome = recalculated_state["outcome"]
+        web = app.state.web_application
+        token = client.cookies.get("autonavlog_session")
+        assert token is not None
+        session = web.session(token, "local-test-user")
+
+        def fail_calculation(*_args: object, **_kwargs: object) -> None:
+            from autonavlog.web.facade import WebApplicationError
+
+            raise WebApplicationError("TEST_CALCULATION_FAILED", "test calculation failure")
+
+        monkeypatch.setattr(session.calculation_service, "calculate", fail_calculation)
+        failed_payload = atomic_payload | {"total_usable_fuel_gal": 89}
+        failed = await client.post("/api/project/recalculate", json=failed_payload)
+        assert failed.status_code == 400
+        assert failed.json()["error"]["code"] == "TEST_CALCULATION_FAILED"
+        after_failure = (await client.get("/api/state")).json()
+        assert after_failure["project"] == last_good_project
+        assert after_failure["outcome"] == last_good_outcome
 
         blocked = await client.get("/api/transfer-aid")
         assert blocked.status_code == 409
@@ -205,6 +333,77 @@ async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path)
         assert saved.status_code == 200
         assert saved.json()["project"]["revision"] == 1
 
+
+@pytest.mark.anyio
+async def test_departure_override_uses_original_kml_start_and_keeps_old_payload_compatible(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        imported = await client.post(
+            "/api/import",
+            json={"filename": "rjfk-route.kml", "kml_text": KML_FROM_RJFK},
+        )
+        assert imported.status_code == 200
+
+        confirmed = await client.post(
+            "/api/route/confirm",
+            json={
+                "candidate_kind": "line",
+                "candidate_index": 0,
+                "route_use_confirmed": True,
+                "flight_date": "2026-08-10",
+                "departure_time_jst": "09:00",
+                "departure_airport_id": "RJFK",
+                "destination_airport_id": "RJFO",
+                "total_usable_fuel_gal": 90,
+                "default_variation_deg_east": 7,
+                "all_leg_altitude_ft_msl": 3000,
+            },
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        project = confirmed.json()["project"]
+        assert project["departure_airport_id"] == "RJFK"
+        assert project["route_nodes"][0]["name"] == "RJFK"
+        assert project["metadata"]["web_original_departure_coordinate"] == [
+            31.8033333333,
+            130.7194444444,
+        ]
+
+        incompatible_override = await client.post(
+            "/api/destination/confirm",
+            json={
+                "departure_airport_id": "RJFM",
+                "destination_airport_id": "RJFO",
+                "selected_pattern_altitude_ft_msl": 1000,
+            },
+        )
+        assert incompatible_override.status_code == 400
+        assert incompatible_override.json()["error"]["code"] == (
+            "ROUTE_AIRPORT_ENDPOINT_MISMATCH"
+        )
+        assert "KML始点" in incompatible_override.json()["error"]["message"]
+
+        compatible_old_payload = await client.post(
+            "/api/destination/confirm",
+            json={
+                "destination_airport_id": "RJFO",
+                "selected_pattern_altitude_ft_msl": 1000,
+            },
+        )
+        assert compatible_old_payload.status_code == 200, compatible_old_payload.text
+        compatible_project = compatible_old_payload.json()["project"]
+        assert compatible_project["departure_airport_id"] == "RJFK"
+        assert compatible_project["route_nodes"][0]["name"] == "RJFK"
 
 @pytest.mark.anyio
 async def test_web_session_and_upload_boundaries(tmp_path: Path) -> None:

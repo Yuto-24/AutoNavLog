@@ -9,6 +9,7 @@ from autonavlog.domain.planning import (
     ReferenceDataSnapshot,
 )
 from autonavlog.domain.project import Project
+from autonavlog.nav.variation import VARIATION_RULE_VERSION
 from autonavlog.performance.repository import PerformanceRepository
 
 from .fingerprints import make_fingerprint
@@ -102,7 +103,6 @@ def current_calculation_input_fingerprint(
             "flight_date": project.flight_date,
             "planned_departure_time_jst": (project.planned_departure_time_jst),
             "total_usable_fuel_gal": project.total_usable_fuel_gal,
-            "default_variation_deg_east": (project.default_variation_deg_east),
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
             "manual_qnh_hpa": project.manual_qnh_hpa,
@@ -127,6 +127,7 @@ def current_calculation_input_fingerprint(
                 "climb_temperature_policy": (performance.manifest.climb_temperature_policy),
             },
             "calculation_policy_version": calculation_policy_version,
+            "variation_rule_version": VARIATION_RULE_VERSION,
             "performance_table_version": performance_table_version,
             "autonavlog_version": autonavlog_version,
             "msm_package_version": msm_package_version,
@@ -156,7 +157,6 @@ def defaults_review_fingerprint(
                 for section in project.ordered_sections()
             ],
             "total_usable_fuel_gal": project.total_usable_fuel_gal,
-            "default_variation_deg_east": (project.default_variation_deg_east),
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
             "performance_table_version": performance_table_version,

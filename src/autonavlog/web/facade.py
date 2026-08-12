@@ -39,6 +39,7 @@ from autonavlog.importers.kml import (
     waypoint_name_slots_from_line,
 )
 from autonavlog.nav.geodesy import geodesic_leg
+from autonavlog.nav.variation import variation_for_departure_latitude
 from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.presentation.transfer_aid import render_transfer_aid_document
 from autonavlog.storage.airports import AirportRepository
@@ -240,6 +241,7 @@ class AutoNavLogWebApplication:
             if result is None:
                 raise WebApplicationError("KML_REQUIRED", "先にKML/KMZを読み込んでください。")
             entries = self._entries_from_candidate(result, request)
+            original_departure_coordinate = [entries[0][1], entries[0][2]]
             original_destination_coordinate = [entries[-1][1], entries[-1][2]]
             departure, destination = self._selected_airports(
                 request.departure_airport_id,
@@ -272,6 +274,7 @@ class AutoNavLogWebApplication:
                     "project_name_generated": project.name,
                     "web_import_filename": session.import_filename,
                     "web_owner_id": session.owner_id,
+                    "web_original_departure_coordinate": list(original_departure_coordinate),
                     "web_original_destination_coordinate": list(original_destination_coordinate),
                 }
             )
@@ -318,6 +321,9 @@ class AutoNavLogWebApplication:
                     "先に経路を確定してください。",
                 )
             try:
+                departure = self.reference_catalog.airports[
+                    request.departure_airport_id or session.project.departure_airport_id
+                ]
                 destination = self.reference_catalog.airports[request.destination_airport_id]
             except KeyError as error:
                 raise WebApplicationError(
@@ -346,6 +352,30 @@ class AutoNavLogWebApplication:
                     "ROUTE_INCOMPLETE",
                     "VREPを含む3点以上の経路を先に確定してください。",
                 )
+            departure_endpoint = ordered[0]
+            original_departure_coordinate = working.metadata.get(
+                "web_original_departure_coordinate"
+            )
+            if (
+                isinstance(original_departure_coordinate, list)
+                and len(original_departure_coordinate) == 2
+                and all(
+                    type(value) in (int, float) and isfinite(float(value))
+                    for value in original_departure_coordinate
+                )
+                and -90 <= float(original_departure_coordinate[0]) <= 90
+                and -180 <= float(original_departure_coordinate[1]) <= 180
+            ):
+                route_departure = (
+                    float(original_departure_coordinate[0]),
+                    float(original_departure_coordinate[1]),
+                )
+            else:
+                route_departure = (
+                    departure_endpoint.latitude_deg,
+                    departure_endpoint.longitude_deg,
+                )
+                working.metadata["web_original_departure_coordinate"] = list(route_departure)
             endpoint = ordered[-1]
             original_coordinate = working.metadata.get("web_original_destination_coordinate")
             if (
@@ -367,6 +397,11 @@ class AutoNavLogWebApplication:
                 # 移行元として記録し、5 NM検証を省略しない。
                 route_endpoint = (endpoint.latitude_deg, endpoint.longitude_deg)
                 working.metadata["web_original_destination_coordinate"] = list(route_endpoint)
+            if self._distance_to_airport(route_departure, departure) > 5:
+                raise WebApplicationError(
+                    "ROUTE_AIRPORT_ENDPOINT_MISMATCH",
+                    "KML始点から5 NM以内の出発空港を選択してください。",
+                )
             if self._distance_to_airport(route_endpoint, destination) > 5:
                 raise WebApplicationError(
                     "ROUTE_AIRPORT_ENDPOINT_MISMATCH",
@@ -381,12 +416,18 @@ class AutoNavLogWebApplication:
                 )
             endpoint.name = destination.icao
             endpoint.latitude_deg = destination.latitude_deg
+            departure_endpoint.name = departure.icao
+            departure_endpoint.latitude_deg = departure.latitude_deg
+            departure_endpoint.longitude_deg = departure.longitude_deg
+            departure_endpoint.role = RouteNodeRole.AIRPORT
+            departure_endpoint.source = f"REFERENCE:{departure.source_revision}"
             endpoint.longitude_deg = destination.longitude_deg
             endpoint.role = RouteNodeRole.DESTINATION
             endpoint.source = f"REFERENCE:{destination.source_revision}"
             working.destination_airport_id = destination.id
             current_plan = None if destination_changed else state.arrival_plan
             vrep = ordered[-2]
+            working.departure_airport_id = departure.id
             vrep.role = RouteNodeRole.VISUAL_REPORTING_POINT
             selected_source = (
                 AdoptedSource.AUTOMATIC
@@ -411,7 +452,10 @@ class AutoNavLogWebApplication:
             )
             updated_snapshot = snapshot.model_copy(
                 deep=True,
-                update={"destination_airport": destination},
+                update={
+                    "departure_airport": departure,
+                    "destination_airport": destination,
+                },
             )
             self.project_service.set_ui_state(
                 working,
@@ -459,46 +503,25 @@ class AutoNavLogWebApplication:
         with session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
-            working = session.project.model_copy(deep=True)
-            working.flight_date = request.flight_date
-            working.planned_departure_time_jst = self._departure_datetime(
-                request.flight_date,
-                request.departure_time_jst,
-            )
-            if request.pilot_name is not None:
-                working.pilot_name = request.pilot_name
-            if request.ship_identifier is not None:
-                working.ship_identifier = request.ship_identifier
-            working.total_usable_fuel_gal = request.total_usable_fuel_gal
-            working.default_variation_deg_east = request.default_variation_deg_east
-            working.manual_qnh_hpa = request.manual_qnh_hpa
-            working.tgl_count = request.tgl_count
-            sections = {section.id: section for section in working.sections}
-            for update in request.sections:
-                try:
-                    section = sections[update.section_id]
-                except KeyError as error:
-                    raise WebApplicationError(
-                        "SECTION_NOT_FOUND",
-                        "更新対象のLegが現在の経路にありません。",
-                    ) from error
-                sections[update.section_id] = section.model_copy(
-                    update={
-                        "planned_altitude_ft_msl": update.planned_altitude_ft_msl,
-                        "phase": update.phase,
-                        "manual_wind_direction_deg": update.manual_wind_direction_deg,
-                        "manual_wind_speed_kt": update.manual_wind_speed_kt,
-                        "manual_temperature_c": update.manual_temperature_c,
-                        "manual_tas_kt": update.manual_tas_kt,
-                    }
-                )
-            working.sections = [sections[section.id] for section in working.ordered_sections()]
-            self._apply_arrival_plan(working, request)
-            if request.defaults_confirmed:
-                session.readiness_service.confirm_defaults(working, session.outcome)
-            if request.manual_qnh_hpa is not None and request.manual_qnh_confirmed:
-                session.readiness_service.confirm_manual_qnh(working, session.outcome)
+            working = self._updated_project(session, request)
             materialized = session.readiness_service.evaluate(working, session.outcome)
+            session.project = materialized.project
+            session.outcome = materialized.outcome
+            session.readiness = materialized.evaluation
+            return self.present(session)
+
+    def update_and_calculate(
+        self,
+        session: WebSession,
+        request: UpdateProjectRequest,
+    ) -> dict[str, Any]:
+        """Atomically apply editable inputs and replace the last-good calculation."""
+        with session.lock:
+            if session.project is None:
+                raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
+            working = self._updated_project(session, request)
+            outcome = self._calculate_outcome(session, working)
+            materialized = session.readiness_service.record_calculation(working, outcome)
             session.project = materialized.project
             session.outcome = materialized.outcome
             session.readiness = materialized.evaluation
@@ -508,39 +531,7 @@ class AutoNavLogWebApplication:
         with session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
-            state = self.project_service.ui_state(session.project)
-            plan = state.arrival_plan
-            if (
-                plan is None
-                or plan.selected_pattern_altitude_ft_msl is None
-                or plan.selected_pattern_altitude_source is None
-            ):
-                raise WebApplicationError(
-                    "PATTERN_ALTITUDE_REQUIRED",
-                    "目的空港と今回採用する場周経路高度を先に確定してください。",
-                    status_code=409,
-                )
-            outcome = session.calculation_service.calculate(
-                session.project,
-                session.weather_provider,
-            )
-            if self.development_weather:
-                outcome = outcome.model_copy(
-                    deep=True,
-                    update={
-                        "issues": [
-                            *outcome.issues,
-                            Issue(
-                                code="DEVELOPMENT_WEATHER_PROVIDER",
-                                severity=IssueSeverity.BLOCKER,
-                                message=(
-                                    "開発用固定気象で計算しています。公開用の転記補助HTMLは"
-                                    "実気象providerで再計算するまで出力できません。"
-                                ),
-                            ),
-                        ]
-                    },
-                )
+            outcome = self._calculate_outcome(session, session.project)
             materialized = session.readiness_service.record_calculation(
                 session.project,
                 outcome,
@@ -549,6 +540,87 @@ class AutoNavLogWebApplication:
             session.outcome = materialized.outcome
             session.readiness = materialized.evaluation
             return self.present(session)
+
+    def _updated_project(
+        self,
+        session: WebSession,
+        request: UpdateProjectRequest,
+    ) -> Project:
+        if session.project is None:
+            raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
+        working = session.project.model_copy(deep=True)
+        working.flight_date = request.flight_date
+        working.planned_departure_time_jst = self._departure_datetime(
+            request.flight_date,
+            request.departure_time_jst,
+        )
+        if request.pilot_name is not None:
+            working.pilot_name = request.pilot_name
+        if request.ship_identifier is not None:
+            working.ship_identifier = request.ship_identifier
+        working.total_usable_fuel_gal = request.total_usable_fuel_gal
+        working.default_variation_deg_east = request.default_variation_deg_east
+        working.manual_qnh_hpa = request.manual_qnh_hpa
+        working.tgl_count = request.tgl_count
+        sections = {section.id: section for section in working.sections}
+        for update in request.sections:
+            try:
+                section = sections[update.section_id]
+            except KeyError as error:
+                raise WebApplicationError(
+                    "SECTION_NOT_FOUND",
+                    "更新対象のLegが現在の経路にありません。",
+                ) from error
+            sections[update.section_id] = section.model_copy(
+                update={
+                    "planned_altitude_ft_msl": update.planned_altitude_ft_msl,
+                    "phase": update.phase,
+                    "manual_wind_direction_deg": update.manual_wind_direction_deg,
+                    "manual_wind_speed_kt": update.manual_wind_speed_kt,
+                    "manual_temperature_c": update.manual_temperature_c,
+                    "manual_tas_kt": update.manual_tas_kt,
+                }
+            )
+        working.sections = [sections[section.id] for section in working.ordered_sections()]
+        self._apply_arrival_plan(working, request)
+        if request.defaults_confirmed:
+            session.readiness_service.confirm_defaults(working, session.outcome)
+        if request.manual_qnh_hpa is not None and request.manual_qnh_confirmed:
+            session.readiness_service.confirm_manual_qnh(working, session.outcome)
+        return working
+
+    def _calculate_outcome(self, session: WebSession, project: Project) -> CalculationOutcome:
+        state = self.project_service.ui_state(project)
+        plan = state.arrival_plan
+        if (
+            plan is None
+            or plan.selected_pattern_altitude_ft_msl is None
+            or plan.selected_pattern_altitude_source is None
+        ):
+            raise WebApplicationError(
+                "PATTERN_ALTITUDE_REQUIRED",
+                "目的空港と今回採用する場周経路高度を先に確定してください。",
+                status_code=409,
+            )
+        outcome = session.calculation_service.calculate(project, session.weather_provider)
+        if not self.development_weather:
+            return outcome
+        return outcome.model_copy(
+            deep=True,
+            update={
+                "issues": [
+                    *outcome.issues,
+                    Issue(
+                        code="DEVELOPMENT_WEATHER_PROVIDER",
+                        severity=IssueSeverity.BLOCKER,
+                        message=(
+                            "開発用固定気象で計算しています。公開用の転記補助HTMLは"
+                            "実気象providerで再計算するまで出力できません。"
+                        ),
+                    ),
+                ]
+            },
+        )
 
     def acknowledge(self, session: WebSession, ack_key: str, checked: bool) -> dict[str, Any]:
         with session.lock:
@@ -827,21 +899,34 @@ class AutoNavLogWebApplication:
             ).initial_true_course_deg
             magnetic_course = magnetic_course_deg(
                 true_course,
-                project.default_variation_deg_east,
+                variation_for_departure_latitude(start.latitude_deg).degrees_east,
             )
             matches = matches_vfr_cruising_altitude(
                 section.planned_altitude_ft_msl,
                 magnetic_course,
             )
+            applies_to_cruising_altitude_input = section.phase in {
+                FlightPhase.CLIMB,
+                FlightPhase.CRUISE,
+                FlightPhase.DESCENT,
+            }
             guidance.append(
                 {
                     "sectionId": str(section.id),
                     "magneticCourseDeg": magnetic_course,
+                    "variationDegEast": variation_for_departure_latitude(
+                        start.latitude_deg
+                    ).degrees_east,
                     "candidateAltitudesFtMsl": list(
                         vfr_cruising_altitude_candidates(magnetic_course)
                     ),
                     "appliesToCruise": section.phase == FlightPhase.CRUISE,
-                    "requiresReview": (section.phase == FlightPhase.CRUISE and not matches),
+                    "appliesToCruisingAltitudeInput": (
+                        applies_to_cruising_altitude_input
+                    ),
+                    "requiresReview": (
+                        applies_to_cruising_altitude_input and not matches
+                    ),
                 }
             )
         return guidance

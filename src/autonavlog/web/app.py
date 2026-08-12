@@ -312,6 +312,13 @@ def create_app(
     ) -> dict[str, Any]:
         return web.update_project(session, payload)
 
+    @app.post("/api/project/recalculate")
+    def update_and_calculate_project(
+        payload: UpdateProjectRequest,
+        session: SessionDependency,
+    ) -> dict[str, Any]:
+        return web.update_and_calculate(session, payload)
+
     @app.post("/api/calculate")
     def calculate(session: SessionDependency) -> dict[str, Any]:
         return web.calculate(session)

@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+import autonavlog.application.project_fingerprints as project_fingerprints
 from autonavlog.application.project_fingerprints import (
     current_calculation_input_fingerprint,
     defaults_review_fingerprint,
@@ -47,7 +48,6 @@ def test_display_and_legacy_sea_loss_fields_do_not_change_calculation_key(
     "mutation",
     [
         lambda project: setattr(project, "total_usable_fuel_gal", 80.0),
-        lambda project: setattr(project, "default_variation_deg_east", 7.0),
         lambda project: setattr(project, "tgl_count", 1),
         lambda project: setattr(
             project.sections[0],
@@ -75,6 +75,31 @@ def test_nav_fuel_heading_inputs_change_calculation_key(
     changed = project.model_copy(deep=True)
     mutation(changed)
     assert _calculation_fingerprint(changed, performance_repository) != baseline
+
+
+def test_legacy_default_variation_does_not_change_calculation_key(
+    project: Project,
+    performance_repository: Any,
+) -> None:
+    baseline = _calculation_fingerprint(project, performance_repository)
+    changed = project.model_copy(deep=True)
+    changed.default_variation_deg_east = -12.5
+
+    assert _calculation_fingerprint(changed, performance_repository) == baseline
+
+
+def test_variation_rule_version_changes_calculation_key(
+    project: Project,
+    performance_repository: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _calculation_fingerprint(project, performance_repository)
+    monkeypatch.setattr(
+        project_fingerprints,
+        "VARIATION_RULE_VERSION",
+        "DEPARTURE_LATITUDE_32N_V2",
+    )
+    assert _calculation_fingerprint(project, performance_repository) != baseline
 
 
 def test_defaults_review_includes_phase_and_ignores_legacy_loss(

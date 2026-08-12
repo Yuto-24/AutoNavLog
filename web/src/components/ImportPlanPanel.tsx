@@ -1,6 +1,6 @@
 import { ClipboardPaste, FileUp, Route } from "lucide-react";
 import type { Dispatch, DragEvent, SetStateAction } from "react";
-import { convertQnhValue, patternAltitudeFtMsl, variationForDeparture } from "../forms";
+import { convertQnhValue, variationForDeparture } from "../forms";
 import type { PlanningForm, QnhUnit } from "../forms";
 import type { AirportOption, ImportState } from "../types";
 
@@ -39,13 +39,12 @@ export function ImportPlanPanel({
     setForm((current) => ({ ...current, [key]: value }));
   };
   const selectedKind = form.candidateKey.split(":", 1)[0] ?? "";
+  const selectedDeparture = airports.find(
+    (airport) => airport.id === form.departureAirportId,
+  );
   const selectedDestination = airports.find(
     (airport) => airport.id === form.destinationAirportId,
   );
-  const validPatternAltitude = patternAltitudeFtMsl(
-    form.destinationPatternAltitudeFtMsl,
-  );
-
   const acceptDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     if (busy) return;
@@ -189,9 +188,11 @@ export function ImportPlanPanel({
             />
           </label>
           <label>
-            <span>FROM</span>
+            <span>FROM（経路始点から自動設定・変更可）</span>
             <select
+              aria-label="FROM"
               value={form.departureAirportId}
+              aria-invalid={Boolean(form.candidateKey && !selectedDeparture)}
               onChange={(event) => {
                 const departureAirportId = event.target.value;
                 const departure = airports.find((airport) => airport.id === departureAirportId);
@@ -199,46 +200,23 @@ export function ImportPlanPanel({
                   ...current,
                   departureAirportId,
                   variationDegEast: variationForDeparture(departure),
+                  manualQnhConfirmed: false,
                 }));
               }}
-              disabled={projectExists}
             >
+              <option value="">経路を選択すると自動設定</option>
               {airports.map((airport) => (
                 <option key={airport.id} value={airport.id}>
                   {airport.icao} {airport.name}
                 </option>
               ))}
             </select>
-          </label>
-          {projectExists && (
-            <label className="span-two">
-              <span>今回採用する場周経路高度（ft MSL）</span>
-              <input
-                aria-label="今回採用する場周経路高度"
-                type="number"
-                min="100"
-                max="25000"
-                step="100"
-                value={form.destinationPatternAltitudeFtMsl}
-                aria-invalid={validPatternAltitude === null}
-                onChange={(event) =>
-                  update("destinationPatternAltitudeFtMsl", event.target.value)
-                }
-              />
-              <small className="field-help">
-                飛行場標高 {selectedDestination?.elevationFtMsl.toLocaleString("ja-JP") ?? "-"} ft
-                {" / "}master {selectedDestination?.patternAltitudeFtMsl.toLocaleString("ja-JP") ?? "-"} ft
-                {selectedDestination ? " / " + selectedDestination.patternAltitudeSource : ""}
-                <br />東西場周など運用差がある場合は、今回使う100 ft単位のMSL高度へ編集してください。
-                {validPatternAltitude === null && (
-                  <>
-                    <br />
-                    100～25,000 ftの範囲で100 ft単位の整数を入力してください。
-                  </>
-                )}
+            {form.candidateKey && !selectedDeparture && (
+              <small className="field-help field-error">
+                KML始点から5 NM以内に出発空港が見つかりません。
               </small>
-            </label>
-          )}
+            )}
+          </label>
           <label className="span-two">
             <span>TO（経路終点から自動設定）</span>
             <input
@@ -270,21 +248,10 @@ export function ImportPlanPanel({
               }}
             />
           </label>
-          <label>
-            <span>VAR E</span>
-            <input
-              type="number"
-              min="-30"
-              max="30"
-              step="0.1"
-              value={form.variationDegEast}
-              onChange={(event) => {
-                if (Number.isFinite(event.target.valueAsNumber)) {
-                  update("variationDegEast", event.target.valueAsNumber);
-                }
-              }}
-            />
-          </label>
+          <div className="form-grid-field">
+            <span>VAR E（Legごと自動）</span>
+            <strong>32.0°N以上 +8° / 未満 +7°</strong>
+          </div>
           <div className="form-grid-field span-two">
             <span>QNH（未入力は自動取得）</span>
             <div className="qnh-input-row">
@@ -356,7 +323,13 @@ export function ImportPlanPanel({
             className="primary-button full-width"
             type="button"
             onClick={onConfirmRoute}
-            disabled={!form.candidateKey || !form.routeUseConfirmed || busy}
+            disabled={
+              !form.candidateKey ||
+              !form.routeUseConfirmed ||
+              !selectedDeparture ||
+              !selectedDestination ||
+              busy
+            }
           >
             経路を確定
           </button>

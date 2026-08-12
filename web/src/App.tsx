@@ -3,13 +3,24 @@ import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApiClient, ApiError, fileToBase64 } from "./api";
 import {
   candidateFromKey,
+  departureAirportForCandidate,
   destinationAirportForCandidate,
   formFromProject,
   initialPlanningForm,
   patternAltitudeFtMsl,
   qnhHpa,
+  variationForDeparture,
 } from "./forms";
 import type { PlanningForm } from "./forms";
+import {
+  applyDraftToSection,
+  draftFromSection,
+  hasNavLogEditErrors,
+  validateNavLogDrafts,
+} from "./navLogEditing";
+import type {
+  NavLogEditDrafts, NavLogEditErrors, NavLogEditableField,
+} from "./navLogEditing";
 import { Header } from "./components/Header";
 import { ImportPlanPanel } from "./components/ImportPlanPanel";
 import { NavLogTable } from "./components/NavLogTable";
@@ -31,6 +42,13 @@ function App() {
   const [state, setState] = useState<WebState | null>(null);
   const [form, setForm] = useState<PlanningForm>(() => initialPlanningForm());
   const [altitudeInputs, setAltitudeInputs] = useState<Record<string, string>>({});
+  const [navLogDrafts, setNavLogDrafts] = useState<NavLogEditDrafts>({});
+  const [navLogEditErrors, setNavLogEditErrors] = useState<NavLogEditErrors>({});
+  const [navLogEditVersion, setNavLogEditVersion] = useState(0);
+  const [navLogEditStatus, setNavLogEditStatus] = useState<{
+    kind: "idle" | "pending" | "saving" | "saved" | "error";
+    message: string;
+  }>({ kind: "idle", message: "入力欄を編集すると自動再計算します。" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -42,16 +60,62 @@ function App() {
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const navLogRef = useRef<HTMLDivElement | null>(null);
   const kmzDialogRef = useModalFocusTrap<HTMLElement>(Boolean(pendingKmz));
+  const calculationInputGenerationRef = useRef(0);
+  const navLogEditPendingRef = useRef(false);
+  const navLogDraftsRef = useRef<NavLogEditDrafts>({});
+  const projectIdRef = useRef<string | null | undefined>(undefined);
+  const navLogRecalculationRef = useRef<Promise<void>>(Promise.resolve());
 
-  const applyState = (next: WebState) => {
-    setState(next);
+  const invalidateCalculationInputs = () => {
+    calculationInputGenerationRef.current += 1;
+    if (navLogEditPendingRef.current) {
+      setNavLogEditVersion(calculationInputGenerationRef.current);
+    }
+    return calculationInputGenerationRef.current;
+  };
+
+  const cancelPendingRecalculation = () => {
+    calculationInputGenerationRef.current += 1;
+    navLogEditPendingRef.current = false;
+    setNavLogEditVersion(0);
+    setNavLogEditStatus({
+      kind: "idle",
+      message: "入力欄を編集すると自動再計算します。",
+    });
+  };
+
+  const applyState = (
+    next: WebState,
+    options: { syncCalculationInputs?: boolean } = {},
+  ) => {
+    const nextProjectId = next.project?.id ?? null;
+    const projectChanged =
+      projectIdRef.current !== undefined && projectIdRef.current !== nextProjectId;
+    const syncCalculationInputs =
+      options.syncCalculationInputs || projectIdRef.current === undefined || projectChanged;
+    if (projectChanged) cancelPendingRecalculation();
+    projectIdRef.current = nextProjectId;
+    setState((current) => {
+      if (
+        !syncCalculationInputs &&
+        current?.project &&
+        next.project &&
+        current.project.id === next.project.id
+      ) {
+        return {
+          ...next,
+          project: { ...next.project, sections: current.project.sections },
+        };
+      }
+      return next;
+    });
     setForm((current) => {
       let updated = current;
       if (!current.departureAirportId && next.airports.length) {
         const seeded = initialPlanningForm(next.airports);
         updated = { ...current, ...seeded };
       }
-      if (next.project) {
+      if (next.project && syncCalculationInputs) {
         updated = formFromProject(next.project, updated, next.airports);
       }
       const selectedExists = next.import.candidates.some(
@@ -65,6 +129,27 @@ function App() {
       }
       return updated;
     });
+    if (syncCalculationInputs) {
+      const drafts = next.project && next.outcome
+        ? Object.fromEntries(
+            next.project.sections.map((section) => [section.id, draftFromSection(section)]),
+          )
+        : {};
+      navLogDraftsRef.current = drafts;
+      navLogEditPendingRef.current = false;
+      setNavLogDrafts(drafts);
+      setNavLogEditErrors({});
+      setAltitudeInputs(
+        next.project
+          ? Object.fromEntries(
+              next.project.sections.map((section) => [
+                section.id,
+                String(section.planned_altitude_ft_msl),
+              ]),
+            )
+          : {},
+      );
+    }
   };
 
   useEffect(() => {
@@ -85,22 +170,34 @@ function App() {
   useEffect(() => {
     if (!state || state.project) return;
     const candidate = candidateFromKey(state.import.candidates, form.candidateKey);
+    if (!candidate) return;
+    const departure = departureAirportForCandidate(candidate, state.airports);
     const destination = destinationAirportForCandidate(candidate, state.airports);
     setForm((current) => {
       const destinationAirportId = destination?.id ?? "";
+      const departureAirportId = departure?.id ?? "";
       const destinationPatternAltitudeFtMsl = destination
         ? String(destination.patternAltitudeFtMsl)
         : "";
       if (
         current.destinationAirportId === destinationAirportId &&
+        current.departureAirportId === departureAirportId &&
         current.destinationPatternAltitudeFtMsl === destinationPatternAltitudeFtMsl
       ) {
         return current;
       }
       return {
         ...current,
+        departureAirportId,
         destinationAirportId,
         destinationPatternAltitudeFtMsl,
+        variationDegEast: departure
+          ? variationForDeparture(departure)
+          : current.variationDegEast,
+        manualQnhConfirmed:
+          current.departureAirportId === departureAirportId
+            ? current.manualQnhConfirmed
+            : false,
       };
     });
   }, [form.candidateKey, state]);
@@ -146,8 +243,16 @@ function App() {
     }
   };
 
-  const run = (action: () => Promise<WebState>, success?: string) =>
-    runTask(action, { apply: applyState, success });
+  const run = (
+    action: () => Promise<WebState>,
+    success?: string,
+    options: { syncCalculationInputs?: boolean } = {},
+  ) => runTask(action, { apply: (next) => applyState(next, options), success });
+
+  const setTrackedForm: typeof setForm = (value) => {
+    invalidateCalculationInputs();
+    setForm(value);
+  };
 
   const importEncodedFile = async (
     filename: string,
@@ -213,6 +318,11 @@ function App() {
       setError("KML終点から5 NM以内に目的空港が見つかりません。経路終点を確認してください。");
       return;
     }
+    if (!form.departureAirportId) {
+      setError("KML始点から5 NM以内に出発空港が見つかりません。経路始点を確認してください。");
+      return;
+    }
+    cancelPendingRecalculation();
     const confirmed = await run(
       () =>
         api.request<WebState>("/api/route/confirm", {
@@ -237,6 +347,7 @@ function App() {
           },
         }),
       "経路を確定しました。目的空港と場周経路高度を確認してください。",
+      { syncCalculationInputs: true },
     );
     if (confirmed?.project) {
       setAltitudeInputs(
@@ -261,11 +372,13 @@ function App() {
       setError("場周経路高度は100～25,000 ftの範囲で100 ft単位にしてください。");
       return;
     }
+    cancelPendingRecalculation();
     const confirmed = await run(
       () =>
         api.request<WebState>("/api/destination/confirm", {
           method: "POST",
           body: {
+            departure_airport_id: form.departureAirportId || undefined,
             destination_airport_id: form.destinationAirportId,
             selected_pattern_altitude_ft_msl: selectedPatternAltitude,
           },
@@ -286,14 +399,36 @@ function App() {
   };
 
   const handleAltitudeInputChange = (sectionId: string, value: string) => {
+    invalidateCalculationInputs();
     setAltitudeInputs((current) => ({ ...current, [sectionId]: value }));
     const altitude = Number(value);
     if (value.trim() && Number.isFinite(altitude)) {
-      handleSectionChange(sectionId, { planned_altitude_ft_msl: altitude });
+      const project = state?.project;
+      const section = project?.sections.find((item) => item.id === sectionId);
+      if (project && section && state?.outcome) {
+        const nextDrafts = {
+          ...navLogDraftsRef.current,
+          [sectionId]: {
+            ...(navLogDraftsRef.current[sectionId] ?? draftFromSection(section)),
+            plannedAltitude: value,
+          },
+        };
+        navLogDraftsRef.current = nextDrafts;
+        setNavLogDrafts(nextDrafts);
+        setNavLogEditErrors(
+          validateNavLogDrafts(project.sections, nextDrafts),
+        );
+      }
+      handleSectionChange(sectionId, { planned_altitude_ft_msl: altitude }, false);
     }
   };
 
-  const handleSectionChange = (sectionId: string, changes: Partial<NavSection>) => {
+  const handleSectionChange = (
+    sectionId: string,
+    changes: Partial<NavSection>,
+    invalidate = true,
+  ) => {
+    if (invalidate) invalidateCalculationInputs();
     setState((current) => {
       if (!current?.project) return current;
       return {
@@ -308,12 +443,15 @@ function App() {
     });
   };
 
-  const updatePayload = () => {
+  const updatePayload = (sectionOverrides?: NavSection[]) => {
+    const payloadSections = sectionOverrides ?? state?.project?.sections ?? [];
     if (!state?.project) throw new Error("Projectがありません。");
     const plannedAltitudes = new Map(
-      state.project.sections.map((section) => {
+      payloadSections.map((section) => {
         const rawAltitude = (
-          altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)
+          sectionOverrides
+            ? String(section.planned_altitude_ft_msl)
+            : altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)
         ).trim();
         if (!rawAltitude) {
           throw new Error("すべてのLegに計画高度を入力してください。");
@@ -340,7 +478,7 @@ function App() {
       default_variation_deg_east: form.variationDegEast,
       manual_qnh_hpa: qnhHpa(form),
       tgl_count: form.tglCount,
-      sections: state.project.sections.map((section) => ({
+      sections: payloadSections.map((section) => ({
         section_id: section.id,
         planned_altitude_ft_msl:
           plannedAltitudes.get(section.id) ?? section.planned_altitude_ft_msl,
@@ -358,14 +496,86 @@ function App() {
     };
   };
 
+  const handleNavLogEdit = (
+    sectionId: string,
+    field: NavLogEditableField,
+    value: string,
+  ) => {
+    const inputSection = state?.project?.sections.find((section) => section.id === sectionId);
+    if (!inputSection || !state?.project) return;
+    const next = {
+      ...navLogDraftsRef.current,
+      [sectionId]: {
+        ...(navLogDraftsRef.current[sectionId] ?? draftFromSection(inputSection)),
+        [field]: value,
+      },
+    };
+    const errors = validateNavLogDrafts(state.project.sections, next);
+    navLogDraftsRef.current = next;
+    setNavLogDrafts(next);
+    setNavLogEditErrors(errors);
+    setNavLogEditStatus(
+      hasNavLogEditErrors(errors)
+        ? { kind: "error", message: "入力を確認してください。直前の正常な計算結果を表示中です。" }
+        : { kind: "pending", message: "入力待ち…自動再計算を予約しました。" },
+    );
+    navLogEditPendingRef.current = true;
+    calculationInputGenerationRef.current += 1;
+    setNavLogEditVersion(calculationInputGenerationRef.current);
+  };
+
+  useEffect(() => {
+    if (!state?.project || !state.outcome || navLogEditVersion === 0) return;
+    const requestGeneration = navLogEditVersion;
+    const errors = validateNavLogDrafts(state.project.sections, navLogDrafts);
+    setNavLogEditErrors(errors);
+    if (hasNavLogEditErrors(errors)) return;
+    const timeout = window.setTimeout(() => {
+      navLogRecalculationRef.current = navLogRecalculationRef.current.then(async () => {
+        if (
+          requestGeneration !== calculationInputGenerationRef.current ||
+          !navLogEditPendingRef.current
+        ) return;
+        setNavLogEditStatus({ kind: "saving", message: "自動再計算中…" });
+        try {
+          const editedSections = state.project!.sections.map((section) =>
+            applyDraftToSection(section, navLogDrafts[section.id]),
+          );
+          const next = await api.request<WebState>("/api/project/recalculate", {
+            method: "POST",
+            body: updatePayload(editedSections),
+          });
+          if (
+            requestGeneration !== calculationInputGenerationRef.current ||
+            !navLogEditPendingRef.current
+          ) return;
+          applyState(next, { syncCalculationInputs: true });
+          navLogEditPendingRef.current = false;
+          setNavLogEditVersion(0);
+          setNavLogEditStatus({ kind: "saved", message: "自動再計算しました。" });
+        } catch (reason) {
+          if (requestGeneration !== calculationInputGenerationRef.current) return;
+          setNavLogEditStatus({
+            kind: "error",
+            message: `${reason instanceof Error ? reason.message : "自動再計算に失敗しました。"} 直前の正常な計算結果を表示中です。`,
+          });
+        }
+      });
+    }, 700);
+    return () => window.clearTimeout(timeout);
+  }, [altitudeInputs, api, form, navLogDrafts, navLogEditVersion, state?.outcome, state?.project]);
+
   const handleCalculate = async () => {
+    cancelPendingRecalculation();
     const calculated = await run(async () => {
       await api.request<WebState>("/api/project", {
         method: "PUT",
         body: updatePayload(),
       });
       return api.request<WebState>("/api/calculate", { method: "POST" });
-    }, "NAV LOGを計算しました。準備状況と各値を確認してください。");
+    }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
+      syncCalculationInputs: true,
+    });
     if (calculated?.outcome) {
       window.requestAnimationFrame(() => {
         navLogRef.current?.focus({ preventScroll: true });
@@ -391,6 +601,7 @@ function App() {
 
   const handleLoad = async () => {
     if (!selectedProjectId) return;
+    cancelPendingRecalculation();
     await run(
       () =>
         api.request<WebState>("/api/projects/load", {
@@ -398,6 +609,7 @@ function App() {
           body: { project_id: selectedProjectId },
         }),
       "保存済みProjectを開きました。再計算してください。",
+      { syncCalculationInputs: true },
     );
   };
 
@@ -405,6 +617,7 @@ function App() {
     if (state?.project && !window.confirm("現在の未保存入力を閉じて新規作業を始めますか？")) {
       return;
     }
+    cancelPendingRecalculation();
     const reset = await runTask(
       async () => {
         await api.resetSession();
@@ -456,6 +669,9 @@ function App() {
   }
 
   const selectedCandidate = candidateFromKey(state.import.candidates, form.candidateKey);
+  const selectedDestinationAirport = state.airports.find(
+    (airport) => airport.id === form.destinationAirportId,
+  ) ?? null;
   const selectedArrival = state.project?.metadata.ui_state?.arrival_plan ?? null;
   const destinationConfirmed = Boolean(
     state.project &&
@@ -463,6 +679,7 @@ function App() {
       selectedArrival?.selected_pattern_altitude_ft_msl !== undefined &&
       selectedArrival.selected_pattern_altitude_source &&
       state.project.destination_airport_id === form.destinationAirportId &&
+      state.project.departure_airport_id === form.departureAirportId &&
       selectedArrival.selected_pattern_altitude_ft_msl ===
         patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl),
   );
@@ -506,7 +723,7 @@ function App() {
           importState={state.import}
           airports={state.airports}
           form={form}
-          setForm={setForm}
+          setForm={setTrackedForm}
           projectExists={Boolean(state.project)}
           busy={busy}
           onFile={handleFile}
@@ -519,7 +736,15 @@ function App() {
           altitudeGuidance={state.altitudeGuidance}
           outcome={state.outcome}
           altitudeInputs={altitudeInputs}
+          destinationAirport={selectedDestinationAirport}
+          destinationPatternAltitudeFtMsl={form.destinationPatternAltitudeFtMsl}
           onAltitudeInputChange={handleAltitudeInputChange}
+          onDestinationPatternAltitudeChange={(value) =>
+            setTrackedForm((current) => ({
+              ...current,
+              destinationPatternAltitudeFtMsl: value,
+            }))
+          }
           onSectionChange={handleSectionChange}
         />
         <StatusPanel
@@ -538,14 +763,21 @@ function App() {
         />
       </main>
 
-      {state.outcome && (
+      {state.outcome && state.project && (
         <div
           ref={navLogRef}
           className="nav-log-focus-target"
           tabIndex={-1}
           aria-label="計算済みNAV LOG"
         >
-          <NavLogTable outcome={state.outcome} />
+          <NavLogTable
+            outcome={state.outcome}
+            project={state.project}
+            drafts={navLogDrafts}
+            editErrors={navLogEditErrors}
+            editStatus={navLogEditStatus}
+            onEdit={handleNavLogEdit}
+          />
         </div>
       )}
 
