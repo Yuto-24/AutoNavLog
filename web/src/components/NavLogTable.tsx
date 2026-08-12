@@ -1,5 +1,13 @@
 import { Fragment } from "react";
-import type { AdoptedValue, CalculationOutcome, SectionResult } from "../types";
+import { draftFromSection } from "../navLogEditing";
+import type {
+  NavLogEditDrafts,
+  NavLogEditErrors,
+  NavLogEditableField,
+} from "../navLogEditing";
+import type {
+  AdoptedValue, CalculationOutcome, NavSection, Project, SectionResult,
+} from "../types";
 
 function adopted<T>(value: AdoptedValue<T>): T | null {
   return value.adopted_source === "MANUAL"
@@ -145,7 +153,10 @@ function ValueCell({
 }) {
   const formatted = numberValue(value, formatter);
   return (
-    <td className={valueClass(formatted)}>
+    <td
+      className={`${valueClass(formatted)} derived-readonly-cell`}
+      title="計算・出典から導出されるため、この欄は読み取り専用です。"
+    >
       {formatted.text}
       {formatted.manual && <small>手入力</small>}
     </td>
@@ -169,7 +180,10 @@ function CombinedValueCell({
     unavailable: firstValue.unavailable || secondValue.unavailable,
   };
   return (
-    <td className={valueClass(formatted)}>
+    <td
+      className={`${valueClass(formatted)} derived-readonly-cell`}
+      title="計算・出典から導出されるため、この欄は読み取り専用です。"
+    >
       {formatted.text}
       {formatted.manual && <small>手入力</small>}
     </td>
@@ -221,7 +235,10 @@ function WindCell({
 }) {
   const formatted = wind(direction, speed);
   return (
-    <td className={valueClass(formatted)}>
+    <td
+      className={`${valueClass(formatted)} derived-readonly-cell`}
+      title="計算・出典から導出されるため、この欄は読み取り専用です。"
+    >
       {formatted.text}
       {formatted.manual && <small>手入力</small>}
     </td>
@@ -243,9 +260,118 @@ function CombinedEteCell({
     unavailable: firstValue.unavailable || secondValue.unavailable,
   };
   return (
-    <td className={valueClass(formatted)}>
+    <td
+      className={`${valueClass(formatted)} derived-readonly-cell`}
+      title="計算・出典から導出されるため、この欄は読み取り専用です。"
+    >
       {formatted.text}
       {formatted.manual && <small>手入力</small>}
+    </td>
+  );
+}
+
+function EditableNumberCell({
+  value,
+  draftValue,
+  field,
+  label,
+  error,
+  onChange,
+  min,
+  max,
+  step,
+  formatter = integer,
+  required = false,
+}: {
+  value: AdoptedValue<number>;
+  draftValue: string;
+  field: NavLogEditableField;
+  label: string;
+  error?: string;
+  onChange: (field: NavLogEditableField, value: string) => void;
+  min: number;
+  max: number;
+  step: number;
+  formatter?: NumberFormatter;
+  required?: boolean;
+}) {
+  const formatted = numberValue(value, formatter);
+  return (
+    <td className={`nav-log-editable-cell ${error ? "nav-log-invalid-cell" : ""}`}>
+      <input
+        className="nav-log-number-input"
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        required={required}
+        aria-label={label}
+        aria-invalid={Boolean(error)}
+        title={error ?? (required ? "この値は必須です。" : "空欄にすると自動値へ戻ります。")}
+        value={draftValue}
+        placeholder={formatted.text}
+        onChange={(event) => onChange(field, event.target.value)}
+      />
+      <span className="visually-hidden" aria-hidden="true">{formatted.text}</span>
+      {error && <small className="nav-log-field-error">要確認</small>}
+      {!error && !required && draftValue.trim() && <small>手入力</small>}
+    </td>
+  );
+}
+
+function EditableWindCell({
+  direction,
+  speed,
+  directionValue,
+  speedValue,
+  label,
+  errors,
+  onChange,
+}: {
+  direction: AdoptedValue<number>;
+  speed: AdoptedValue<number>;
+  directionValue: string;
+  speedValue: string;
+  label: string;
+  errors: Partial<Record<NavLogEditableField, string>>;
+  onChange: (field: NavLogEditableField, value: string) => void;
+}) {
+  const formatted = wind(direction, speed);
+  const invalid = Boolean(errors.windDirection || errors.windSpeed);
+  return (
+    <td className={`nav-log-editable-cell ${invalid ? "nav-log-invalid-cell" : ""}`}>
+      <div className="nav-log-wind-inputs">
+        <input
+          className="nav-log-number-input"
+          type="number"
+          min="0"
+          max="359"
+          step="1"
+          aria-label={`${label} 手動風向`}
+          aria-invalid={Boolean(errors.windDirection)}
+          title={errors.windDirection ?? "空欄にすると自動値へ戻ります。"}
+          value={directionValue}
+          placeholder="DIR"
+          onChange={(event) => onChange("windDirection", event.target.value)}
+        />
+        <span>/</span>
+        <input
+          className="nav-log-number-input"
+          type="number"
+          min="0"
+          max="200"
+          step="1"
+          aria-label={`${label} 手動風速`}
+          aria-invalid={Boolean(errors.windSpeed)}
+          title={errors.windSpeed ?? "空欄にすると自動値へ戻ります。"}
+          value={speedValue}
+          placeholder="kt"
+          onChange={(event) => onChange("windSpeed", event.target.value)}
+        />
+      </div>
+      <span className="visually-hidden" aria-hidden="true">{formatted.text}</span>
+      {invalid && <small className="nav-log-field-error">風向・風速を確認</small>}
+      {!invalid && (directionValue.trim() || speedValue.trim()) && <small>手入力</small>}
     </td>
   );
 }
@@ -346,29 +472,99 @@ function FuelPlanTable({ outcome }: { outcome: CalculationOutcome }) {
   );
 }
 
-function ResultCells({ section }: { section: SectionResult }) {
+function ResultCells({
+  section,
+  inputSection,
+  drafts,
+  editErrors,
+  onEdit,
+}: {
+  section: SectionResult;
+  inputSection: NavSection;
+  drafts: NavLogEditDrafts;
+  editErrors: NavLogEditErrors;
+  onEdit: (sectionId: string, field: NavLogEditableField, value: string) => void;
+}) {
   const variationValue = adopted(section.variation_deg_east);
   const variation: FormattedValue = {
     text: variationValue === null ? "未取得" : signedInteger(variationValue),
     manual: section.variation_deg_east.adopted_source === "MANUAL",
     unavailable: variationValue === null,
   };
+  const draft = drafts[inputSection.id] ?? draftFromSection(inputSection);
+  const errors = editErrors[inputSection.id] ?? {};
+  const isVisualArrival = inputSection.phase === "VISUAL_ARRIVAL";
+  const inputLabel = `${section.from_name}→${section.to_name}`;
+  const change = (field: NavLogEditableField, value: string) => {
+    onEdit(inputSection.id, field, value);
+  };
   return (
     <>
-      <ValueCell value={section.planned_altitude_ft_msl} />
-      <ValueCell value={section.temperature_c} />
+      {isVisualArrival ? (
+        <ValueCell value={section.planned_altitude_ft_msl} />
+      ) : (
+        <EditableNumberCell
+          value={section.planned_altitude_ft_msl}
+          draftValue={draft.plannedAltitude}
+          field="plannedAltitude"
+          label={`${inputLabel} 計画高度`}
+          error={errors.plannedAltitude}
+          min={100}
+          max={25_000}
+          step={100}
+          required
+          onChange={change}
+        />
+      )}
+      <EditableNumberCell
+        value={section.temperature_c}
+        draftValue={draft.temperature}
+        field="temperature"
+        label={`${inputLabel} 手動気温`}
+        error={errors.temperature}
+        min={-80}
+        max={60}
+        step={1}
+        onChange={change}
+      />
       <ValueCell value={section.cas_kt} />
-      <ValueCell value={section.tas_kt} />
+      {isVisualArrival ? (
+        <ValueCell value={section.tas_kt} />
+      ) : (
+        <EditableNumberCell
+          value={section.tas_kt}
+          draftValue={draft.tas}
+          field="tas"
+          label={`${inputLabel} 手動TAS`}
+          error={errors.tas}
+          min={1}
+          max={300}
+          step={1}
+          onChange={change}
+        />
+      )}
       <ValueCell value={section.true_course_deg} formatter={bearing} />
-      <td className={valueClass(variation)}>
+      <td
+        className={`${valueClass(variation)} derived-readonly-cell`}
+        title="Project入力から導出される読み取り専用値です。"
+      >
         {variation.text}
         {variation.manual && <small>手入力</small>}
       </td>
       <ValueCell value={section.magnetic_course_deg} formatter={bearing} />
-      <WindCell
-        direction={section.wind_direction_deg_from}
-        speed={section.wind_speed_kt}
-      />
+      {isVisualArrival ? (
+        <WindCell direction={section.wind_direction_deg_from} speed={section.wind_speed_kt} />
+      ) : (
+        <EditableWindCell
+          direction={section.wind_direction_deg_from}
+          speed={section.wind_speed_kt}
+          directionValue={draft.windDirection}
+          speedValue={draft.windSpeed}
+          label={inputLabel}
+          errors={errors}
+          onChange={change}
+        />
+      )}
       <ValueCell value={section.wca_deg} formatter={signedInteger} />
       <ValueCell value={section.magnetic_heading_deg} formatter={bearing} />
       <CombinedValueCell
@@ -406,16 +602,38 @@ function groupByPhysicalLeg(sections: SectionResult[]): SectionResult[][] {
   return groups;
 }
 
-export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
+export function NavLogTable({
+  outcome,
+  project,
+  drafts,
+  editErrors,
+  editStatus,
+  onEdit,
+}: {
+  outcome: CalculationOutcome;
+  project: Project;
+  drafts: NavLogEditDrafts;
+  editErrors: NavLogEditErrors;
+  editStatus: { kind: "idle" | "pending" | "saving" | "saved" | "error"; message: string };
+  onEdit: (sectionId: string, field: NavLogEditableField, value: string) => void;
+}) {
   const physicalLegs = groupByPhysicalLeg(outcome.sections);
+  const inputSections = new Map(project.sections.map((section) => [section.id, section]));
   return (
     <section className="nav-log-section" aria-labelledby="nav-log-title">
       <div className="nav-log-heading">
         <div>
           <h2 id="nav-log-title">NAV LOG</h2>
-          <p>計画値を確認し、公式様式へ手書きで転記するための非公式補助です。</p>
+          <p>入力色の欄は直接編集でき、約0.7秒後に自動再計算します。</p>
         </div>
         <span>Forecast Run: {outcome.selected_forecast_run_id ?? "未選択"}</span>
+      </div>
+      <div className="nav-log-edit-guide" id="nav-log-edit-guide">
+        <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>
+        <span className="nav-log-readonly-key">読取専用: 航法・距離・時間・燃料などの派生値</span>
+        <span className={`nav-log-edit-status nav-log-edit-status-${editStatus.kind}`} role="status" aria-live="polite">
+          {editStatus.message}
+        </span>
       </div>
       <div className="table-scroll nav-log-scroll">
         <div className="nav-log-tables">
@@ -462,7 +680,19 @@ export function NavLogTable({ outcome }: { outcome: CalculationOutcome }) {
                     >
                       <td aria-hidden="true" />
                       <td className="route-name-cell">{section.to_name}</td>
-                      <ResultCells section={section} />
+                      {inputSections.has(section.section_id) ? (
+                        <ResultCells
+                          section={section}
+                          inputSection={inputSections.get(section.section_id)!}
+                          drafts={drafts}
+                          editErrors={editErrors}
+                          onEdit={onEdit}
+                        />
+                      ) : (
+                        <td colSpan={17} className="unavailable-value">
+                          入力元Legが見つかりません
+                        </td>
+                      )}
                     </tr>
                   ))}
                   <tr className="nav-leg-spacer-row" aria-hidden="true">

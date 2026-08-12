@@ -105,8 +105,11 @@ export interface Project {
 
 export interface AdoptedValue<T> {
   automatic_value: T | null;
+  automatic_status?: string;
+  automatic_metadata?: Record<string, unknown>;
   manual_override: T | null;
   adopted_source: "AUTOMATIC" | "MANUAL" | null;
+  warnings?: string[];
 }
 
 export interface SectionResult {

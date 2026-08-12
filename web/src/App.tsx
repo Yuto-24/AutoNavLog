@@ -10,6 +10,15 @@ import {
   qnhHpa,
 } from "./forms";
 import type { PlanningForm } from "./forms";
+import {
+  applyDraftToSection,
+  draftFromSection,
+  hasNavLogEditErrors,
+  validateNavLogDrafts,
+} from "./navLogEditing";
+import type {
+  NavLogEditDrafts, NavLogEditErrors, NavLogEditableField,
+} from "./navLogEditing";
 import { Header } from "./components/Header";
 import { ImportPlanPanel } from "./components/ImportPlanPanel";
 import { NavLogTable } from "./components/NavLogTable";
@@ -31,6 +40,13 @@ function App() {
   const [state, setState] = useState<WebState | null>(null);
   const [form, setForm] = useState<PlanningForm>(() => initialPlanningForm());
   const [altitudeInputs, setAltitudeInputs] = useState<Record<string, string>>({});
+  const [navLogDrafts, setNavLogDrafts] = useState<NavLogEditDrafts>({});
+  const [navLogEditErrors, setNavLogEditErrors] = useState<NavLogEditErrors>({});
+  const [navLogEditVersion, setNavLogEditVersion] = useState(0);
+  const [navLogEditStatus, setNavLogEditStatus] = useState<{
+    kind: "idle" | "pending" | "saving" | "saved" | "error";
+    message: string;
+  }>({ kind: "idle", message: "入力欄を編集すると自動再計算します。" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -42,6 +58,8 @@ function App() {
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const navLogRef = useRef<HTMLDivElement | null>(null);
   const kmzDialogRef = useModalFocusTrap<HTMLElement>(Boolean(pendingKmz));
+  const navLogEditVersionRef = useRef(0);
+  const navLogRecalculationRef = useRef<Promise<void>>(Promise.resolve());
 
   const applyState = (next: WebState) => {
     setState(next);
@@ -65,6 +83,14 @@ function App() {
       }
       return updated;
     });
+    if (next.project && next.outcome) {
+      setNavLogDrafts(
+        Object.fromEntries(
+          next.project.sections.map((section) => [section.id, draftFromSection(section)]),
+        ),
+      );
+      setNavLogEditErrors({});
+    }
   };
 
   useEffect(() => {
@@ -308,12 +334,15 @@ function App() {
     });
   };
 
-  const updatePayload = () => {
+  const updatePayload = (sectionOverrides?: NavSection[]) => {
+    const payloadSections = sectionOverrides ?? state?.project?.sections ?? [];
     if (!state?.project) throw new Error("Projectがありません。");
     const plannedAltitudes = new Map(
-      state.project.sections.map((section) => {
+      payloadSections.map((section) => {
         const rawAltitude = (
-          altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)
+          sectionOverrides
+            ? String(section.planned_altitude_ft_msl)
+            : altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)
         ).trim();
         if (!rawAltitude) {
           throw new Error("すべてのLegに計画高度を入力してください。");
@@ -340,7 +369,7 @@ function App() {
       default_variation_deg_east: form.variationDegEast,
       manual_qnh_hpa: qnhHpa(form),
       tgl_count: form.tglCount,
-      sections: state.project.sections.map((section) => ({
+      sections: payloadSections.map((section) => ({
         section_id: section.id,
         planned_altitude_ft_msl:
           plannedAltitudes.get(section.id) ?? section.planned_altitude_ft_msl,
@@ -357,6 +386,69 @@ function App() {
       manual_qnh_confirmed: form.manualQnhConfirmed,
     };
   };
+
+  const handleNavLogEdit = (
+    sectionId: string,
+    field: NavLogEditableField,
+    value: string,
+  ) => {
+    setNavLogDrafts((current) => {
+      const inputSection = state?.project?.sections.find((section) => section.id === sectionId);
+      if (!inputSection || !state?.project) return current;
+      const next = {
+        ...current,
+        [sectionId]: {
+          ...(current[sectionId] ?? draftFromSection(inputSection)),
+          [field]: value,
+        },
+      };
+      const errors = validateNavLogDrafts(state.project.sections, next);
+      setNavLogEditErrors(errors);
+      setNavLogEditStatus(
+        hasNavLogEditErrors(errors)
+          ? { kind: "error", message: "入力を確認してください。直前の正常な計算結果を表示中です。" }
+          : { kind: "pending", message: "入力待ち…自動再計算を予約しました。" },
+      );
+      return next;
+    });
+    navLogEditVersionRef.current += 1;
+    setNavLogEditVersion(navLogEditVersionRef.current);
+  };
+
+  useEffect(() => {
+    if (!state?.project || !state.outcome || navLogEditVersion === 0) return;
+    const requestVersion = navLogEditVersion;
+    const errors = validateNavLogDrafts(state.project.sections, navLogDrafts);
+    setNavLogEditErrors(errors);
+    if (hasNavLogEditErrors(errors)) return;
+    const timeout = window.setTimeout(() => {
+      navLogRecalculationRef.current = navLogRecalculationRef.current.then(async () => {
+        if (requestVersion !== navLogEditVersionRef.current) return;
+        setNavLogEditStatus({ kind: "saving", message: "自動再計算中…" });
+        try {
+          const editedSections = state.project!.sections.map((section) =>
+            applyDraftToSection(section, navLogDrafts[section.id]),
+          );
+          const next = await api.request<WebState>("/api/project/recalculate", {
+            method: "POST",
+            body: updatePayload(editedSections),
+          });
+          if (requestVersion !== navLogEditVersionRef.current) return;
+          applyState(next);
+          navLogEditVersionRef.current = 0;
+          setNavLogEditVersion(0);
+          setNavLogEditStatus({ kind: "saved", message: "自動再計算しました。" });
+        } catch (reason) {
+          if (requestVersion !== navLogEditVersionRef.current) return;
+          setNavLogEditStatus({
+            kind: "error",
+            message: `${reason instanceof Error ? reason.message : "自動再計算に失敗しました。"} 直前の正常な計算結果を表示中です。`,
+          });
+        }
+      });
+    }, 700);
+    return () => window.clearTimeout(timeout);
+  }, [api, navLogDrafts, navLogEditVersion, state?.outcome, state?.project]);
 
   const handleCalculate = async () => {
     const calculated = await run(async () => {
@@ -538,14 +630,21 @@ function App() {
         />
       </main>
 
-      {state.outcome && (
+      {state.outcome && state.project && (
         <div
           ref={navLogRef}
           className="nav-log-focus-target"
           tabIndex={-1}
           aria-label="計算済みNAV LOG"
         >
-          <NavLogTable outcome={state.outcome} />
+          <NavLogTable
+            outcome={state.outcome}
+            project={state.project}
+            drafts={navLogDrafts}
+            editErrors={navLogEditErrors}
+            editStatus={navLogEditStatus}
+            onEdit={handleNavLogEdit}
+          />
         </div>
       )}
 
