@@ -456,6 +456,9 @@ function App() {
   }
 
   const selectedCandidate = candidateFromKey(state.import.candidates, form.candidateKey);
+  const selectedDestinationAirport = state.airports.find(
+    (airport) => airport.id === form.destinationAirportId,
+  ) ?? null;
   const selectedArrival = state.project?.metadata.ui_state?.arrival_plan ?? null;
   const destinationConfirmed = Boolean(
     state.project &&
@@ -519,7 +522,15 @@ function App() {
           altitudeGuidance={state.altitudeGuidance}
           outcome={state.outcome}
           altitudeInputs={altitudeInputs}
+          destinationAirport={selectedDestinationAirport}
+          destinationPatternAltitudeFtMsl={form.destinationPatternAltitudeFtMsl}
           onAltitudeInputChange={handleAltitudeInputChange}
+          onDestinationPatternAltitudeChange={(value) =>
+            setForm((current) => ({
+              ...current,
+              destinationPatternAltitudeFtMsl: value,
+            }))
+          }
           onSectionChange={handleSectionChange}
         />
         <StatusPanel

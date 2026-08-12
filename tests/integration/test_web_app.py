@@ -90,6 +90,14 @@ async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path)
         created = await client.post("/api/session")
         assert created.status_code == 200
         assert set(created.json()) == {"state"}
+        destination = next(
+            airport
+            for airport in created.json()["state"]["airports"]
+            if airport["id"] == "RJFO"
+        )
+        assert destination["elevationFtMsl"] == 17
+        assert destination["patternAltitudeFtMsl"] == 1000
+        assert destination["patternAltitudeValidationStatus"] == "VERIFIED"
         cookie = created.headers["set-cookie"]
         assert "HttpOnly" in cookie
         assert "Secure" in cookie

@@ -1,6 +1,6 @@
 import { ClipboardPaste, FileUp, Route } from "lucide-react";
 import type { Dispatch, DragEvent, SetStateAction } from "react";
-import { convertQnhValue, patternAltitudeFtMsl, variationForDeparture } from "../forms";
+import { convertQnhValue, variationForDeparture } from "../forms";
 import type { PlanningForm, QnhUnit } from "../forms";
 import type { AirportOption, ImportState } from "../types";
 
@@ -42,10 +42,6 @@ export function ImportPlanPanel({
   const selectedDestination = airports.find(
     (airport) => airport.id === form.destinationAirportId,
   );
-  const validPatternAltitude = patternAltitudeFtMsl(
-    form.destinationPatternAltitudeFtMsl,
-  );
-
   const acceptDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     if (busy) return;
@@ -210,35 +206,6 @@ export function ImportPlanPanel({
               ))}
             </select>
           </label>
-          {projectExists && (
-            <label className="span-two">
-              <span>今回採用する場周経路高度（ft MSL）</span>
-              <input
-                aria-label="今回採用する場周経路高度"
-                type="number"
-                min="100"
-                max="25000"
-                step="100"
-                value={form.destinationPatternAltitudeFtMsl}
-                aria-invalid={validPatternAltitude === null}
-                onChange={(event) =>
-                  update("destinationPatternAltitudeFtMsl", event.target.value)
-                }
-              />
-              <small className="field-help">
-                飛行場標高 {selectedDestination?.elevationFtMsl.toLocaleString("ja-JP") ?? "-"} ft
-                {" / "}master {selectedDestination?.patternAltitudeFtMsl.toLocaleString("ja-JP") ?? "-"} ft
-                {selectedDestination ? " / " + selectedDestination.patternAltitudeSource : ""}
-                <br />東西場周など運用差がある場合は、今回使う100 ft単位のMSL高度へ編集してください。
-                {validPatternAltitude === null && (
-                  <>
-                    <br />
-                    100～25,000 ftの範囲で100 ft単位の整数を入力してください。
-                  </>
-                )}
-              </small>
-            </label>
-          )}
           <label className="span-two">
             <span>TO（経路終点から自動設定）</span>
             <input
