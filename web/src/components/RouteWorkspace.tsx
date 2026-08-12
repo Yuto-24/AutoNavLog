@@ -34,6 +34,13 @@ const phaseLabels: Record<FlightPhase, string> = {
   VISUAL_ARRIVAL: "場周進入",
 };
 
+const altitudeBasisLabels: Record<FlightPhase, string> = {
+  CLIMB: "上昇先の巡航高度",
+  CRUISE: "このLegの巡航高度",
+  DESCENT: "降下開始時の巡航高度",
+  VISUAL_ARRIVAL: "場周進入の計画高度",
+};
+
 const roleLabels: Record<string, string> = {
   AIRPORT: "出発",
   ROUTE_POINT: "経路点",
@@ -221,7 +228,8 @@ export function RouteWorkspace({
                 ),
               );
               const requiresAltitudeReview =
-                section?.phase === "CRUISE" && !isCandidateAltitude;
+                Boolean(guidance?.appliesToCruisingAltitudeInput) &&
+                !isCandidateAltitude;
               return (
                 <tr
                   key={node.id}
@@ -238,10 +246,17 @@ export function RouteWorkspace({
                   <td className={requiresAltitudeReview ? "altitude-review-cell" : ""}>
                     {section ? (
                       <div className="altitude-controls">
-                        {guidance && section.phase === "CRUISE" && (
+                        {guidance?.appliesToCruisingAltitudeInput && (
                           <select
                             className="table-select altitude-candidate-select"
-                            aria-label={node.name + "出発Legの巡航高度候補"}
+                            aria-label={
+                              section.phase === "CRUISE"
+                                ? node.name + "出発Legの巡航高度候補"
+                                : node.name +
+                                  "出発Legの" +
+                                  altitudeBasisLabels[section.phase] +
+                                  "候補"
+                            }
                             value={
                               isCandidateAltitude
                                 ? String(effectiveAltitude)
@@ -276,6 +291,9 @@ export function RouteWorkspace({
                         />
                         {guidance && (
                           <small className="altitude-course">
+                            {guidance.appliesToCruisingAltitudeInput
+                              ? altitudeBasisLabels[section.phase] + "・"
+                              : ""}
                             MC {Math.round(guidance.magneticCourseDeg)}
                             {requiresAltitudeReview ? "・候補外（要確認）" : ""}
                           </small>
@@ -315,6 +333,8 @@ export function RouteWorkspace({
       </div>
       {project && (
         <p className="altitude-guidance-note">
+          上昇のALTは上昇先、降下のALTは降下開始時の巡航高度です。いずれもMC候補から選択できます。
+          <br />
           {altitudeGuidance.legalThresholdNote}
           <br />
           {altitudeGuidance.terrainLimitationNote}

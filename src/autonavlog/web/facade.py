@@ -833,6 +833,11 @@ class AutoNavLogWebApplication:
                 section.planned_altitude_ft_msl,
                 magnetic_course,
             )
+            applies_to_cruising_altitude_input = section.phase in {
+                FlightPhase.CLIMB,
+                FlightPhase.CRUISE,
+                FlightPhase.DESCENT,
+            }
             guidance.append(
                 {
                     "sectionId": str(section.id),
@@ -841,7 +846,12 @@ class AutoNavLogWebApplication:
                         vfr_cruising_altitude_candidates(magnetic_course)
                     ),
                     "appliesToCruise": section.phase == FlightPhase.CRUISE,
-                    "requiresReview": (section.phase == FlightPhase.CRUISE and not matches),
+                    "appliesToCruisingAltitudeInput": (
+                        applies_to_cruising_altitude_input
+                    ),
+                    "requiresReview": (
+                        applies_to_cruising_altitude_input and not matches
+                    ),
                 }
             )
         return guidance

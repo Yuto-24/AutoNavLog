@@ -187,6 +187,41 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   expect(unexpectedConsoleErrors).toEqual([]);
 });
 
+test("climb and descent legs show magnetic-course altitude candidates", async ({ page }) => {
+  await page.goto("/");
+
+  const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
+  await openPaste.click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await dialog.getByRole("textbox").fill(kml);
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const phaseSelects = page.getByLabel(/出発LegのPhase/);
+  await phaseSelects.nth(0).selectOption("CLIMB");
+  await phaseSelects.nth(2).selectOption("DESCENT");
+
+  const climbCandidate = page.getByLabel(/出発Legの上昇先の巡航高度候補/);
+  const descentCandidate = page.getByLabel(/出発Legの降下開始時の巡航高度候補/);
+  await expect(climbCandidate).toBeVisible();
+  await expect(descentCandidate).toBeVisible();
+  await expect(climbCandidate.locator("option")).not.toHaveCount(0);
+  await expect(descentCandidate.locator("option")).not.toHaveCount(0);
+  await expect(
+    page.getByText(/上昇のALTは上昇先、降下のALTは降下開始時の巡航高度/),
+  ).toBeVisible();
+
+  const climbAltitude = await climbCandidate.locator("option").first().getAttribute("value");
+  const descentAltitude = await descentCandidate.locator("option").first().getAttribute("value");
+  if (climbAltitude === null || descentAltitude === null) {
+    throw new Error("Climb or descent altitude candidate is missing");
+  }
+  await climbCandidate.selectOption(climbAltitude);
+  await descentCandidate.selectOption(descentAltitude);
+  await expect(page.locator(".altitude-review-row")).toHaveCount(1);
+});
+
 test("calculated mobile layout has no body overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");

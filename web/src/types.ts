@@ -171,6 +171,7 @@ export interface SectionAltitudeGuidance {
   magneticCourseDeg: number;
   candidateAltitudesFtMsl: number[];
   appliesToCruise: boolean;
+  appliesToCruisingAltitudeInput: boolean;
   requiresReview: boolean;
 }
 
