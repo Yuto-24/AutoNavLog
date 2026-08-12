@@ -51,8 +51,8 @@ POHおよび全Supplementに対してそのまま適用可能かは、機体別�
 
 | 分野 | 原典箇所 | 直接確認した内容 | 現行repoの判定 |
 |---|---|---|---|
-| 上昇表 | SR22-POH-A1 pp.5-30〜5-31 | Full Throttle、Mixture per Section 4、6.0 lb/gal、3600 lb、無風。海面からの高度別Time/Fuel/Distanceを掲載。標準より10℃高いごとに計算値へ10%を加える注記、start/taxi/takeoffに1.5 galを加える注記あり | 19行を完全転記し、原典からの独立再抽出と全行差分比較、頁、重複、SHA-256を確認済み。対象機適用性とGolden照合は未完了 |
-| 巡航表 | SR22-POH-A1 pp.5-32〜5-34 | 3400 lb、無風。Pressure Altitude、RPM、MAPごとにISA -30℃、ISA、ISA +30℃のPWR/KTAS/GPHを掲載 | 159行を完全転記し、原典からの独立再抽出と全行差分比較、頁、重複、SHA-256を確認済み。宮崎65% Best Powerのexact選択とGolden照合は未完了 |
+| 上昇表 | SR22-POH-A1 pp.5-30〜5-31 | Full Throttle、Mixture per Section 4、6.0 lb/gal、3600 lb、無風。海面からの高度別Time/Fuel/Distanceを掲載。標準より10℃高いごとに計算値へ10%を加える注記、start/taxi/takeoffに1.5 galを加える注記あり | 原表19節点を完全転記・独立比較し、Issue #15添付に合わせた500 ft線形補間36行をruntime CSV化。対象機適用性とGolden照合は未完了 |
+| 巡航表 | SR22-POH-A1 pp.5-32〜5-34 | 3400 lb、無風。Pressure Altitude、RPM、MAPごとにISA -30℃、ISA、ISA +30℃のPWR/KTAS/GPHを掲載 | 159行を完全転記・独立比較し、Issue #15添付のPWR→ISA偏差→高度補間6,419行を全行再現。宮崎65% Best Powerのexact適合性とGolden照合は未完了 |
 | 版管理 | SR22-POH-A1 LOEP | 文書はRevision A1、性能頁5-30〜5-34はReissue A | 版は確認済み。対象機固有の承認文書・Supplementとの適用性確認は未完了 |
 
 ## 補助的な公開一次資料
@@ -76,9 +76,9 @@ POHおよび全Supplementに対してそのまま適用可能かは、機体別�
   収録していないKIAS/FPM、巡航表の85%超非推奨flag、fairing・A/C・EVS補正の扱い、
   対象機適用性、およびGolden NAV LOGとの一致は未確認。
 - PAの算式と、未丸めPAを次の500 ftへ上げる`CEILING`。
-- 上昇表の多軸線形補間、表端から500 ft以内の高度外挿、POHの温度補正との対応。
-- 巡航表を補間しないこと、および65%近傍から燃料最大、ETE最大、KTAS最小の順に選ぶ
-  exact tie-break。規程が要求する「計画に近い条件のうち不利」を満たすことのGolden照合。
+- 上昇表の500 ft線形補間、表端から500 ft以内の高度外挿、POHの温度補正との対応。
+- 巡航表のPWR→ISA偏差→高度という補間順序、0.1単位のties-to-even、および外挿禁止。
+  規程が要求する「計画に近い条件のうち不利」を満たすことのGolden照合。
 - WGS84測地線、Leg中点での気象照会、RCA/EOCを物理Leg内で分割するexactアルゴリズム。
 - Loss Timeを機上修正値として地上の時間・Forecast・燃料から除外する扱い。
 - `MSM推定QNH`を全Projectへ適用すること、MSM風・気温の時間/空間補間、同一Forecast

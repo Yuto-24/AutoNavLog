@@ -16,9 +16,22 @@ class PerformanceTableManifest(PerformanceModel):
     sha256: str | None = None
 
 
+class PerformanceSourceArtifact(PerformanceModel):
+    id: str
+    url: str
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    role: str
+
+
 class ClimbTemperaturePolicy(str, Enum):
     TABLE_GRID = "TABLE_GRID"
     ISA_BASELINE_10_PERCENT_PER_10C_ABOVE = "ISA_BASELINE_10_PERCENT_PER_10C_ABOVE"
+
+
+class CruiseInterpolationPolicy(str, Enum):
+    PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR = (
+        "PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR"
+    )
 
 
 class PerformanceManifest(PerformanceModel):
@@ -29,6 +42,10 @@ class PerformanceManifest(PerformanceModel):
     verified_against: str
     validation_status: str = "UNVERIFIED"
     climb_temperature_policy: ClimbTemperaturePolicy = ClimbTemperaturePolicy.TABLE_GRID
+    cruise_interpolation_policy: CruiseInterpolationPolicy = (
+        CruiseInterpolationPolicy.PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR
+    )
+    source_artifacts: list[PerformanceSourceArtifact] = Field(default_factory=list)
     tables: list[PerformanceTableManifest] = Field(default_factory=list)
 
     @property
@@ -51,6 +68,17 @@ class CruiseRow(PerformanceModel):
     isa_deviation_c: float
     rpm: float
     map_in_hg: float
+    power_percent: float = Field(gt=0)
+    ktas: float = Field(gt=0)
+    gph: float = Field(gt=0)
+    source_page: str
+
+
+class CruiseInterpolatedRow(PerformanceModel):
+    pressure_altitude_ft: float
+    isa_deviation_c: float
+    rpm: None = None
+    map_in_hg: None = None
     power_percent: float = Field(gt=0)
     ktas: float = Field(gt=0)
     gph: float = Field(gt=0)

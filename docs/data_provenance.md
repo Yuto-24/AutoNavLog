@@ -8,9 +8,15 @@
 実行時にPDFは解析しません。
 
 現行SR22 G6データは、P/N 13772-006 Reissue A（Revision A1のLOEP上、性能頁
-5-30〜5-34はReissue A）から転記しました。上昇19行と巡航159行を別処理で再抽出し、
-全行差分ゼロを確認しています。CSVのSHA-256、原典PDFのSHA-256、適用する
-`climb_temperature_policy`は`data/performance/manifest.json`へ固定しています。
+5-30〜5-34はReissue A）から転記しました。上昇原表19節点と巡航159行を別処理で再抽出し、
+全行差分ゼロを確認しています。実行時の上昇CSVはIssue #15添付表に合わせ、原表節点間を
+高度方向へ線形補間した500 ft刻み36行です。巡航CSVは原表159行を保持し、派生6,419行を
+同梱せず、PWR、ISA偏差、高度の順で区分線形補間します。これにより添付の多次元拡張表
+6,419行すべてを再現できることを独立比較しました。外挿は行いません。
+
+CSVのSHA-256、原典PDFのSHA-256、適用する上昇温度・巡航補間Policy、およびIssue #15
+添付3件のURL・SHA-256・用途は`data/performance/manifest.json`へ固定しています。
+各巡航結果には軸の上下限・係数、PWR補間corner、参照頁を保存します。
 `VERIFIED`は数値転記とmanifest整合の状態であり、対象機への適用性、校内承認、または
 Golden NAV2 LOGとのend-to-end一致を意味しません。
 

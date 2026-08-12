@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from math import isfinite
 from typing import Any
@@ -1603,6 +1603,11 @@ class CalculationService:
                                 "type": "cruise",
                                 "selected_cell": selected.row.model_dump(),
                                 "reason": selected.reason,
+                                "interpolation": (
+                                    None
+                                    if selected.interpolation is None
+                                    else asdict(selected.interpolation)
+                                ),
                                 "warnings": selected.warnings,
                             }
                         )

@@ -189,14 +189,14 @@
 
 ### 0.1 同梱データの現状（v1.7で更新）
 
-**v1.6までの本節は「同梱データが空である」を前提としていたが、これは基準commit時点の状態であり作業ツリーとは一致しない**（再レビュー指摘11）。v2.7.3作業ツリー（2026-08-11）の実測値は次のとおりである。
+**v1.6までの本節は「同梱データが空である」を前提としていたが、これは基準commit時点の状態であり作業ツリーとは一致しない**（再レビュー指摘11）。v2.7.3作業ツリー（2026-08-12）の実測値は次のとおりである。
 
-| ファイル | 実測値（2026-08-11 作業ツリー） |
+| ファイル | 実測値（2026-08-12 作業ツリー） |
 |---|---|
 | `data/reference/default/airports.csv` | **14件**（RJFC/RJFE/RJFG/RJFK/RJFM/RJFO/RJFS/RJFT/RJFU/RJOA/RJOB/RJOK/RJOM/RJOT）。全行にAIP由来ARP座標・標高、場周高度、固有出典・revision、`VERIFIED` を記録済み |
-| `data/performance/climb_time_fuel_distance.csv` | **19行**（ヘッダ除く） |
+| `data/performance/climb_time_fuel_distance.csv` | **36行**（原表19節点を500 ft刻みに線形補間、ヘッダ除く） |
 | `data/performance/cruise_performance.csv` | **159行**（ヘッダ除く） |
-| `data/performance/manifest.json` | `validation_status: "VERIFIED"`、`climb_temperature_policy: "ISA_BASELINE_10_PERCENT_PER_10C_ABOVE"`、両CSVの `sha256` 記載済みで実ファイルと**一致**、`source_page` 記入済み |
+| `data/performance/manifest.json` | `validation_status: "VERIFIED"`、上昇温度・巡航3軸補間Policy、Issue #15添付3件のURL/SHA-256、両CSVの `sha256` 記載済みで実ファイルと**一致**、`source_page` 記入済み |
 
 したがって「同梱データが空で転記補助出力へ到達できない」という v1.6 の前提はもはや成立しない。場周経路高度は、提供資料の明示値または第6.6節の式フォールバックで検証したmaster値を初期表示し、Projectで確定した採用値を自動VREP高度算式へ使う。**リリース条件（第1章）と `PERFORMANCE_DATA_UNVERIFIED` の要件は削除しない。** 配布物・別環境・データ差し替え時には再び未整備・未検証となりうるため、以下は**データ状態に依存しない一般的なフェイルセーフ要件**として規定する。
 
