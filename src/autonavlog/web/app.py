@@ -388,7 +388,7 @@ def create_app(
                 "status": "queued",
                 "queue_position": None,
                 "created_at_utc": job.created_at_utc.isoformat(),
-                "updated_at_utc": job.created_at_utc.isoformat(),
+                "updated_at_utc": job.updated_at_utc.isoformat(),
             }
         return job_payload(snapshot)
 

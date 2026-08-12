@@ -849,5 +849,5 @@ async def test_calculation_job_snapshot_prune_race_returns_minimal_payload(
         "status": "queued",
         "queue_position": None,
         "created_at_utc": submitted.created_at_utc.isoformat(),
-        "updated_at_utc": submitted.created_at_utc.isoformat(),
+        "updated_at_utc": submitted.updated_at_utc.isoformat(),
     }
