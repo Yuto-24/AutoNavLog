@@ -77,10 +77,15 @@ Cookieを送信できるようにする設定で、trusted local identityが設�
 `AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` は設定せず、session Cookieも既定のSecure属性のままにします。
 bind先を省略した通常起動は引き続き `127.0.0.1`、host側portを省略した場合は `8123` です。
 
-標準imageの `--weather fake` は決定論的な画面・計算確認用です。必ず
-`DEVELOPMENT_WEATHER_PROVIDER` を表示し、A4転記補助HTMLを出力しません。
-実気象用imageを作る場合はprivate配布の `jma-msm-wind==0.2.1` をimageへ導入し、
-起動引数を `--weather msm` または `--weather msm-metar` に変更してください。
+標準imageは `--weather msm-metar-trend` で起動し、上空風・気温をMSM、QNHを
+「最新METAR QNH + MSM MSLP(出発時刻) − MSM MSLP(METAR観測時刻)」で推定します。
+Pzs・外部DEMは使用しません。METARが取得・検証できない場合はMSM MSLP単独へ切り替え、
+MSMも取得不能ならQNH手入力を要求します。利用者がQNHを手入力した場合は、取得済みの
+自動値があっても手入力値を常に優先します。`METAR_TREND_CORRECTED` は取得時点で
+観測時刻から2時間以内かつQNH整合性を検証済みのMETARだけで算出します。
+自動値は公式QNHではないため、画面と転記補助に
+`ESTIMATED_QNH_NOT_OFFICIAL` と `VERIFY_WITH_OFFICIAL_AERODROME_QNH` を残します。
+開発時だけ `--weather fake` を指定でき、この場合はA4転記補助HTMLを出力しません。
 
 RJFM/RJFOの場周経路高度は画面上で100 ft単位に丸めて `1,000 ft` と表示し、
 5 NM VREPは `1,500 ft` とします。ただし同梱参照行は一次資料の出典検証が未完了なので
@@ -146,15 +151,14 @@ python scripts/build_colab_preview_bundle.py \
 ```
 
 ZIPをColab VMの`/content`、またはGoogle Driveの`MyDrive`直下へ配置してNotebookを
-実行します。上空風・気温はMSM予報値、QNHはPzs地形cacheを用いた`MSM推定QNH`です。
-MSM推定QNHは公式飛行場気象の観測QNHではないため、利用者が原票と照合します。取得・
-算出できない場合は1013.25 hPa等で補完せず、適切なQNHを確認して手入力します。
-Pzs地形cacheはMSM推定QNHだけに使用し、SEA・障害物評価には使用しません。
+実行します。Web本番運用のQNHは `msm-metar-trend` modeを使用します。Colab previewの
+旧terrain bundleは本番QNH経路ではなく、新規運用では使用しません。自動QNHは公式飛行場
+予報ではないため必ず照合し、取得不能時は1013.25 hPa等で補完せず手入力します。
 
 ### Drive release bundle
 
-`release-to-drive` workflowは、Pzs地形cacheの検証と実MSM acceptance gateを通過した
-versioned releaseを共有Driveへ公開します。プレビューを個別に配布する場合は、上記の
+`release-to-drive` workflowは旧Colab preview配布用です。本番Web imageは
+`msm-metar-trend` modeのtest・buildを通して配布します。プレビューを個別に配布する場合は、上記の
 `AutoNavLog_Colab_Preview.ipynb`と自己検証型preview ZIPを組み合わせます。
 
 1. GitHub Actionsの`release-to-drive`を手動実行します。

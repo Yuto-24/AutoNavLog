@@ -25,11 +25,12 @@ CSVのSHA-256、原典PDFのSHA-256、適用する上昇温度・巡航補間Pol
 Golden NAV2 LOGとのend-to-end一致を意味しません。
 
 MSMの上空風・気温にはForecast Run、元URL、source hash、補間方法、格子・気圧面traceを
-保存します。自動QNHはMSM海面更正気圧と検証済みPzs地形cacheから求め、
-`MSM推定QNH`と表示します。Pzs cacheのpath・SHA-256と、MSM取得・補間・算出の来歴を
-保持します。これは公式飛行場気象の観測QNHではなく、その確認を代替しません。取得・
-算出不能時は1013.25 hPa等へ補完せず手入力を要求し、手動上書き後も自動値、そのlabel、
-警告、根拠を削除しません。
+保存します。自動QNHは最新2時間以内の検証済みMETARを基準に、同一Forecast Runの
+MSM MSLP変化量を加えた `METAR_TREND_CORRECTED` として保存します。基準METAR時刻、
+対象時刻、両時刻のMSLP、変化量、API response hashと補間traceを保持します。METARが
+欠測・不整合・古い場合は `MSM_MSLP_ONLY`、MSMも取得不能なら `MANUAL` へ切り替えます。
+Pzs・外部DEMは使用しません。これは公式飛行場予報QNHではなく、その確認を代替しません。
+手動上書き後も自動値、方式、警告、根拠を削除しません。
 
 各計算行のVariationは`DEPARTURE_LATITUDE_32N_V1`規則で決定し、
 `variation_deg_east.automatic_metadata`へ元の物理Legの出発緯度、32.0°Nの閾値、

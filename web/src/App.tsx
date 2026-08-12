@@ -572,7 +572,7 @@ function App() {
         method: "PUT",
         body: updatePayload(),
       });
-      return api.request<WebState>("/api/calculate", { method: "POST" });
+      return api.calculate();
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
       syncCalculationInputs: true,
     });

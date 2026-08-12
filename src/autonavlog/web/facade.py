@@ -48,6 +48,7 @@ from autonavlog.storage.reference_data import (
     ReferenceDataCatalogRepository,
 )
 from autonavlog.storage.repository import ProjectSummary
+from autonavlog.weather.prewarm import WeatherPrewarmer
 from autonavlog.weather.provider import WeatherProvider
 
 from .cloudflare_access import AccessTokenVerifier
@@ -137,6 +138,7 @@ class AutoNavLogWebApplication:
         maximum_sessions: int = 128,
         trusted_local_identity: str | None = None,
         access_verifier: AccessTokenVerifier | None = None,
+        weather_prewarmer: WeatherPrewarmer | None = None,
     ) -> None:
         if maximum_sessions < 1:
             raise ValueError("maximum_sessions must be positive")
@@ -152,6 +154,7 @@ class AutoNavLogWebApplication:
         self.trusted_local_identity = trusted_local_identity
         self._sessions: dict[str, WebSession] = {}
         self.access_verifier = access_verifier
+        self.weather_prewarmer = weather_prewarmer
         self._session_order: list[str] = []
         self._projects_generation = 0
         self._lock = RLock()

@@ -4,6 +4,8 @@ import base64
 import binascii
 import logging
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -20,6 +22,11 @@ from autonavlog.importers.kml import (
 )
 from autonavlog.version import __version__
 
+from .calculation_jobs import (
+    CalculationJobAlreadyActiveError,
+    CalculationJobQueue,
+    CalculationJobSnapshot,
+)
 from .cloudflare_access import (
     CloudflareAccessVerificationError,
 )
@@ -131,8 +138,8 @@ SessionDependency = Annotated[WebSession, Depends(require_session)]
 
 def _environment_config() -> WebRuntimeConfig:
     raw_weather_mode = os.environ.get("AUTONAVLOG_WEATHER", "fake")
-    if raw_weather_mode not in {"fake", "msm", "msm-metar"}:
-        raise RuntimeError("AUTONAVLOG_WEATHER must be fake, msm, or msm-metar")
+    if raw_weather_mode not in {"fake", "msm", "msm-metar", "msm-metar-trend"}:
+        raise RuntimeError("AUTONAVLOG_WEATHER must be fake, msm, msm-metar, or msm-metar-trend")
 
     return WebRuntimeConfig(
         data_root=Path(os.environ.get("AUTONAVLOG_DATA_ROOT", "data")),
@@ -175,14 +182,29 @@ def create_app(
     session_cookie_secure = (
         resolved_config.session_cookie_secure if resolved_config is not None else True
     )
+    calculation_jobs = CalculationJobQueue(workers=4, maximum_queued=128)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        if web.weather_prewarmer is not None:
+            web.weather_prewarmer.start()
+        try:
+            yield
+        finally:
+            if web.weather_prewarmer is not None:
+                web.weather_prewarmer.shutdown()
+            calculation_jobs.shutdown()
+
     app = FastAPI(
         title="AutoNavLog Web",
         version=__version__,
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
+        lifespan=lifespan,
     )
     app.state.web_application = web
+    app.state.calculation_jobs = calculation_jobs
     app.add_middleware(SecurityHeadersMiddleware)
 
     @app.exception_handler(WebApplicationError)
@@ -318,6 +340,73 @@ def create_app(
         session: SessionDependency,
     ) -> dict[str, Any]:
         return web.update_and_calculate(session, payload)
+
+    def job_payload(job: CalculationJobSnapshot) -> dict[str, Any]:
+        """Serialize one atomically captured calculation job."""
+        payload: dict[str, Any] = {
+            "job_id": job.id,
+            "status": job.status,
+            "queue_position": job.queue_position,
+            "created_at_utc": job.created_at_utc.isoformat(),
+            "updated_at_utc": job.updated_at_utc.isoformat(),
+        }
+        if job.status == "succeeded":
+            payload["state"] = job.result
+        if job.status == "failed":
+            payload["error"] = job.error
+        return payload
+
+    @app.post("/api/calculation-jobs", status_code=202)
+    def create_calculation_job(session: SessionDependency) -> dict[str, Any]:
+        """Queue one calculation or return a precise capacity/session error."""
+        try:
+            job = calculation_jobs.submit(
+                owner_id=session.owner_id,
+                session_token=session.token,
+                task=lambda: web.calculate(session),
+            )
+        except CalculationJobAlreadyActiveError as error:
+            raise WebApplicationError(
+                "CALCULATION_JOB_ALREADY_ACTIVE",
+                "このセッションの計算jobは実行中です。完了を待ってください。",
+                status_code=409,
+            ) from error
+        except OverflowError as error:
+            raise WebApplicationError(
+                "CALCULATION_QUEUE_FULL",
+                "計算待ちが上限に達しました。少し待ってから再実行してください。",
+                status_code=503,
+            ) from error
+        snapshot = calculation_jobs.snapshot(
+            job.id,
+            owner_id=session.owner_id,
+            session_token=session.token,
+        )
+        if snapshot is None:
+            return {
+                "job_id": job.id,
+                "status": "queued",
+                "queue_position": None,
+                "created_at_utc": job.created_at_utc.isoformat(),
+                "updated_at_utc": job.updated_at_utc.isoformat(),
+            }
+        return job_payload(snapshot)
+
+    @app.get("/api/calculation-jobs/{job_id}")
+    def calculation_job(job_id: str, session: SessionDependency) -> dict[str, Any]:
+        """Return one authorized calculation job snapshot."""
+        job = calculation_jobs.snapshot(
+            job_id,
+            owner_id=session.owner_id,
+            session_token=session.token,
+        )
+        if job is None:
+            raise WebApplicationError(
+                "CALCULATION_JOB_NOT_FOUND",
+                "このセッションの計算jobが見つかりません。",
+                status_code=404,
+            )
+        return job_payload(job)
 
     @app.post("/api/calculate")
     def calculate(session: SessionDependency) -> dict[str, Any]:

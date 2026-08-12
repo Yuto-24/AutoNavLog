@@ -10,7 +10,7 @@ from autonavlog.application.readiness import (
     derive_project_status,
 )
 from autonavlog.domain.calculation import CalculationOutcome, SectionResult
-from autonavlog.domain.enums import ProjectStatus, ValueState
+from autonavlog.domain.enums import AdoptedSource, ProjectStatus, ValueState
 from autonavlog.domain.planning import load_persisted_ui_state
 from autonavlog.domain.project import Project
 from autonavlog.domain.values import AdoptedValue
@@ -322,6 +322,19 @@ def _derived_points_table(outcome: CalculationOutcome) -> str:
 
 def _info_table(outcome: CalculationOutcome) -> str:
     qnh = outcome.qnh_hpa.adopted()
+    qnh_metadata = outcome.qnh_hpa.automatic_metadata
+    raw_values = qnh_metadata.get("values")
+    qnh_values = raw_values if isinstance(raw_values, dict) else {}
+    qnh_method = (
+        "MANUAL"
+        if outcome.qnh_hpa.adopted_source == AdoptedSource.MANUAL
+        else str(qnh_values.get("qnh_method") or qnh_metadata.get("qnh_method") or "")
+    )
+    qnh_warnings = ", ".join(outcome.qnh_hpa.warnings)
+    qnh_text = "" if qnh is None else f"{_raw(qnh)} hPa"
+    qnh_details = " / ".join(item for item in (qnh_method, qnh_warnings) if item)
+    if qnh_details:
+        qnh_text = f"{qnh_text} / {qnh_details}" if qnh_text else qnh_details
     values = [
         ("CODE", "MSM" if outcome.selected_forecast_run_id else ""),
         ("TIME", outcome.selected_forecast_run_id or ""),
@@ -329,7 +342,7 @@ def _info_table(outcome: CalculationOutcome) -> str:
         ("VIS", ""),
         ("CLD", ""),
         ("TEMP", ""),
-        ("QNH", "" if qnh is None else f"{_raw(qnh)} hPa"),
+        ("QNH", qnh_text),
     ]
     headings = "".join(f"<th>{escape(label)}</th>" for label, _ in values)
     cells = "".join(f"<td>{escape(value)}</td>" for _, value in values)
