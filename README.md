@@ -56,6 +56,7 @@ HOST_IP="$(hostname -I | awk '{print $1}')"
 AUTONAVLOG_BIND_ADDRESS="$HOST_IP" \
 AUTONAVLOG_HOST_PORT=8124 \
 AUTONAVLOG_TRUSTED_LOCAL_IDENTITY=local-user \
+AUTONAVLOG_SESSION_COOKIE_SECURE=false \
 docker compose -p autonavlog-dev up -d --build
 ```
 
@@ -67,10 +68,12 @@ docker compose -p autonavlog-dev down
 
 `-p autonavlog-dev` によりcontainer、network、named volumeが既存の `8123` 環境から分離されます。
 `AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` はrequestの接続元を識別せず、portへ到達できる端末を同じ
-固定identityとして扱います。このLAN bindは信頼できるLAN内だけで使い、host firewallでも
+固定identityとして扱います。`AUTONAVLOG_SESSION_COOKIE_SECURE=false` はHTTP接続でもsession
+Cookieを送信できるようにする設定で、trusted local identityが設定され、Cloudflare Accessが
+未設定の場合だけ使用できます。このLAN bindは信頼できるLAN内だけで使い、host firewallでも
 接続元を制限してください。インターネットへ公開する場合は下記のCloudflare Accessを使用し、
-`AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` は設定しません。bind先を省略した通常起動は引き続き
-`127.0.0.1`、host側portを省略した場合は `8123` です。
+`AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` は設定せず、session Cookieも既定のSecure属性のままにします。
+bind先を省略した通常起動は引き続き `127.0.0.1`、host側portを省略した場合は `8123` です。
 
 標準imageの `--weather fake` は決定論的な画面・計算確認用です。必ず
 `DEVELOPMENT_WEATHER_PROVIDER` を表示し、A4転記補助HTMLを出力しません。
