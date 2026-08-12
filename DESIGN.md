@@ -1769,6 +1769,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | 出力 | `CalculationOutcome`（`sections: list[SectionResult]` / `derived_points` / `arrival_altitude: ArrivalAltitudeResult` / `check_point_projections: list[CheckPointProjection]` / `fuel_plan` / `issues` / `iterations` / `converged` / `status` / `policy_version` / `performance_table_version` / `qnh_hpa`） |
 | 各値 | `AdoptedValue[T]`。`adopted()` で採用値、`state` で `ValueState` |
 | Policy | `CalculationPolicies.version = "nav2-v3"`。Variationは`DEPARTURE_LATITUDE_32N_V1`、VREP個別規則は`ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"`とする |
+| 陳腐化判定 | 計算入力fingerprintは`calculation_policy_version`に加えて`variation_rule_version`を含み、Variation規則だけの変更でも再計算を要求する |
 | エラー | 例外ではなく `Issue` として返る。`blockers` プロパティで抽出 |
 | SEAの使用 | **なし（v2.6.0）**。`safe_enroute_altitude_ft_msl` は互換fieldとして残してよいが、計算・Issue・fingerprint・status・表示・出力へ使用しない |
 | 丸め | 通常の中間値は丸めず、表示時にhalf-upで方位1°・距離0.5 NM・時間0.5 min・燃料0.1 gal。例外としてVREP計画高度は、ArrivalPlanで100 ft単位に確定した採用場周高度へ500 ftを加えて5 NM基準高度とし、5 NM超過距離を整数NMへhalf-upして200 ft/NMを加えた第6.6節の**採用計算値**を降下・EOC・気象へ渡す。master場周経路高度は別に参照表示する |

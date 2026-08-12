@@ -16,6 +16,10 @@
 
 CSVのSHA-256、原典PDFのSHA-256、適用する上昇温度・巡航補間Policy、およびIssue #15
 添付3件のURL・SHA-256・用途は`data/performance/manifest.json`へ固定しています。
+実行時に`PerformanceRepository.from_directory`が読み込み、内容を検証する対象は
+`tables[].sha256`で宣言した同梱CSVだけです。`source_artifacts[].sha256`は添付資料を
+採用した時点の参照用メタデータであり、実行時にURLを取得したり、その内容を再検証したり
+しません。
 各巡航結果には軸の上下限・係数、PWR補間corner、参照頁を保存します。
 `VERIFIED`は数値転記とmanifest整合の状態であり、対象機への適用性、校内承認、または
 Golden NAV2 LOGとのend-to-end一致を意味しません。

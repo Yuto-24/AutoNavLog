@@ -9,6 +9,7 @@ from autonavlog.domain.planning import (
     ReferenceDataSnapshot,
 )
 from autonavlog.domain.project import Project
+from autonavlog.nav.variation import VARIATION_RULE_VERSION
 from autonavlog.performance.repository import PerformanceRepository
 
 from .fingerprints import make_fingerprint
@@ -126,6 +127,7 @@ def current_calculation_input_fingerprint(
                 "climb_temperature_policy": (performance.manifest.climb_temperature_policy),
             },
             "calculation_policy_version": calculation_policy_version,
+            "variation_rule_version": VARIATION_RULE_VERSION,
             "performance_table_version": performance_table_version,
             "autonavlog_version": autonavlog_version,
             "msm_package_version": msm_package_version,

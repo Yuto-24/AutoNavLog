@@ -192,6 +192,7 @@ export function ImportPlanPanel({
             <select
               aria-label="FROM"
               value={form.departureAirportId}
+              aria-invalid={Boolean(form.candidateKey && !selectedDeparture)}
               onChange={(event) => {
                 const departureAirportId = event.target.value;
                 const departure = airports.find((airport) => airport.id === departureAirportId);
@@ -322,7 +323,13 @@ export function ImportPlanPanel({
             className="primary-button full-width"
             type="button"
             onClick={onConfirmRoute}
-            disabled={!form.candidateKey || !form.routeUseConfirmed || busy}
+            disabled={
+              !form.candidateKey ||
+              !form.routeUseConfirmed ||
+              !selectedDeparture ||
+              !selectedDestination ||
+              busy
+            }
           >
             経路を確定
           </button>

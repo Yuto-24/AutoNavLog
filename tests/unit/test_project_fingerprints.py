@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+import autonavlog.application.project_fingerprints as project_fingerprints
 from autonavlog.application.project_fingerprints import (
     current_calculation_input_fingerprint,
     defaults_review_fingerprint,
@@ -86,6 +87,19 @@ def test_legacy_default_variation_does_not_change_calculation_key(
 
     assert _calculation_fingerprint(changed, performance_repository) == baseline
 
+
+def test_variation_rule_version_changes_calculation_key(
+    project: Project,
+    performance_repository: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _calculation_fingerprint(project, performance_repository)
+    monkeypatch.setattr(
+        project_fingerprints,
+        "VARIATION_RULE_VERSION",
+        "DEPARTURE_LATITUDE_32N_V2",
+    )
+    assert _calculation_fingerprint(project, performance_repository) != baseline
 
 
 def test_defaults_review_includes_phase_and_ignores_legacy_loss(

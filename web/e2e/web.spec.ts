@@ -110,7 +110,7 @@ async function calculateNavLog(page: Page): Promise<void> {
   await page.getByRole("button", { name: "NAV LOGを作る" }).click();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
-  await expect(firstRow.locator("td").nth(2)).toHaveText(firstAltitudeCandidate);
+  await expect(firstRow.getByLabel(/計画高度$/)).toHaveValue(firstAltitudeCandidate);
   await expect(firstRow.locator("td").nth(7)).toHaveText("+7自動");
 }
 
@@ -168,7 +168,7 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   await calculate.click();
 
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
-  await expect(firstRow.locator("td").nth(2)).toHaveText("5500");
+  await expect(firstRow.getByLabel(/計画高度$/)).toHaveValue("5500");
   await expect(firstRow.locator("td").nth(6)).toHaveText(/^\d{3}$/);
   await expect(firstRow.locator("td").nth(7)).toHaveText("+7自動");
   await expect(firstRow.locator("td").nth(8)).toHaveText(/^\d{3}$/);
@@ -281,6 +281,11 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   await altitude.fill("5500");
   await altitudeResponse;
   await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
+  const manualRecalculation = page.waitForResponse(
+    (response) => response.url().endsWith("/api/calculate") && response.ok(),
+  );
+  await page.getByRole("button", { name: "NAV LOGを再計算" }).click();
+  await manualRecalculation;
   await expect(altitude).toHaveValue("5500");
 
   const windDirection = page.locator(".nav-log-table").getByLabel(/手動風向$/).first();

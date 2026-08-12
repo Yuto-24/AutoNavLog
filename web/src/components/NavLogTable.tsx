@@ -312,7 +312,6 @@ function EditableNumberCell({
         placeholder={formatted.text}
         onChange={(event) => onChange(field, event.target.value)}
       />
-      <span className="visually-hidden" aria-hidden="true">{formatted.text}</span>
       {error && <small className="nav-log-field-error">要確認</small>}
       {!error && !required && draftValue.trim() && <small>手入力</small>}
     </td>
@@ -369,7 +368,6 @@ function EditableWindCell({
           onChange={(event) => onChange("windSpeed", event.target.value)}
         />
       </div>
-      <span className="visually-hidden" aria-hidden="true">{formatted.text}</span>
       {invalid && <small className="nav-log-field-error">風向・風速を確認</small>}
       {!invalid && (directionValue.trim() || speedValue.trim()) && <small>手入力</small>}
     </td>

@@ -310,7 +310,7 @@ function App() {
         api.request<WebState>("/api/destination/confirm", {
           method: "POST",
           body: {
-            departure_airport_id: form.departureAirportId,
+            departure_airport_id: form.departureAirportId || undefined,
             destination_airport_id: form.destinationAirportId,
             selected_pattern_altitude_ft_msl: selectedPatternAltitude,
           },
@@ -454,6 +454,17 @@ function App() {
           });
           if (requestVersion !== navLogEditVersionRef.current) return;
           applyState(next);
+          setAltitudeInputs((current) => ({
+            ...current,
+            ...Object.fromEntries(
+              editedSections
+                .filter((section) => section.phase !== "VISUAL_ARRIVAL")
+                .map((section) => [
+                  section.id,
+                  String(section.planned_altitude_ft_msl),
+                ]),
+            ),
+          }));
           navLogEditVersionRef.current = 0;
           setNavLogEditVersion(0);
           setNavLogEditStatus({ kind: "saved", message: "自動再計算しました。" });
