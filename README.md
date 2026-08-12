@@ -46,6 +46,32 @@ docker compose logs -f autonavlog
 docker compose down
 ```
 
+既存環境と並行してheadless server上の開発環境を起動する場合は、host側port、bind address、
+Compose project名を分けます。`hostname -I` の先頭のaddressを使用します。
+
+```bash
+cd /home/yuto/dev/AutoNavLog-dev
+HOST_IP="$(hostname -I | awk '{print $1}')"
+
+AUTONAVLOG_BIND_ADDRESS="$HOST_IP" \
+AUTONAVLOG_HOST_PORT=8124 \
+AUTONAVLOG_TRUSTED_LOCAL_IDENTITY=local-user \
+docker compose -p autonavlog-dev up -d --build
+```
+
+別端末のブラウザから `http://<HOST_IP>:8124` を開きます。停止時にも同じproject名を指定します。
+
+```bash
+docker compose -p autonavlog-dev down
+```
+
+`-p autonavlog-dev` によりcontainer、network、named volumeが既存の `8123` 環境から分離されます。
+`AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` はrequestの接続元を識別せず、portへ到達できる端末を同じ
+固定identityとして扱います。このLAN bindは信頼できるLAN内だけで使い、host firewallでも
+接続元を制限してください。インターネットへ公開する場合は下記のCloudflare Accessを使用し、
+`AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` は設定しません。bind先を省略した通常起動は引き続き
+`127.0.0.1`、host側portを省略した場合は `8123` です。
+
 標準imageの `--weather fake` は決定論的な画面・計算確認用です。必ず
 `DEVELOPMENT_WEATHER_PROVIDER` を表示し、A4転記補助HTMLを出力しません。
 実気象用imageを作る場合はprivate配布の `jma-msm-wind==0.2.1` をimageへ導入し、
