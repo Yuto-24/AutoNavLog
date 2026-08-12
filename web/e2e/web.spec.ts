@@ -296,17 +296,73 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   await expect(windDirection).toHaveAttribute("aria-invalid", "true");
   await page.waitForTimeout(850);
   expect(recalculationRequests).toHaveLength(requestCount);
+  const saveResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/projects/save") && response.ok(),
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saveResponse;
+  await expect(windDirection).toHaveValue("270");
+  await expect(windDirection).toHaveAttribute("aria-invalid", "true");
 
   const windResponse = page.waitForResponse(
     (response) => response.url().endsWith("/api/project/recalculate") && response.ok(),
   );
   await windSpeed.fill("15");
   await windResponse;
-  await expect(page.getByText("自動再計算しました.", { exact: true })).toHaveCount(0);
   await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
   await expect(windDirection).toHaveAttribute("aria-invalid", "false");
   await expect(page.locator(".nav-log-table th").nth(6)).toHaveText("TC");
   await expect(page.locator(".derived-readonly-cell").first()).toHaveAttribute("title", /読み取り専用/);
+});
+
+test("stale automatic recalculation cannot overwrite newer planning inputs", async ({ page }) => {
+  await page.goto("/");
+  await calculateNavLog(page);
+
+  let releaseFirstResponse = () => {};
+  let markFirstResponseReady = () => {};
+  const firstResponseReady = new Promise<void>((resolve) => {
+    markFirstResponseReady = resolve;
+  });
+  const firstResponseReleased = new Promise<void>((resolve) => {
+    releaseFirstResponse = resolve;
+  });
+  const recalculationBodies: Array<Record<string, unknown>> = [];
+  await page.route("**/api/project/recalculate", async (route) => {
+    recalculationBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    if (recalculationBodies.length === 1) {
+      const response = await route.fetch();
+      markFirstResponseReady();
+      await firstResponseReleased;
+      await route.fulfill({ response });
+      return;
+    }
+    await route.continue();
+  });
+
+  const altitude = page.locator(".nav-log-table").getByLabel(/計画高度$/).first();
+  await altitude.fill("5500");
+  await firstResponseReady;
+  const fuel = page.getByLabel("FUEL gal");
+  await fuel.fill("77");
+  const latestResponse = page.waitForResponse((response) => {
+    if (
+      !response.url().endsWith("/api/project/recalculate") ||
+      !response.ok()
+    ) {
+      return false;
+    }
+    const body = response.request().postDataJSON() as Record<string, unknown>;
+    return body.total_usable_fuel_gal === 77;
+  });
+  releaseFirstResponse();
+  await latestResponse;
+
+  await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
+  await expect(fuel).toHaveValue("77");
+  await expect(altitude).toHaveValue("5500");
+  expect(recalculationBodies).toHaveLength(2);
+  expect(recalculationBodies[1]?.total_usable_fuel_gal).toBe(77);
 });
 
 test("calculated mobile layout has no body overflow", async ({ page }) => {
