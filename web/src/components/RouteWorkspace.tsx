@@ -8,8 +8,10 @@ import {
   useMap,
 } from "react-leaflet";
 import type { LatLngBoundsExpression } from "leaflet";
+import { patternAltitudeFtMsl } from "../forms";
 import type {
   AltitudeGuidance,
+  AirportOption,
   CalculationOutcome,
   FlightPhase,
   NavSection,
@@ -23,7 +25,10 @@ interface RouteWorkspaceProps {
   outcome: CalculationOutcome | null;
   altitudeGuidance: AltitudeGuidance;
   altitudeInputs: Record<string, string>;
+  destinationAirport: AirportOption | null;
+  destinationPatternAltitudeFtMsl: string;
   onAltitudeInputChange: (sectionId: string, value: string) => void;
+  onDestinationPatternAltitudeChange: (value: string) => void;
   onSectionChange: (sectionId: string, changes: Partial<NavSection>) => void;
 }
 
@@ -65,9 +70,15 @@ export function RouteWorkspace({
   outcome,
   altitudeGuidance,
   altitudeInputs,
+  destinationAirport,
+  destinationPatternAltitudeFtMsl,
   onAltitudeInputChange,
+  onDestinationPatternAltitudeChange,
   onSectionChange,
 }: RouteWorkspaceProps) {
+  const validPatternAltitude = patternAltitudeFtMsl(
+    destinationPatternAltitudeFtMsl,
+  );
   const nodes = useMemo(
     () => [...(project?.route_nodes ?? [])].sort((a, b) => a.sequence - b.sequence),
     [project],
@@ -227,6 +238,7 @@ export function RouteWorkspace({
                   key={node.id}
                   className={[
                     node.role === "VISUAL_REPORTING_POINT" ? "vrep-row" : "",
+                    node.role === "DESTINATION" ? "destination-row" : "",
                     requiresAltitudeReview ? "altitude-review-row" : "",
                   ].filter(Boolean).join(" ")}
                 >
@@ -280,6 +292,50 @@ export function RouteWorkspace({
                             {requiresAltitudeReview ? "・候補外（要確認）" : ""}
                           </small>
                         )}
+                      </div>
+                    ) : node.role === "DESTINATION" ? (
+                      <div className="arrival-altitude-control">
+                        <div className="arrival-airport-reference">
+                          <span>飛行場標高</span>
+                          <strong>
+                            {destinationAirport?.elevationFtMsl.toLocaleString("ja-JP") ?? "—"}
+                            {" ft MSL"}
+                          </strong>
+                          {destinationAirport && (
+                            <small>
+                              {destinationAirport.icao} {destinationAirport.name}
+                            </small>
+                          )}
+                        </div>
+                        <label>
+                          <span>今回採用する場周経路高度</span>
+                          <input
+                            className="arrival-pattern-input"
+                            aria-label="今回採用する場周経路高度"
+                            aria-describedby={`${node.id}-pattern-altitude-help`}
+                            aria-invalid={validPatternAltitude === null}
+                            type="number"
+                            min="100"
+                            max="25000"
+                            step="100"
+                            value={destinationPatternAltitudeFtMsl}
+                            onChange={(event) =>
+                              onDestinationPatternAltitudeChange(event.target.value)
+                            }
+                          />
+                        </label>
+                        <small
+                          id={`${node.id}-pattern-altitude-help`}
+                          className={`arrival-altitude-help ${validPatternAltitude === null ? "field-error" : ""}`}
+                        >
+                          {destinationAirport
+                            ? `master ${destinationAirport.patternAltitudeFtMsl.toLocaleString("ja-JP")} ft MSL（標高差 ${(destinationAirport.patternAltitudeFtMsl - destinationAirport.elevationFtMsl).toLocaleString("ja-JP")} ft）`
+                            : "目的地空港のmaster値を確認してください。"}
+                          <br />
+                          {validPatternAltitude === null
+                            ? "100～25,000 ftの範囲で100 ft単位の整数を入力してください。"
+                            : "運用差がある場合は、今回使用するMSL高度へ編集してください。"}
+                        </small>
                       </div>
                     ) : (
                       "—"

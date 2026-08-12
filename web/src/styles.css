@@ -486,7 +486,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .point-index { width: 21px; height: 21px; display: inline-flex; align-items: center; justify-content: center; color: #ffffff; background: var(--navy-950); border-radius: 50%; font-size: 9px; font-weight: 750; }
 .vrep-row { color: var(--teal-700); background: var(--teal-50); }
 .vrep-row .point-index { background: var(--teal-700); }
-.table-number-input, .table-select { width: 100%; min-height: 31px; padding: 0 6px; font-size: 11px; }
+.table-number-input, .table-select, .arrival-pattern-input { width: 100%; min-height: 31px; padding: 0 6px; font-size: 11px; }
 .altitude-controls { display: grid; grid-template-columns: 1fr 0.78fr; gap: 5px; }
 .altitude-course { grid-column: 1 / -1; color: var(--slate-500); font-size: 9px; }
 .altitude-review-cell { background: var(--red-50); }
@@ -496,6 +496,26 @@ tbody tr:last-child td { border-bottom: 0; }
   border-color: var(--red-700);
 }
 .altitude-guidance-note { margin: 8px 0 0; color: var(--slate-500); font-size: 9px; line-height: 1.5; }
+
+.destination-row { background: #f1f7fc; }
+.arrival-altitude-control { display: grid; gap: 8px; padding: 3px 0; }
+.arrival-airport-reference {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 2px 8px;
+  padding: 8px;
+  color: var(--navy-950);
+  background: #ffffff;
+  border-left: 3px solid var(--teal-700);
+}
+.arrival-airport-reference > span { color: var(--slate-500); font-size: 9px; font-weight: 750; }
+.arrival-airport-reference > strong { font-size: 14px; }
+.arrival-airport-reference > small { grid-column: 1 / -1; color: var(--slate-500); font-size: 9px; }
+.arrival-altitude-control label { display: grid; gap: 4px; }
+.arrival-altitude-control label > span { color: #304960; font-size: 10px; font-weight: 750; }
+.arrival-pattern-input[aria-invalid="true"] { color: var(--red-700); border-color: var(--red-700); }
+.arrival-altitude-help { color: var(--slate-500); font-size: 9px; line-height: 1.45; }
 
 .empty-table-cell { height: 72px; color: var(--slate-500); text-align: center; }
 

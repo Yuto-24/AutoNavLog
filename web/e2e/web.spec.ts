@@ -61,9 +61,15 @@ async function calculateNavLog(page: Page): Promise<void> {
   }
   await cruiseAltitude.selectOption(cruiseCandidate);
   const patternAltitude = page.getByLabel("今回採用する場周経路高度");
+  const arrivalRow = page.locator(".destination-row");
   const confirmDestination = page.getByRole("button", {
     name: "目的空港・場周高度を確定",
   });
+  await expect(page.locator(".input-rail").getByLabel("今回採用する場周経路高度")).toHaveCount(0);
+  await expect(arrivalRow.getByLabel("今回採用する場周経路高度")).toBeVisible();
+  await expect(arrivalRow.getByText("飛行場標高", { exact: true })).toBeVisible();
+  await expect(arrivalRow.getByText("17 ft MSL", { exact: true })).toBeVisible();
+  await expect(arrivalRow).toContainText("master 1,000 ft MSL（標高差 983 ft）");
   await expect(patternAltitude).toHaveValue("1000");
   await patternAltitude.fill("");
   await expect(confirmDestination).toBeDisabled();
@@ -181,6 +187,16 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   expect(tableLayout.fuelWidth).toBeLessThan(tableLayout.navWidth / 2);
   expect(tableLayout.fuelRowHeight).toBeLessThanOrEqual(25);
   expect(tableLayout.fuelAmountAlignment).toBe("center");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.locator(".destination-row").getByLabel("今回採用する場周経路高度"),
+  ).toBeVisible();
+  const mobileOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(mobileOverflow).toBeLessThanOrEqual(1);
+
   const unexpectedConsoleErrors = consoleErrors.filter(
     (message) => !message.includes("401 (Unauthorized)"),
   );
