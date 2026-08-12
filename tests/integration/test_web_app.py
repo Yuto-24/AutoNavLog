@@ -123,6 +123,11 @@ async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path)
         assert len(confirmed_state["project"]["route_nodes"]) == 5
         assert confirmed_state["project"]["route_nodes"][-2]["role"] == ("VISUAL_REPORTING_POINT")
         assert confirmed_state["project"]["sections"][-1]["planned_altitude_ft_msl"] == 1500
+        guidance_variations = [
+            item["variationDegEast"]
+            for item in confirmed_state["altitudeGuidance"]["sections"]
+        ]
+        assert guidance_variations == [7.0, 8.0, 8.0, 8.0]
         assert any(
             issue["code"] == "PATTERN_ALTITUDE_REQUIRED"
             for issue in confirmed_state["readiness"]["issues"]
@@ -184,6 +189,16 @@ async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path)
         assert calculated_state["outcome"] is not None
         assert calculated_state["outcome"]["arrival_altitude"]["base_vrep_altitude_ft_msl"] == 1800
         assert calculated_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 2100
+        variations = [
+            section["variation_deg_east"]
+            for section in calculated_state["outcome"]["sections"]
+        ]
+        assert {item["automatic_value"] for item in variations} == {7.0, 8.0}
+        assert all(item["adopted_source"] == "AUTOMATIC" for item in variations)
+        assert all(
+            item["automatic_metadata"]["rule_version"] == "DEPARTURE_LATITUDE_32N_V1"
+            for item in variations
+        )
         assert all(
             issue["code"] != "PATTERN_ALTITUDE_REQUIRED"
             for issue in calculated_state["readiness"]["issues"]

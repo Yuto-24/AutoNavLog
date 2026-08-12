@@ -348,6 +348,11 @@ function FuelPlanTable({ outcome }: { outcome: CalculationOutcome }) {
 
 function ResultCells({ section }: { section: SectionResult }) {
   const variationValue = adopted(section.variation_deg_east);
+  const departureLatitude =
+    section.variation_deg_east.automatic_metadata.departure_latitude_deg;
+  const variationTitle = typeof departureLatitude === "number"
+    ? `出発緯度 ${departureLatitude.toFixed(4)}° / 32.0°N基準で自動判定`
+    : "Leg出発緯度から自動判定";
   const variation: FormattedValue = {
     text: variationValue === null ? "未取得" : signedInteger(variationValue),
     manual: section.variation_deg_east.adopted_source === "MANUAL",
@@ -360,9 +365,10 @@ function ResultCells({ section }: { section: SectionResult }) {
       <ValueCell value={section.cas_kt} />
       <ValueCell value={section.tas_kt} />
       <ValueCell value={section.true_course_deg} formatter={bearing} />
-      <td className={valueClass(variation)}>
+      <td className={valueClass(variation)} title={variationTitle}>
         {variation.text}
         {variation.manual && <small>手入力</small>}
+        {!variation.manual && !variation.unavailable && <small>自動</small>}
       </td>
       <ValueCell value={section.magnetic_course_deg} formatter={bearing} />
       <WindCell

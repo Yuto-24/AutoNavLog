@@ -21,5 +21,11 @@ MSMの上空風・気温にはForecast Run、元URL、source hash、補間方法
 算出不能時は1013.25 hPa等へ補完せず手入力を要求し、手動上書き後も自動値、そのlabel、
 警告、根拠を削除しません。
 
+各計算行のVariationは`DEPARTURE_LATITUDE_32N_V1`規則で決定し、
+`variation_deg_east.automatic_metadata`へ元の物理Legの出発緯度、32.0°Nの閾値、
+境界を北側へ含める条件、選択した緯度帯、採用値を保存します。判定不能な座標は+7/+8の
+いずれにも補完せず`VARIATION_UNAVAILABLE` blockerとします。Projectの旧固定VAR項目は
+保存形式の後方互換専用であり、この自動値の来歴には使用しません。
+
 SnapshotはProject revision、入力、手動値、性能表version、Policy version、気象要求と
 結果、パッケージversion、警告を含む不変JSONです。

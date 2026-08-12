@@ -47,6 +47,7 @@ from autonavlog.nav.geodesy import (
     GeodesicLeg,
     geodesic_leg,
 )
+from autonavlog.nav.variation import variation_for_departure_latitude
 from autonavlog.nav.wind_triangle import WindTriangleError, solve_wind_triangle
 from autonavlog.performance.climb import ClimbCalculator, ClimbPerformanceError
 from autonavlog.performance.cruise import (
@@ -71,7 +72,7 @@ from .phase_segments import (
 
 @dataclass(frozen=True)
 class CalculationPolicies:
-    version: str = "nav2-v2"
+    version: str = "nav2-v3"
     pa_500_policy: Pa500Policy = Pa500Policy.CEILING
     max_iterations: int = 5
     convergence_seconds: float = 30.0
@@ -1528,10 +1529,31 @@ class CalculationService:
                 else (),
             )
             adopted_distance = distance_value.adopted()
+            try:
+                variation_decision = variation_for_departure_latitude(
+                    geometry.start.latitude_deg
+                )
+            except (TypeError, ValueError) as error:
+                variation_decision = None
+                issues.append(
+                    Issue(
+                        code="VARIATION_UNAVAILABLE",
+                        severity=IssueSeverity.BLOCKER,
+                        message="Leg出発点の緯度から偏差を自動判定できません。",
+                        section_id=section.id,
+                        metadata={
+                            "departure_latitude_deg": geometry.start.latitude_deg,
+                            "reason": str(error),
+                        },
+                    )
+                )
+            variation_deg_east = (
+                None if variation_decision is None else variation_decision.degrees_east
+            )
             magnetic_course = (
                 None
-                if adopted_course is None
-                else (adopted_course + project.default_variation_deg_east) % 360
+                if adopted_course is None or variation_deg_east is None
+                else (adopted_course + variation_deg_east) % 360
             )
 
             wind_direction = environment.wind_direction_deg_from
@@ -1781,8 +1803,9 @@ class CalculationService:
                     ),
                     true_course_deg=course_value,
                     variation_deg_east=_automatic(
-                        project.default_variation_deg_east,
+                        variation_deg_east,
                         ValueState.FIXED_RULE,
+                        None if variation_decision is None else variation_decision.metadata,
                     ),
                     magnetic_course_deg=_automatic(magnetic_course),
                     wind_direction_deg_from=_manual_or_automatic(
