@@ -81,7 +81,9 @@ bind先を省略した通常起動は引き続き `127.0.0.1`、host側portを�
 「最新METAR QNH + MSM MSLP(出発時刻) − MSM MSLP(METAR観測時刻)」で推定します。
 Pzs・外部DEMは使用しません。METARが取得・検証できない場合はMSM MSLP単独へ切り替え、
 MSMも取得不能ならQNH手入力を要求します。利用者がQNHを手入力した場合は、取得済みの
-自動値があっても手入力値を常に優先します。自動値は公式QNHではないため、画面と転記補助に
+自動値があっても手入力値を常に優先します。`METAR_TREND_CORRECTED` は取得時点で
+観測時刻から2時間以内かつQNH整合性を検証済みのMETARだけで算出します。
+自動値は公式QNHではないため、画面と転記補助に
 `ESTIMATED_QNH_NOT_OFFICIAL` と `VERIFY_WITH_OFFICIAL_AERODROME_QNH` を残します。
 開発時だけ `--weather fake` を指定でき、この場合はA4転記補助HTMLを出力しません。
 

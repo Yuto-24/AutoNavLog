@@ -155,7 +155,7 @@ def _weather_factory(
         return create_msm_metar, "MSM予報・METAR観測QNH", False
 
     if config.weather_mode != "msm-metar-trend":
-        raise RuntimeError(f"unsupported weather mode: {config.weather_mode}")
+        raise ValueError(f"unsupported weather mode: {config.weather_mode}")
 
     _prune_msm_cache(cache_dir)
     shared_provider = MsmMetarTrendQnhProvider(
