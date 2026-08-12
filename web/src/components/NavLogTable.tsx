@@ -636,6 +636,7 @@ export function NavLogTable({
   const metarTime = qnhValues.metar_observation_time_utc;
   const forecastTime = qnhValues.forecast_time_utc;
   const tendency = qnhValues.msm_tendency_hpa;
+  const showAutomaticQnhDetails = outcome.qnh_hpa.adopted_source !== "MANUAL";
   return (
     <section className="nav-log-section" aria-labelledby="nav-log-title">
       <div className="nav-log-heading">
@@ -648,9 +649,15 @@ export function NavLogTable({
       <section className="qnh-summary" aria-label="採用QNHと出典">
         <strong>採用QNH: {qnh === null ? "未取得" : `${qnh.toFixed(1)} hPa`}</strong>
         <span>方式: {qnhMethod}</span>
-        {typeof metarTime === "string" && <span>基準METAR: {metarTime}</span>}
-        {typeof forecastTime === "string" && <span>予報対象: {forecastTime}</span>}
-        {typeof tendency === "number" && <span>MSM変化量: {tendency.toFixed(1)} hPa</span>}
+        {showAutomaticQnhDetails && typeof metarTime === "string" && (
+          <span>基準METAR: {metarTime}</span>
+        )}
+        {showAutomaticQnhDetails && typeof forecastTime === "string" && (
+          <span>予報対象: {forecastTime}</span>
+        )}
+        {showAutomaticQnhDetails && typeof tendency === "number" && (
+          <span>MSM変化量: {tendency.toFixed(1)} hPa</span>
+        )}
         {(outcome.qnh_hpa.warnings ?? []).map((warning) => (
           <span className="qnh-warning" key={warning}>⚠ {warning}</span>
         ))}

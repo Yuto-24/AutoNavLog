@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import pytest
 
 import autonavlog.web.runtime as runtime
+from autonavlog.domain.weather import ForecastRequirement, ForecastRun
+from autonavlog.weather.prewarm import WeatherPrewarmer
 from autonavlog.web.runtime import WebRuntimeConfig, environment_bool
 
 
@@ -94,3 +98,63 @@ def test_msm_metar_delegate_receives_terrain_cache(
     assert captured["terrain_cache_path"] == tmp_path / "terrain.json"
     assert label == "MSM予報・METAR観測QNH"
     assert development is False
+
+
+def test_weather_prewarmer_runs_cleanup_and_restarts_after_shutdown() -> None:
+    class Provider:
+        def __init__(self) -> None:
+            self.prepared = Event()
+            self.prepare_count = 0
+
+        def resolve_run(self, requirement: ForecastRequirement) -> ForecastRun:
+            return ForecastRun(
+                id="20260812000000",
+                initial_time_utc=requirement.valid_times_utc[0],
+            )
+
+        def prepare_run(
+            self,
+            forecast_run_id: str,
+            requirement: ForecastRequirement,
+        ) -> None:
+            self.prepare_count += 1
+            self.prepared.set()
+
+    provider = Provider()
+    cleaned = Event()
+    prewarmer = WeatherPrewarmer(
+        provider,  # type: ignore[arg-type]
+        interval=timedelta(hours=1),
+        cleanup=cleaned.set,
+    )
+
+    prewarmer.start()
+    assert provider.prepared.wait(timeout=2)
+    prewarmer.shutdown()
+    assert cleaned.is_set()
+
+    provider.prepared.clear()
+    cleaned.clear()
+    prewarmer.start()
+    assert provider.prepared.wait(timeout=2)
+    prewarmer.shutdown()
+
+    assert cleaned.is_set()
+    assert provider.prepare_count == 2
+
+
+def test_prune_msm_cache_reports_deleted_count_and_remaining_bytes(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cache_dir = tmp_path / "msm-cache"
+    cache_dir.mkdir()
+    cached = cache_dir / "fixture.grib2"
+    cached.write_bytes(b"weather")
+
+    with caplog.at_level("INFO", logger=runtime.__name__):
+        deleted, remaining = runtime._prune_msm_cache(cache_dir, maximum_bytes=0)
+
+    assert (deleted, remaining) == (1, 0)
+    assert not cached.exists()
+    assert "deleted_files=1 remaining_bytes=0" in caplog.text

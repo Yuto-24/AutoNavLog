@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 from autonavlog.domain.weather import ForecastRequirement
@@ -19,16 +20,20 @@ class WeatherPrewarmer:
         *,
         horizon: timedelta = timedelta(hours=48),
         interval: timedelta = timedelta(minutes=15),
+        cleanup: Callable[[], object] | None = None,
     ) -> None:
         self._provider = provider
         self._horizon = horizon
         self._interval = interval
+        self._cleanup = cleanup
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        if self._thread is not None:
+        """Start or restart the background prewarm loop."""
+        if self._thread is not None and self._thread.is_alive():
             return
+        self._stop.clear()
         self._thread = threading.Thread(
             target=self._run,
             name="autonavlog-msm-prewarm",
@@ -44,9 +49,20 @@ class WeatherPrewarmer:
                 LOGGER.exception(
                     "MSM 48-hour prewarm failed; on-demand preparation remains available"
                 )
+            finally:
+                self._cleanup_once()
             self._stop.wait(self._interval.total_seconds())
 
+    def _cleanup_once(self) -> None:
+        if self._cleanup is None:
+            return
+        try:
+            self._cleanup()
+        except Exception:
+            LOGGER.exception("MSM cache cleanup failed")
+
     def run_once(self) -> str:
+        """Prepare one run covering the configured UTC horizon."""
         now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
         hours = int(self._horizon.total_seconds() // 3600)
         requirement = ForecastRequirement(
@@ -60,6 +76,8 @@ class WeatherPrewarmer:
         return run.id
 
     def shutdown(self) -> None:
+        """Stop the background loop while allowing a later restart."""
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=5)
+            self._thread = None

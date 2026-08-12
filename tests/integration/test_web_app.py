@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from autonavlog.web.app import create_app
+from autonavlog.web.calculation_jobs import CalculationJobAlreadyActiveError
 from autonavlog.web.cloudflare_access import CloudflareAccessVerificationError
 from autonavlog.web.runtime import WebRuntimeConfig
 
@@ -775,3 +776,31 @@ async def test_intermediate_line_names_preserve_every_original_coordinate(
             (33.78695544494976, 131.9894319344609),
             (33.62999835453385, 131.67890296839),
         ]
+
+
+@pytest.mark.anyio
+async def test_duplicate_calculation_job_returns_conflict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+
+    def reject_duplicate(**kwargs: object) -> None:
+        raise CalculationJobAlreadyActiveError("session already has an active calculation job")
+
+    monkeypatch.setattr(app.state.calculation_jobs, "submit", reject_duplicate)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+
+        response = await client.post("/api/calculation-jobs")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "CALCULATION_JOB_ALREADY_ACTIVE"

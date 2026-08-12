@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from secrets import token_urlsafe
@@ -29,6 +30,23 @@ class CalculationJob:
     error: dict[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class CalculationJobSnapshot:
+    """Immutable, atomically captured job state for API serialization."""
+
+    id: str
+    status: JobStatus
+    created_at_utc: datetime
+    updated_at_utc: datetime
+    result: dict[str, Any] | None
+    error: dict[str, Any] | None
+    queue_position: int | None
+
+
+class CalculationJobAlreadyActiveError(OverflowError):
+    """Raised when a session already owns an unfinished calculation job."""
+
+
 class CalculationJobQueue:
     """Bounded in-process calculation queue with session/owner isolation."""
 
@@ -52,13 +70,15 @@ class CalculationJobQueue:
         session_token: str,
         task: Callable[[], dict[str, Any]],
     ) -> CalculationJob:
+        """Submit a bounded asynchronous calculation for one session."""
         with self._lock:
             if any(
-                item.session_token == session_token
-                and item.status not in {"succeeded", "failed"}
+                item.session_token == session_token and item.status not in {"succeeded", "failed"}
                 for item in self._jobs.values()
             ):
-                raise OverflowError("session already has an active calculation job")
+                raise CalculationJobAlreadyActiveError(
+                    "session already has an active calculation job"
+                )
             if not self._capacity.acquire(blocking=False):
                 raise OverflowError("calculation queue is full")
             job = CalculationJob(
@@ -107,7 +127,40 @@ class CalculationJobQueue:
             job.status = status
             job.updated_at_utc = datetime.now(timezone.utc)
 
+    def snapshot(
+        self,
+        job_id: str,
+        *,
+        owner_id: str,
+        session_token: str,
+    ) -> CalculationJobSnapshot | None:
+        """Capture all API-visible job fields under the queue lock."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or job.owner_id != owner_id or job.session_token != session_token:
+                return None
+            position = None
+            if job.status == "queued":
+                queued = sorted(
+                    (item for item in self._jobs.values() if item.status == "queued"),
+                    key=lambda item: item.created_at_utc,
+                )
+                position = next(
+                    (index for index, item in enumerate(queued, start=1) if item.id == job.id),
+                    None,
+                )
+            return CalculationJobSnapshot(
+                id=job.id,
+                status=job.status,
+                created_at_utc=job.created_at_utc,
+                updated_at_utc=job.updated_at_utc,
+                result=deepcopy(job.result),
+                error=deepcopy(job.error),
+                queue_position=position,
+            )
+
     def get(self, job_id: str, *, owner_id: str, session_token: str) -> CalculationJob | None:
+        """Return an authorized mutable job for internal compatibility."""
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None or job.owner_id != owner_id or job.session_token != session_token:
@@ -115,6 +168,7 @@ class CalculationJobQueue:
             return job
 
     def queue_position(self, job: CalculationJob) -> int | None:
+        """Return the current one-based position for a queued job."""
         if job.status != "queued":
             return None
         with self._lock:
@@ -132,15 +186,12 @@ class CalculationJobQueue:
         if len(self._jobs) <= maximum_history:
             return
         finished = sorted(
-            (
-                item
-                for item in self._jobs.values()
-                if item.status in {"succeeded", "failed"}
-            ),
+            (item for item in self._jobs.values() if item.status in {"succeeded", "failed"}),
             key=lambda item: item.updated_at_utc,
         )
         for item in finished[: len(self._jobs) - maximum_history]:
             self._jobs.pop(item.id, None)
 
     def shutdown(self) -> None:
+        """Stop accepting work and release executor resources."""
         self._executor.shutdown(wait=False, cancel_futures=False)

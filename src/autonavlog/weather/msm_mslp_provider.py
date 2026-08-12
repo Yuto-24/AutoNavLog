@@ -54,6 +54,7 @@ class MsmMslpWeatherProvider:
         self._prepared: dict[str, Any] = {}
         self._requirements: dict[str, ForecastRequirement] = {}
         self._lock = threading.RLock()
+        self._run_locks: dict[str, threading.Lock] = {}
 
     def _native_requirement(self, requirement: ForecastRequirement) -> Any:
         variables = set()
@@ -74,6 +75,7 @@ class MsmMslpWeatherProvider:
         return self._msm.RunId(parsed)
 
     def resolve_run(self, requirement: ForecastRequirement) -> ForecastRun:
+        """Select the newest MSM run compatible with the requirement."""
         status = self.client.resolve_run(self._native_requirement(requirement), selected_run=None)
         if status.selected_run is None:
             raise RuntimeError("MSM did not select a compatible forecast run")
@@ -85,6 +87,7 @@ class MsmMslpWeatherProvider:
         selected_run_id: str,
         requirement: ForecastRequirement,
     ) -> RunSelectionStatus:
+        """Inspect compatibility and update availability for a selected run."""
         status = self.client.resolve_run(
             self._native_requirement(requirement),
             selected_run=self._run_id(selected_run_id),
@@ -107,7 +110,9 @@ class MsmMslpWeatherProvider:
         if previous is None:
             return current
         return ForecastRequirement(
-            valid_times_utc=(*previous.valid_times_utc, *current.valid_times_utc),
+            valid_times_utc=tuple(
+                sorted(dict.fromkeys((*previous.valid_times_utc, *current.valid_times_utc)))
+            ),
             require_aloft_wind=previous.require_aloft_wind or current.require_aloft_wind,
             require_aloft_temperature=(
                 previous.require_aloft_temperature or current.require_aloft_temperature
@@ -120,21 +125,29 @@ class MsmMslpWeatherProvider:
         forecast_run_id: str,
         requirement: ForecastRequirement,
     ) -> PreparedForecastRun:
+        """Prepare one compatible run without serializing queries for other runs."""
         with self._lock:
-            combined = self._combine(self._requirements.get(forecast_run_id), requirement)
-            if self._requirements.get(forecast_run_id) != combined:
-                self._prepared[forecast_run_id] = self.client.prepare_run(
+            run_lock = self._run_locks.setdefault(forecast_run_id, threading.Lock())
+        with run_lock:
+            with self._lock:
+                combined = self._combine(self._requirements.get(forecast_run_id), requirement)
+                requires_prepare = self._requirements.get(forecast_run_id) != combined
+                prepared_requirement = combined
+            if requires_prepare:
+                prepared = self.client.prepare_run(
                     self._run_id(forecast_run_id),
                     self._native_requirement(combined),
                     terrain_provider=None,
                 )
-                self._requirements[forecast_run_id] = combined
-                while len(self._prepared) > 4:
-                    oldest_run_id = next(iter(self._prepared))
-                    if oldest_run_id == forecast_run_id and len(self._prepared) > 1:
-                        oldest_run_id = next(iter(tuple(self._prepared)[1:]))
-                    self._prepared.pop(oldest_run_id, None)
-                    self._requirements.pop(oldest_run_id, None)
+                with self._lock:
+                    self._prepared[forecast_run_id] = prepared
+                    self._requirements[forecast_run_id] = combined
+                    while len(self._prepared) > 4:
+                        oldest_run_id = next(iter(self._prepared))
+                        if oldest_run_id == forecast_run_id and len(self._prepared) > 1:
+                            oldest_run_id = next(iter(tuple(self._prepared)[1:]))
+                        self._prepared.pop(oldest_run_id, None)
+                        self._requirements.pop(oldest_run_id, None)
         return PreparedForecastRun(
             forecast_run_id=forecast_run_id,
             requirement=requirement,
@@ -144,7 +157,7 @@ class MsmMslpWeatherProvider:
                 "qnh_input": "forecast_mslp",
                 "terrain_required": False,
                 "prepared_valid_times_utc": [
-                    item.isoformat() for item in self._requirements[forecast_run_id].valid_times_utc
+                    item.isoformat() for item in prepared_requirement.valid_times_utc
                 ],
             },
         )
@@ -154,11 +167,12 @@ class MsmMslpWeatherProvider:
         forecast_run_id: str,
         requests: Sequence[WeatherRequest],
     ) -> Sequence[WeatherResult]:
+        """Query a prepared run while allowing concurrent calculation jobs."""
         with self._lock:
             prepared = self._prepared.get(forecast_run_id)
             if prepared is None:
                 raise RuntimeError("MSM forecast run must be prepared before querying")
-            return tuple(self._query(prepared, request) for request in requests)
+        return tuple(self._query(prepared, request) for request in requests)
 
     def _query(self, prepared: Any, request: WeatherRequest) -> WeatherResult:
         if request.kind == WeatherRequestKind.ALOFT:
@@ -231,28 +245,32 @@ class MsmMslpWeatherProvider:
     def _result(self, request: WeatherRequest, native: Any) -> WeatherResult:
         available = native.availability == self._msm.Availability.AVAILABLE
         values = dict(native.values)
-        if available:
+        is_qnh = request.kind == WeatherRequestKind.ESTIMATED_QNH
+        if available and is_qnh:
             mslp_pa = values.get("mslp_pa")
             if isinstance(mslp_pa, (int, float)):
                 values["mslp_hpa"] = float(mslp_pa) / 100.0
                 values["qnh_hpa"] = round(float(mslp_pa) / 100.0, 1)
             values["label"] = "MSM MSLP単独推定QNH"
             values["qnh_method"] = "MSM_MSLP_ONLY"
+        warnings = tuple(native.warnings)
+        if is_qnh:
+            warnings = tuple(
+                dict.fromkeys(
+                    (
+                        *warnings,
+                        "ESTIMATED_QNH_NOT_OFFICIAL",
+                        "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
+                    )
+                )
+            )
         return WeatherResult(
             request_id=request.request_id,
             availability=Availability.AVAILABLE if available else Availability.UNAVAILABLE,
             kind=request.kind,
             values=values,
             reason_code=native.reason_code,
-            warnings=tuple(
-                dict.fromkeys(
-                    (
-                        *native.warnings,
-                        "ESTIMATED_QNH_NOT_OFFICIAL",
-                        "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
-                    )
-                )
-            ),
+            warnings=warnings,
             metadata={
                 "provider": "jma-msm-wind",
                 "provenance": _jsonable(native.provenance),

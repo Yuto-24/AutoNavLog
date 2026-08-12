@@ -177,6 +177,38 @@ class MsmMetarWeatherProvider:
         self._last_http_request_at_utc: datetime | None = None
         self._cache_lock = threading.Lock()
 
+    @property
+    def cache_ttl_seconds(self) -> float:
+        """Return the shared METAR cache lifetime in seconds."""
+        return self._cache_ttl.total_seconds()
+
+    def current_time_utc(self) -> datetime:
+        """Return the provider clock normalized to UTC."""
+        return self._now_utc()
+
+    def lookup_metars(
+        self,
+        station_icaos: Sequence[str],
+        now: datetime,
+    ) -> dict[str, _MetarLookup]:
+        """Return cached or freshly fetched METAR lookups for the stations."""
+        return self._lookup_metars(station_icaos, now)
+
+    def observation_provenance(
+        self,
+        observation: _MetarObservation,
+        observation_age: timedelta,
+        valid_time_offset: timedelta,
+        requested_valid_time: datetime,
+    ) -> dict[str, Any]:
+        """Build stable provenance metadata for an accepted observation."""
+        return self._observation_provenance(
+            observation,
+            observation_age,
+            valid_time_offset,
+            requested_valid_time,
+        )
+
     @staticmethod
     def _without_estimated_qnh(
         requirement: ForecastRequirement,
@@ -189,6 +221,7 @@ class MsmMetarWeatherProvider:
         )
 
     def resolve_run(self, requirement: ForecastRequirement) -> ForecastRun:
+        """Select a delegate run for aloft weather."""
         return self._delegate.resolve_run(self._without_estimated_qnh(requirement))
 
     def inspect_run_status(
@@ -196,6 +229,7 @@ class MsmMetarWeatherProvider:
         selected_run_id: str,
         requirement: ForecastRequirement,
     ) -> RunSelectionStatus:
+        """Inspect the selected delegate run without requiring QNH data."""
         return self._delegate.inspect_run_status(
             selected_run_id,
             self._without_estimated_qnh(requirement),
@@ -206,6 +240,7 @@ class MsmMetarWeatherProvider:
         forecast_run_id: str,
         requirement: ForecastRequirement,
     ) -> PreparedForecastRun:
+        """Prepare a delegate run and record the METAR QNH requirement."""
         delegated = self._delegate.prepare_run(
             forecast_run_id,
             self._without_estimated_qnh(requirement),
@@ -229,6 +264,7 @@ class MsmMetarWeatherProvider:
         forecast_run_id: str,
         requests: Sequence[WeatherRequest],
     ) -> Sequence[WeatherResult]:
+        """Query aloft weather and recent METAR QNH in original request order."""
         if forecast_run_id not in self._prepared:
             raise RuntimeError("MSM/METAR forecast run must be prepared before querying")
 

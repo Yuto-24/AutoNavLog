@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -24,9 +25,11 @@ from .cloudflare_access import CloudflareAccessVerifier
 from .facade import AutoNavLogWebApplication
 
 WeatherMode = Literal["fake", "msm", "msm-metar", "msm-metar-trend"]
+LOGGER = logging.getLogger(__name__)
 
 
 def environment_bool(name: str, *, default: bool) -> bool:
+    """Read one strict boolean environment setting."""
     raw = os.environ.get(name)
     if raw is None:
         return default
@@ -76,9 +79,12 @@ def _prune_msm_cache(
     *,
     maximum_bytes: int = 20 * 1024**3,
     maximum_age: timedelta = timedelta(days=7),
-) -> None:
+) -> tuple[int, int]:
+    """Prune stale/oversized MSM files and return deleted count and remaining bytes."""
     if not cache_dir.is_dir():
-        return
+        LOGGER.info("MSM cache cleanup completed: deleted_files=0 remaining_bytes=0")
+        return 0, 0
+    deleted = 0
     cutoff = datetime.now(timezone.utc).timestamp() - maximum_age.total_seconds()
     files: list[tuple[float, int, Path]] = []
     for path in cache_dir.rglob("*"):
@@ -92,7 +98,9 @@ def _prune_msm_cache(
             try:
                 path.unlink()
             except OSError:
-                pass
+                files.append((stat.st_mtime, stat.st_size, path))
+            else:
+                deleted += 1
             continue
         files.append((stat.st_mtime, stat.st_size, path))
     total = sum(size for _, size, _ in files)
@@ -104,6 +112,13 @@ def _prune_msm_cache(
         except OSError:
             continue
         total -= size
+        deleted += 1
+    LOGGER.info(
+        "MSM cache cleanup completed: deleted_files=%s remaining_bytes=%s",
+        deleted,
+        total,
+    )
+    return deleted, total
 
 
 def _weather_factory(
@@ -139,6 +154,9 @@ def _weather_factory(
 
         return create_msm_metar, "MSM予報・METAR観測QNH", False
 
+    if config.weather_mode != "msm-metar-trend":
+        raise RuntimeError(f"unsupported weather mode: {config.weather_mode}")
+
     _prune_msm_cache(cache_dir)
     shared_provider = MsmMetarTrendQnhProvider(
         MsmMslpWeatherProvider(cache_dir=cache_dir),
@@ -146,12 +164,14 @@ def _weather_factory(
     )
 
     def shared_msm_metar_trend() -> WeatherProvider:
+        """Return the process-wide provider with shared runs and METAR cache."""
         return shared_provider
 
     return shared_msm_metar_trend, "MSM予報・METAR補正付きMSM QNH推定", False
 
 
 def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
+    """Build the production web facade and optional weather prewarmer."""
     data_root = config.data_root.resolve()
     storage_root = config.storage_root.resolve()
     reference_default = data_root / "reference" / "default"
@@ -172,7 +192,12 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
     weather_factory, weather_label, development_weather = _weather_factory(config)
     weather_prewarmer = None
     if config.weather_mode == "msm-metar-trend":
-        weather_prewarmer = WeatherPrewarmer(weather_factory())
+        weather_prewarmer = WeatherPrewarmer(
+            weather_factory(),
+            cleanup=lambda: _prune_msm_cache(
+                config.msm_cache_dir or (config.storage_root / "msm-cache")
+            ),
+        )
     access_verifier = None
     if config.cloudflare_team_domain and config.cloudflare_access_audience:
         access_verifier = CloudflareAccessVerifier(

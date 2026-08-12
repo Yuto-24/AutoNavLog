@@ -22,7 +22,11 @@ from autonavlog.importers.kml import (
 )
 from autonavlog.version import __version__
 
-from .calculation_jobs import CalculationJob, CalculationJobQueue
+from .calculation_jobs import (
+    CalculationJobAlreadyActiveError,
+    CalculationJobQueue,
+    CalculationJobSnapshot,
+)
 from .cloudflare_access import (
     CloudflareAccessVerificationError,
 )
@@ -337,11 +341,12 @@ def create_app(
     ) -> dict[str, Any]:
         return web.update_and_calculate(session, payload)
 
-    def job_payload(job: CalculationJob) -> dict[str, Any]:
+    def job_payload(job: CalculationJobSnapshot) -> dict[str, Any]:
+        """Serialize one atomically captured calculation job."""
         payload: dict[str, Any] = {
             "job_id": job.id,
             "status": job.status,
-            "queue_position": calculation_jobs.queue_position(job),
+            "queue_position": job.queue_position,
             "created_at_utc": job.created_at_utc.isoformat(),
             "updated_at_utc": job.updated_at_utc.isoformat(),
         }
@@ -353,23 +358,38 @@ def create_app(
 
     @app.post("/api/calculation-jobs", status_code=202)
     def create_calculation_job(session: SessionDependency) -> dict[str, Any]:
+        """Queue one calculation or return a precise capacity/session error."""
         try:
             job = calculation_jobs.submit(
                 owner_id=session.owner_id,
                 session_token=session.token,
                 task=lambda: web.calculate(session),
             )
+        except CalculationJobAlreadyActiveError as error:
+            raise WebApplicationError(
+                "CALCULATION_JOB_ALREADY_ACTIVE",
+                "このセッションでは既に計算中です。完了を待ってください。",
+                status_code=409,
+            ) from error
         except OverflowError as error:
             raise WebApplicationError(
                 "CALCULATION_QUEUE_FULL",
                 "計算待ちが上限に達しました。少し待ってから再実行してください。",
                 status_code=503,
             ) from error
-        return job_payload(job)
+        snapshot = calculation_jobs.snapshot(
+            job.id,
+            owner_id=session.owner_id,
+            session_token=session.token,
+        )
+        if snapshot is None:
+            raise RuntimeError("submitted calculation job disappeared")
+        return job_payload(snapshot)
 
     @app.get("/api/calculation-jobs/{job_id}")
     def calculation_job(job_id: str, session: SessionDependency) -> dict[str, Any]:
-        job = calculation_jobs.get(
+        """Return one authorized calculation job snapshot."""
+        job = calculation_jobs.snapshot(
             job_id,
             owner_id=session.owner_id,
             session_token=session.token,
