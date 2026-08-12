@@ -58,6 +58,7 @@ async function calculateNavLog(page: Page): Promise<void> {
   await page.getByRole("button", { name: "経路を確定" }).click();
 
   await expect(page.getByText("VREP", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("32.0°N以上 +8° / 未満 +7°", { exact: true })).toBeVisible();
   const altitudeInputs = page.locator(".table-number-input");
   await expect(altitudeInputs.first()).toHaveValue("");
   await expect(altitudeInputs.last()).toHaveValue("1500");
@@ -65,6 +66,9 @@ async function calculateNavLog(page: Page): Promise<void> {
     await altitudeInputs.nth(index).fill("4500");
   }
   const cruiseAltitude = page.getByLabel(/出発Legの巡航高度候補/).first();
+  const variationGuidance = page.locator(".altitude-course");
+  await expect(variationGuidance.first()).toContainText("VAR +7°");
+  await expect(variationGuidance.nth(1)).toContainText("VAR +8°");
   const cruiseCandidate = await cruiseAltitude.locator("option").first().getAttribute("value");
   if (cruiseCandidate === null) {
     throw new Error("Cruise altitude candidate is missing");
@@ -97,6 +101,7 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
   await expect(firstRow.locator("td").nth(2)).toHaveText("4500");
+  await expect(firstRow.locator("td").nth(7)).toHaveText("+7自動");
 }
 
 test("desktop workflow renders and stays fail-closed", async ({ page }) => {
@@ -155,7 +160,7 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
   await expect(firstRow.locator("td").nth(2)).toHaveText("5500");
   await expect(firstRow.locator("td").nth(6)).toHaveText(/^\d{3}$/);
-  await expect(firstRow.locator("td").nth(7)).toHaveText(/^[+-]\d+$/);
+  await expect(firstRow.locator("td").nth(7)).toHaveText("+7自動");
   await expect(firstRow.locator("td").nth(8)).toHaveText(/^\d{3}$/);
   await expect(firstRow.locator("td").nth(10)).toHaveText(/^[+-]\d+$/);
   await expect(firstRow.locator("td").nth(11)).toHaveText(/^\d{3}$/);

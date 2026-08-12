@@ -54,6 +54,7 @@ from autonavlog.importers.kml import (
     select_imported_polygon_outer,
 )
 from autonavlog.nav.geodesy import geodesic_leg
+from autonavlog.nav.variation import variation_for_departure_latitude
 from autonavlog.presentation.transfer_aid import (
     render_transfer_aid_document,
     render_transfer_aid_html,
@@ -371,7 +372,15 @@ class AutoNavLogApp:
         self.departure = widgets.Text(description="FROM")
         self.destination = widgets.Text(description="TO")
         self.fuel = widgets.FloatText(description="FUEL gal", value=81.0)
-        self.variation = widgets.FloatText(description="VAR E", value=8.0)
+        # Kept in the Project payload for schema compatibility; calculations use
+        # the per-leg departure-latitude rule below.
+        self.variation = widgets.FloatText(description="旧VAR", value=8.0, disabled=True)
+        self.variation_rule_summary = widgets.HTML(
+            "<strong>VAR E:</strong> Leg出発緯度32.0°N以上は+8°、未満は+7°を自動採用"
+        )
+        self.leg_variation = widgets.HTML(
+            "<strong>選択Leg VAR E:</strong> Routeを確定してください。"
+        )
         self.create_button = widgets.Button(description="新規Project", icon="plus")
         self.create_button.on_click(self._create_project)
         self.kmz_document_candidates = widgets.Dropdown(
@@ -1819,7 +1828,6 @@ class AutoNavLogApp:
             self.departure_reference,
             self.destination_reference,
             self.fuel,
-            self.variation,
             self.upload,
             self.kml_text,
             self.import_text_button,
@@ -1928,6 +1936,7 @@ class AutoNavLogApp:
             self.phase,
             self.altitude,
             self.wind_direction,
+            self.leg_variation,
             self.wind_speed,
             self.temperature,
             self.tas,
@@ -2100,6 +2109,7 @@ class AutoNavLogApp:
                 self.phase,
                 self.altitude,
                 self.wind_direction,
+                self.leg_variation,
                 self.wind_speed,
                 self.temperature,
                 self.tas,
@@ -2118,7 +2128,7 @@ class AutoNavLogApp:
         review_panel = widgets.VBox(
             [
                 self.fuel,
-                self.variation,
+                self.variation_rule_summary,
                 self.manual_qnh,
                 self.tgl_count,
                 self.manual_qnh_confirmation,
@@ -2946,6 +2956,12 @@ class AutoNavLogApp:
             return
         section = self.project.sections[index]
         self.phase.value = section.phase.value
+        start = self.project.ordered_nodes()[index]
+        variation = variation_for_departure_latitude(start.latitude_deg)
+        self.leg_variation.value = (
+            f"<strong>選択Leg VAR E:</strong> {variation.degrees_east:+g}°（出発緯度 "
+            f"{start.latitude_deg:.4f}°）"
+        )
         self.altitude.value = section.planned_altitude_ft_msl
         self.wind_direction.value = self._optional_text(section.manual_wind_direction_deg)
         self.wind_speed.value = self._optional_text(section.manual_wind_speed_kt)

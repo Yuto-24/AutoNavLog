@@ -102,7 +102,6 @@ def current_calculation_input_fingerprint(
             "flight_date": project.flight_date,
             "planned_departure_time_jst": (project.planned_departure_time_jst),
             "total_usable_fuel_gal": project.total_usable_fuel_gal,
-            "default_variation_deg_east": (project.default_variation_deg_east),
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
             "manual_qnh_hpa": project.manual_qnh_hpa,
@@ -156,7 +155,6 @@ def defaults_review_fingerprint(
                 for section in project.ordered_sections()
             ],
             "total_usable_fuel_gal": project.total_usable_fuel_gal,
-            "default_variation_deg_east": (project.default_variation_deg_east),
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
             "performance_table_version": performance_table_version,

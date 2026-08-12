@@ -479,7 +479,7 @@ CB=計算ブロッカー、CD=計算必須・既定値あり、PB=転記ブロ�
 | ETD | `planned_departure_time_jst` | CD | `"09:00"` | 0900 JST（維持） | KML欄直下 |
 | ALT | `NavSection.planned_altitude_ft_msl` | CD | **5000 ft** | 維持 | 折りたたみ |
 | FUEL | `total_usable_fuel_gal` | CD | **81.0 gal** | 維持 | 折りたたみ |
-| VAR | `default_variation_deg_east` | CD | **8.0（東偏差、東を正）** | 維持 | 折りたたみ |
+| VAR | `SectionResult.variation_deg_east` | 自動 | **Project固定8.0** | **Leg出発緯度32.0°N以上+8°、未満+7°** | Leg設定・結果表 |
 | TGL | `tgl_count` | CD | **0（回数。`BoundedIntText(min=0)`）** | 維持 | 折りたたみ |
 | Phase | `NavSection.phase` | CD | **`CRUISE`** | 維持 | フェーズB |
 | 旧LOSS | `NavSection.loss_time_seconds` | — | **0固定** | v2.5.1で入力廃止。旧非0値は移行情報として読取専用表示し、計算には不使用 | 移行表示のみ |
@@ -1372,13 +1372,13 @@ SEA専用の固定vectorは本版では試験対象に含めない。
 | クラス | 対象 | 再計算 |
 |---|---|---|
 | DISPLAY | `pilot_name`、`ship_identifier`、Project名 | 不要 |
-| HEADING | `default_variation_deg_east` | 必要 |
+| HEADING | RouteNode座標（各Leg出発緯度からVARを導出） | 必要 |
 | FUEL | `total_usable_fuel_gal`、`tgl_count` | 必要 |
 | NAV | DATE/ETD、ALT、Phase、QNH、Forecast Run、経路、ArrivalPlan、選択参照データsnapshot、CP、Section手動気象、性能・policy・アプリ・MSM版 | 必要 |
 
 `current_calculation_input_fingerprint` は、第10.1a節の `make_fingerprint(kind="calculation_input", ...)` で次をcanonical化して作る。
 
-- 飛行日、tz-aware ETD、燃料、偏差、TGL、機体profile、手動QNH、選択Forecast Run
+- 飛行日、tz-aware ETD、燃料、TGL、機体profile、手動QNH、選択Forecast Run
 - RouteNodeのUUID、名称、座標、role、順序
 - NavSectionのUUID、from/to UUID、ALT、Phase、手動気象入力
 - ArrivalPlanのVREP、到着高度mode、手動高度・理由
@@ -1641,7 +1641,7 @@ A.1〜A.9を本版の外部インタフェース契約とする。旧A.10は履�
 |---|---|---|---|
 | ALT | 5000 | `FloatText`、ft MSL | `colab.py` `self.altitude` |
 | FUEL | 81.0 | `FloatText`、gal（`total_usable_fuel_gal`、`gt=0`） | `colab.py` `self.fuel` |
-| VAR | 8.0 | `FloatText`、度（東偏差を正） | `colab.py` `self.variation` |
+| VAR | 32.0°N以上+8°、未満+7° | Leg出発緯度から自動（東偏差を正） | `nav/variation.py` |
 | TGL | 0 | `BoundedIntText(min=0)`、回数 | `colab.py` `self.tgl_count` |
 | Phase | `CRUISE` | `Dropdown`（FlightPhase） | `colab.py` `self.phase` |
 | DATE | `date.today()` | `DatePicker` | 本改修で翌日へ変更 |
@@ -1750,7 +1750,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | 入力 | `Project`（deep copyされる） |
 | 出力 | `CalculationOutcome`（`sections: list[SectionResult]` / `derived_points` / `arrival_altitude: ArrivalAltitudeResult` / `check_point_projections: list[CheckPointProjection]` / `fuel_plan` / `issues` / `iterations` / `converged` / `status` / `policy_version` / `performance_table_version` / `qnh_hpa`） |
 | 各値 | `AdoptedValue[T]`。`adopted()` で採用値、`state` で `ValueState` |
-| Policy | `CalculationPolicies.version = "nav2-v2"`。v2.7.3のVREP個別規則は `ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"` とする |
+| Policy | `CalculationPolicies.version = "nav2-v3"`。Variationは`DEPARTURE_LATITUDE_32N_V1`、VREP個別規則は`ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"`とする |
 | エラー | 例外ではなく `Issue` として返る。`blockers` プロパティで抽出 |
 | SEAの使用 | **なし（v2.6.0）**。`safe_enroute_altitude_ft_msl` は互換fieldとして残してよいが、計算・Issue・fingerprint・status・表示・出力へ使用しない |
 | 丸め | 通常の中間値は丸めず、表示時にhalf-upで方位1°・距離0.5 NM・時間0.5 min・燃料0.1 gal。例外としてVREP計画高度は、ArrivalPlanで100 ft単位に確定した採用場周高度へ500 ftを加えて5 NM基準高度とし、5 NM超過距離を整数NMへhalf-upして200 ft/NMを加えた第6.6節の**採用計算値**を降下・EOC・気象へ渡す。master場周経路高度は別に参照表示する |

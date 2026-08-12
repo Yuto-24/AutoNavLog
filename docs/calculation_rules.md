@@ -73,6 +73,10 @@
 
 - 測地線はWGS84、Courseは初期真方位、Legの自動気象照会点は測地線上の中点です。
   これは実装Policyです。
+- Variationは各物理Legの出発点緯度から自動判定します。32.0°N以上（境界を含む）は
+  +8°E、32.0°N未満は+7°Eです。Phase境界で計算行が分割されても元の物理Legの
+  出発点を使います。保存済みProjectの`default_variation_deg_east`はschema互換のため
+  読み込みますが、新しい計算値には使用しません。
 - 東偏差を正として`MC = TC - VAR`、右WCAを正として`MH = MC + WCA`とします。
 - 自動QNHは、MSM海面更正気圧と検証済みPzs地形cacheから求める**MSM推定QNH**です。
   Project全体へ採用し、`MSM推定QNH`、`公式観測値ではない`、

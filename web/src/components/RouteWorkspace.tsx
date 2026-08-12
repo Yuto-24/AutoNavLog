@@ -306,7 +306,8 @@ export function RouteWorkspace({
                             {guidance.appliesToCruisingAltitudeInput
                               ? altitudeBasisLabels[section.phase] + "・"
                               : ""}
-                            MC {Math.round(guidance.magneticCourseDeg)}
+                            VAR {guidance.variationDegEast > 0 ? "+" : ""}{guidance.variationDegEast}°
+                            {" / MC "}{Math.round(guidance.magneticCourseDeg)}
                             {requiresAltitudeReview ? "・候補外（要確認）" : ""}
                           </small>
                         )}

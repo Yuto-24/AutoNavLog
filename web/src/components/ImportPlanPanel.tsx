@@ -247,21 +247,10 @@ export function ImportPlanPanel({
               }}
             />
           </label>
-          <label>
-            <span>VAR E</span>
-            <input
-              type="number"
-              min="-30"
-              max="30"
-              step="0.1"
-              value={form.variationDegEast}
-              onChange={(event) => {
-                if (Number.isFinite(event.target.valueAsNumber)) {
-                  update("variationDegEast", event.target.valueAsNumber);
-                }
-              }}
-            />
-          </label>
+          <div className="form-grid-field">
+            <span>VAR E（Legごと自動）</span>
+            <strong>32.0°N以上 +8° / 未満 +7°</strong>
+          </div>
           <div className="form-grid-field span-two">
             <span>QNH（未入力は自動取得）</span>
             <div className="qnh-input-row">

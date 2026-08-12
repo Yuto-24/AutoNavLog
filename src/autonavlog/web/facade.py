@@ -39,6 +39,7 @@ from autonavlog.importers.kml import (
     waypoint_name_slots_from_line,
 )
 from autonavlog.nav.geodesy import geodesic_leg
+from autonavlog.nav.variation import variation_for_departure_latitude
 from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.presentation.transfer_aid import render_transfer_aid_document
 from autonavlog.storage.airports import AirportRepository
@@ -870,7 +871,7 @@ class AutoNavLogWebApplication:
             ).initial_true_course_deg
             magnetic_course = magnetic_course_deg(
                 true_course,
-                project.default_variation_deg_east,
+                variation_for_departure_latitude(start.latitude_deg).degrees_east,
             )
             matches = matches_vfr_cruising_altitude(
                 section.planned_altitude_ft_msl,
@@ -885,6 +886,9 @@ class AutoNavLogWebApplication:
                 {
                     "sectionId": str(section.id),
                     "magneticCourseDeg": magnetic_course,
+                    "variationDegEast": variation_for_departure_latitude(
+                        start.latitude_deg
+                    ).degrees_east,
                     "candidateAltitudesFtMsl": list(
                         vfr_cruising_altitude_candidates(magnetic_course)
                     ),
