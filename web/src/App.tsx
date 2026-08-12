@@ -3,11 +3,13 @@ import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApiClient, ApiError, fileToBase64 } from "./api";
 import {
   candidateFromKey,
+  departureAirportForCandidate,
   destinationAirportForCandidate,
   formFromProject,
   initialPlanningForm,
   patternAltitudeFtMsl,
   qnhHpa,
+  variationForDeparture,
 } from "./forms";
 import type { PlanningForm } from "./forms";
 import { Header } from "./components/Header";
@@ -85,22 +87,34 @@ function App() {
   useEffect(() => {
     if (!state || state.project) return;
     const candidate = candidateFromKey(state.import.candidates, form.candidateKey);
+    if (!candidate) return;
+    const departure = departureAirportForCandidate(candidate, state.airports);
     const destination = destinationAirportForCandidate(candidate, state.airports);
     setForm((current) => {
       const destinationAirportId = destination?.id ?? "";
+      const departureAirportId = departure?.id ?? "";
       const destinationPatternAltitudeFtMsl = destination
         ? String(destination.patternAltitudeFtMsl)
         : "";
       if (
         current.destinationAirportId === destinationAirportId &&
+        current.departureAirportId === departureAirportId &&
         current.destinationPatternAltitudeFtMsl === destinationPatternAltitudeFtMsl
       ) {
         return current;
       }
       return {
         ...current,
+        departureAirportId,
         destinationAirportId,
         destinationPatternAltitudeFtMsl,
+        variationDegEast: departure
+          ? variationForDeparture(departure)
+          : current.variationDegEast,
+        manualQnhConfirmed:
+          current.departureAirportId === departureAirportId
+            ? current.manualQnhConfirmed
+            : false,
       };
     });
   }, [form.candidateKey, state]);
@@ -213,6 +227,10 @@ function App() {
       setError("KML終点から5 NM以内に目的空港が見つかりません。経路終点を確認してください。");
       return;
     }
+    if (!form.departureAirportId) {
+      setError("KML始点から5 NM以内に出発空港が見つかりません。経路始点を確認してください。");
+      return;
+    }
     const confirmed = await run(
       () =>
         api.request<WebState>("/api/route/confirm", {
@@ -266,6 +284,7 @@ function App() {
         api.request<WebState>("/api/destination/confirm", {
           method: "POST",
           body: {
+            departure_airport_id: form.departureAirportId,
             destination_airport_id: form.destinationAirportId,
             selected_pattern_altitude_ft_msl: selectedPatternAltitude,
           },
@@ -463,6 +482,7 @@ function App() {
       selectedArrival?.selected_pattern_altitude_ft_msl !== undefined &&
       selectedArrival.selected_pattern_altitude_source &&
       state.project.destination_airport_id === form.destinationAirportId &&
+      state.project.departure_airport_id === form.departureAirportId &&
       selectedArrival.selected_pattern_altitude_ft_msl ===
         patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl),
   );

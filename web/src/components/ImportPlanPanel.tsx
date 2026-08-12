@@ -39,6 +39,9 @@ export function ImportPlanPanel({
     setForm((current) => ({ ...current, [key]: value }));
   };
   const selectedKind = form.candidateKey.split(":", 1)[0] ?? "";
+  const selectedDeparture = airports.find(
+    (airport) => airport.id === form.departureAirportId,
+  );
   const selectedDestination = airports.find(
     (airport) => airport.id === form.destinationAirportId,
   );
@@ -189,8 +192,9 @@ export function ImportPlanPanel({
             />
           </label>
           <label>
-            <span>FROM</span>
+            <span>FROM（経路始点から自動設定・変更可）</span>
             <select
+              aria-label="FROM"
               value={form.departureAirportId}
               onChange={(event) => {
                 const departureAirportId = event.target.value;
@@ -199,16 +203,22 @@ export function ImportPlanPanel({
                   ...current,
                   departureAirportId,
                   variationDegEast: variationForDeparture(departure),
+                  manualQnhConfirmed: false,
                 }));
               }}
-              disabled={projectExists}
             >
+              <option value="">経路を選択すると自動設定</option>
               {airports.map((airport) => (
                 <option key={airport.id} value={airport.id}>
                   {airport.icao} {airport.name}
                 </option>
               ))}
             </select>
+            {form.candidateKey && !selectedDeparture && (
+              <small className="field-help field-error">
+                KML始点から5 NM以内に出発空港が見つかりません。
+              </small>
+            )}
           </label>
           {projectExists && (
             <label className="span-two">
