@@ -163,6 +163,7 @@ export interface FuelPlan {
 
 export interface CalculationOutcome {
   selected_forecast_run_id: string | null;
+  qnh_hpa: AdoptedValue<number>;
   sections: SectionResult[];
   derived_points: DerivedPoint[];
   fuel_plan: FuelPlan;

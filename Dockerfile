@@ -27,10 +27,11 @@ RUN groupadd --system --gid 10001 autonavlog \
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY data ./data
+COPY vendor ./vendor
 COPY --from=frontend /build/web/dist ./src/autonavlog/web/static
 
 RUN chmod -R a=rX /opt/autonavlog \
-    && python -m pip install .
+    && python -m pip install vendor/jma_msm_wind-0.2.1-py3-none-any.whl .
 
 USER autonavlog
 
@@ -41,4 +42,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read()"]
 
 ENTRYPOINT ["autonavlog-web"]
-CMD ["--host", "0.0.0.0", "--port", "8000", "--data-root", "/opt/autonavlog/data", "--storage-root", "/var/lib/autonavlog", "--weather", "fake"]
+CMD ["--host", "0.0.0.0", "--port", "8000", "--data-root", "/opt/autonavlog/data", "--storage-root", "/var/lib/autonavlog", "--weather", "msm-metar-trend", "--maximum-sessions", "256"]

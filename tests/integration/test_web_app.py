@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -212,9 +213,19 @@ async def test_web_route_calculation_save_and_fail_closed_output(
             for issue in destination_state["readiness"]["issues"]
         )
 
-        calculated = await client.post("/api/calculate")
-        assert calculated.status_code == 200, calculated.text
-        calculated_state = calculated.json()
+        created_job = await client.post("/api/calculation-jobs")
+        assert created_job.status_code == 202, created_job.text
+        job = created_job.json()
+        assert job["status"] in {"queued", "preparing_weather", "calculating", "succeeded"}
+        for _ in range(100):
+            job_response = await client.get(f"/api/calculation-jobs/{job['job_id']}")
+            assert job_response.status_code == 200, job_response.text
+            job = job_response.json()
+            if job["status"] in {"succeeded", "failed"}:
+                break
+            await asyncio.sleep(0.01)
+        assert job["status"] == "succeeded", job
+        calculated_state = job["state"]
         assert calculated_state["outcome"] is not None
         assert calculated_state["outcome"]["arrival_altitude"]["base_vrep_altitude_ft_msl"] == 1800
         assert calculated_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 2100

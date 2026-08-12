@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -15,12 +15,15 @@ from autonavlog.storage.reference_data import ReferenceDataCatalogRepository
 from autonavlog.weather.fake_provider import FakeWeatherProvider
 from autonavlog.weather.msm_adapter import MsmWeatherProvider
 from autonavlog.weather.msm_metar_provider import MsmMetarWeatherProvider
+from autonavlog.weather.msm_metar_trend_provider import MsmMetarTrendQnhProvider
+from autonavlog.weather.msm_mslp_provider import MsmMslpWeatherProvider
+from autonavlog.weather.prewarm import WeatherPrewarmer
 from autonavlog.weather.provider import WeatherProvider
 
 from .cloudflare_access import CloudflareAccessVerifier
 from .facade import AutoNavLogWebApplication
 
-WeatherMode = Literal["fake", "msm", "msm-metar"]
+WeatherMode = Literal["fake", "msm", "msm-metar", "msm-metar-trend"]
 
 
 def environment_bool(name: str, *, default: bool) -> bool:
@@ -42,14 +45,14 @@ class WebRuntimeConfig:
     weather_mode: WeatherMode = "fake"
     msm_cache_dir: Path | None = None
     terrain_cache_path: Path | None = None
-    maximum_sessions: int = 128
+    maximum_sessions: int = 256
     trusted_local_identity: str | None = None
     session_cookie_secure: bool = True
     cloudflare_team_domain: str | None = None
     cloudflare_access_audience: str | None = None
 
     def __post_init__(self) -> None:
-        if self.weather_mode not in {"fake", "msm", "msm-metar"}:
+        if self.weather_mode not in {"fake", "msm", "msm-metar", "msm-metar-trend"}:
             raise ValueError(f"unsupported weather mode: {self.weather_mode}")
         if self.maximum_sessions < 1:
             raise ValueError("maximum_sessions must be positive")
@@ -62,12 +65,45 @@ class WebRuntimeConfig:
         trimmed_identity = (
             self.trusted_local_identity.strip() if self.trusted_local_identity else ""
         )
-        if not self.session_cookie_secure and (
-            not trimmed_identity or self.cloudflare_team_domain
-        ):
+        if not self.session_cookie_secure and (not trimmed_identity or self.cloudflare_team_domain):
             raise ValueError(
                 "insecure session cookies require trusted local identity without Cloudflare Access"
             )
+
+
+def _prune_msm_cache(
+    cache_dir: Path,
+    *,
+    maximum_bytes: int = 20 * 1024**3,
+    maximum_age: timedelta = timedelta(days=7),
+) -> None:
+    if not cache_dir.is_dir():
+        return
+    cutoff = datetime.now(timezone.utc).timestamp() - maximum_age.total_seconds()
+    files: list[tuple[float, int, Path]] = []
+    for path in cache_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        if stat.st_mtime < cutoff:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            continue
+        files.append((stat.st_mtime, stat.st_size, path))
+    total = sum(size for _, size, _ in files)
+    for _, size, path in sorted(files):
+        if total <= maximum_bytes:
+            break
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        total -= size
 
 
 def _weather_factory(
@@ -92,14 +128,27 @@ def _weather_factory(
 
         return create_msm, "MSM予報・MSM推定QNH", False
 
-    def create_msm_metar() -> WeatherProvider:
-        delegate = MsmWeatherProvider(
-            cache_dir=cache_dir,
-            terrain_cache_path=config.terrain_cache_path,
-        )
-        return MsmMetarWeatherProvider(delegate)
+    if config.weather_mode == "msm-metar":
 
-    return create_msm_metar, "MSM予報・METAR観測QNH", False
+        def create_msm_metar() -> WeatherProvider:
+            delegate = MsmWeatherProvider(
+                cache_dir=cache_dir,
+                terrain_cache_path=config.terrain_cache_path,
+            )
+            return MsmMetarWeatherProvider(delegate)
+
+        return create_msm_metar, "MSM予報・METAR観測QNH", False
+
+    _prune_msm_cache(cache_dir)
+    shared_provider = MsmMetarTrendQnhProvider(
+        MsmMslpWeatherProvider(cache_dir=cache_dir),
+        cache_ttl_seconds=300,
+    )
+
+    def shared_msm_metar_trend() -> WeatherProvider:
+        return shared_provider
+
+    return shared_msm_metar_trend, "MSM予報・METAR補正付きMSM QNH推定", False
 
 
 def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
@@ -121,6 +170,9 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
     performance = PerformanceRepository.from_directory_for_application(performance_root)
     project_service = ProjectService(LocalProjectRepository(storage_root))
     weather_factory, weather_label, development_weather = _weather_factory(config)
+    weather_prewarmer = None
+    if config.weather_mode == "msm-metar-trend":
+        weather_prewarmer = WeatherPrewarmer(weather_factory())
     access_verifier = None
     if config.cloudflare_team_domain and config.cloudflare_access_audience:
         access_verifier = CloudflareAccessVerifier(
@@ -139,4 +191,5 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
         development_weather=development_weather,
         maximum_sessions=config.maximum_sessions,
         access_verifier=access_verifier,
+        weather_prewarmer=weather_prewarmer,
     )
