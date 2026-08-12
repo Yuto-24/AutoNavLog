@@ -503,46 +503,25 @@ class AutoNavLogWebApplication:
         with session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
-            working = session.project.model_copy(deep=True)
-            working.flight_date = request.flight_date
-            working.planned_departure_time_jst = self._departure_datetime(
-                request.flight_date,
-                request.departure_time_jst,
-            )
-            if request.pilot_name is not None:
-                working.pilot_name = request.pilot_name
-            if request.ship_identifier is not None:
-                working.ship_identifier = request.ship_identifier
-            working.total_usable_fuel_gal = request.total_usable_fuel_gal
-            working.default_variation_deg_east = request.default_variation_deg_east
-            working.manual_qnh_hpa = request.manual_qnh_hpa
-            working.tgl_count = request.tgl_count
-            sections = {section.id: section for section in working.sections}
-            for update in request.sections:
-                try:
-                    section = sections[update.section_id]
-                except KeyError as error:
-                    raise WebApplicationError(
-                        "SECTION_NOT_FOUND",
-                        "更新対象のLegが現在の経路にありません。",
-                    ) from error
-                sections[update.section_id] = section.model_copy(
-                    update={
-                        "planned_altitude_ft_msl": update.planned_altitude_ft_msl,
-                        "phase": update.phase,
-                        "manual_wind_direction_deg": update.manual_wind_direction_deg,
-                        "manual_wind_speed_kt": update.manual_wind_speed_kt,
-                        "manual_temperature_c": update.manual_temperature_c,
-                        "manual_tas_kt": update.manual_tas_kt,
-                    }
-                )
-            working.sections = [sections[section.id] for section in working.ordered_sections()]
-            self._apply_arrival_plan(working, request)
-            if request.defaults_confirmed:
-                session.readiness_service.confirm_defaults(working, session.outcome)
-            if request.manual_qnh_hpa is not None and request.manual_qnh_confirmed:
-                session.readiness_service.confirm_manual_qnh(working, session.outcome)
+            working = self._updated_project(session, request)
             materialized = session.readiness_service.evaluate(working, session.outcome)
+            session.project = materialized.project
+            session.outcome = materialized.outcome
+            session.readiness = materialized.evaluation
+            return self.present(session)
+
+    def update_and_calculate(
+        self,
+        session: WebSession,
+        request: UpdateProjectRequest,
+    ) -> dict[str, Any]:
+        """Atomically apply editable inputs and replace the last-good calculation."""
+        with session.lock:
+            if session.project is None:
+                raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
+            working = self._updated_project(session, request)
+            outcome = self._calculate_outcome(session, working)
+            materialized = session.readiness_service.record_calculation(working, outcome)
             session.project = materialized.project
             session.outcome = materialized.outcome
             session.readiness = materialized.evaluation
@@ -552,39 +531,7 @@ class AutoNavLogWebApplication:
         with session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
-            state = self.project_service.ui_state(session.project)
-            plan = state.arrival_plan
-            if (
-                plan is None
-                or plan.selected_pattern_altitude_ft_msl is None
-                or plan.selected_pattern_altitude_source is None
-            ):
-                raise WebApplicationError(
-                    "PATTERN_ALTITUDE_REQUIRED",
-                    "目的空港と今回採用する場周経路高度を先に確定してください。",
-                    status_code=409,
-                )
-            outcome = session.calculation_service.calculate(
-                session.project,
-                session.weather_provider,
-            )
-            if self.development_weather:
-                outcome = outcome.model_copy(
-                    deep=True,
-                    update={
-                        "issues": [
-                            *outcome.issues,
-                            Issue(
-                                code="DEVELOPMENT_WEATHER_PROVIDER",
-                                severity=IssueSeverity.BLOCKER,
-                                message=(
-                                    "開発用固定気象で計算しています。公開用の転記補助HTMLは"
-                                    "実気象providerで再計算するまで出力できません。"
-                                ),
-                            ),
-                        ]
-                    },
-                )
+            outcome = self._calculate_outcome(session, session.project)
             materialized = session.readiness_service.record_calculation(
                 session.project,
                 outcome,
@@ -593,6 +540,87 @@ class AutoNavLogWebApplication:
             session.outcome = materialized.outcome
             session.readiness = materialized.evaluation
             return self.present(session)
+
+    def _updated_project(
+        self,
+        session: WebSession,
+        request: UpdateProjectRequest,
+    ) -> Project:
+        if session.project is None:
+            raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
+        working = session.project.model_copy(deep=True)
+        working.flight_date = request.flight_date
+        working.planned_departure_time_jst = self._departure_datetime(
+            request.flight_date,
+            request.departure_time_jst,
+        )
+        if request.pilot_name is not None:
+            working.pilot_name = request.pilot_name
+        if request.ship_identifier is not None:
+            working.ship_identifier = request.ship_identifier
+        working.total_usable_fuel_gal = request.total_usable_fuel_gal
+        working.default_variation_deg_east = request.default_variation_deg_east
+        working.manual_qnh_hpa = request.manual_qnh_hpa
+        working.tgl_count = request.tgl_count
+        sections = {section.id: section for section in working.sections}
+        for update in request.sections:
+            try:
+                section = sections[update.section_id]
+            except KeyError as error:
+                raise WebApplicationError(
+                    "SECTION_NOT_FOUND",
+                    "更新対象のLegが現在の経路にありません。",
+                ) from error
+            sections[update.section_id] = section.model_copy(
+                update={
+                    "planned_altitude_ft_msl": update.planned_altitude_ft_msl,
+                    "phase": update.phase,
+                    "manual_wind_direction_deg": update.manual_wind_direction_deg,
+                    "manual_wind_speed_kt": update.manual_wind_speed_kt,
+                    "manual_temperature_c": update.manual_temperature_c,
+                    "manual_tas_kt": update.manual_tas_kt,
+                }
+            )
+        working.sections = [sections[section.id] for section in working.ordered_sections()]
+        self._apply_arrival_plan(working, request)
+        if request.defaults_confirmed:
+            session.readiness_service.confirm_defaults(working, session.outcome)
+        if request.manual_qnh_hpa is not None and request.manual_qnh_confirmed:
+            session.readiness_service.confirm_manual_qnh(working, session.outcome)
+        return working
+
+    def _calculate_outcome(self, session: WebSession, project: Project) -> CalculationOutcome:
+        state = self.project_service.ui_state(project)
+        plan = state.arrival_plan
+        if (
+            plan is None
+            or plan.selected_pattern_altitude_ft_msl is None
+            or plan.selected_pattern_altitude_source is None
+        ):
+            raise WebApplicationError(
+                "PATTERN_ALTITUDE_REQUIRED",
+                "目的空港と今回採用する場周経路高度を先に確定してください。",
+                status_code=409,
+            )
+        outcome = session.calculation_service.calculate(project, session.weather_provider)
+        if not self.development_weather:
+            return outcome
+        return outcome.model_copy(
+            deep=True,
+            update={
+                "issues": [
+                    *outcome.issues,
+                    Issue(
+                        code="DEVELOPMENT_WEATHER_PROVIDER",
+                        severity=IssueSeverity.BLOCKER,
+                        message=(
+                            "開発用固定気象で計算しています。公開用の転記補助HTMLは"
+                            "実気象providerで再計算するまで出力できません。"
+                        ),
+                    ),
+                ]
+            },
+        )
 
     def acknowledge(self, session: WebSession, ack_key: str, checked: bool) -> dict[str, Any]:
         with session.lock:

@@ -594,6 +594,22 @@ tbody tr:last-child td { border-bottom: 0; }
 .button-reason { margin: 6px 0 0; color: var(--slate-500); font-size: 10px; line-height: 1.45; text-align: center; }
 
 .nav-log-section { max-width: 1530px; margin: 28px auto 0; padding: 0 16px 24px; }
+.nav-log-edit-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 0 9px;
+  color: var(--slate-500);
+  font-size: 10px;
+}
+.nav-log-edit-guide > span { padding: 4px 7px; border-radius: 4px; }
+.nav-log-editable-key { color: var(--teal-700); background: var(--teal-50); font-weight: 750; }
+.nav-log-readonly-key { background: var(--slate-100); }
+.nav-log-edit-status { margin-left: auto; font-weight: 700; }
+.nav-log-edit-status-saving, .nav-log-edit-status-pending { color: var(--amber-700); }
+.nav-log-edit-status-saved { color: var(--green-700); }
+.nav-log-edit-status-error { color: var(--red-700); background: var(--red-50); }
 .nav-log-heading { margin-bottom: 12px; }
 .nav-log-heading > span { color: var(--slate-500); font-size: 10px; }
 .nav-log-scroll { border: 1px solid var(--slate-200); border-radius: var(--radius-sm); }
@@ -631,6 +647,28 @@ tbody tr:last-child td { border-bottom: 0; }
 .fuel-plan-table col:nth-child(1) { width: 10%; }
 .fuel-plan-table col:nth-child(2) { width: 15.5%; }
 .fuel-plan-table col:nth-child(3) { width: 25.2%; }
+.derived-readonly-cell { background-image: linear-gradient(rgba(238, 243, 247, .26), rgba(238, 243, 247, .26)); }
+.nav-log-editable-cell { min-width: 70px; background: var(--teal-50); }
+.nav-log-number-input {
+  width: 100%;
+  min-width: 52px;
+  min-height: 27px;
+  padding: 2px 4px;
+  color: var(--teal-700);
+  background: #ffffff;
+  border: 1px solid #6ba9a6;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+.nav-log-wind-inputs { display: grid; grid-template-columns: 52px auto 52px; align-items: center; gap: 2px; }
+.nav-log-wind-inputs .nav-log-number-input { min-width: 0; }
+.nav-log-editable-cell small { display: block; margin-top: 2px; color: var(--teal-700); font-size: 8px; font-weight: 700; }
+.nav-log-invalid-cell { background: var(--red-50); }
+.nav-log-invalid-cell .nav-log-number-input { color: var(--red-700); border-color: var(--red-700); }
+.nav-log-invalid-cell .nav-log-field-error { color: var(--red-700); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .fuel-plan-table col:nth-child(4) { width: 24%; }
 .fuel-plan-table col:nth-child(5) { width: 25.3%; }
 .fuel-plan-table th, .fuel-plan-table td { height: 24px; padding: 2px 4px; box-sizing: border-box; vertical-align: middle; white-space: nowrap; font-weight: 400; }

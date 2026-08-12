@@ -91,7 +91,10 @@ async def test_trusted_http_session_cookie_is_reusable(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path) -> None:
+async def test_web_route_calculation_save_and_fail_closed_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     app = create_app(
         WebRuntimeConfig(
             data_root=ROOT / "data",
@@ -234,6 +237,90 @@ async def test_web_route_calculation_save_and_fail_closed_output(tmp_path: Path)
             for issue in calculated_state["readiness"]["issues"]
         )
         assert calculated_state["readiness"]["transferAidAllowed"] is False
+
+        editable_sections = destination_state["project"]["sections"]
+        first_editable_id = editable_sections[0]["id"]
+        atomic_payload = {
+            "flight_date": "2026-08-10",
+            "departure_time_jst": "09:00",
+            "total_usable_fuel_gal": 90,
+            "default_variation_deg_east": 8,
+            "tgl_count": 0,
+            "sections": [
+                {
+                    "section_id": section["id"],
+                    "planned_altitude_ft_msl": (
+                        4500
+                        if section["id"] == first_editable_id
+                        else section["planned_altitude_ft_msl"]
+                    ),
+                    "phase": section["phase"],
+                    "manual_wind_direction_deg": (
+                        270 if section["id"] == first_editable_id else None
+                    ),
+                    "manual_wind_speed_kt": (
+                        15 if section["id"] == first_editable_id else None
+                    ),
+                    "manual_temperature_c": (
+                        12 if section["id"] == first_editable_id else None
+                    ),
+                    "manual_tas_kt": (
+                        155 if section["id"] == first_editable_id else None
+                    ),
+                }
+                for section in editable_sections
+            ],
+            "visual_reporting_point_node_id": destination_state["project"]["route_nodes"][-2][
+                "id"
+            ],
+            "arrival_altitude_mode": "MANUAL_NON_STANDARD_ENTRY",
+            "manual_vrep_altitude_ft_msl": 2100,
+            "manual_vrep_reason": "Direct Base training entry",
+        }
+        recalculated = await client.post("/api/project/recalculate", json=atomic_payload)
+        assert recalculated.status_code == 200, recalculated.text
+        recalculated_state = recalculated.json()
+        edited_project_section = next(
+            section
+            for section in recalculated_state["project"]["sections"]
+            if section["id"] == first_editable_id
+        )
+        assert edited_project_section["planned_altitude_ft_msl"] == 4500
+        assert edited_project_section["manual_wind_direction_deg"] == 270
+        assert edited_project_section["manual_wind_speed_kt"] == 15
+        assert edited_project_section["manual_temperature_c"] == 12
+        assert edited_project_section["manual_tas_kt"] == 155
+        edited_result = next(
+            section
+            for section in recalculated_state["outcome"]["sections"]
+            if section["section_id"] == first_editable_id
+        )
+        for field in ("wind_direction_deg_from", "wind_speed_kt", "temperature_c", "tas_kt"):
+            assert edited_result[field]["adopted_source"] == "MANUAL"
+            assert edited_result[field]["manual_override"] is not None
+        assert edited_result["temperature_c"]["automatic_value"] is not None
+        assert edited_result["wind_speed_kt"]["automatic_value"] is not None
+
+        last_good_project = recalculated_state["project"]
+        last_good_outcome = recalculated_state["outcome"]
+        web = app.state.web_application
+        token = client.cookies.get("autonavlog_session")
+        assert token is not None
+        session = web.session(token, "local-test-user")
+
+        def fail_calculation(*_args: object, **_kwargs: object) -> None:
+            from autonavlog.web.facade import WebApplicationError
+
+            raise WebApplicationError("TEST_CALCULATION_FAILED", "test calculation failure")
+
+        monkeypatch.setattr(session.calculation_service, "calculate", fail_calculation)
+        failed_payload = atomic_payload | {"total_usable_fuel_gal": 89}
+        failed = await client.post("/api/project/recalculate", json=failed_payload)
+        assert failed.status_code == 400
+        assert failed.json()["error"]["code"] == "TEST_CALCULATION_FAILED"
+        after_failure = (await client.get("/api/state")).json()
+        assert after_failure["project"] == last_good_project
+        assert after_failure["outcome"] == last_good_outcome
 
         blocked = await client.get("/api/transfer-aid")
         assert blocked.status_code == 409

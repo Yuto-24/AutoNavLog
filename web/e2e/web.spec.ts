@@ -253,6 +253,47 @@ test("climb and descent legs show magnetic-course altitude candidates", async ({
   await expect(page.locator(".altitude-review-row")).toHaveCount(1);
 });
 
+test("NAV LOG safe inputs validate and recalculate automatically", async ({ page }) => {
+  await page.goto("/");
+  await calculateNavLog(page);
+
+  const recalculationRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/project/recalculate")) {
+      recalculationRequests.push(request.url());
+    }
+  });
+
+  const altitude = page.locator(".nav-log-table").getByLabel(/計画高度$/).first();
+  const altitudeResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project/recalculate") && response.ok(),
+  );
+  await altitude.fill("5500");
+  await altitudeResponse;
+  await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
+  await expect(altitude).toHaveValue("5500");
+
+  const windDirection = page.locator(".nav-log-table").getByLabel(/手動風向$/).first();
+  const windSpeed = page.locator(".nav-log-table").getByLabel(/手動風速$/).first();
+  const requestCount = recalculationRequests.length;
+  await windDirection.fill("270");
+  await expect(page.getByText(/入力を確認してください。直前の正常な計算結果/)).toBeVisible();
+  await expect(windDirection).toHaveAttribute("aria-invalid", "true");
+  await page.waitForTimeout(850);
+  expect(recalculationRequests).toHaveLength(requestCount);
+
+  const windResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project/recalculate") && response.ok(),
+  );
+  await windSpeed.fill("15");
+  await windResponse;
+  await expect(page.getByText("自動再計算しました.", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
+  await expect(windDirection).toHaveAttribute("aria-invalid", "false");
+  await expect(page.locator(".nav-log-table th").nth(6)).toHaveText("TC");
+  await expect(page.locator(".derived-readonly-cell").first()).toHaveAttribute("title", /読み取り専用/);
+});
+
 test("calculated mobile layout has no body overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
