@@ -19,7 +19,7 @@ from autonavlog.domain.enums import (
     ValueState,
     WeatherRequestKind,
 )
-from autonavlog.domain.project import NavSection, RouteNode
+from autonavlog.domain.project import ManualWind, NavSection, RouteNode
 from autonavlog.domain.weather import WeatherResult
 from autonavlog.nav.airspeed import (
     pressure_altitude_exact_ft,
@@ -336,6 +336,17 @@ def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides
     source = routed.sections[0]
     source.manual_temperature_c = 4.0
     source.manual_temperature_c_by_phase = {FlightPhase.CRUISE: 9.0}
+    source = NavSection.model_validate(
+        source.model_dump()
+        | {
+            "manual_wind_direction_deg": 111.0,
+            "manual_wind_speed_kt": 11.0,
+            "manual_wind_by_phase": {
+                FlightPhase.CRUISE: ManualWind(direction_deg_from=222, speed_kt=22)
+            },
+        }
+    )
+    routed.sections[0] = source
 
     def result_for_representative_altitude(request):
         assert request.altitude_ft_msl is not None
@@ -376,6 +387,15 @@ def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides
         pytest.approx(4.0),
         pytest.approx(9.0),
     ]
+    assert [section.wind_direction_deg_from.adopted() for section in split] == [
+        pytest.approx(111.0),
+        pytest.approx(222.0),
+    ]
+    assert [section.wind_speed_kt.adopted() for section in split] == [
+        pytest.approx(11.0),
+        pytest.approx(22.0),
+    ]
+    assert all(section.wind_speed_kt.adopted_source == AdoptedSource.MANUAL for section in split)
     requests = {
         request.metadata["phase"]: request
         for request in service.last_weather_requests
@@ -456,6 +476,9 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
         )
         for section in descent_project.sections
     ]
+    descent_project.sections[1].manual_wind_by_phase = {
+        FlightPhase.CRUISE: ManualWind(direction_deg_from=270, speed_kt=20)
+    }
 
     outcome = CalculationService(airports, performance_repository).calculate(
         descent_project,
@@ -471,6 +494,12 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
     ]
     assert outcome.sections[-2].to_name == "EOC"
     assert outcome.sections[-1].from_name == "EOC"
+    assert outcome.sections[-2].wind_direction_deg_from.adopted() == pytest.approx(270)
+    assert outcome.sections[-2].wind_speed_kt.adopted() == pytest.approx(20)
+    assert outcome.sections[-1].wind_direction_deg_from.adopted() == pytest.approx(90)
+    assert outcome.sections[-1].wind_speed_kt.adopted() == pytest.approx(30)
+    assert outcome.sections[-2].wind_speed_kt.adopted_source == AdoptedSource.MANUAL
+    assert outcome.sections[-1].wind_speed_kt.adopted_source == AdoptedSource.MANUAL
     assert sum(
         section.zone_distance_nm.adopted() or 0.0 for section in outcome.sections
     ) == pytest.approx(
@@ -803,6 +832,10 @@ def test_visual_arrival_uses_destination_taf_wind_and_falls_back_to_calm(
             "phase": FlightPhase.CRUISE,
             "manual_wind_direction_deg": 0.0,
             "manual_wind_speed_kt": 0.0,
+            "manual_wind_by_phase": {
+                FlightPhase.DESCENT: ManualWind(direction_deg_from=0, speed_kt=0),
+                FlightPhase.CLIMB: ManualWind(direction_deg_from=0, speed_kt=0),
+            },
         }
     )
     visual_project.sections[1].phase = FlightPhase.VISUAL_ARRIVAL

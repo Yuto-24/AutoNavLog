@@ -2012,8 +2012,21 @@ class CalculationService:
             automatic_wind_speed = (
                 None if weather is None else self._numeric(weather, "wind_speed_kt")
             )
-            manual_wind_direction = section.manual_wind_direction_deg
-            manual_wind_speed = section.manual_wind_speed_kt
+            phase_manual_wind = section.manual_wind_by_phase.get(segment.phase)
+            manual_wind_direction = (
+                phase_manual_wind.direction_deg_from
+                if phase_manual_wind is not None
+                else section.manual_wind_direction_deg
+                if segment.phase == section.phase
+                else None
+            )
+            manual_wind_speed = (
+                phase_manual_wind.speed_kt
+                if phase_manual_wind is not None
+                else section.manual_wind_speed_kt
+                if segment.phase == section.phase
+                else None
+            )
             wind_state = ValueState.AUTO
             if segment.phase == FlightPhase.VISUAL_ARRIVAL:
                 automatic_wind_direction = wind_direction
@@ -2240,16 +2253,23 @@ class CalculationService:
             )
             automatic_speed = CalculationService._numeric(weather, "wind_speed_kt")
             automatic_temperature = CalculationService._numeric(weather, "temperature_c")
-        direction = (
-            section.manual_wind_direction_deg
-            if section.manual_wind_direction_deg is not None
-            else automatic_direction
+        phase_manual_wind = section.manual_wind_by_phase.get(phase)
+        manual_direction = (
+            phase_manual_wind.direction_deg_from
+            if phase_manual_wind is not None
+            else section.manual_wind_direction_deg
+            if phase == section.phase
+            else None
         )
-        speed = (
-            section.manual_wind_speed_kt
-            if section.manual_wind_speed_kt is not None
-            else automatic_speed
+        manual_speed = (
+            phase_manual_wind.speed_kt
+            if phase_manual_wind is not None
+            else section.manual_wind_speed_kt
+            if phase == section.phase
+            else None
         )
+        direction = manual_direction if manual_direction is not None else automatic_direction
+        speed = manual_speed if manual_speed is not None else automatic_speed
         manual_temperature = section.manual_temperature_c_by_phase.get(
             phase,
             section.manual_temperature_c if phase == section.phase else None,
