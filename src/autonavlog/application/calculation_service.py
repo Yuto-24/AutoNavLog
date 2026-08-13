@@ -1272,13 +1272,14 @@ class CalculationService:
         constraint_index = descent_index
         constraint_target_altitude = target_altitude
         route_start_distance: float | None = None
+        vertical_descent_duration_seconds = 0.0
 
-        while constraint_index >= 0:
-            constraint_section = geometries[constraint_index].section
+        for index in range(descent_index, -1, -1):
+            constraint_section = geometries[index].section
             altitude_difference = (
                 constraint_section.planned_altitude_ft_msl - constraint_target_altitude
             )
-            if altitude_difference <= 0:
+            if index == descent_index and altitude_difference <= 0:
                 issues.append(
                     self._blocker(
                         "DESCENT_ALTITUDE_INVALID",
@@ -1291,35 +1292,44 @@ class CalculationService:
                     )
                 )
                 return None
+            if altitude_difference < 0:
+                break
+            if altitude_difference == 0:
+                constraint_target_altitude = constraint_section.planned_altitude_ft_msl
+                continue
+
             required_seconds = altitude_difference / 500.0 * 60.0
-            ground_speed = descent_ground_speed(constraint_index)
+            ground_speed = descent_ground_speed(index)
             if ground_speed is None:
                 return None
-            full_leg_seconds = (
-                geometries[constraint_index].distance_nm / ground_speed * 3600.0
-            )
-            if required_seconds <= full_leg_seconds + 1e-9:
-                route_start_distance = (
-                    offsets[constraint_index][1]
-                    - ground_speed * required_seconds / 3600.0
-                )
-                break
-            if constraint_index == 0:
+            full_leg_seconds = geometries[index].distance_nm / ground_speed * 3600.0
+            if required_seconds > full_leg_seconds + 1e-9:
                 issues.append(
                     self._blocker(
-                        "EOC_OUTSIDE_ROUTE",
-                        "必要な降下距離が降下Section以前の計画経路を越えます。",
+                        "DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE",
+                        "変針点とVREPの計画高度を500 fpmの連続した降下で満たせません。",
                         section.id,
+                        metadata={
+                            "constraint_section_id": str(constraint_section.id),
+                            "constraint_start_altitude_ft_msl": (
+                                constraint_section.planned_altitude_ft_msl
+                            ),
+                            "constraint_target_altitude_ft_msl": (
+                                constraint_target_altitude
+                            ),
+                            "required_seconds": required_seconds,
+                            "available_seconds": full_leg_seconds,
+                        },
                     )
                 )
                 return None
 
-            # When the VREP-based EOC crosses a turn point, that point's
-            # planned altitude becomes the next constraint. Recalculate from
-            # the preceding leg instead of extending the VREP descent through
-            # the turn at an altitude lower than the selected value.
+            route_start_distance = (
+                offsets[index][1] - ground_speed * required_seconds / 3600.0
+            )
+            vertical_descent_duration_seconds += required_seconds
+            constraint_index = index
             constraint_target_altitude = constraint_section.planned_altitude_ft_msl
-            constraint_index -= 1
 
         if route_start_distance is None:
             return None
@@ -1351,14 +1361,7 @@ class CalculationService:
                 "descent_rate_fpm": 500.0,
                 "target_altitude_ft_msl": target_altitude,
                 "planned_duration_seconds": duration_seconds,
-                "vertical_descent_duration_seconds": (
-                    (
-                        geometries[constraint_index].section.planned_altitude_ft_msl
-                        - target_altitude
-                    )
-                    / 500.0
-                    * 60.0
-                ),
+                "vertical_descent_duration_seconds": vertical_descent_duration_seconds,
                 "eoc_constraint_section_id": str(
                     geometries[constraint_index].section.id
                 ),
