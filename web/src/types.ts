@@ -6,6 +6,7 @@ export type FlightPhase =
   | "VISUAL_ARRIVAL";
 
 export interface RuntimeState {
+  appVersion: string;
   weatherLabel: string;
   developmentWeather: boolean;
   referenceDatasetId: string;
@@ -170,6 +171,23 @@ export interface CalculationOutcome {
   status: string;
 }
 
+export interface DestinationWindForecast {
+  airport_icao: string;
+  valid_time_utc: string | null;
+  availability: "AVAILABLE" | "UNAVAILABLE";
+  wind_direction_deg_from: number | null;
+  wind_speed_kt: number | null;
+  wind_gust_kt: number | null;
+  variable_direction: boolean;
+  source_label: string;
+  issue_time_utc: string | null;
+  taf_valid_from_utc: string | null;
+  taf_valid_to_utc: string | null;
+  forecast_change: string | null;
+  raw_taf: string | null;
+  reason_code: string | null;
+}
+
 export interface SectionAltitudeGuidance {
   sectionId: string;
   magneticCourseDeg: number;
@@ -223,6 +241,7 @@ export interface WebState {
   altitudeGuidance: AltitudeGuidance;
   project: Project | null;
   outcome: CalculationOutcome | null;
+  destinationWind: DestinationWindForecast | null;
   readiness: ReadinessState;
 }
 

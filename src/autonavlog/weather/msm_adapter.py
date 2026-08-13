@@ -194,12 +194,23 @@ class MsmWeatherProvider:
         if request.kind == WeatherRequestKind.ESTIMATED_QNH and available:
             values["provider_label"] = values.get("label")
             values["label"] = "MSM推定QNH"
+        warnings = tuple(result.warnings)
+        if request.kind == WeatherRequestKind.ESTIMATED_QNH:
+            warnings = tuple(
+                warning
+                for warning in warnings
+                if warning
+                not in {
+                    "ESTIMATED_QNH_NOT_OFFICIAL",
+                    "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
+                }
+            )
         return WeatherResult(
             request_id=request.request_id,
             availability=Availability.AVAILABLE if available else Availability.UNAVAILABLE,
             kind=request.kind,
             values=values,
             reason_code=result.reason_code,
-            warnings=result.warnings,
+            warnings=warnings,
             metadata={"provenance": _jsonable(result.provenance)},
         )

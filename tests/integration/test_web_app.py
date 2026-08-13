@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from autonavlog.version import __version__
 from autonavlog.web.app import create_app
 from autonavlog.web.calculation_jobs import (
     CalculationJob,
@@ -111,11 +112,15 @@ async def test_web_route_calculation_save_and_fail_closed_output(
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
         assert (await client.get("/healthz")).status_code == 200
-        assert (await client.get("/")).status_code == 503
+        root_response = await client.get("/")
+        assert root_response.status_code == 503
+        assert root_response.headers["cache-control"] == "no-cache"
 
         created = await client.post("/api/session")
         assert created.status_code == 200
+        assert created.headers["cache-control"] == "no-store"
         assert set(created.json()) == {"state"}
+        assert created.json()["state"]["runtime"]["appVersion"] == __version__
         destination = next(
             airport
             for airport in created.json()["state"]["airports"]
@@ -231,6 +236,8 @@ async def test_web_route_calculation_save_and_fail_closed_output(
         assert job["status"] == "succeeded", job
         calculated_state = job["state"]
         assert calculated_state["outcome"] is not None
+        assert calculated_state["destinationWind"]["availability"] == "UNAVAILABLE"
+        assert calculated_state["destinationWind"]["reason_code"] == "DESTINATION_ETA_UNAVAILABLE"
         assert calculated_state["outcome"]["arrival_altitude"]["base_vrep_altitude_ft_msl"] == 1800
         assert calculated_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 2100
         variations = [

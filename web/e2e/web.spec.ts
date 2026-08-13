@@ -125,8 +125,32 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(calculationProgress).toBeHidden();
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
   await expect(firstRow.getByLabel(/計画高度$/)).toHaveValue(firstAltitudeCandidate);
-  await expect(firstRow.locator("td").nth(7)).toHaveText("+7自動");
-  await expect(firstRow.locator(".nav-log-automatic-wind")).toHaveText("自動: CALM");
+  await expect(firstRow.locator("td").nth(7)).toHaveText("+7");
+  const automaticWind = firstRow.locator(".nav-log-automatic-wind");
+  const windInputs = firstRow.locator(".nav-log-wind-inputs");
+  await expect(automaticWind).toHaveText("CALM");
+  await expect.poll(() => windInputs.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
+  const windDirectionInput = firstRow.getByLabel(/手動風向$/);
+  await windDirectionInput.focus();
+  await expect.poll(() => windInputs.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+  await expect.poll(() => automaticWind.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
+  await windDirectionInput.evaluate((element) => element.blur());
+  await expect.poll(() => windInputs.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
+  await expect(
+    page.getByLabel("採用QNHと出典").locator("strong"),
+  ).toHaveText("採用QNH: 29.91 inHg（1013.0 hPa）");
+  await expect(page.getByLabel("目的地空港の風予報")).toContainText(
+    "目的地風: 取得できませんでした",
+  );
+  await expect(
+    page.locator(".nav-log-table").getByText("自動", { exact: true }),
+  ).toHaveCount(0);
+  for (const warning of [
+    "ESTIMATED_QNH_NOT_OFFICIAL",
+    "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
+  ]) {
+    await expect(page.locator(".qnh-warning").filter({ hasText: warning })).toHaveCount(0);
+  }
 }
 
 test("desktop workflow renders and stays fail-closed", async ({ page }) => {
@@ -185,7 +209,7 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
   await expect(firstRow.getByLabel(/計画高度$/)).toHaveValue("5500");
   await expect(firstRow.locator("td").nth(6)).toHaveText(/^\d{3}$/);
-  await expect(firstRow.locator("td").nth(7)).toHaveText("+7自動");
+  await expect(firstRow.locator("td").nth(7)).toHaveText("+7");
   await expect(firstRow.locator("td").nth(8)).toHaveText(/^\d{3}$/);
   await expect(firstRow.locator("td").nth(10)).toHaveText(/^[+-]\d+$/);
   await expect(firstRow.locator("td").nth(11)).toHaveText(/^\d{3}$/);

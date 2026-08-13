@@ -1,4 +1,4 @@
-# Data Provenance
+# データ来歴
 
 性能CSVの正式な優先順位は、航空大学校の最新学生訓練実施要領、国土交通省承認版の
 日本語飛行規程、英語版POHです。
@@ -30,13 +30,18 @@ MSM MSLP変化量を加えた `METAR_TREND_CORRECTED` として保存します�
 対象時刻、両時刻のMSLP、変化量、API response hashと補間traceを保持します。METARが
 欠測・不整合・古い場合は `MSM_MSLP_ONLY`、MSMも取得不能なら `MANUAL` へ切り替えます。
 Pzs・外部DEMは使用しません。これは公式飛行場予報QNHではなく、その確認を代替しません。
-手動上書き後も自動値、方式、警告、根拠を削除しません。
+手動上書き後も自動値、方式、根拠を削除しません。
 
 各計算行のVariationは`DEPARTURE_LATITUDE_32N_V1`規則で決定し、
 `variation_deg_east.automatic_metadata`へ元の物理Legの出発緯度、32.0°Nの閾値、
 境界を北側へ含める条件、選択した緯度帯、採用値を保存します。判定不能な座標は+7/+8の
 いずれにも補完せず`VARIATION_UNAVAILABLE` blockerとします。Projectの旧固定VAR項目は
 保存形式の後方互換専用であり、この自動値の来歴には使用しません。
+
+目的地風はAviationWeather.govのTAFを出典とし、目的空港ICAO、到着予定時刻、TAF発表時刻、
+有効期間、変化区分、風向・風速・ガスト、TAF原文をWeb sessionへ保持します。航法計算の
+気象要求やSnapshotには含めません。再計算のたびに到着予定時刻へ合わせて選び直し、取得に
+失敗した場合は参考表示を取得不可とします。
 
 SnapshotはProject revision、入力、手動値、性能表version、Policy version、気象要求と
 結果、パッケージversion、警告を含む不変JSONです。

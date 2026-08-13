@@ -33,9 +33,10 @@ Projectと参照データをnamed volume `autonavlog-data` に保存します。
 curl --fail --silent http://127.0.0.1:8123/healthz
 ```
 
-標準imageの `fake` はUI確認専用で、転記補助HTMLを常にblockします。実気象運用は
-private `jma-msm-wind==0.2.1` wheelを組み込んだimage、`--weather msm` または
-`--weather msm-metar`、検証済みcacheを使用してください。
+`--weather fake` はUI確認専用で、転記補助HTMLを常に止めます。標準imageは
+private `jma-msm-wind==0.2.1` wheelを組み込み、`--weather msm-metar-trend` で起動します。
+QNHはMETAR補正付きMSM推定値を優先し、目的地の参考風はAviationWeather.govのTAFから
+取得します。
 
 ## 2. 接続済みのremotely-managed tunnel
 
@@ -43,7 +44,7 @@ Cloudflare dashboardの `Networking > Tunnels` で既存tunnelを開き、
 `Routes > Add route > Published application` を選びます。
 
 | 項目 | 設定 |
-|---|---|
+| --- | --- |
 | Hostname | 管理中zoneの専用subdomain |
 | Path | 空欄 |
 | Service type | HTTP |
@@ -100,6 +101,8 @@ Accessを使用します。`~/.cloudflared/config.yaml` が存在する環境で
 - Team domainとAccess application AUDがcontainer環境へ設定されている。
 - `AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` が公開serviceで空になっている。
 - `/`, `/api/session`, `/healthz` が同じhostnameで応答する。
+- `/healthz` と画面左上の版番号がリリース版に一致する。
+- HTML応答が `Cache-Control: no-cache`、API応答が `no-store` を返す。
 - session Cookieに `HttpOnly`、`Secure`、`SameSite=Strict` が付く。
 - 2つのAccess identity間でsessionと保存Projectが相互に見えない。
 - KML貼付、経路確定、計算、保存・読込が動く。

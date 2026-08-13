@@ -6,7 +6,8 @@ import type {
   NavLogEditableField,
 } from "../navLogEditing";
 import type {
-  AdoptedValue, CalculationOutcome, NavSection, Project, SectionResult,
+  AdoptedValue, CalculationOutcome, DestinationWindForecast, NavSection, Project,
+  SectionResult,
 } from "../types";
 
 function adopted<T>(value: AdoptedValue<T>): T | null {
@@ -110,6 +111,7 @@ const integer = fixedQuantum(1, 0);
 const distance = fixedQuantum(0.5, 1);
 const durationMinutes = fixedQuantum(0.5, 1);
 const fuelAmount = fixedQuantum(0.1, 1);
+const HPA_PER_INHG = 33.8638866667;
 const CLIMB_PHASES = new Set<string>(["CLIMB"]);
 const CRUISE_PHASES = new Set<string>(["CRUISE"]);
 const DESCENT_PHASES = new Set<string>(["DESCENT", "VISUAL_ARRIVAL"]);
@@ -337,49 +339,58 @@ function EditableWindCell({
 }) {
   const formatted = wind(direction, speed);
   const invalid = Boolean(errors.windDirection || errors.windSpeed);
+  const showAutomatic =
+    !invalid &&
+    !directionValue.trim() &&
+    !speedValue.trim() &&
+    !formatted.manual;
   return (
     <td className={`nav-log-editable-cell ${invalid ? "nav-log-invalid-cell" : ""}`}>
-      <div className="nav-log-wind-inputs">
-        <input
-          className="nav-log-number-input"
-          type="number"
-          min="0"
-          max="359"
-          step="1"
-          aria-label={`${label} 手動風向`}
-          aria-invalid={Boolean(errors.windDirection)}
-          title={errors.windDirection ?? "空欄にすると自動値へ戻ります。"}
-          value={directionValue}
-          placeholder="DIR"
-          onChange={(event) => onChange("windDirection", event.target.value)}
-        />
-        <span>/</span>
-        <input
-          className="nav-log-number-input"
-          type="number"
-          min="0"
-          max="200"
-          step="1"
-          aria-label={`${label} 手動風速`}
-          aria-invalid={Boolean(errors.windSpeed)}
-          title={errors.windSpeed ?? "空欄にすると自動値へ戻ります。"}
-          value={speedValue}
-          placeholder="kt"
-          onChange={(event) => onChange("windSpeed", event.target.value)}
-        />
+      <div
+        className={
+          showAutomatic
+            ? "nav-log-wind-editor shows-automatic-value"
+            : "nav-log-wind-editor"
+        }
+      >
+        <div className="nav-log-wind-inputs">
+          <input
+            className="nav-log-number-input"
+            type="number"
+            min="0"
+            max="359"
+            step="1"
+            aria-label={`${label} 手動風向`}
+            aria-invalid={Boolean(errors.windDirection)}
+            title={errors.windDirection ?? "空欄にすると自動値へ戻ります。"}
+            value={directionValue}
+            placeholder="DIR"
+            onChange={(event) => onChange("windDirection", event.target.value)}
+          />
+          <span>/</span>
+          <input
+            className="nav-log-number-input"
+            type="number"
+            min="0"
+            max="200"
+            step="1"
+            aria-label={`${label} 手動風速`}
+            aria-invalid={Boolean(errors.windSpeed)}
+            title={errors.windSpeed ?? "空欄にすると自動値へ戻ります。"}
+            value={speedValue}
+            placeholder="kt"
+            onChange={(event) => onChange("windSpeed", event.target.value)}
+          />
+        </div>
+        {showAutomatic && (
+          <span className="nav-log-automatic-wind">{formatted.text}</span>
+        )}
       </div>
       {invalid && <small className="nav-log-field-error">風向・風速を確認</small>}
       {!invalid && (directionValue.trim() || speedValue.trim()) && <small>手入力</small>}
-      {!invalid &&
-        !directionValue.trim() &&
-        !speedValue.trim() &&
-        !formatted.manual && (
-          <small className="nav-log-automatic-wind">自動: {formatted.text}</small>
-        )}
     </td>
   );
 }
-
 
 function phaseMinutes(outcome: CalculationOutcome, phases: Set<string>): number | null {
   const matching = outcome.sections.filter((section) => phases.has(section.phase));
@@ -559,7 +570,6 @@ function ResultCells({
       >
         {variation.text}
         {variation.manual && <small>手入力</small>}
-        {!variation.manual && !variation.unavailable && <small>自動</small>}
       </td>
       <ValueCell value={section.magnetic_course_deg} formatter={bearing} />
       {isVisualArrival ? (
@@ -612,8 +622,69 @@ function groupByPhysicalLeg(sections: SectionResult[]): SectionResult[][] {
   return groups;
 }
 
+function formatJst(value: string): string {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
+}
+
+function DestinationWindSummary({
+  forecast,
+}: {
+  forecast: DestinationWindForecast | null;
+}) {
+  if (forecast === null) return null;
+  const available =
+    forecast.availability === "AVAILABLE" && forecast.wind_speed_kt !== null;
+  const wind =
+    !available
+      ? "取得できませんでした"
+      : forecast.wind_speed_kt === 0
+        ? "CALM"
+        : `${
+            forecast.variable_direction
+              ? "VRB"
+              : String(forecast.wind_direction_deg_from ?? 0).padStart(3, "0")
+          }/${forecast.wind_speed_kt}${
+            forecast.wind_gust_kt === null ? "" : `G${forecast.wind_gust_kt}`
+          } kt`;
+  return (
+    <section className="destination-wind-summary" aria-label="目的地空港の風予報">
+      <strong>目的地風: {wind}</strong>
+      <span>{forecast.airport_icao}</span>
+      {forecast.valid_time_utc && (
+        <span>到着予定 {formatJst(forecast.valid_time_utc)} JST</span>
+      )}
+      <span>出典: {forecast.source_label}</span>
+      {available && forecast.forecast_change && (
+        <span>区分: {forecast.forecast_change}</span>
+      )}
+      {forecast.raw_taf && (
+        <details>
+          <summary>TAF原文</summary>
+          <code>{forecast.raw_taf}</code>
+        </details>
+      )}
+      <p>
+        参考表示です。NAV LOGの到着区間は、計算規則どおり無風で計算します。
+      </p>
+    </section>
+  );
+}
+
+const HIDDEN_QNH_WARNINGS = new Set([
+  "ESTIMATED_QNH_NOT_OFFICIAL",
+  "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
+]);
+
 export function NavLogTable({
   outcome,
+  destinationWind,
   project,
   drafts,
   editErrors,
@@ -621,6 +692,7 @@ export function NavLogTable({
   onEdit,
 }: {
   outcome: CalculationOutcome;
+  destinationWind: DestinationWindForecast | null;
   project: Project;
   drafts: NavLogEditDrafts;
   editErrors: NavLogEditErrors;
@@ -643,6 +715,10 @@ export function NavLogTable({
   const forecastTime = qnhValues.forecast_time_utc;
   const tendency = qnhValues.msm_tendency_hpa;
   const showAutomaticQnhDetails = outcome.qnh_hpa.adopted_source !== "MANUAL";
+  const adoptedQnhText =
+    qnh === null
+      ? "未取得"
+      : (qnh / HPA_PER_INHG).toFixed(2) + " inHg（" + qnh.toFixed(1) + " hPa）";
   return (
     <section className="nav-log-section" aria-labelledby="nav-log-title">
       <div className="nav-log-heading">
@@ -653,7 +729,7 @@ export function NavLogTable({
         <span>Forecast Run: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
       <section className="qnh-summary" aria-label="採用QNHと出典">
-        <strong>採用QNH: {qnh === null ? "未取得" : `${qnh.toFixed(1)} hPa`}</strong>
+        <strong>採用QNH: {adoptedQnhText}</strong>
         <span>方式: {qnhMethod}</span>
         {showAutomaticQnhDetails && typeof metarTime === "string" && (
           <span>基準METAR: {metarTime}</span>
@@ -664,10 +740,13 @@ export function NavLogTable({
         {showAutomaticQnhDetails && typeof tendency === "number" && (
           <span>MSM変化量: {tendency.toFixed(1)} hPa</span>
         )}
-        {(outcome.qnh_hpa.warnings ?? []).map((warning) => (
-          <span className="qnh-warning" key={warning}>⚠ {warning}</span>
-        ))}
+        {(outcome.qnh_hpa.warnings ?? [])
+          .filter((warning) => !HIDDEN_QNH_WARNINGS.has(warning))
+          .map((warning) => (
+            <span className="qnh-warning" key={warning}>⚠ {warning}</span>
+          ))}
       </section>
+      <DestinationWindSummary forecast={destinationWind} />
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
         <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>
         <span className="nav-log-readonly-key">読取専用: 航法・距離・時間・燃料などの派生値</span>

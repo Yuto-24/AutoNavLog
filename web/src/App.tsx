@@ -702,6 +702,7 @@ function App() {
   return (
     <div className="app-shell">
       <Header
+        appVersion={state.runtime.appVersion}
         projectName={state.project?.name ?? "未保存の新規作業"}
         revision={state.project?.revision ?? null}
         savedProjects={state.savedProjects}
@@ -788,6 +789,7 @@ function App() {
         >
           <NavLogTable
             outcome={state.outcome}
+            destinationWind={state.destinationWind}
             project={state.project}
             drafts={navLogDrafts}
             editErrors={navLogEditErrors}

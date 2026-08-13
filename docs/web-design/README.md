@@ -16,7 +16,7 @@ and actions remain code-native and accessible.
 ## Tokens
 
 | Token | Value | Use |
-|---|---:|---|
+| --- | ---: | --- |
 | `--color-navy-950` | `#0b1f33` | top bar and primary actions |
 | `--color-navy-800` | `#173b5e` | headings and route line |
 | `--color-teal-700` | `#0c7c78` | selected/VREP/automatic success |
@@ -42,7 +42,7 @@ decorative cards. Shadows are reserved for temporary overlays.
 
 ## Component inventory
 
-- App header with project identity, storage state, Save, and New actions.
+- App header with app version, project identity, storage state, Save, and New actions.
 - Three-step progress rail: Route, Flight plan, Review/output.
 - KML/KMZ drop zone and paste dialog.
 - Shape candidate list with a required route-use confirmation.
@@ -53,7 +53,8 @@ decorative cards. Shadows are reserved for temporary overlays.
 - Readiness rail showing the next action, data provenance, blockers, confirmation
   items, and acknowledgement controls.
 - NAV LOG result table aligned to the 19-column 別添8-1 layout plus INFO and
-  TIME/FUEL summary; numeric results are not display-rounded.
+  TIME/FUEL summary.
+- Destination TAF wind strip, shown as reference data and kept outside calculation inputs.
 - A4 transcription-aid HTML output action.
 
 ## Container and responsive rules
@@ -74,12 +75,12 @@ the imported route controls, flight-plan labels, `準備状況`, its next action
 reference provenance, and the current primary action. Marketing copy, claims,
 metrics, badges, and unrelated navigation are prohibited.
 
-## Implementation fidelity ledger (verified 2026-08-10 JST)
+## Implementation fidelity ledger (verified 2026-08-13 JST)
 
 ### Render and inspection method
 
 - Accepted concepts: `primary-workspace.png` and `calculated-review.png`.
-- Verification execution date: 2026-08-10 (`Asia/Tokyo`).
+- Verification execution date: 2026-08-13 (`Asia/Tokyo`).
 - Implementation renders: Playwright Chromium against the built FastAPI-served SPA.
 - Native desktop viewport: 1440 × 1000.
 - Native mobile viewport: 390 × 844; the stored mobile image is a full-page capture.
@@ -94,13 +95,13 @@ metrics, badges, and unrelated navigation are prohibited.
 ### Concept-to-implementation comparison
 
 | Area | Concept | Implementation | Result |
-|---|---|---|---|
-| Header | Navy product bar, project identity, save/new actions | Same hierarchy and action placement | Match |
+| --- | --- | --- | --- |
+| Header | Navy product bar, version, project identity, save/new actions | Same hierarchy and action placement | Match |
 | Workflow | Three numbered stages directly below header | Route, flight plan, review/output rail with completed states | Match |
 | Desktop layout | Input / route / readiness columns | 24% / fluid / 25% three-column workspace | Match |
 | Route workspace | Map over compact POINT/ROLE/ALT/PHASE table | Leaflet/OSM route, airport/VREP/RCA/EOC markers, editable Leg table | Match |
 | Readiness | Provenance, next action, blockers/confirmations, primary/output actions | Same order; duplicate causes collapsed by code/Leg/segment | Match |
-| Calculated view | Dense NAV LOG and fuel strip below the workspace | 別添8-1-aligned 19-column NAV LOG plus INFO and TIME/FUEL tables | Match |
+| Calculated view | Dense NAV LOG, destination TAF wind, and fuel strip | 19-column NAV LOG plus reference wind and TIME/FUEL tables | Match |
 | Visual language | White canvas, navy/teal, amber/red status, thin borders, no gradients | Same token family and restrained radii | Match |
 | Mobile | Single-column stack with all safety/status content retained | 390 px stack, full-width controls, no body horizontal overflow | Match |
 

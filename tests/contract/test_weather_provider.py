@@ -128,6 +128,7 @@ def test_msm_adapter_maps_batch_and_qnh_label(monkeypatch, tmp_path) -> None:
     assert result.availability == Availability.AVAILABLE
     assert result.values["label"] == "MSM推定QNH"
     assert result.values["provider_label"] == "MSM-derived estimated QNH"
+    assert result.warnings == ()
 
 
 def test_msm_adapter_rejects_qnh_without_configured_terrain(

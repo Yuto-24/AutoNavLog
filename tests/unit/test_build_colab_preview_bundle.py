@@ -176,13 +176,13 @@ def _write_runtime_data(root: Path) -> None:
 
 
 def _inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
-    autonavlog = tmp_path / "autonavlog-0.2.0-py3-none-any.whl"
+    autonavlog = tmp_path / "autonavlog-0.2.1-py3-none-any.whl"
     msm = tmp_path / "jma_msm_wind-0.2.1-py3-none-any.whl"
     data = tmp_path / "data"
     _write_wheel(
         autonavlog,
         distribution="autonavlog",
-        version="0.2.0",
+        version="0.2.1",
     )
     _write_wheel(
         msm,
@@ -221,7 +221,7 @@ def test_builder_creates_deterministic_self_verifying_bundle(tmp_path: Path) -> 
         names = {info.filename for info in infos}
         declared = {entry["path"] for entry in manifest["files"]}
         assert names == declared | {"bundle-manifest.json"}
-        assert manifest["bundle_version"] == "0.2.0"
+        assert manifest["bundle_version"] == "0.2.1"
         assert manifest["runtime_data_root"] == "data"
         assert manifest["weather"] == {
             "aloft_wind_temperature": "MSM",
@@ -234,7 +234,7 @@ def test_builder_creates_deterministic_self_verifying_bundle(tmp_path: Path) -> 
             content = archive.read(entry["path"])
             assert entry["size"] == len(content)
             assert entry["sha256"] == hashlib.sha256(content).hexdigest()
-        assert manifest["distributions"]["autonavlog"]["version"] == "0.2.0"
+        assert manifest["distributions"]["autonavlog"]["version"] == "0.2.1"
         assert {
             "data/reference/default/reference-manifest.json",
             "data/msm/terrain.npz",
@@ -289,8 +289,8 @@ def test_builder_accepts_autonavlog_wheel_without_metar_provider(
     autonavlog, msm, data = _inputs(tmp_path)
     with zipfile.ZipFile(autonavlog, "w") as archive:
         archive.writestr(
-            "autonavlog-0.2.0.dist-info/METADATA",
-            "Metadata-Version: 2.1\nName: autonavlog\nVersion: 0.2.0\n",
+            "autonavlog-0.2.1.dist-info/METADATA",
+            "Metadata-Version: 2.1\nName: autonavlog\nVersion: 0.2.1\n",
         )
         archive.writestr("autonavlog/presentation/colab.py", b"# present\n")
         archive.writestr("autonavlog/weather/msm_adapter.py", b"# present\n")

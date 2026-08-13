@@ -72,7 +72,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; "
             "form-action 'self'; frame-ancestors 'none'"
         )
-        if request.url.path.startswith("/api/"):
+        if request.url.path in {"/", "/index.html"}:
+            response.headers["Cache-Control"] = "no-cache"
+        elif request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         return response
 
