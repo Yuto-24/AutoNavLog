@@ -114,8 +114,10 @@ def test_transport_failure_does_not_raise_or_block_calculation() -> None:
 
 def test_transport_deadline_includes_blocked_name_resolution() -> None:
     release_transport = Event()
+    calls: list[str] = []
 
-    def blocking_transport(_url: str, _headers, _timeout_seconds: float) -> bytes:
+    def blocking_transport(url: str, _headers, _timeout_seconds: float) -> bytes:
+        calls.append(url)
         release_transport.wait()
         return b"[]"
 
@@ -123,14 +125,50 @@ def test_transport_deadline_includes_blocked_name_resolution() -> None:
         transport=blocking_transport,
         timeout_seconds=0.02,
         clock=lambda: VALID_FROM,
+        maximum_concurrent_fetches=1,
     )
     started = monotonic()
     try:
         forecast = provider.forecast("RJFO", VALID_FROM)
+        repeated = provider.forecast("RJFO", VALID_FROM)
+        capacity_limited = provider.forecast("RJFM", VALID_FROM)
     finally:
         release_transport.set()
     elapsed = monotonic() - started
 
     assert elapsed < 0.5
+    assert len(calls) == 1
     assert forecast.availability == Availability.UNAVAILABLE
     assert forecast.reason_code == "TAF_FETCH_TIMEOUT"
+    assert repeated.reason_code == "TAF_FETCH_TIMEOUT"
+    assert capacity_limited.reason_code == "TAF_FETCH_CAPACITY_UNAVAILABLE"
+
+
+def test_blocked_transport_does_not_block_cached_records() -> None:
+    release_transport = Event()
+
+    def selective_transport(url: str, _headers, _timeout_seconds: float) -> bytes:
+        if "ids=RJFO" in url:
+            release_transport.wait()
+            return b"[]"
+        return json.dumps(taf_payload()).encode()
+
+    provider = AviationWeatherTafProvider(
+        transport=selective_transport,
+        timeout_seconds=0.02,
+        clock=lambda: VALID_FROM,
+        maximum_concurrent_fetches=2,
+    )
+    cached = provider.forecast("RJFM", VALID_FROM)
+    try:
+        timed_out = provider.forecast("RJFO", VALID_FROM)
+        started = monotonic()
+        from_cache = provider.forecast("RJFM", VALID_FROM + timedelta(hours=1))
+        elapsed = monotonic() - started
+    finally:
+        release_transport.set()
+
+    assert timed_out.reason_code == "TAF_FETCH_TIMEOUT"
+    assert cached.availability == Availability.AVAILABLE
+    assert from_cache.availability == Availability.AVAILABLE
+    assert elapsed < 0.5
