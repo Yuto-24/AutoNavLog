@@ -107,6 +107,8 @@
   再計算し、必要に応じて同じ処理を経路始点方向へ繰り返します。分割後もZone距離合計、
   `DIST = GS × ETE`、上昇時間・燃料、降下時間を保存します。RCA/EOCの算出原則は
   規程で確認済みですが、物理Leg内のexact splitと変針点高度による再計算は実装Policyです。
+  各Legで500 fpmの降下に必要な時間がそのLegのETEを超え、変針点とVREPの高度制約を
+  同時に満たせない場合は`DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` Blockerとします。
 - `LOSS`は機上修正値であり地上入力UIを持ちません。旧Projectの非0値もZONE/CUM ETE、
   TTL TIME、Forecast、燃料、fingerprintへ加えず、転記補助のETOは空欄にします。
 - 同じForecast Runで最大5回反復し、代表時刻差30秒未満を収束とします。これは
