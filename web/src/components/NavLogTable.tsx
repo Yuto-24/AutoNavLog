@@ -370,9 +370,12 @@ function EditableWindCell({
       </div>
       {invalid && <small className="nav-log-field-error">風向・風速を確認</small>}
       {!invalid && (directionValue.trim() || speedValue.trim()) && <small>手入力</small>}
-      {!invalid && !directionValue.trim() && !speedValue.trim() && (
-        <small className="nav-log-automatic-wind">自動: {formatted.text}</small>
-      )}
+      {!invalid &&
+        !directionValue.trim() &&
+        !speedValue.trim() &&
+        !formatted.manual && (
+          <small className="nav-log-automatic-wind">自動: {formatted.text}</small>
+        )}
     </td>
   );
 }

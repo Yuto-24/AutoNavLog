@@ -106,8 +106,12 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(altitudeInputs.last()).toHaveValue("1800");
   await expect(cruiseAltitude).toHaveValue(cruiseCandidate);
   await expect(page.locator(".altitude-review-row")).toHaveCount(0);
+  let releaseCalculationRequest = () => {};
+  const calculationRequestReleased = new Promise<void>((resolve) => {
+    releaseCalculationRequest = resolve;
+  });
   await page.route("**/api/calculation-jobs", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await calculationRequestReleased;
     await route.continue();
   }, { times: 1 });
   const calculateButton = page.locator(".status-actions .primary-button");
@@ -116,6 +120,7 @@ async function calculateNavLog(page: Page): Promise<void> {
   const calculationProgress = page.getByRole("progressbar", { name: "NAV LOGを計算中" });
   await expect(calculationProgress).toBeVisible();
   await expect(calculateButton).toHaveText("NAV LOGを計算中…");
+  releaseCalculationRequest();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
   await expect(calculationProgress).toBeHidden();
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
