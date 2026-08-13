@@ -1271,6 +1271,7 @@ class CalculationService:
         route_end_distance = offsets[descent_index][1]
         constraint_index = descent_index
         constraint_target_altitude = target_altitude
+        eoc_constraint_target_altitude = target_altitude
         route_start_distance: float | None = None
         vertical_descent_duration_seconds = 0.0
 
@@ -1329,6 +1330,7 @@ class CalculationService:
             )
             vertical_descent_duration_seconds += required_seconds
             constraint_index = index
+            eoc_constraint_target_altitude = constraint_target_altitude
             constraint_target_altitude = constraint_section.planned_altitude_ft_msl
 
         if route_start_distance is None:
@@ -1365,7 +1367,9 @@ class CalculationService:
                 "eoc_constraint_section_id": str(
                     geometries[constraint_index].section.id
                 ),
-                "eoc_constraint_target_altitude_ft_msl": constraint_target_altitude,
+                "eoc_constraint_target_altitude_ft_msl": (
+                    eoc_constraint_target_altitude
+                ),
                 "eoc_constraint_route_distance_nm": offsets[constraint_index][1],
                 "cruise_cas_kt": cruise_cas,
                 "fuel_flow_gph": 12.0,
