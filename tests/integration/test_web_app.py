@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import httpx
 import pytest
 
 from autonavlog.web.app import create_app
+from autonavlog.web.calculation_jobs import (
+    CalculationJob,
+    CalculationJobAlreadyActiveError,
+)
 from autonavlog.web.cloudflare_access import CloudflareAccessVerificationError
 from autonavlog.web.runtime import WebRuntimeConfig
 
@@ -212,9 +217,19 @@ async def test_web_route_calculation_save_and_fail_closed_output(
             for issue in destination_state["readiness"]["issues"]
         )
 
-        calculated = await client.post("/api/calculate")
-        assert calculated.status_code == 200, calculated.text
-        calculated_state = calculated.json()
+        created_job = await client.post("/api/calculation-jobs")
+        assert created_job.status_code == 202, created_job.text
+        job = created_job.json()
+        assert job["status"] in {"queued", "preparing_weather", "calculating", "succeeded"}
+        for _ in range(100):
+            job_response = await client.get(f"/api/calculation-jobs/{job['job_id']}")
+            assert job_response.status_code == 200, job_response.text
+            job = job_response.json()
+            if job["status"] in {"succeeded", "failed"}:
+                break
+            await asyncio.sleep(0.01)
+        assert job["status"] == "succeeded", job
+        calculated_state = job["state"]
         assert calculated_state["outcome"] is not None
         assert calculated_state["outcome"]["arrival_altitude"]["base_vrep_altitude_ft_msl"] == 1800
         assert calculated_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 2100
@@ -764,3 +779,75 @@ async def test_intermediate_line_names_preserve_every_original_coordinate(
             (33.78695544494976, 131.9894319344609),
             (33.62999835453385, 131.67890296839),
         ]
+
+
+@pytest.mark.anyio
+async def test_duplicate_calculation_job_returns_conflict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+
+    def reject_duplicate(**kwargs: object) -> None:
+        raise CalculationJobAlreadyActiveError("session already has an active calculation job")
+
+    monkeypatch.setattr(app.state.calculation_jobs, "submit", reject_duplicate)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+
+        response = await client.post("/api/calculation-jobs")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "CALCULATION_JOB_ALREADY_ACTIVE"
+
+
+@pytest.mark.anyio
+async def test_calculation_job_snapshot_prune_race_returns_minimal_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    submitted = CalculationJob(
+        id="issued-job-id",
+        owner_id="local-test-user",
+        session_token="session-token",
+    )
+    monkeypatch.setattr(
+        app.state.calculation_jobs,
+        "submit",
+        lambda **kwargs: submitted,
+    )
+    monkeypatch.setattr(
+        app.state.calculation_jobs,
+        "snapshot",
+        lambda job_id, **kwargs: None,
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+
+        response = await client.post("/api/calculation-jobs")
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "job_id": "issued-job-id",
+        "status": "queued",
+        "queue_position": None,
+        "created_at_utc": submitted.created_at_utc.isoformat(),
+        "updated_at_utc": submitted.updated_at_utc.isoformat(),
+    }

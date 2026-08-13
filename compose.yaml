@@ -25,7 +25,12 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    stop_grace_period: 15s
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "10"
+          memory: 20G
 
 volumes:
   autonavlog-data:

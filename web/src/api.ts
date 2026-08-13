@@ -99,6 +99,36 @@ export class ApiClient {
     return this.fetchJson<T>(path, options, true);
   }
 
+  async calculate(): Promise<WebState> {
+    type Job = {
+      job_id: string;
+      status: "queued" | "preparing_weather" | "calculating" | "succeeded" | "failed";
+      state?: WebState;
+      error?: { code?: string; message?: string; status?: number };
+    };
+    const created = await this.request<Job>("/api/calculation-jobs", { method: "POST" });
+    const deadline = Date.now() + 10 * 60_000;
+    let job = created;
+    while (job.status !== "succeeded" && job.status !== "failed") {
+      if (Date.now() >= deadline) {
+        throw new ApiError("気象準備と計算がタイムアウトしました。", "CALCULATION_TIMEOUT", 504);
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+      job = await this.request<Job>(`/api/calculation-jobs/${encodeURIComponent(job.job_id)}`);
+    }
+    if (job.status === "failed") {
+      throw new ApiError(
+        job.error?.message ?? "計算に失敗しました。",
+        job.error?.code ?? "CALCULATION_JOB_FAILED",
+        job.error?.status ?? 500,
+      );
+    }
+    if (!job.state) {
+      throw new ApiError("計算結果がありません。", "CALCULATION_RESULT_MISSING", 500);
+    }
+    return job.state;
+  }
+
   async resetSession(): Promise<void> {
     const response = await fetch("/api/session", {
       method: "DELETE",

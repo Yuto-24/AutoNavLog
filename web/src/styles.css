@@ -812,3 +812,18 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (prefers-reduced-motion: no-preference) {
   button, input, select, .issue-item { transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease; }
 }
+
+.qnh-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: 8px;
+  background: #f7fafc;
+  font-size: 12px;
+}
+.qnh-summary strong { color: var(--navy-950); }
+.qnh-warning { color: #8a4b08; font-weight: 700; }

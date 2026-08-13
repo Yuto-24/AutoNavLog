@@ -626,6 +626,20 @@ export function NavLogTable({
 }) {
   const physicalLegs = groupByPhysicalLeg(outcome.sections);
   const inputSections = new Map(project.sections.map((section) => [section.id, section]));
+  const qnh = adopted(outcome.qnh_hpa);
+  const qnhMetadata = outcome.qnh_hpa.automatic_metadata;
+  const qnhValues =
+    typeof qnhMetadata.values === "object" && qnhMetadata.values !== null
+      ? (qnhMetadata.values as Record<string, unknown>)
+      : {};
+  const qnhMethod =
+    outcome.qnh_hpa.adopted_source === "MANUAL"
+      ? "MANUAL"
+      : String(qnhValues.qnh_method ?? qnhMetadata.qnh_method ?? "未確定");
+  const metarTime = qnhValues.metar_observation_time_utc;
+  const forecastTime = qnhValues.forecast_time_utc;
+  const tendency = qnhValues.msm_tendency_hpa;
+  const showAutomaticQnhDetails = outcome.qnh_hpa.adopted_source !== "MANUAL";
   return (
     <section className="nav-log-section" aria-labelledby="nav-log-title">
       <div className="nav-log-heading">
@@ -635,6 +649,22 @@ export function NavLogTable({
         </div>
         <span>Forecast Run: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
+      <section className="qnh-summary" aria-label="採用QNHと出典">
+        <strong>採用QNH: {qnh === null ? "未取得" : `${qnh.toFixed(1)} hPa`}</strong>
+        <span>方式: {qnhMethod}</span>
+        {showAutomaticQnhDetails && typeof metarTime === "string" && (
+          <span>基準METAR: {metarTime}</span>
+        )}
+        {showAutomaticQnhDetails && typeof forecastTime === "string" && (
+          <span>予報対象: {forecastTime}</span>
+        )}
+        {showAutomaticQnhDetails && typeof tendency === "number" && (
+          <span>MSM変化量: {tendency.toFixed(1)} hPa</span>
+        )}
+        {(outcome.qnh_hpa.warnings ?? []).map((warning) => (
+          <span className="qnh-warning" key={warning}>⚠ {warning}</span>
+        ))}
+      </section>
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
         <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>
         <span className="nav-log-readonly-key">読取専用: 航法・距離・時間・燃料などの派生値</span>
