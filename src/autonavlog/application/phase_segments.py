@@ -18,6 +18,7 @@ DESCENT_END_LABEL = "DESCENT_END"
 _DISTANCE_TOLERANCE_NM = 1e-9
 _COORDINATE_TOLERANCE_DEG = 1e-9
 _MARKER_ORDER = (RCA_LABEL, EOC_LABEL, DESCENT_END_LABEL)
+EOC_SNAP_TOLERANCE_NM = 0.5
 
 
 class PhaseSegmentationError(ValueError):
@@ -105,6 +106,10 @@ def split_route_into_phase_segments(
     ordered = tuple(legs)
     starts, physical_boundaries = _validate_and_measure_legs(ordered)
     total_distance_nm = physical_boundaries[-1]
+    eoc_distance_nm = _snap_eoc_to_physical_turn(
+        eoc_distance_nm,
+        physical_boundaries,
+    )
     _validate_phase_boundaries(
         total_distance_nm,
         rca_distance_nm,
@@ -346,6 +351,23 @@ def _add_boundary(
     cuts.append((distance_nm, {marker}))
 
 
+def _snap_eoc_to_physical_turn(
+    distance_nm: float | None,
+    physical_boundaries: tuple[float, ...],
+) -> float | None:
+    """Snap EOC to an intermediate physical turn when strictly within 0.5 NM."""
+
+    if distance_nm is None or not isfinite(distance_nm):
+        return distance_nm
+    candidates = physical_boundaries[1:-1]
+    if not candidates:
+        return distance_nm
+    nearest = min(candidates, key=lambda boundary: abs(boundary - distance_nm))
+    if abs(nearest - distance_nm) < EOC_SNAP_TOLERANCE_NM:
+        return nearest
+    return distance_nm
+
+
 def _point_at_distance(
     legs: tuple[PhysicalRouteLeg, ...],
     starts: tuple[float, ...],
@@ -397,7 +419,15 @@ def _point_at_distance(
     # DESCENT_END is an internal calculation boundary, not a NAV LOG waypoint.
     # At the physical VREP boundary, retain the imported point name for display.
     display_markers = tuple(marker for marker in marker_tuple if marker != DESCENT_END_LABEL)
-    label = "/".join(display_markers) if display_markers else source_name
+    label: str | None
+    if source_name is not None and EOC_LABEL in display_markers:
+        other_display_markers = tuple(
+            marker for marker in display_markers if marker != EOC_LABEL
+        )
+        label_parts = (source_name, *other_display_markers, EOC_LABEL)
+        label = " / ".join(dict.fromkeys(label_parts))
+    else:
+        label = "/".join(display_markers) if display_markers else source_name
     if label is None and DESCENT_END_LABEL in marker_tuple:
         label = DESCENT_END_LABEL
     if label is None:

@@ -109,7 +109,6 @@ def current_calculation_input_fingerprint(
             "total_usable_fuel_gal": project.total_usable_fuel_gal,
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
-            "manual_qnh_hpa": project.manual_qnh_hpa,
             "selected_forecast_run_id": project.selected_forecast_run_id,
             "route_nodes": route_nodes,
             "sections": sections,

@@ -9,7 +9,7 @@ from autonavlog.application.readiness import (
     can_render_transfer_aid,
     derive_project_status,
 )
-from autonavlog.domain.calculation import CalculationOutcome, SectionResult
+from autonavlog.domain.calculation import CalculationOutcome, NavLogDisplayRow, SectionResult
 from autonavlog.domain.enums import AdoptedSource, ProjectStatus, ValueState
 from autonavlog.domain.planning import load_persisted_ui_state
 from autonavlog.domain.project import Project
@@ -190,13 +190,20 @@ def _combined_adopted_cell(
     cumulative: AdoptedValue[float],
     *,
     formatter: Callable[[float], str],
+    show_cumulative: bool = True,
 ) -> str:
     primary_value = primary.adopted()
     cumulative_value = cumulative.adopted()
-    missing = primary_value is None or cumulative_value is None
+    missing = primary_value is None or (show_cumulative and cumulative_value is None)
     classes = "num combined" + (" missing" if missing else "")
     primary_text = "—" if primary_value is None else formatter(primary_value)
-    cumulative_text = "—" if cumulative_value is None else formatter(cumulative_value)
+    cumulative_text = (
+        ""
+        if not show_cumulative
+        else "—"
+        if cumulative_value is None
+        else formatter(cumulative_value)
+    )
     return (
         f"<td class='{classes}'><span>{escape(primary_text)}</span>"
         f"<small>{escape(cumulative_text)}</small></td>"
@@ -216,7 +223,10 @@ def _raw_wind_cell(result: SectionResult) -> str:
     return f"<td class='{classes}'>{escape(shown)}</td>"
 
 
-def _section_row(result: SectionResult) -> str:
+def _section_row(result: SectionResult | NavLogDisplayRow) -> str:
+    show_cumulative = not isinstance(result, NavLogDisplayRow) or (
+        result.row_type == "PHYSICAL_LEG_SUMMARY"
+    )
     cells = [
         _text_cell(result.from_name, "route-name"),
         _text_cell(result.to_name, "route-name"),
@@ -240,6 +250,7 @@ def _section_row(result: SectionResult) -> str:
             result.zone_distance_nm,
             result.cumulative_distance_nm,
             formatter=lambda value: f"{ROUNDING.distance(value):.1f}",
+            show_cumulative=show_cumulative,
         ),
         _formatted_adopted_cell(
             result.ground_speed_kt, lambda value: f"{ROUNDING.speed(value):.0f}"
@@ -248,6 +259,7 @@ def _section_row(result: SectionResult) -> str:
             result.zone_ete_seconds,
             result.cumulative_ete_seconds,
             formatter=lambda value: f"{ROUNDING.duration_minutes(value):.1f}",
+            show_cumulative=show_cumulative,
         ),
         _text_cell("", "num"),
         _text_cell("", "num"),
@@ -256,6 +268,7 @@ def _section_row(result: SectionResult) -> str:
             result.section_fuel_gal,
             result.remaining_fuel_gal,
             formatter=lambda value: f"{ROUNDING.fuel(value):.1f}",
+            show_cumulative=show_cumulative,
         ),
     ]
     return "<tr>" + "".join(cells) + "</tr>"
@@ -720,7 +733,8 @@ def render_transfer_aid_html(
     )
     status_label = "転記可（要照合）" if ready else "転記不可"
     status_class = "transfer-ready" if ready else "transfer-blocked"
-    section_rows = "".join(_section_row(result) for result in outcome.sections)
+    rendered_rows = outcome.display_rows or outcome.sections
+    section_rows = "".join(_section_row(result) for result in rendered_rows)
     if not section_rows:
         section_rows = "<tr><td class='missing' colspan='19'>Section計算結果なし</td></tr>"
     return f"""

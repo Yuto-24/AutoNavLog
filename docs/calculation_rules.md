@@ -78,12 +78,9 @@
   出発点を使います。保存済みProjectの`default_variation_deg_east`はschema互換のため
   読み込みますが、新しい計算値には使用しません。
 - 東偏差を正として`MC = TC - VAR`、右WCAを正として`MH = MC + WCA`とします。
-- QNHは、検証済みMETARの観測QNHへ同じMSM Forecast Runの海面更正気圧変化量を
-  加えた`METAR_TREND_CORRECTED`を優先します。METARが欠測、不整合、または2時間超の場合は
-  `MSM_MSLP_ONLY`を使います。どちらも取得できない場合は、1013.25 hPaや古い値で補わず、
-  手動QNHを要求します。推定値は公式の飛行場QNHではありません。
-- PAの未丸め値と500 ft計画値を分け、現行Policyは`CEILING`です。規程の「500 ft単位」は
-  確認済みですが、未丸めPAのexactな500 ft選択方法は未確認です。
+- NAV LOG計算では`PA = MSL`とし、計画MSL高度をそのままPA、POH性能検索、CAS/TAS換算へ
+  使用します。QNH補正後PAや別の500 ft planning PAは作らず、QNHを必須入力またはBlockerに
+  しません。保存済みの手動QNH fieldはschema互換のため残しますが計算には使用しません。
 - 現行G6上昇表は原表19節点を高度方向に線形補間した500 ft刻みISA行を収録し、
   出発・巡航の累積値の差へ、中間気圧高度のISA温度に対する正の温度差1℃ごとに
   1%（10℃ごとに10%）を一度だけ加えます。標準以下
@@ -97,18 +94,22 @@
   確認を必要とします。
   この順序・丸めはIssue #15添付の多次元拡張表6,419行と一致確認済みですが、規程の
   「計画に近い条件のうち不利」へのexactな適合性とGolden NAV LOGは未検証です。
-- 降下は500 fpm、12 GPH、目視位置通報点以降はCAS 121 kt・12 GPHとし、取得できた目的地TAF風を使用して計算します。取得不能時だけCALMへフォールバックします。
-  CAS、降下率、燃料流量は規程で裏付け済みですが、目的地TAF風の採用は実装Policyです。
+- 降下は直前巡航CAS、500 fpm、12 GPHを使用します。EOC→VREP時間は
+  `（巡航高度 - VREP高度）/ 500 fpm + 1分`です。降下Legで不足する時間だけを直前の
+  1物理Legへ持ち越し、それより前へ出る場合は`EOC_BEFORE_SUPPORTED_LEG` Blockerとします。
+  中間変針点に独立した高度制約は置きません。
+- 目視位置通報点以降はCAS 121 kt・12 GPH、CALM固定で、WCA=0、GS=TASとします。
+  CAS、降下率、燃料流量、到着区間CALMは規程で裏付け済みです。
 - 目的地TAFの風は、出発予定時刻へ計算済み累積ETEを加えた到着予定時刻に合わせて
-  取得します。取得した風をNAV LOG最終行へ採用し、到着区間のETE、燃料、WCA、GSへ反映します。
-  TAF取得不能時はCALMへフォールバックします。
-- RCA/EOCは物理Leg端へ丸めず、採用距離軸上の算出位置でLegを分割します。EOCが
-  VREP直前の変針点を越える場合は、その変針点の採用高度を到達条件として一つ前のLegから
-  再計算し、必要に応じて同じ処理を経路始点方向へ繰り返します。分割後もZone距離合計、
-  `DIST = GS × ETE`、上昇時間・燃料、降下時間を保存します。RCA/EOCの算出原則は
-  規程で確認済みですが、物理Leg内のexact splitと変針点高度による再計算は実装Policyです。
-  各Legで500 fpmの降下に必要な時間がそのLegのETEを超え、変針点とVREPの高度制約を
-  同時に満たせない場合は`DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` Blockerとします。
+  取得します。取得した風はNAV LOG最終行への表示だけに使い、到着区間のETE、燃料、WCA、
+  GSへは反映しません。最終表示行のPAは目的飛行場標高、OATは同地点のMSM予想気温です。
+- RCA/EOCは採用距離軸上の算出位置で物理LegをCalculation Zoneへ分割します。EOCと物理
+  変針点の距離差が0.5 NM未満なら内部計算上も変針点へsnapし、`<TP名> / EOC`と表示します。
+  ちょうど0.5 NMではsnapしません。分割後もZone距離合計と`DIST = GS × ETE`を保存します。
+- `CalculationOutcome.sections`は重複しないCalculation Zoneです。`display_rows`はそこから
+  作る表示専用投影で、物理Leg小計行（FROM/TOあり）の下に分割内訳行（FROM空欄）を置きます。
+  小計のZONE DIST/ETEは配下Zoneの未丸め合計、CUMは小計行だけに表示します。小計行は
+  距離・時間・燃料へ再加算しません。
 - `LOSS`は機上修正値であり地上入力UIを持ちません。旧Projectの非0値もZONE/CUM ETE、
   TTL TIME、Forecast、燃料、fingerprintへ加えず、転記補助のETOは空欄にします。
 - 同じForecast Runで最大5回反復し、代表時刻差30秒未満を収束とします。これは
@@ -127,8 +128,8 @@
 - 性能CSV全行の原典再抽出・差分比較と確定hashは完了しています。対象機への適用性、
   省略した性能補正、およびGolden NAV LOGとの一致は未確認です。
 - 飛行地域の偏差、気象・航空情報・障害物の利用者確認。SEAは本版の対象外です。
-- MSM推定QNH、MSM風・気温の採用、空間/時間補間、Forecast Run選択と反復の校内承認。
-- 現行のPA選択、性能補間/外挿、巡航候補選択、LOSS、丸めtie処理のexact適合性。
+- MSM風・気温の採用、空間/時間補間、Forecast Run選択と反復の校内承認。
+- `PA = MSL`、性能補間/外挿、巡航候補選択、LOSS、丸めtie処理のexact適合性。
 - 別添8-1原本とのレイアウト同一性。AutoNavLogのA4出力は原本ではなく非公式転記補助表です。
 
 RCA/EOCが全経路端を越える場合はBlockerです。RCAが経路内の最初の変針点を越える場合は

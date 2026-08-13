@@ -39,7 +39,7 @@ class ForecastService:
         times.append(project.planned_departure_time_jst + timedelta(seconds=elapsed_seconds))
         return ForecastRequirement(
             valid_times_utc=tuple(times),
-            require_estimated_qnh=project.manual_qnh_hpa is None,
+            require_estimated_qnh=False,
         )
 
     def build_final_requirement(
@@ -49,5 +49,5 @@ class ForecastService:
     ) -> ForecastRequirement:
         return ForecastRequirement(
             valid_times_utc=(project.planned_departure_time_jst, *representative_times),
-            require_estimated_qnh=project.manual_qnh_hpa is None,
+            require_estimated_qnh=False,
         )

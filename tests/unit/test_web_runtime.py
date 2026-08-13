@@ -96,7 +96,7 @@ def test_msm_metar_delegate_receives_terrain_cache(
     assert isinstance(captured["delegate"], RecordingMsm)
     assert captured["cache_dir"] == tmp_path / "msm"
     assert captured["terrain_cache_path"] == tmp_path / "terrain.json"
-    assert label == "MSM予報・METAR観測QNH"
+    assert label == "MSM予報"
     assert development is False
 
 

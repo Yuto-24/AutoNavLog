@@ -50,6 +50,19 @@ def _outcome_with_sections(project, airports, performance_repository):
     )
 
 
+def _replace_first_result(outcome, section):
+    display_rows = [
+        row.__class__.model_validate(row.model_dump() | section.model_dump())
+        if row.section_id == section.section_id
+        else row
+        for row in outcome.display_rows
+    ]
+    return outcome.model_copy(
+        update={
+            "sections": [section, *outcome.sections[1:]],
+            "display_rows": display_rows,
+        }
+    )
 def test_ready_transfer_aid_is_dense_a4_landscape_table(
     project,
     airports,
@@ -174,10 +187,9 @@ def test_non_ready_transfer_aid_is_red_and_marks_missing_values(
     missing_section = outcome.sections[0].model_copy(
         update={"ground_speed_kt": AdoptedValue[float]()}
     )
-    blocked = outcome.model_copy(
+    blocked = _replace_first_result(outcome, missing_section).model_copy(
         update={
             "status": ProjectStatus.MANUAL_INPUT_REQUIRED,
-            "sections": [missing_section, *outcome.sections[1:]],
             "issues": [
                 Issue(
                     code="GS_UNAVAILABLE",
@@ -229,7 +241,7 @@ def test_transfer_aid_groups_repeated_issues_and_preserves_segment_range(
     assert "警告・未確定項目" not in html
 
 
-def test_transfer_aid_always_labels_automatic_qnh_as_msm_estimated(
+def test_transfer_aid_does_not_require_qnh_value(
     project,
     airports,
     performance_repository,
@@ -239,21 +251,11 @@ def test_transfer_aid_always_labels_automatic_qnh_as_msm_estimated(
         airports,
         performance_repository,
     )
-    metar_outcome = outcome.model_copy(
-        update={
-            "qnh_hpa": outcome.qnh_hpa.model_copy(
-                update={
-                    "automatic_metadata": outcome.qnh_hpa.automatic_metadata
-                    | {"label": "METAR観測QNH"}
-                }
-            )
-        }
-    )
-
-    html = render_transfer_aid_html(ready_project, metar_outcome)
+    html = render_transfer_aid_html(ready_project, outcome)
 
     assert "QNH" in html
-    assert f"{outcome.qnh_hpa.adopted()} hPa" in html
+    assert outcome.qnh_hpa.adopted() is None
+    assert "None hPa" not in html
     assert "MSM推定QNH" not in html
     assert "METAR観測QNH" not in html
 
@@ -305,7 +307,7 @@ def test_transfer_aid_distinguishes_every_value_state(
             ),
         }
     )
-    marked = outcome.model_copy(update={"sections": [section, *outcome.sections[1:]]})
+    marked = _replace_first_result(outcome, section)
 
     html = render_transfer_aid_html(ready_project, marked)
 
@@ -407,9 +409,8 @@ def test_transfer_aid_formats_nav_values_at_required_precision(
             ),
         }
     )
-    formatted_outcome = outcome.model_copy(
+    formatted_outcome = _replace_first_result(outcome, first).model_copy(
         update={
-            "sections": [first, *outcome.sections[1:]],
             "fuel_plan": outcome.fuel_plan.model_copy(
                 update={
                     "total_usable_gal": 90.12345,

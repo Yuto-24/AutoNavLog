@@ -8,7 +8,7 @@ import type {
 import type {
   AdoptedValue, CalculationOutcome, DestinationWindForecast, NavSection, Project,
   FlightPhase,
-  SectionResult,
+  NavLogDisplayRow, SectionResult,
 } from "../types";
 
 function adopted<T>(value: AdoptedValue<T>): T | null {
@@ -112,7 +112,6 @@ const integer = fixedQuantum(1, 0);
 const distance = fixedQuantum(0.5, 1);
 const durationMinutes = fixedQuantum(0.5, 1);
 const fuelAmount = fixedQuantum(0.1, 1);
-const HPA_PER_INHG = 33.8638866667;
 const CLIMB_PHASES = new Set<string>(["CLIMB"]);
 const CRUISE_PHASES = new Set<string>(["CRUISE"]);
 const DESCENT_PHASES = new Set<string>(["DESCENT", "VISUAL_ARRIVAL"]);
@@ -170,17 +169,19 @@ function CombinedValueCell({
   first,
   second,
   formatter = integer,
+  showSecond = true,
 }: {
   first: AdoptedValue<number>;
   second: AdoptedValue<number>;
   formatter?: NumberFormatter;
+  showSecond?: boolean;
 }) {
   const firstValue = numberValue(first, formatter);
   const secondValue = numberValue(second, formatter);
   const formatted: FormattedValue = {
-    text: firstValue.text + " / " + secondValue.text,
+    text: firstValue.text + " / " + (showSecond ? secondValue.text : ""),
     manual: firstValue.manual || secondValue.manual,
-    unavailable: firstValue.unavailable || secondValue.unavailable,
+    unavailable: firstValue.unavailable || (showSecond && secondValue.unavailable),
   };
   return (
     <td
@@ -251,16 +252,18 @@ function WindCell({
 function CombinedEteCell({
   first,
   second,
+  showSecond = true,
 }: {
   first: AdoptedValue<number>;
   second: AdoptedValue<number>;
+  showSecond?: boolean;
 }) {
   const firstValue = ete(first);
   const secondValue = ete(second);
   const formatted: FormattedValue = {
-    text: firstValue.text + " / " + secondValue.text,
+    text: firstValue.text + " / " + (showSecond ? secondValue.text : ""),
     manual: firstValue.manual || secondValue.manual,
-    unavailable: firstValue.unavailable || secondValue.unavailable,
+    unavailable: firstValue.unavailable || (showSecond && secondValue.unavailable),
   };
   return (
     <td
@@ -487,6 +490,7 @@ function ResultCells({
   drafts,
   editErrors,
   onEdit,
+  showCumulative = true,
 }: {
   section: SectionResult;
   inputSection: NavSection;
@@ -498,6 +502,7 @@ function ResultCells({
     field: NavLogEditableField,
     value: string,
   ) => void;
+  showCumulative?: boolean;
 }) {
   const variationValue = adopted(section.variation_deg_east);
   const departureLatitude =
@@ -521,7 +526,7 @@ function ResultCells({
   return (
     <>
       {!altitudeEditable ? (
-        <ValueCell value={section.planned_altitude_ft_msl} />
+        <ValueCell value={section.pressure_altitude_planning_ft} />
       ) : (
         <EditableNumberCell
           value={section.planned_altitude_ft_msl}
@@ -591,11 +596,13 @@ function ResultCells({
         first={section.zone_distance_nm}
         second={section.cumulative_distance_nm}
         formatter={distance}
+        showSecond={showCumulative}
       />
       <ValueCell value={section.ground_speed_kt} />
       <CombinedEteCell
         first={section.zone_ete_seconds}
         second={section.cumulative_ete_seconds}
+        showSecond={showCumulative}
       />
       <td className="manual-entry-cell" aria-label="ETO転記欄" />
       <td className="manual-entry-cell" aria-label="ATO転記欄" />
@@ -604,13 +611,14 @@ function ResultCells({
         first={section.section_fuel_gal}
         second={section.remaining_fuel_gal}
         formatter={fuelAmount}
+        showSecond={showCumulative}
       />
     </>
   );
 }
 
-function groupByPhysicalLeg(sections: SectionResult[]): SectionResult[][] {
-  const groups: SectionResult[][] = [];
+function groupByPhysicalLeg(sections: NavLogDisplayRow[]): NavLogDisplayRow[][] {
+  const groups: NavLogDisplayRow[][] = [];
   for (const section of sections) {
     const current = groups.at(-1);
     if (current?.[0]?.section_id === section.section_id) {
@@ -671,16 +679,11 @@ function DestinationWindSummary({
         </details>
       )}
       <p>
-        取得できた目的地風をNAV LOG最終行の風向・風速と到着区間の計算に使用します。
+        目的地風はNAV LOG最終行への表示専用です。到着区間の計算はCALMです。
       </p>
     </section>
   );
 }
-
-const HIDDEN_QNH_WARNINGS = new Set([
-  "ESTIMATED_QNH_NOT_OFFICIAL",
-  "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
-]);
 
 export function NavLogTable({
   outcome,
@@ -704,26 +707,15 @@ export function NavLogTable({
     value: string,
   ) => void;
 }) {
-  const physicalLegs = groupByPhysicalLeg(outcome.sections);
+  const displayRows: NavLogDisplayRow[] = outcome.display_rows?.length
+    ? outcome.display_rows
+    : outcome.sections.map((section) => ({
+        ...section,
+        row_type: "PHYSICAL_LEG_SUMMARY" as const,
+        counts_toward_totals: true,
+      }));
+  const physicalLegs = groupByPhysicalLeg(displayRows);
   const inputSections = new Map(project.sections.map((section) => [section.id, section]));
-  const qnh = adopted(outcome.qnh_hpa);
-  const qnhMetadata = outcome.qnh_hpa.automatic_metadata;
-  const qnhValues =
-    typeof qnhMetadata.values === "object" && qnhMetadata.values !== null
-      ? (qnhMetadata.values as Record<string, unknown>)
-      : {};
-  const qnhMethod =
-    outcome.qnh_hpa.adopted_source === "MANUAL"
-      ? "MANUAL"
-      : String(qnhValues.qnh_method ?? qnhMetadata.qnh_method ?? "未確定");
-  const metarTime = qnhValues.metar_observation_time_utc;
-  const forecastTime = qnhValues.forecast_time_utc;
-  const tendency = qnhValues.msm_tendency_hpa;
-  const showAutomaticQnhDetails = outcome.qnh_hpa.adopted_source !== "MANUAL";
-  const adoptedQnhText =
-    qnh === null
-      ? "未取得"
-      : (qnh / HPA_PER_INHG).toFixed(2) + " inHg（" + qnh.toFixed(1) + " hPa）";
   return (
     <section className="nav-log-section" aria-labelledby="nav-log-title">
       <div className="nav-log-heading">
@@ -733,23 +725,9 @@ export function NavLogTable({
         </div>
         <span>Forecast Run: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
-      <section className="qnh-summary" aria-label="採用QNHと出典">
-        <strong>採用QNH: {adoptedQnhText}</strong>
-        <span>方式: {qnhMethod}</span>
-        {showAutomaticQnhDetails && typeof metarTime === "string" && (
-          <span>基準METAR: {metarTime}</span>
-        )}
-        {showAutomaticQnhDetails && typeof forecastTime === "string" && (
-          <span>予報対象: {forecastTime}</span>
-        )}
-        {showAutomaticQnhDetails && typeof tendency === "number" && (
-          <span>MSM変化量: {tendency.toFixed(1)} hPa</span>
-        )}
-        {(outcome.qnh_hpa.warnings ?? [])
-          .filter((warning) => !HIDDEN_QNH_WARNINGS.has(warning))
-          .map((warning) => (
-            <span className="qnh-warning" key={warning}>⚠ {warning}</span>
-          ))}
+      <section className="qnh-summary" aria-label="NAV LOG高度ポリシー">
+        <strong>PA = MSL</strong>
+        <span>QNH補正はNAV LOG計算に使用しません。</span>
       </section>
       <DestinationWindSummary forecast={destinationWind} />
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
@@ -792,17 +770,16 @@ export function NavLogTable({
               if (!first || !last) return null;
               return (
                 <Fragment key={first.section_id}>
-                  <tr className="nav-leg-heading-row">
-                    <td className="route-name-cell">{first.from_name}</td>
-                    <td className="route-name-cell">{last.to_name}</td>
-                    <td colSpan={17} aria-hidden="true" />
-                  </tr>
                   {leg.map((section) => (
                     <tr
-                      className="nav-leg-detail-row"
+                      className={
+                        section.row_type === "PHYSICAL_LEG_SUMMARY"
+                          ? "nav-leg-heading-row"
+                          : "nav-leg-detail-row"
+                      }
                       key={`${section.section_id}-${section.sequence}`}
                     >
-                      <td aria-hidden="true" />
+                      <td className="route-name-cell">{section.from_name}</td>
                       <td className="route-name-cell">{section.to_name}</td>
                       {inputSections.has(section.section_id) ? (
                         <ResultCells
@@ -811,6 +788,7 @@ export function NavLogTable({
                           drafts={drafts}
                           editErrors={editErrors}
                           onEdit={onEdit}
+                          showCumulative={section.row_type === "PHYSICAL_LEG_SUMMARY"}
                         />
                       ) : (
                         <td colSpan={17} className="unavailable-value">

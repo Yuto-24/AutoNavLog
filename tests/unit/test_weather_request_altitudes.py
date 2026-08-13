@@ -107,13 +107,9 @@ def test_weather_requests_use_cac_phase_representative_altitudes(
     )
 
     assert not issues
-    qnh = next(request for request in requests if request.kind == WeatherRequestKind.ESTIMATED_QNH)
-    assert qnh.metadata == {
-        "station_icao": "RJFM",
-        "source_rule": "AUTOMATIC_QNH_PROVIDER",
-        "airport_id": "RJFM",
-        "airport_elevation_ft_msl": 20,
-    }
+    assert not any(
+        request.kind == WeatherRequestKind.ESTIMATED_QNH for request in requests
+    )
     aloft = {
         request.metadata["phase"]: request
         for request in requests
@@ -164,36 +160,15 @@ def test_manual_temperature_override_keeps_automatic_request_provenance(
     )
 
 
-@pytest.mark.parametrize("label_location", ("values", "metadata"))
-def test_observed_metar_qnh_keeps_provider_label_provenance_and_warnings(
+def test_qnh_is_not_requested_or_required_for_navlog_calculation(
     airports,
     performance_repository,
     project,
-    label_location,
 ) -> None:
-    def metar_result(request):
-        if request.kind == WeatherRequestKind.ESTIMATED_QNH:
-            values = {"qnh_hpa": 1007.8}
-            metadata = {
-                "provider": "metar",
-                "provenance": {
-                    "station_icao": "RJFM",
-                    "observation_time_utc": "2026-07-29T00:00:00Z",
-                },
-            }
-            if label_location == "values":
-                values["label"] = "METAR観測QNH"
-                metadata["label"] = "metadata側の予備ラベル"
-            else:
-                metadata["label"] = "METAR観測QNH"
-            return WeatherResult(
-                request_id=request.request_id,
-                availability=Availability.AVAILABLE,
-                kind=request.kind,
-                values=values,
-                warnings=("METAR_QNH_OBSERVATION",),
-                metadata=metadata,
-            )
+    seen_kinds = []
+
+    def weather_result(request):
+        seen_kinds.append(request.kind)
         return WeatherResult(
             request_id=request.request_id,
             availability=Availability.AVAILABLE,
@@ -212,22 +187,37 @@ def test_observed_metar_qnh_keeps_provider_label_provenance_and_warnings(
         performance_repository,
     ).calculate(
         project,
-        FakeWeatherProvider(result_factory=metar_result),
+        FakeWeatherProvider(result_factory=weather_result),
     )
 
     assert not outcome.blockers
-    assert outcome.qnh_hpa.adopted() == pytest.approx(1007.8)
-    assert outcome.qnh_hpa.adopted_source == AdoptedSource.AUTOMATIC
-    assert outcome.qnh_hpa.automatic_metadata["label"] == "METAR観測QNH"
-    assert "MSM推定" not in outcome.qnh_hpa.automatic_metadata["label"]
-    assert outcome.qnh_hpa.automatic_metadata["provenance"] == {
-        "station_icao": "RJFM",
-        "observation_time_utc": "2026-07-29T00:00:00Z",
-    }
-    assert outcome.qnh_hpa.automatic_metadata["request_metadata"] == {
-        "station_icao": "RJFM",
-        "source_rule": "AUTOMATIC_QNH_PROVIDER",
-        "airport_id": "RJFM",
-        "airport_elevation_ft_msl": 20,
-    }
-    assert outcome.qnh_hpa.warnings == ("METAR_QNH_OBSERVATION",)
+    assert outcome.qnh_hpa.adopted() is None
+    assert WeatherRequestKind.ESTIMATED_QNH not in seen_kinds
+    assert all(
+        section.pressure_altitude_exact_ft.adopted()
+        == section.pressure_altitude_planning_ft.adopted()
+        for section in outcome.sections
+    )
+
+
+def test_legacy_manual_qnh_does_not_change_navlog_values(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    service = CalculationService(airports, performance_repository)
+    baseline = service.calculate(project, FakeWeatherProvider())
+    with_qnh = project.model_copy(deep=True)
+    with_qnh.manual_qnh_hpa = 980.0
+    compared = service.calculate(with_qnh, FakeWeatherProvider())
+
+    assert not baseline.blockers
+    assert not compared.blockers
+    for left, right in zip(baseline.sections, compared.sections, strict=True):
+        assert left.pressure_altitude_planning_ft.adopted() == (
+            right.pressure_altitude_planning_ft.adopted()
+        )
+        assert left.tas_kt.adopted() == pytest.approx(right.tas_kt.adopted())
+        assert left.zone_ete_seconds.adopted() == pytest.approx(
+            right.zone_ete_seconds.adopted()
+        )

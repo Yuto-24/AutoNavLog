@@ -145,7 +145,7 @@ def _weather_factory(
                 terrain_cache_path=config.terrain_cache_path,
             )
 
-        return create_msm, "MSM予報・MSM推定QNH", False
+        return create_msm, "MSM予報", False
 
     if config.weather_mode == "msm-metar":
 
@@ -156,7 +156,7 @@ def _weather_factory(
             )
             return MsmMetarWeatherProvider(delegate)
 
-        return create_msm_metar, "MSM予報・METAR観測QNH", False
+        return create_msm_metar, "MSM予報", False
 
     if config.weather_mode != "msm-metar-trend":
         raise ValueError(f"unsupported weather mode: {config.weather_mode}")
@@ -171,7 +171,7 @@ def _weather_factory(
         """Return the process-wide provider with shared runs and METAR cache."""
         return shared_provider
 
-    return shared_msm_metar_trend, "MSM予報・METAR補正付きMSM QNH推定", False
+    return shared_msm_metar_trend, "MSM予報", False
 
 
 def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:

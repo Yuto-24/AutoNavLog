@@ -308,27 +308,6 @@ def collect_effective_issues(
                 )
             )
 
-    if (
-        project.manual_qnh_hpa is not None
-        and ui_state is not None
-        and current_manual_qnh_fingerprint is not None
-        and ui_state.manual_qnh_fingerprint != current_manual_qnh_fingerprint
-    ):
-        qnh_issue = _readiness_blocker(
-            "MANUAL_QNH_RECONFIRM_REQUIRED",
-            "DATE・ETD・出発地に対する手動QNHを再確認してください。",
-        )
-        effective.append(
-            create_effective_issue(
-                qnh_issue,
-                producer=IssueProducer.MANUAL_QNH,
-                cause={
-                    "confirmed_fingerprint": (ui_state.manual_qnh_fingerprint),
-                    "current_manual_qnh_fingerprint": (current_manual_qnh_fingerprint),
-                },
-            )
-        )
-
     for issue in project_validation_issues:
         effective.append(
             create_effective_issue(

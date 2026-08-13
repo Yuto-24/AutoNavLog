@@ -148,6 +148,11 @@ export interface SectionResult {
   remaining_fuel_gal: AdoptedValue<number>;
 }
 
+export interface NavLogDisplayRow extends SectionResult {
+  row_type: "PHYSICAL_LEG_SUMMARY" | "CALCULATION_ZONE";
+  counts_toward_totals: boolean;
+}
+
 export interface DerivedPoint {
   type: "RCA" | "EOC";
   latitude_deg: number;
@@ -173,6 +178,7 @@ export interface CalculationOutcome {
   selected_forecast_run_id: string | null;
   qnh_hpa: AdoptedValue<number>;
   sections: SectionResult[];
+  display_rows: NavLogDisplayRow[];
   derived_points: DerivedPoint[];
   fuel_plan: FuelPlan;
   status: string;

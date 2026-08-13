@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -67,6 +67,19 @@ class SectionResult(CalculationModel):
     performance_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class NavLogDisplayRow(SectionResult):
+    """One rendered NAV LOG row, projected from calculation zones.
+
+    ``sections`` remain the non-overlapping calculation source of truth.  A
+    split physical-leg summary therefore never participates in route, time, or
+    fuel accumulation even though it carries the displayed subtotals.  An
+    unsplit summary is also the sole calculation-zone display row.
+    """
+
+    row_type: Literal["PHYSICAL_LEG_SUMMARY", "CALCULATION_ZONE"]
+    counts_toward_totals: bool = False
+
+
 class FuelPlan(CalculationModel):
     total_usable_gal: float
     taxi_runup_gal: float = 1.5
@@ -92,6 +105,7 @@ class CalculationOutcome(CalculationModel):
     selected_forecast_run_id: str | None
     qnh_hpa: AdoptedValue[float]
     sections: list[SectionResult] = Field(default_factory=list)
+    display_rows: list[NavLogDisplayRow] = Field(default_factory=list)
     derived_points: list[DerivedRoutePoint] = Field(default_factory=list)
     arrival_altitude: ArrivalAltitudeResult | None = None
     check_point_projections: list[CheckPointProjection] = Field(default_factory=list)
