@@ -18,6 +18,7 @@ interface StatusPanelProps {
   destinationReady: boolean;
   outcomeExists: boolean;
   busy: boolean;
+  activeOperation: "calculate" | "download" | null;
   onCalculate: () => void;
   onConfirmDestination: () => void;
   onAcknowledge: (ackKey: string, checked: boolean) => void;
@@ -33,6 +34,7 @@ export function StatusPanel({
   destinationReady,
   outcomeExists,
   busy,
+  activeOperation,
   onCalculate,
   onConfirmDestination,
   onAcknowledge,
@@ -143,7 +145,9 @@ export function StatusPanel({
           disabled={!canCalculate || busy}
         >
           <Calculator aria-hidden="true" size={18} />
-          {outcomeExists ? "NAV LOGを再計算" : "NAV LOGを作る"}
+          {activeOperation === "calculate"
+            ? "NAV LOGを計算中…"
+            : outcomeExists ? "NAV LOGを再計算" : "NAV LOGを作る"}
         </button>
         <button
           className="secondary-button full-width output-button"
@@ -152,8 +156,20 @@ export function StatusPanel({
           disabled={!readiness.transferAidAllowed || busy}
         >
           <Download aria-hidden="true" size={18} />
-          A4転記補助HTMLを出力
+          {activeOperation === "download" ? "出力を準備中…" : "A4転記補助HTMLを出力"}
         </button>
+        {activeOperation && (
+          <div className="operation-progress" role="status" aria-live="polite">
+            <span>
+              {activeOperation === "calculate"
+                ? "気象データを取得してNAV LOGを計算しています。"
+                : "A4転記補助HTMLの出力を準備しています。"}
+            </span>
+            <progress
+              aria-label={activeOperation === "calculate" ? "NAV LOGを計算中" : "HTMLを出力準備中"}
+            />
+          </div>
+        )}
         {!readiness.transferAidAllowed && outcomeExists && (
           <p className="button-reason">ブロッカー解消・確認事項の承認・再計算後に有効になります。</p>
         )}

@@ -37,6 +37,8 @@ interface PendingKmz {
   candidates: string[];
 }
 
+type ActiveOperation = "calculate" | "download" | null;
+
 function App() {
   const api = useMemo(() => new ApiClient(), []);
   const [state, setState] = useState<WebState | null>(null);
@@ -50,6 +52,7 @@ function App() {
     message: string;
   }>({ kind: "idle", message: "入力欄を編集すると自動再計算します。" });
   const [busy, setBusy] = useState(false);
+  const [activeOperation, setActiveOperation] = useState<ActiveOperation>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -221,9 +224,11 @@ function App() {
       apply?: (result: Result) => void;
       success?: string;
       fallbackError?: string;
+      operation?: Exclude<ActiveOperation, null>;
     } = {},
   ): Promise<Result | undefined> => {
     setBusy(true);
+    setActiveOperation(options.operation ?? null);
     setError(null);
     setNotice(null);
     try {
@@ -240,14 +245,22 @@ function App() {
       return undefined;
     } finally {
       setBusy(false);
+      setActiveOperation(null);
     }
   };
 
   const run = (
     action: () => Promise<WebState>,
     success?: string,
-    options: { syncCalculationInputs?: boolean } = {},
-  ) => runTask(action, { apply: (next) => applyState(next, options), success });
+    options: {
+      syncCalculationInputs?: boolean;
+      operation?: Exclude<ActiveOperation, null>;
+    } = {},
+  ) => runTask(action, {
+    apply: (next) => applyState(next, options),
+    success,
+    operation: options.operation,
+  });
 
   const setTrackedForm: typeof setForm = (value) => {
     invalidateCalculationInputs();
@@ -575,6 +588,7 @@ function App() {
       return api.calculate();
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
       syncCalculationInputs: true,
+      operation: "calculate",
     });
     if (calculated?.outcome) {
       window.requestAnimationFrame(() => {
@@ -641,6 +655,7 @@ function App() {
     await runTask(api.downloadTransferAid.bind(api), {
       success: "A4転記補助HTMLのダウンロードを開始しました。",
       fallbackError: "出力できませんでした。",
+      operation: "download",
     });
   };
 
@@ -756,6 +771,7 @@ function App() {
           destinationReady={patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl) !== null}
           outcomeExists={Boolean(state.outcome)}
           busy={busy}
+          activeOperation={activeOperation}
           onCalculate={handleCalculate}
           onConfirmDestination={handleConfirmDestination}
           onAcknowledge={handleAcknowledge}
