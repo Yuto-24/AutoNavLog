@@ -490,15 +490,25 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
 
 
 
-def test_eoc_uses_turn_point_altitude_when_vrep_descent_crosses_previous_leg(
+@pytest.mark.parametrize(
+    ("descent_distance_nm", "expected_eoc_distance_nm", "expected_blocker"),
+    [
+        (4.0, 20.0, None),
+        (2.0, None, "DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE"),
+    ],
+)
+def test_eoc_enforces_turn_point_and_vrep_altitude_constraints(
     airports,
     performance_repository,
     project,
+    descent_distance_nm,
+    expected_eoc_distance_nm,
+    expected_blocker,
 ) -> None:
     routed = project.model_copy(deep=True)
     departure, turn, destination = routed.ordered_nodes()
     departure.manual_distance_nm = 30.0
-    turn.manual_distance_nm = 2.0
+    turn.manual_distance_nm = descent_distance_nm
     destination.sequence = 3
     vrep = RouteNode(
         sequence=2,
@@ -557,15 +567,23 @@ def test_eoc_uses_turn_point_altitude_when_vrep_descent_crosses_previous_leg(
         FakeWeatherProvider(),
     )
 
-    assert not outcome.blockers
+    blocker_codes = {issue.code for issue in outcome.blockers}
+    if expected_blocker is not None:
+        assert expected_blocker in blocker_codes
+        assert not any(point.type.value == "EOC" for point in outcome.derived_points)
+        return
+
+    assert not blocker_codes
     eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
-    # VREP alone would put EOC at 28 NM. Reaching 2,500 ft at the
-    # 30 NM turn point from 5,000 ft at 500 fpm and 120 kt requires 10 NM.
-    assert eoc.along_route_distance_nm == pytest.approx(20.0)
+    # The descent reaches 2,500 ft at 30 NM, then 1,500 ft at VREP.
+    assert eoc.along_route_distance_nm == pytest.approx(expected_eoc_distance_nm)
     descent = next(section for section in outcome.sections if section.phase == FlightPhase.DESCENT)
     assert descent.performance_metadata["eoc_constraint_target_altitude_ft_msl"] == 2_500
     assert descent.performance_metadata["eoc_constraint_route_distance_nm"] == pytest.approx(30.0)
-    assert descent.performance_metadata["planned_duration_seconds"] == pytest.approx(360.0)
+    assert descent.performance_metadata["planned_duration_seconds"] == pytest.approx(420.0)
+    assert descent.performance_metadata["vertical_descent_duration_seconds"] == pytest.approx(
+        420.0
+    )
 
 
 def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
