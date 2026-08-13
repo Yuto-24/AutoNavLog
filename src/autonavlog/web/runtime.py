@@ -13,7 +13,10 @@ from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.storage.airports import AirportRepository
 from autonavlog.storage.local import LocalProjectRepository
 from autonavlog.storage.reference_data import ReferenceDataCatalogRepository
-from autonavlog.weather.destination_taf import AviationWeatherTafProvider
+from autonavlog.weather.destination_taf import (
+    AviationWeatherTafProvider,
+    FakeDestinationWindProvider,
+)
 from autonavlog.weather.fake_provider import FakeWeatherProvider
 from autonavlog.weather.msm_adapter import MsmWeatherProvider
 from autonavlog.weather.msm_metar_provider import MsmMetarWeatherProvider
@@ -206,7 +209,9 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
             audience=config.cloudflare_access_audience,
         )
     destination_wind_provider = (
-        None if config.weather_mode == "fake" else AviationWeatherTafProvider()
+        FakeDestinationWindProvider()
+        if config.weather_mode == "fake"
+        else AviationWeatherTafProvider()
     )
     return AutoNavLogWebApplication(
         project_service=project_service,

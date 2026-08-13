@@ -536,13 +536,11 @@ class AutoNavLogWebApplication:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             working = self._updated_project(session, request)
-            outcome = self._calculate_outcome(session, working)
+            outcome, destination_wind = self._calculate_outcome(session, working)
             materialized = session.readiness_service.record_calculation(working, outcome)
             session.project = materialized.project
             session.outcome = materialized.outcome
-            session.destination_wind = self._destination_wind(
-                working, materialized.outcome
-            )
+            session.destination_wind = destination_wind
             session.readiness = materialized.evaluation
             return self.present(session)
 
@@ -550,16 +548,14 @@ class AutoNavLogWebApplication:
         with session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
-            outcome = self._calculate_outcome(session, session.project)
+            outcome, destination_wind = self._calculate_outcome(session, session.project)
             materialized = session.readiness_service.record_calculation(
                 session.project,
                 outcome,
             )
             session.project = materialized.project
             session.outcome = materialized.outcome
-            session.destination_wind = self._destination_wind(
-                session.project, materialized.outcome
-            )
+            session.destination_wind = destination_wind
             session.readiness = materialized.evaluation
             return self.present(session)
 
@@ -595,7 +591,14 @@ class AutoNavLogWebApplication:
                 "TAF_PROVIDER_DISABLED",
             )
         try:
-            return provider.forecast(destination_icao, eta_utc)
+            forecast = provider.forecast(destination_icao, eta_utc)
+            if forecast.airport_icao.strip().upper() != destination_icao:
+                return unavailable_destination_wind(
+                    destination_icao,
+                    eta_utc,
+                    "DESTINATION_TAF_AIRPORT_MISMATCH",
+                )
+            return forecast
         except Exception:
             return unavailable_destination_wind(
                 destination_icao,
@@ -651,7 +654,11 @@ class AutoNavLogWebApplication:
             session.readiness_service.confirm_manual_qnh(working, session.outcome)
         return working
 
-    def _calculate_outcome(self, session: WebSession, project: Project) -> CalculationOutcome:
+    def _calculate_outcome(
+        self,
+        session: WebSession,
+        project: Project,
+    ) -> tuple[CalculationOutcome, DestinationWindForecast | None]:
         state = self.project_service.ui_state(project)
         plan = state.arrival_plan
         if (
@@ -664,10 +671,23 @@ class AutoNavLogWebApplication:
                 "目的空港と今回採用する場周経路高度を先に確定してください。",
                 status_code=409,
             )
+        destination_wind: DestinationWindForecast | None = None
         outcome = session.calculation_service.calculate(project, session.weather_provider)
+        for _ in range(3):
+            forecast = self._destination_wind(project, outcome)
+            current_signature = self._destination_wind_signature(destination_wind)
+            forecast_signature = self._destination_wind_signature(forecast)
+            destination_wind = forecast
+            if forecast_signature == current_signature:
+                break
+            outcome = session.calculation_service.calculate(
+                project,
+                session.weather_provider,
+                forecast,
+            )
         if not self.development_weather:
-            return outcome
-        return outcome.model_copy(
+            return outcome, destination_wind
+        decorated = outcome.model_copy(
             deep=True,
             update={
                 "issues": [
@@ -682,6 +702,29 @@ class AutoNavLogWebApplication:
                     ),
                 ]
             },
+        )
+        return decorated, destination_wind
+
+    @staticmethod
+    def _destination_wind_signature(
+        forecast: DestinationWindForecast | None,
+    ) -> tuple[object, ...] | None:
+        if forecast is None:
+            return None
+        usable = (
+            forecast.availability.value == "AVAILABLE"
+            and forecast.wind_speed_kt is not None
+            and not forecast.variable_direction
+            and (
+                forecast.wind_speed_kt == 0
+                or forecast.wind_direction_deg_from is not None
+            )
+        )
+        if not usable:
+            return ("CALM_FALLBACK",)
+        return (
+            forecast.wind_direction_deg_from,
+            forecast.wind_speed_kt,
         )
 
     def acknowledge(self, session: WebSession, ack_key: str, checked: bool) -> dict[str, Any]:

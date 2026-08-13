@@ -16,6 +16,7 @@ from autonavlog.domain.enums import (
     IssueSeverity,
     ProjectStatus,
     RouteNodeRole,
+    ValueState,
     WeatherRequestKind,
 )
 from autonavlog.domain.project import NavSection, RouteNode
@@ -27,6 +28,7 @@ from autonavlog.nav.airspeed import (
 from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
 from autonavlog.presentation.clearcopy import render_clearcopy_html
 from autonavlog.storage.local import LocalProjectRepository
+from autonavlog.weather.destination_taf import DestinationWindForecast
 from autonavlog.weather.fake_provider import FakeWeatherProvider
 
 
@@ -582,7 +584,7 @@ def test_legacy_loss_time_is_not_used_for_status_or_timing(
     )
 
 
-def test_visual_arrival_uses_fixed_calm_without_weather_wind(
+def test_visual_arrival_uses_destination_taf_wind_and_falls_back_to_calm(
     airports,
     performance_repository,
     project,
@@ -610,17 +612,61 @@ def test_visual_arrival_uses_fixed_calm_without_weather_wind(
             values=values,
         )
 
+    destination_wind = DestinationWindForecast(
+        airport_icao="RJFO",
+        valid_time_utc=None,
+        availability=Availability.AVAILABLE,
+        wind_direction_deg_from=200,
+        wind_speed_kt=8,
+    )
     outcome = CalculationService(airports, performance_repository).calculate(
         visual_project,
         FakeWeatherProvider(result_factory=temperature_without_wind),
+        destination_wind,
     )
 
     assert not any(issue.code == "WIND_UNAVAILABLE" for issue in outcome.issues)
     assert not outcome.blockers
     visual = outcome.sections[-1]
     assert visual.phase == FlightPhase.VISUAL_ARRIVAL
-    assert visual.wind_speed_kt.adopted() == 0.0
-    assert visual.wind_direction_deg_from.adopted() is None
+    assert visual.wind_speed_kt.adopted() == 8.0
+    assert visual.wind_direction_deg_from.adopted() == 200.0
+    assert visual.wind_speed_kt.automatic_metadata["provider"] == "destination_taf"
+    assert visual.wca_deg.adopted() != 0.0
+    assert visual.ground_speed_kt.adopted() != visual.tas_kt.adopted()
+
+    fallback = CalculationService(airports, performance_repository).calculate(
+        visual_project,
+        FakeWeatherProvider(result_factory=temperature_without_wind),
+    )
+    fallback_visual = fallback.sections[-1]
+    assert fallback_visual.wind_speed_kt.adopted() == 0.0
+    assert fallback_visual.wind_direction_deg_from.adopted() is None
+    assert fallback_visual.wind_speed_kt.automatic_status == ValueState.FIXED_RULE
+    assert fallback_visual.wind_speed_kt.automatic_metadata == {
+        "provider": "destination_taf",
+        "airport_icao": "RJFO",
+        "forecast_airport_icao": None,
+        "availability": "UNAVAILABLE",
+        "reason_code": "DESTINATION_TAF_UNAVAILABLE",
+        "wind_adoption": "CALM_FALLBACK",
+    }
+
+    other_airport = destination_wind.model_copy(update={"airport_icao": "RJFM"})
+    mismatched = CalculationService(airports, performance_repository).calculate(
+        visual_project,
+        FakeWeatherProvider(result_factory=temperature_without_wind),
+        other_airport,
+    )
+    mismatched_visual = mismatched.sections[-1]
+    assert mismatched_visual.wind_speed_kt.adopted() == 0.0
+    assert mismatched_visual.wind_direction_deg_from.adopted() is None
+    assert mismatched_visual.wind_speed_kt.automatic_metadata["reason_code"] == (
+        "DESTINATION_TAF_AIRPORT_MISMATCH"
+    )
+    assert mismatched_visual.wind_speed_kt.automatic_metadata["wind_adoption"] == (
+        "CALM_FALLBACK"
+    )
 
 
 def test_missing_climb_wind_is_not_misreported_as_rca_outside_route(

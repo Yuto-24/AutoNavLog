@@ -337,22 +337,18 @@ function EditableWindCell({
   errors: Partial<Record<NavLogEditableField, string>>;
   onChange: (field: NavLogEditableField, value: string) => void;
 }) {
-  const formatted = wind(direction, speed);
   const invalid = Boolean(errors.windDirection || errors.windSpeed);
-  const showAutomatic =
-    !invalid &&
-    !directionValue.trim() &&
-    !speedValue.trim() &&
-    !formatted.manual;
+  const automaticDirection = adopted(direction);
+  const automaticSpeed = adopted(speed);
+  const directionPlaceholder =
+    automaticDirection === null
+      ? "DIR"
+      : integer(((automaticDirection % 360) + 360) % 360).padStart(3, "0");
+  const speedPlaceholder =
+    automaticSpeed === null ? "kt" : integer(automaticSpeed);
   return (
     <td className={`nav-log-editable-cell ${invalid ? "nav-log-invalid-cell" : ""}`}>
-      <div
-        className={
-          showAutomatic
-            ? "nav-log-wind-editor shows-automatic-value"
-            : "nav-log-wind-editor"
-        }
-      >
+      <div className="nav-log-wind-editor">
         <div className="nav-log-wind-inputs">
           <input
             className="nav-log-number-input"
@@ -364,7 +360,7 @@ function EditableWindCell({
             aria-invalid={Boolean(errors.windDirection)}
             title={errors.windDirection ?? "空欄にすると自動値へ戻ります。"}
             value={directionValue}
-            placeholder="DIR"
+            placeholder={directionPlaceholder}
             onChange={(event) => onChange("windDirection", event.target.value)}
           />
           <span>/</span>
@@ -378,13 +374,10 @@ function EditableWindCell({
             aria-invalid={Boolean(errors.windSpeed)}
             title={errors.windSpeed ?? "空欄にすると自動値へ戻ります。"}
             value={speedValue}
-            placeholder="kt"
+            placeholder={speedPlaceholder}
             onChange={(event) => onChange("windSpeed", event.target.value)}
           />
         </div>
-        {showAutomatic && (
-          <span className="nav-log-automatic-wind">{formatted.text}</span>
-        )}
       </div>
       {invalid && <small className="nav-log-field-error">風向・風速を確認</small>}
       {!invalid && (directionValue.trim() || speedValue.trim()) && <small>手入力</small>}
@@ -671,7 +664,7 @@ function DestinationWindSummary({
         </details>
       )}
       <p>
-        参考表示です。NAV LOGの到着区間は、計算規則どおり無風で計算します。
+        取得できた目的地風をNAV LOG最終行の風向・風速と到着区間の計算に使用します。
       </p>
     </section>
   );

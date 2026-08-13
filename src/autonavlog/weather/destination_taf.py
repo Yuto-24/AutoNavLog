@@ -22,6 +22,20 @@ _ICAO_PATTERN = re.compile(r"[A-Z0-9]{4}")
 _MAX_RESPONSE_BYTES = 1024 * 1024
 
 
+class _PendingTafFetch:
+    """Track one shared destination TAF fetch."""
+
+    def __init__(self) -> None:
+        self.completed = threading.Event()
+        self.records: list[dict[str, Any]] | None = None
+        self.error: Exception | None = None
+        self.timed_out = False
+
+
+class _TafFetchCapacityUnavailable(RuntimeError):
+    """Report that the bounded TAF fetch capacity is exhausted."""
+
+
 class DestinationWindForecast(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -61,6 +75,25 @@ class DestinationWindProvider(Protocol):
         airport_icao: str,
         valid_time_utc: datetime,
     ) -> DestinationWindForecast: ...
+
+
+class FakeDestinationWindProvider:
+    """Return deterministic destination wind for development and browser tests."""
+
+    def forecast(
+        self,
+        airport_icao: str,
+        valid_time_utc: datetime,
+    ) -> DestinationWindForecast:
+        return DestinationWindForecast(
+            airport_icao=airport_icao.strip().upper(),
+            valid_time_utc=valid_time_utc,
+            availability=Availability.AVAILABLE,
+            wind_direction_deg_from=200,
+            wind_speed_kt=8,
+            source_label="開発用固定TAF",
+            forecast_change="BASE",
+        )
 
 
 class TafTransport(Protocol):
@@ -108,12 +141,19 @@ class AviationWeatherTafProvider:
         timeout_seconds: float = 10.0,
         cache_ttl: timedelta = timedelta(minutes=5),
         clock: Callable[[], datetime] | None = None,
+        maximum_concurrent_fetches: int = 4,
     ) -> None:
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        if maximum_concurrent_fetches < 1:
+            raise ValueError("maximum_concurrent_fetches must be positive")
         self._transport = transport
         self._timeout_seconds = timeout_seconds
         self._cache_ttl = cache_ttl
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._cache: dict[str, tuple[datetime, list[dict[str, Any]]]] = {}
+        self._inflight: dict[str, _PendingTafFetch] = {}
+        self._fetch_slots = threading.BoundedSemaphore(maximum_concurrent_fetches)
         self._lock = threading.Lock()
 
     def forecast(
@@ -130,8 +170,20 @@ class AviationWeatherTafProvider:
                 "DESTINATION_ICAO_INVALID",
             )
         try:
-            records = self._records(normalized_icao)
+            records = self._records_with_deadline(normalized_icao)
             return self._select(records, normalized_icao, normalized_time)
+        except TimeoutError:
+            return unavailable_destination_wind(
+                normalized_icao,
+                normalized_time,
+                "TAF_FETCH_TIMEOUT",
+            )
+        except _TafFetchCapacityUnavailable:
+            return unavailable_destination_wind(
+                normalized_icao,
+                normalized_time,
+                "TAF_FETCH_CAPACITY_UNAVAILABLE",
+            )
         except Exception:
             return unavailable_destination_wind(
                 normalized_icao,
@@ -139,28 +191,83 @@ class AviationWeatherTafProvider:
                 "TAF_FETCH_FAILED",
             )
 
-    def _records(self, airport_icao: str) -> list[dict[str, Any]]:
+    def _records_with_deadline(self, airport_icao: str) -> list[dict[str, Any]]:
+        """Bound the complete fetch, including DNS resolution, by the timeout."""
         now = self._clock().astimezone(timezone.utc)
+        start_worker = False
         with self._lock:
             cached = self._cache.get(airport_icao)
             if cached is not None and now - cached[0] < self._cache_ttl:
                 return cached[1]
+            pending = self._inflight.get(airport_icao)
+            if pending is not None and pending.timed_out:
+                raise TimeoutError("TAF fetch deadline already exceeded")
+            if pending is None:
+                if not self._fetch_slots.acquire(blocking=False):
+                    raise _TafFetchCapacityUnavailable
+                pending = _PendingTafFetch()
+                self._inflight[airport_icao] = pending
+                start_worker = True
 
-            query = urlencode({"ids": airport_icao, "format": "json"})
-            payload = self._transport(
-                f"{TAF_API_ENDPOINT}?{query}",
-                {
-                    "Accept": "application/json",
-                    "User-Agent": f"AutoNavLog/{__version__} destination-wind",
-                },
-                self._timeout_seconds,
+        if start_worker:
+            worker = threading.Thread(
+                target=self._complete_fetch,
+                args=(airport_icao, pending),
+                daemon=True,
             )
-            decoded = json.loads(payload.decode("utf-8"))
-            if not isinstance(decoded, list):
-                raise ValueError("TAF response must be a list")
-            records = [record for record in decoded if isinstance(record, dict)]
-            self._cache[airport_icao] = (now, records)
-            return records
+            try:
+                worker.start()
+            except Exception as error:
+                pending.error = error
+                with self._lock:
+                    self._inflight.pop(airport_icao, None)
+                self._fetch_slots.release()
+                pending.completed.set()
+                raise
+
+        if not pending.completed.wait(self._timeout_seconds):
+            with self._lock:
+                pending.timed_out = True
+            raise TimeoutError("TAF fetch deadline exceeded")
+        if pending.error is not None:
+            raise pending.error
+        if pending.records is None:
+            raise RuntimeError("TAF fetch ended without a result")
+        return pending.records
+
+    def _complete_fetch(
+        self,
+        airport_icao: str,
+        pending: _PendingTafFetch,
+    ) -> None:
+        try:
+            pending.records = self._download_records(airport_icao)
+            completed_at = self._clock().astimezone(timezone.utc)
+        except Exception as error:
+            pending.error = error
+            completed_at = None
+        with self._lock:
+            if pending.records is not None and completed_at is not None:
+                self._cache[airport_icao] = (completed_at, pending.records)
+            if self._inflight.get(airport_icao) is pending:
+                self._inflight.pop(airport_icao)
+        self._fetch_slots.release()
+        pending.completed.set()
+
+    def _download_records(self, airport_icao: str) -> list[dict[str, Any]]:
+        query = urlencode({"ids": airport_icao, "format": "json"})
+        payload = self._transport(
+            f"{TAF_API_ENDPOINT}?{query}",
+            {
+                "Accept": "application/json",
+                "User-Agent": f"AutoNavLog/{__version__} destination-wind",
+            },
+            self._timeout_seconds,
+        )
+        decoded = json.loads(payload.decode("utf-8"))
+        if not isinstance(decoded, list):
+            raise ValueError("TAF response must be a list")
+        return [record for record in decoded if isinstance(record, dict)]
 
     @staticmethod
     def _select(

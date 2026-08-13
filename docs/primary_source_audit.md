@@ -62,7 +62,7 @@ POHおよび全Supplementに対してそのまま適用可能かは、機体別�
 | NAV2の教育範囲 | 航空大学校 [教育訓練の内容](https://www.kouku-dai.ac.jp/02_enter/02.html) | NAV2に航法ログ作成、燃料計算、飛行前ブリーフィング、航法計画演習が含まれる | 対象範囲を補強 |
 | G5/G6の区別 | 航空大学校 [平成30事業年度 業務実績等報告書](https://www.kouku-dai.ac.jp/cgi-bin/upload/1059_H30gyoumujissekihoukokusyo.pdf) p.91 | 帯広SR22はG5、宮崎SR22はG6 | R71_02の帯広G5値を宮崎G6値として転用できないことを確認 |
 | 宮崎G6航法ログ | 航空大学校 [令和元事業年度 業務実績等報告書](https://www.kouku-dai.ac.jp/cgi-bin/upload/1123_gyoumujissekitouhoukokusyo_R1d.pdf) pp.94, 100 | 宮崎版航法ログをSR22性能諸元へ変更しG6/G1000を追記、POH/AMMに沿って教育内容を更新 | CAC-REV19およびSR22-POH-A1との関係を補強 |
-| 目的地TAF | NOAA Aviation Weather Center [Data API](https://aviationweather.gov/data/api/) | 目的空港ICAOのdecoded TAFと時刻区間別風を取得できる | 到着予定時刻の参考表示だけに使用し、NAV LOG計算は規程の無風を維持 |
+| 目的地TAF | NOAA Aviation Weather Center [Data API](https://aviationweather.gov/data/api/) | 目的空港ICAOのdecoded TAFと時刻区間別風を取得できる | 到着予定時刻のNAV LOG最終行と到着区間計算に使用。取得不能時はCALMへフォールバック |
 | WCA符号 | 国土交通省航空局 [航空従事者学科試験問題 A3CC011930](https://www.mlit.go.jp/common/001279240.pdf) pp.25〜26 | WCAはTCからTHへの角度で、TCから右への修正をプラスとする | 右WCA正を裏付け |
 | VFR巡航高度 | 国土交通省航空局 [2023年1月期 航空従事者学科試験問題 A3CC042310](https://www.mlit.go.jp/koku/content/001582752.pdf) p.18 | 地表・水面から900 m以上のVFR巡航高度選定 | 性能表検索用PA Policyとは別規則 |
 | 公開ガイドの限界 | Cirrus Aircraft [2023 Owners and Pilots Quick Reference Guide](https://cirrusaircraft.com/wp-content/uploads/2023/05/SR-Owners-Guide-Digital.pdf) pp.2〜3 | 同ガイドはPOH/AFMではなく、必須運用・性能情報にはPOH等を参照する | 公開ガイドを性能原典として使用しない |
@@ -82,7 +82,7 @@ POHおよび全Supplementに対してそのまま適用可能かは、機体別�
   規程が要求する「計画に近い条件のうち不利」を満たすことのGolden照合。
 - WGS84測地線、Leg中点での気象照会、RCA/EOCを物理Leg内で分割するexactアルゴリズム。
 - Loss Timeを機上修正値として地上の時間・Forecast・燃料から除外する扱い。
-- 目的地TAFの卓越風を到着予定時刻へ合わせて参考表示し、航法計算には使用しない扱い。
+- 目的地TAFの卓越風を到着予定時刻へ合わせ、NAV LOG最終行と到着区間計算へ使用する扱い。
 - `MSM推定QNH`を全Projectへ適用すること、MSM風・気温の時間/空間補間、同一Forecast
   Runで最大5回反復して30秒未満を収束とすること。MSM推定QNHは公式観測QNHではなく、
   公式飛行場気象資料の確認を代替しない。

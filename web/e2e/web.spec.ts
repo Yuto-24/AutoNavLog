@@ -126,22 +126,25 @@ async function calculateNavLog(page: Page): Promise<void> {
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
   await expect(firstRow.getByLabel(/計画高度$/)).toHaveValue(firstAltitudeCandidate);
   await expect(firstRow.locator("td").nth(7)).toHaveText("+7");
-  const automaticWind = firstRow.locator(".nav-log-automatic-wind");
   const windInputs = firstRow.locator(".nav-log-wind-inputs");
-  await expect(automaticWind).toHaveText("CALM");
-  await expect.poll(() => windInputs.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
   const windDirectionInput = firstRow.getByLabel(/手動風向$/);
-  await windDirectionInput.focus();
+  const windSpeedInput = firstRow.getByLabel(/手動風速$/);
+  await expect(windInputs).toBeVisible();
+  await expect(windDirectionInput).toBeVisible();
+  await expect(windSpeedInput).toBeVisible();
+  await expect(windDirectionInput).toHaveAttribute("placeholder", "DIR");
+  await expect(windSpeedInput).toHaveAttribute("placeholder", "0");
   await expect.poll(() => windInputs.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
-  await expect.poll(() => automaticWind.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
-  await windDirectionInput.evaluate((element) => element.blur());
-  await expect.poll(() => windInputs.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
   await expect(
     page.getByLabel("採用QNHと出典").locator("strong"),
   ).toHaveText("採用QNH: 29.91 inHg（1013.0 hPa）");
   await expect(page.getByLabel("目的地空港の風予報")).toContainText(
-    "目的地風: 取得できませんでした",
+    "目的地風: 200/8 kt",
   );
+  const finalRow = page.locator(".nav-log-table .nav-leg-detail-row").last();
+  await expect(finalRow.getByRole("cell", { name: "200/8", exact: true })).toBeVisible();
+  await expect(finalRow.getByLabel(/手動風向$/)).toHaveCount(0);
+  await expect(finalRow.getByLabel(/手動風速$/)).toHaveCount(0);
   await expect(
     page.locator(".nav-log-table").getByText("自動", { exact: true }),
   ).toHaveCount(0);

@@ -668,25 +668,9 @@ tbody tr:last-child td { border-bottom: 0; }
   font-weight: 700;
   text-align: center;
 }
-.nav-log-wind-editor { position: relative; min-height: 27px; }
+.nav-log-wind-editor { min-height: 27px; }
 .nav-log-wind-inputs { display: grid; grid-template-columns: 52px auto 52px; align-items: center; gap: 2px; }
 .nav-log-wind-inputs .nav-log-number-input { min-width: 0; }
-.nav-log-wind-editor .nav-log-wind-inputs,
-.nav-log-wind-editor .nav-log-automatic-wind { transition: opacity 120ms ease; }
-.nav-log-wind-editor.shows-automatic-value .nav-log-wind-inputs { opacity: 0; }
-.nav-log-wind-editor .nav-log-automatic-wind {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--teal-700);
-  font-size: 11px;
-  font-weight: 700;
-  pointer-events: none;
-}
-.nav-log-wind-editor.shows-automatic-value:focus-within .nav-log-wind-inputs { opacity: 1; }
-.nav-log-wind-editor.shows-automatic-value:focus-within .nav-log-automatic-wind { opacity: 0; }
 .nav-log-editable-cell small { display: block; margin-top: 2px; color: var(--teal-700); font-size: 8px; font-weight: 700; }
 .nav-log-invalid-cell { background: var(--red-50); }
 .nav-log-invalid-cell .nav-log-number-input { color: var(--red-700); border-color: var(--red-700); }

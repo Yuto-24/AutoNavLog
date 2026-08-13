@@ -56,6 +56,7 @@ from autonavlog.performance.cruise import (
 )
 from autonavlog.performance.repository import PerformanceDataError, PerformanceRepository
 from autonavlog.storage.airports import AirportRepository
+from autonavlog.weather.destination_taf import DestinationWindForecast
 from autonavlog.weather.provider import WeatherProvider
 
 from .arrival import calculate_arrival_altitude
@@ -266,7 +267,12 @@ class CalculationService:
             self._airport_from_selection(snapshot.destination_airport),
         )
 
-    def calculate(self, project: Project, provider: WeatherProvider) -> CalculationOutcome:
+    def calculate(
+        self,
+        project: Project,
+        provider: WeatherProvider,
+        destination_wind: DestinationWindForecast | None = None,
+    ) -> CalculationOutcome:
         working = project.model_copy(deep=True)
         issues: list[Issue] = []
         ui_state, arrival_altitude = self._load_planning_state(working, issues)
@@ -414,6 +420,7 @@ class CalculationService:
                 adopted_qnh,
                 check_point_boundaries,
                 arrival_altitude,
+                destination_wind,
             )
             final = iteration_result
             delta = self._maximum_time_delta(previous_times, iteration_result.representative_times)
@@ -1385,6 +1392,7 @@ class CalculationService:
         qnh_hpa: float,
         additional_boundaries: tuple[RouteBoundary, ...],
         arrival_altitude: ArrivalAltitudeResult | None,
+        destination_wind: DestinationWindForecast | None,
     ) -> _IterationResult:
         issues: list[Issue] = []
         arrival_altitude_ft_msl = (
@@ -1558,6 +1566,8 @@ class CalculationService:
 
             wind_direction = environment.wind_direction_deg_from
             wind_speed = environment.wind_speed_kt
+            wind_metadata = environment.weather_metadata
+            wind_warnings = environment.weather_warnings
             temperature = environment.temperature_c
             exact_pa = environment.pressure_altitude_exact_ft
             planning_pa = environment.pressure_altitude_planning_ft
@@ -1679,13 +1689,79 @@ class CalculationService:
                     tas = tas_from_cas(121.0, exact_pa, temperature)
                     tas_state = ValueState.FIXED_RULE
                 cas = 121.0
-                wind_direction = None
-                wind_speed = 0.0
+                destination_icao = destination.icao.strip().upper()
+                usable_destination_wind = (
+                    destination_wind is not None
+                    and destination_wind.airport_icao.strip().upper()
+                    == destination_icao
+                    and destination_wind.availability == Availability.AVAILABLE
+                    and destination_wind.wind_speed_kt is not None
+                    and not destination_wind.variable_direction
+                    and (
+                        destination_wind.wind_speed_kt == 0
+                        or destination_wind.wind_direction_deg_from is not None
+                    )
+                )
+                if usable_destination_wind and destination_wind is not None:
+                    wind_direction = (
+                        None
+                        if destination_wind.wind_speed_kt == 0
+                        else float(destination_wind.wind_direction_deg_from or 0)
+                    )
+                    wind_speed = float(destination_wind.wind_speed_kt or 0)
+                    wind_metadata = {
+                        "provider": "destination_taf",
+                        "source_label": destination_wind.source_label,
+                        "airport_icao": destination_wind.airport_icao,
+                        "valid_time_utc": (
+                            None
+                            if destination_wind.valid_time_utc is None
+                            else destination_wind.valid_time_utc.isoformat()
+                        ),
+                        "forecast_change": destination_wind.forecast_change,
+                    }
+                    wind_warnings = ()
+                else:
+                    wind_direction = None
+                    wind_speed = 0.0
+                    fallback_reason = "DESTINATION_TAF_UNAVAILABLE"
+                    if destination_wind is not None:
+                        if (
+                            destination_wind.airport_icao.strip().upper()
+                            != destination_icao
+                        ):
+                            fallback_reason = "DESTINATION_TAF_AIRPORT_MISMATCH"
+                        else:
+                            fallback_reason = (
+                                destination_wind.reason_code
+                                or "DESTINATION_TAF_UNUSABLE"
+                            )
+                    wind_metadata = {
+                        "provider": "destination_taf",
+                        "airport_icao": destination_icao,
+                        "forecast_airport_icao": (
+                            None
+                            if destination_wind is None
+                            else destination_wind.airport_icao
+                        ),
+                        "availability": (
+                            Availability.UNAVAILABLE.value
+                            if destination_wind is None
+                            else destination_wind.availability.value
+                        ),
+                        "reason_code": fallback_reason,
+                        "wind_adoption": "CALM_FALLBACK",
+                    }
+                    wind_warnings = ()
                 performance_metadata.update(
                     {
                         "type": "visual_arrival",
                         "cas_kt": 121.0,
-                        "wind": "CALM_FIXED_RULE",
+                        "wind": (
+                            "DESTINATION_TAF"
+                            if usable_destination_wind
+                            else "CALM_FALLBACK"
+                        ),
                         "fuel_flow_gph": 12.0,
                     }
                 )
@@ -1758,11 +1834,11 @@ class CalculationService:
             manual_wind_speed = section.manual_wind_speed_kt
             wind_state = ValueState.AUTO
             if segment.phase == FlightPhase.VISUAL_ARRIVAL:
-                automatic_wind_direction = None
-                automatic_wind_speed = 0.0
+                automatic_wind_direction = wind_direction
+                automatic_wind_speed = wind_speed
                 manual_wind_direction = None
                 manual_wind_speed = None
-                wind_state = ValueState.FIXED_RULE
+                wind_state = ValueState.AUTO if usable_destination_wind else ValueState.FIXED_RULE
 
             has_derived_endpoint = bool(segment.start.markers or segment.end.markers)
             planned_altitude = (
@@ -1817,15 +1893,15 @@ class CalculationService:
                         automatic_wind_direction,
                         manual_wind_direction,
                         state=wind_state,
-                        metadata=environment.weather_metadata,
-                        warnings=environment.weather_warnings,
+                        metadata=wind_metadata,
+                        warnings=wind_warnings,
                     ),
                     wind_speed_kt=_manual_or_automatic(
                         automatic_wind_speed,
                         manual_wind_speed,
                         state=wind_state,
-                        metadata=environment.weather_metadata,
-                        warnings=environment.weather_warnings,
+                        metadata=wind_metadata,
+                        warnings=wind_warnings,
                     ),
                     wca_deg=_automatic(None if wind_solution is None else wind_solution.wca_deg),
                     magnetic_heading_deg=_automatic(
