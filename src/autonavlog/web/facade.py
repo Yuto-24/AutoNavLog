@@ -591,7 +591,14 @@ class AutoNavLogWebApplication:
                 "TAF_PROVIDER_DISABLED",
             )
         try:
-            return provider.forecast(destination_icao, eta_utc)
+            forecast = provider.forecast(destination_icao, eta_utc)
+            if forecast.airport_icao.strip().upper() != destination_icao:
+                return unavailable_destination_wind(
+                    destination_icao,
+                    eta_utc,
+                    "DESTINATION_TAF_AIRPORT_MISMATCH",
+                )
+            return forecast
         except Exception:
             return unavailable_destination_wind(
                 destination_icao,

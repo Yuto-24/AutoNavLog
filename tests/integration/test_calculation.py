@@ -643,6 +643,30 @@ def test_visual_arrival_uses_destination_taf_wind_and_falls_back_to_calm(
     assert fallback_visual.wind_speed_kt.adopted() == 0.0
     assert fallback_visual.wind_direction_deg_from.adopted() is None
     assert fallback_visual.wind_speed_kt.automatic_status == ValueState.FIXED_RULE
+    assert fallback_visual.wind_speed_kt.automatic_metadata == {
+        "provider": "destination_taf",
+        "airport_icao": "RJFO",
+        "forecast_airport_icao": None,
+        "availability": "UNAVAILABLE",
+        "reason_code": "DESTINATION_TAF_UNAVAILABLE",
+        "wind_adoption": "CALM_FALLBACK",
+    }
+
+    other_airport = destination_wind.model_copy(update={"airport_icao": "RJFM"})
+    mismatched = CalculationService(airports, performance_repository).calculate(
+        visual_project,
+        FakeWeatherProvider(result_factory=temperature_without_wind),
+        other_airport,
+    )
+    mismatched_visual = mismatched.sections[-1]
+    assert mismatched_visual.wind_speed_kt.adopted() == 0.0
+    assert mismatched_visual.wind_direction_deg_from.adopted() is None
+    assert mismatched_visual.wind_speed_kt.automatic_metadata["reason_code"] == (
+        "DESTINATION_TAF_AIRPORT_MISMATCH"
+    )
+    assert mismatched_visual.wind_speed_kt.automatic_metadata["wind_adoption"] == (
+        "CALM_FALLBACK"
+    )
 
 
 def test_missing_climb_wind_is_not_misreported_as_rca_outside_route(

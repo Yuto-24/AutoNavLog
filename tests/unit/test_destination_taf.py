@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from threading import Event
+from time import monotonic
 
 from autonavlog.domain.enums import Availability
 from autonavlog.weather.destination_taf import AviationWeatherTafProvider
@@ -108,3 +110,27 @@ def test_transport_failure_does_not_raise_or_block_calculation() -> None:
 
     assert forecast.availability == Availability.UNAVAILABLE
     assert forecast.reason_code == "TAF_FETCH_FAILED"
+
+
+def test_transport_deadline_includes_blocked_name_resolution() -> None:
+    release_transport = Event()
+
+    def blocking_transport(_url: str, _headers, _timeout_seconds: float) -> bytes:
+        release_transport.wait()
+        return b"[]"
+
+    provider = AviationWeatherTafProvider(
+        transport=blocking_transport,
+        timeout_seconds=0.02,
+        clock=lambda: VALID_FROM,
+    )
+    started = monotonic()
+    try:
+        forecast = provider.forecast("RJFO", VALID_FROM)
+    finally:
+        release_transport.set()
+    elapsed = monotonic() - started
+
+    assert elapsed < 0.5
+    assert forecast.availability == Availability.UNAVAILABLE
+    assert forecast.reason_code == "TAF_FETCH_TIMEOUT"

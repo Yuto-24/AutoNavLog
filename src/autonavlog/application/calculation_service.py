@@ -1689,8 +1689,11 @@ class CalculationService:
                     tas = tas_from_cas(121.0, exact_pa, temperature)
                     tas_state = ValueState.FIXED_RULE
                 cas = 121.0
+                destination_icao = destination.icao.strip().upper()
                 usable_destination_wind = (
                     destination_wind is not None
+                    and destination_wind.airport_icao.strip().upper()
+                    == destination_icao
                     and destination_wind.availability == Availability.AVAILABLE
                     and destination_wind.wind_speed_kt is not None
                     and not destination_wind.variable_direction
@@ -1721,6 +1724,35 @@ class CalculationService:
                 else:
                     wind_direction = None
                     wind_speed = 0.0
+                    fallback_reason = "DESTINATION_TAF_UNAVAILABLE"
+                    if destination_wind is not None:
+                        if (
+                            destination_wind.airport_icao.strip().upper()
+                            != destination_icao
+                        ):
+                            fallback_reason = "DESTINATION_TAF_AIRPORT_MISMATCH"
+                        else:
+                            fallback_reason = (
+                                destination_wind.reason_code
+                                or "DESTINATION_TAF_UNUSABLE"
+                            )
+                    wind_metadata = {
+                        "provider": "destination_taf",
+                        "airport_icao": destination_icao,
+                        "forecast_airport_icao": (
+                            None
+                            if destination_wind is None
+                            else destination_wind.airport_icao
+                        ),
+                        "availability": (
+                            Availability.UNAVAILABLE.value
+                            if destination_wind is None
+                            else destination_wind.availability.value
+                        ),
+                        "reason_code": fallback_reason,
+                        "wind_adoption": "CALM_FALLBACK",
+                    }
+                    wind_warnings = ()
                 performance_metadata.update(
                     {
                         "type": "visual_arrival",

@@ -149,14 +149,42 @@ class AviationWeatherTafProvider:
                 "DESTINATION_ICAO_INVALID",
             )
         try:
-            records = self._records(normalized_icao)
+            records = self._records_with_deadline(normalized_icao)
             return self._select(records, normalized_icao, normalized_time)
+        except TimeoutError:
+            return unavailable_destination_wind(
+                normalized_icao,
+                normalized_time,
+                "TAF_FETCH_TIMEOUT",
+            )
         except Exception:
             return unavailable_destination_wind(
                 normalized_icao,
                 normalized_time,
                 "TAF_FETCH_FAILED",
             )
+
+    def _records_with_deadline(self, airport_icao: str) -> list[dict[str, Any]]:
+        """Bound the complete fetch, including DNS resolution, by the timeout."""
+        results: list[list[dict[str, Any]]] = []
+        errors: list[Exception] = []
+
+        def fetch() -> None:
+            try:
+                results.append(self._records(airport_icao))
+            except Exception as error:
+                errors.append(error)
+
+        worker = threading.Thread(target=fetch, daemon=True)
+        worker.start()
+        worker.join(self._timeout_seconds)
+        if worker.is_alive():
+            raise TimeoutError("TAF fetch deadline exceeded")
+        if errors:
+            raise errors[0]
+        if not results:
+            raise RuntimeError("TAF fetch ended without a result")
+        return results[0]
 
     def _records(self, airport_icao: str) -> list[dict[str, Any]]:
         now = self._clock().astimezone(timezone.utc)
