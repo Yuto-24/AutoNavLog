@@ -305,6 +305,13 @@
           "title": "Derived Points",
           "type": "array"
         },
+        "display_rows": {
+          "items": {
+            "$ref": "#/$defs/NavLogDisplayRow"
+          },
+          "title": "Display Rows",
+          "type": "array"
+        },
         "fuel_plan": {
           "$ref": "#/$defs/FuelPlan"
         },
@@ -739,6 +746,167 @@
         "speed_kt"
       ],
       "title": "ManualWind",
+      "type": "object"
+    },
+    "NavLogDisplayRow": {
+      "additionalProperties": false,
+      "description": "One rendered NAV LOG row, projected from calculation zones.\n\n``sections`` remain the non-overlapping calculation source of truth.  A\nsplit physical-leg summary therefore never participates in route, time, or\nfuel accumulation even though it carries the displayed subtotals.  An\nunsplit summary is also the sole calculation-zone display row.",
+      "properties": {
+        "cas_kt": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "counts_toward_totals": {
+          "default": false,
+          "title": "Counts Toward Totals",
+          "type": "boolean"
+        },
+        "cumulative_distance_nm": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "cumulative_ete_seconds": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "eto_utc": {
+          "$ref": "#/$defs/AdoptedValue_datetime_"
+        },
+        "from_name": {
+          "title": "From Name",
+          "type": "string"
+        },
+        "ground_speed_kt": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "loss_time_seconds": {
+          "minimum": 0,
+          "title": "Loss Time Seconds",
+          "type": "number"
+        },
+        "magnetic_course_deg": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "magnetic_heading_deg": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "performance_metadata": {
+          "additionalProperties": true,
+          "title": "Performance Metadata",
+          "type": "object"
+        },
+        "phase": {
+          "$ref": "#/$defs/FlightPhase"
+        },
+        "planned_altitude_ft_msl": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "pressure_altitude_exact_ft": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "pressure_altitude_planning_ft": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "remaining_fuel_gal": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "row_type": {
+          "enum": [
+            "PHYSICAL_LEG_SUMMARY",
+            "CALCULATION_ZONE"
+          ],
+          "title": "Row Type",
+          "type": "string"
+        },
+        "safe_enroute_altitude_ft_msl": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "section_fuel_gal": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "section_id": {
+          "format": "uuid",
+          "title": "Section Id",
+          "type": "string"
+        },
+        "segment_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Label"
+        },
+        "sequence": {
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "tas_kt": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "temperature_c": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "to_name": {
+          "title": "To Name",
+          "type": "string"
+        },
+        "true_course_deg": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "variation_deg_east": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "wca_deg": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "wind_direction_deg_from": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "wind_speed_kt": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "zone_distance_nm": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "zone_ete_seconds": {
+          "$ref": "#/$defs/AdoptedValue_float_"
+        }
+      },
+      "required": [
+        "section_id",
+        "sequence",
+        "phase",
+        "from_name",
+        "to_name",
+        "planned_altitude_ft_msl",
+        "safe_enroute_altitude_ft_msl",
+        "loss_time_seconds",
+        "pressure_altitude_exact_ft",
+        "pressure_altitude_planning_ft",
+        "true_course_deg",
+        "variation_deg_east",
+        "magnetic_course_deg",
+        "wind_direction_deg_from",
+        "wind_speed_kt",
+        "wca_deg",
+        "magnetic_heading_deg",
+        "temperature_c",
+        "cas_kt",
+        "tas_kt",
+        "ground_speed_kt",
+        "zone_distance_nm",
+        "cumulative_distance_nm",
+        "zone_ete_seconds",
+        "cumulative_ete_seconds",
+        "eto_utc",
+        "section_fuel_gal",
+        "remaining_fuel_gal",
+        "row_type"
+      ],
+      "title": "NavLogDisplayRow",
       "type": "object"
     },
     "NavSection": {
