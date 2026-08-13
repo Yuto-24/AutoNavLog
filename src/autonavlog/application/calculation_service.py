@@ -116,6 +116,7 @@ class _LegEnvironment:
             self.phase_environments[self.geometry.section.phase],
         )
 
+
 @dataclass(frozen=True)
 class _ClimbPlan:
     source_section_id: UUID
@@ -724,15 +725,13 @@ class CalculationService:
             )
             elapsed += default_seconds
             for phase in self._weather_phases(geometry.section):
-                altitude_ft_msl, altitude_metadata = (
-                    self._weather_request_representative_altitude(
-                        index,
-                        geometries,
-                        departure,
-                        destination,
-                        arrival_altitude_ft_msl,
-                        phase,
-                    )
+                altitude_ft_msl, altitude_metadata = self._weather_request_representative_altitude(
+                    index,
+                    geometries,
+                    departure,
+                    destination,
+                    arrival_altitude_ft_msl,
+                    phase,
                 )
                 requests.append(
                     WeatherRequest(
@@ -780,9 +779,7 @@ class CalculationService:
                 index,
             )
             lower_altitude = float(departure.elevation_ft_msl)
-            upper_altitude = float(
-                geometries[climb_index].section.planned_altitude_ft_msl
-            )
+            upper_altitude = float(geometries[climb_index].section.planned_altitude_ft_msl)
             altitude_basis = "DEPARTURE_AIRPORT_ELEVATION_AND_CRUISE_ALTITUDE"
         elif phase == FlightPhase.DESCENT:
             descent_index = next(
@@ -801,9 +798,7 @@ class CalculationService:
                     arrival_altitude_ft_msl,
                 )
             )
-            upper_altitude = float(
-                geometries[descent_index].section.planned_altitude_ft_msl
-            )
+            upper_altitude = float(geometries[descent_index].section.planned_altitude_ft_msl)
             altitude_basis = "CRUISE_ALTITUDE_AND_VISUAL_REPORTING_POINT_ALTITUDE"
         else:
             lower_altitude = float(destination.elevation_ft_msl)
@@ -908,8 +903,8 @@ class CalculationService:
             phase_environments: dict[FlightPhase, _PhaseEnvironment] = {}
             for phase in self._weather_phases(section):
                 weather = weather_by_id.get(self._weather_request_id(section, phase))
-                wind_direction, wind_speed, temperature, metadata, warnings = (
-                    self._section_weather(section, weather, phase)
+                wind_direction, wind_speed, temperature, metadata, warnings = self._section_weather(
+                    section, weather, phase
                 )
                 altitude_ft_msl, _ = self._weather_request_representative_altitude(
                     index,
@@ -1167,11 +1162,7 @@ class CalculationService:
             # A DESCENT-designated physical Section can contain the cruise
             # portion before EOC, but only when a preceding leg establishes
             # that pre-descent cruise portion.
-            is_descent_entry = (
-                phase == FlightPhase.DESCENT
-                and index == end_index
-                and end_index > 0
-            )
+            is_descent_entry = phase == FlightPhase.DESCENT and index == end_index and end_index > 0
             if phase != FlightPhase.CRUISE and not is_descent_entry:
                 continue
             phase_environment = environment.for_phase(FlightPhase.CRUISE)
@@ -1634,9 +1625,7 @@ class CalculationService:
             )
             adopted_distance = distance_value.adopted()
             try:
-                variation_decision = variation_for_departure_latitude(
-                    geometry.start.latitude_deg
-                )
+                variation_decision = variation_for_departure_latitude(geometry.start.latitude_deg)
             except (TypeError, ValueError) as error:
                 variation_decision = None
                 issues.append(
@@ -1733,6 +1722,38 @@ class CalculationService:
                                     "pressure_altitude_ft": planning_pa,
                                     "isa_deviation_c": temperature - isa_temperature_c(planning_pa),
                                 },
+                                "selected_condition": (
+                                    None
+                                    if selected.interpolation is None
+                                    else {
+                                        "pressure_altitude_ft": (
+                                            selected.interpolation.altitude.lower
+                                            + selected.interpolation.altitude.fraction
+                                            * (
+                                                selected.interpolation.altitude.upper
+                                                - selected.interpolation.altitude.lower
+                                            )
+                                        ),
+                                        "isa_deviation_c": (
+                                            selected.interpolation.isa_deviation.lower
+                                            + selected.interpolation.isa_deviation.fraction
+                                            * (
+                                                selected.interpolation.isa_deviation.upper
+                                                - selected.interpolation.isa_deviation.lower
+                                            )
+                                        ),
+                                        "power_percent_by_corner": [
+                                            {
+                                                "pressure_altitude_ft": corner.pressure_altitude_ft,
+                                                "isa_deviation_c": corner.isa_deviation_c,
+                                                "power_percent": corner.power.lower
+                                                + corner.power.fraction
+                                                * (corner.power.upper - corner.power.lower),
+                                            }
+                                            for corner in selected.interpolation.corners
+                                        ],
+                                    }
+                                ),
                                 "selected_cell": selected.row.model_dump(),
                                 "reason": selected.reason,
                                 "interpolation": (
@@ -1807,8 +1828,7 @@ class CalculationService:
                 destination_icao = destination.icao.strip().upper()
                 usable_destination_wind = (
                     destination_wind is not None
-                    and destination_wind.airport_icao.strip().upper()
-                    == destination_icao
+                    and destination_wind.airport_icao.strip().upper() == destination_icao
                     and destination_wind.availability == Availability.AVAILABLE
                     and destination_wind.wind_speed_kt is not None
                     and not destination_wind.variable_direction
@@ -1841,23 +1861,17 @@ class CalculationService:
                     wind_speed = 0.0
                     fallback_reason = "DESTINATION_TAF_UNAVAILABLE"
                     if destination_wind is not None:
-                        if (
-                            destination_wind.airport_icao.strip().upper()
-                            != destination_icao
-                        ):
+                        if destination_wind.airport_icao.strip().upper() != destination_icao:
                             fallback_reason = "DESTINATION_TAF_AIRPORT_MISMATCH"
                         else:
                             fallback_reason = (
-                                destination_wind.reason_code
-                                or "DESTINATION_TAF_UNUSABLE"
+                                destination_wind.reason_code or "DESTINATION_TAF_UNUSABLE"
                             )
                     wind_metadata = {
                         "provider": "destination_taf",
                         "airport_icao": destination_icao,
                         "forecast_airport_icao": (
-                            None
-                            if destination_wind is None
-                            else destination_wind.airport_icao
+                            None if destination_wind is None else destination_wind.airport_icao
                         ),
                         "availability": (
                             Availability.UNAVAILABLE.value
@@ -1872,11 +1886,7 @@ class CalculationService:
                     {
                         "type": "visual_arrival",
                         "cas_kt": 121.0,
-                        "wind": (
-                            "DESTINATION_TAF"
-                            if usable_destination_wind
-                            else "CALM_FALLBACK"
-                        ),
+                        "wind": ("DESTINATION_TAF" if usable_destination_wind else "CALM_FALLBACK"),
                         "fuel_flow_gph": 12.0,
                     }
                 )
@@ -1959,8 +1969,7 @@ class CalculationService:
             planned_altitude = (
                 phase_environment.altitude_ft_msl
                 if segment.phase in {FlightPhase.CLIMB, FlightPhase.DESCENT}
-                else
-                arrival_altitude_ft_msl
+                else arrival_altitude_ft_msl
                 if (
                     segment.phase == FlightPhase.VISUAL_ARRIVAL
                     and arrival_altitude_ft_msl is not None
@@ -2189,9 +2198,7 @@ class CalculationService:
             section.manual_temperature_c if phase == section.phase else None,
         )
         temperature = (
-            manual_temperature
-            if manual_temperature is not None
-            else automatic_temperature
+            manual_temperature if manual_temperature is not None else automatic_temperature
         )
         if speed == 0:
             direction = None

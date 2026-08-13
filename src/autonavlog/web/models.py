@@ -73,10 +73,13 @@ class SectionUpdate(WebRequestModel):
     manual_wind_direction_deg: float | None = Field(default=None, ge=0, lt=360)
     manual_wind_speed_kt: float | None = Field(default=None, ge=0, le=200)
     manual_temperature_c: float | None = Field(default=None, ge=-80, le=60)
-    manual_temperature_c_by_phase: dict[
-        FlightPhase,
-        Annotated[float, Field(ge=-80, le=60)],
-    ] = Field(default_factory=dict)
+    manual_temperature_c_by_phase: (
+        dict[
+            FlightPhase,
+            Annotated[float, Field(ge=-80, le=60)],
+        ]
+        | None
+    ) = None
     manual_tas_kt: float | None = Field(default=None, gt=0, le=300)
 
     @model_validator(mode="after")

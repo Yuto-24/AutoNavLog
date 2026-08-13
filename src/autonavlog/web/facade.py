@@ -497,8 +497,8 @@ class AutoNavLogWebApplication:
                         )
                     working.sections[-1].planned_altitude_ft_msl = manual_altitude
                 else:
-                    working.sections[-1].planned_altitude_ft_msl = (
-                        standard_vrep_altitude_ft_msl(distance_nm, selected_pattern)
+                    working.sections[-1].planned_altitude_ft_msl = standard_vrep_altitude_ft_msl(
+                        distance_nm, selected_pattern
                     )
             if len(working.sections) >= 2:
                 working.sections[-2].phase = FlightPhase.DESCENT
@@ -580,9 +580,7 @@ class AutoNavLogWebApplication:
                 None,
                 "DESTINATION_ETA_UNAVAILABLE",
             )
-        eta_utc = project.planned_departure_time_jst + timedelta(
-            seconds=cumulative_seconds
-        )
+        eta_utc = project.planned_departure_time_jst + timedelta(seconds=cumulative_seconds)
         provider = self.destination_wind_provider
         if provider is None:
             return unavailable_destination_wind(
@@ -636,19 +634,19 @@ class AutoNavLogWebApplication:
                     "SECTION_NOT_FOUND",
                     "更新対象のLegが現在の経路にありません。",
                 ) from error
-            sections[update.section_id] = section.model_copy(
-                update={
-                    "planned_altitude_ft_msl": update.planned_altitude_ft_msl,
-                    "phase": update.phase,
-                    "manual_wind_direction_deg": update.manual_wind_direction_deg,
-                    "manual_wind_speed_kt": update.manual_wind_speed_kt,
-                    "manual_temperature_c": update.manual_temperature_c,
-                    "manual_temperature_c_by_phase": (
-                        update.manual_temperature_c_by_phase
-                    ),
-                    "manual_tas_kt": update.manual_tas_kt,
-                }
-            )
+            section_update: dict[str, object] = {
+                "planned_altitude_ft_msl": update.planned_altitude_ft_msl,
+                "phase": update.phase,
+                "manual_wind_direction_deg": update.manual_wind_direction_deg,
+                "manual_wind_speed_kt": update.manual_wind_speed_kt,
+                "manual_temperature_c": update.manual_temperature_c,
+                "manual_tas_kt": update.manual_tas_kt,
+            }
+            if update.manual_temperature_c_by_phase is not None:
+                section_update["manual_temperature_c_by_phase"] = (
+                    update.manual_temperature_c_by_phase
+                )
+            sections[update.section_id] = section.model_copy(update=section_update)
         working.sections = [sections[section.id] for section in working.ordered_sections()]
         self._apply_arrival_plan(working, request)
         if request.defaults_confirmed:
@@ -718,10 +716,7 @@ class AutoNavLogWebApplication:
             forecast.availability.value == "AVAILABLE"
             and forecast.wind_speed_kt is not None
             and not forecast.variable_direction
-            and (
-                forecast.wind_speed_kt == 0
-                or forecast.wind_direction_deg_from is not None
-            )
+            and (forecast.wind_speed_kt == 0 or forecast.wind_direction_deg_from is not None)
         )
         if not usable:
             return ("CALM_FALLBACK",)
@@ -1037,12 +1032,8 @@ class AutoNavLogWebApplication:
                         vfr_cruising_altitude_candidates(magnetic_course)
                     ),
                     "appliesToCruise": section.phase == FlightPhase.CRUISE,
-                    "appliesToCruisingAltitudeInput": (
-                        applies_to_cruising_altitude_input
-                    ),
-                    "requiresReview": (
-                        applies_to_cruising_altitude_input and not matches
-                    ),
+                    "appliesToCruisingAltitudeInput": (applies_to_cruising_altitude_input),
+                    "requiresReview": (applies_to_cruising_altitude_input and not matches),
                 }
             )
         return guidance

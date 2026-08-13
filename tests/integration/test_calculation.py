@@ -205,8 +205,7 @@ def test_legacy_safe_enroute_altitude_is_not_used_for_status_or_timing(
         safe_value,
     ]
     assert all(
-        result.safe_enroute_altitude_ft_msl.adopted() is None
-        and result.eto_utc.adopted() is None
+        result.safe_enroute_altitude_ft_msl.adopted() is None and result.eto_utc.adopted() is None
         for result in outcome.sections
     )
     assert outcome.status == baseline.status
@@ -360,11 +359,7 @@ def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides
     )
 
     assert not outcome.blockers
-    split = [
-        section
-        for section in outcome.sections
-        if section.section_id == source.id
-    ]
+    split = [section for section in outcome.sections if section.section_id == source.id]
     assert [section.phase for section in split] == [
         FlightPhase.CLIMB,
         FlightPhase.CRUISE,
@@ -426,6 +421,21 @@ def test_manual_low_altitude_and_hot_toat_keep_cruise_outputs_complete(
     warning_codes = {issue.code for issue in outcome.issues}
     assert "CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED" in warning_codes
     assert "CRUISE_ISA_DEVIATION_TABLE_BOUNDARY_USED" in warning_codes
+    metadata = cruise[0].performance_metadata
+    assert metadata["requested_condition"] == {
+        "pressure_altitude_ft": 2_000.0,
+        "isa_deviation_c": pytest.approx(48.9624),
+    }
+    selected_condition = metadata["selected_condition"]
+    assert selected_condition["pressure_altitude_ft"] == 4_000.0
+    assert selected_condition["isa_deviation_c"] == 15.0
+    assert selected_condition["power_percent_by_corner"] == [
+        {
+            "pressure_altitude_ft": 4_000.0,
+            "isa_deviation_c": 15.0,
+            "power_percent": 65.0,
+        }
+    ]
 
 
 def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
@@ -477,7 +487,6 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
         abs=1e-6,
     )
     assert [point.type.value for point in outcome.derived_points] == ["EOC"]
-
 
 
 def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
@@ -765,9 +774,7 @@ def test_visual_arrival_uses_destination_taf_wind_and_falls_back_to_calm(
     assert mismatched_visual.wind_speed_kt.automatic_metadata["reason_code"] == (
         "DESTINATION_TAF_AIRPORT_MISMATCH"
     )
-    assert mismatched_visual.wind_speed_kt.automatic_metadata["wind_adoption"] == (
-        "CALM_FALLBACK"
-    )
+    assert mismatched_visual.wind_speed_kt.automatic_metadata["wind_adoption"] == ("CALM_FALLBACK")
 
 
 def test_missing_climb_wind_is_not_misreported_as_rca_outside_route(
@@ -943,10 +950,7 @@ def test_weather_warning_does_not_mask_an_unrelated_blocker_status(project) -> N
         ),
     ]
 
-    assert (
-        CalculationService._status(project, issues)
-        == ProjectStatus.MANUAL_INPUT_REQUIRED
-    )
+    assert CalculationService._status(project, issues) == ProjectStatus.MANUAL_INPUT_REQUIRED
 
 
 def test_unverified_performance_is_blocking(airports, project) -> None:
