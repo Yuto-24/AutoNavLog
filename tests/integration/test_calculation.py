@@ -489,6 +489,85 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
     assert [point.type.value for point in outcome.derived_points] == ["EOC"]
 
 
+
+def test_eoc_uses_turn_point_altitude_when_vrep_descent_crosses_previous_leg(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    routed = project.model_copy(deep=True)
+    departure, turn, destination = routed.ordered_nodes()
+    departure.manual_distance_nm = 30.0
+    turn.manual_distance_nm = 2.0
+    destination.sequence = 3
+    vrep = RouteNode(
+        sequence=2,
+        name="VREP",
+        latitude_deg=33.3,
+        longitude_deg=131.7,
+        role=RouteNodeRole.VISUAL_REPORTING_POINT,
+        manual_distance_nm=5.0,
+    )
+    sections = [
+        NavSection(
+            project_id=routed.id,
+            sequence=0,
+            from_node_id=departure.id,
+            to_node_id=turn.id,
+            phase=FlightPhase.CRUISE,
+            planned_altitude_ft_msl=5_000,
+            manual_wind_direction_deg=0.0,
+            manual_wind_speed_kt=0.0,
+        ),
+        NavSection(
+            project_id=routed.id,
+            sequence=1,
+            from_node_id=turn.id,
+            to_node_id=vrep.id,
+            phase=FlightPhase.DESCENT,
+            planned_altitude_ft_msl=2_500,
+            manual_wind_direction_deg=0.0,
+            manual_wind_speed_kt=0.0,
+            manual_tas_kt=120.0,
+        ),
+        NavSection(
+            project_id=routed.id,
+            sequence=2,
+            from_node_id=vrep.id,
+            to_node_id=destination.id,
+            phase=FlightPhase.VISUAL_ARRIVAL,
+            planned_altitude_ft_msl=1_500,
+        ),
+    ]
+    routed = routed.__class__.model_validate(
+        routed.model_dump()
+        | {
+            "route_nodes": [
+                departure.model_dump(),
+                turn.model_dump(),
+                vrep.model_dump(),
+                destination.model_dump(),
+            ],
+            "sections": [section.model_dump() for section in sections],
+        }
+    )
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
+    # VREP alone would put EOC at 28 NM. Reaching 2,500 ft at the
+    # 30 NM turn point from 5,000 ft at 500 fpm and 120 kt requires 10 NM.
+    assert eoc.along_route_distance_nm == pytest.approx(20.0)
+    descent = next(section for section in outcome.sections if section.phase == FlightPhase.DESCENT)
+    assert descent.performance_metadata["eoc_constraint_target_altitude_ft_msl"] == 2_500
+    assert descent.performance_metadata["eoc_constraint_route_distance_nm"] == pytest.approx(30.0)
+    assert descent.performance_metadata["planned_duration_seconds"] == pytest.approx(360.0)
+
+
 def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
     airports,
     performance_repository,
