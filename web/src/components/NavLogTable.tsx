@@ -7,6 +7,7 @@ import type {
 } from "../navLogEditing";
 import type {
   AdoptedValue, CalculationOutcome, DestinationWindForecast, NavSection, Project,
+  FlightPhase,
   SectionResult,
 } from "../types";
 
@@ -491,7 +492,12 @@ function ResultCells({
   inputSection: NavSection;
   drafts: NavLogEditDrafts;
   editErrors: NavLogEditErrors;
-  onEdit: (sectionId: string, field: NavLogEditableField, value: string) => void;
+  onEdit: (
+    sectionId: string,
+    phase: FlightPhase,
+    field: NavLogEditableField,
+    value: string,
+  ) => void;
 }) {
   const variationValue = adopted(section.variation_deg_east);
   const departureLatitude =
@@ -506,14 +512,15 @@ function ResultCells({
   };
   const draft = drafts[inputSection.id] ?? draftFromSection(inputSection);
   const errors = editErrors[inputSection.id] ?? {};
-  const isVisualArrival = inputSection.phase === "VISUAL_ARRIVAL";
+  const isVisualArrival = section.phase === "VISUAL_ARRIVAL";
+  const altitudeEditable = section.phase === "CRUISE";
   const inputLabel = `${section.from_name}→${section.to_name}`;
   const change = (field: NavLogEditableField, value: string) => {
-    onEdit(inputSection.id, field, value);
+    onEdit(inputSection.id, section.phase, field, value);
   };
   return (
     <>
-      {isVisualArrival ? (
+      {!altitudeEditable ? (
         <ValueCell value={section.planned_altitude_ft_msl} />
       ) : (
         <EditableNumberCell
@@ -531,7 +538,7 @@ function ResultCells({
       )}
       <EditableNumberCell
         value={section.temperature_c}
-        draftValue={draft.temperature}
+        draftValue={draft.temperatureByPhase[section.phase] ?? ""}
         field="temperature"
         label={`${inputLabel} 手動気温`}
         error={errors.temperature}
@@ -690,7 +697,12 @@ export function NavLogTable({
   drafts: NavLogEditDrafts;
   editErrors: NavLogEditErrors;
   editStatus: { kind: "idle" | "pending" | "saving" | "saved" | "error"; message: string };
-  onEdit: (sectionId: string, field: NavLogEditableField, value: string) => void;
+  onEdit: (
+    sectionId: string,
+    phase: FlightPhase,
+    field: NavLogEditableField,
+    value: string,
+  ) => void;
 }) {
   const physicalLegs = groupByPhysicalLeg(outcome.sections);
   const inputSections = new Map(project.sections.map((section) => [section.id, section]));

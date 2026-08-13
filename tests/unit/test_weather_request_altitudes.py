@@ -118,6 +118,7 @@ def test_weather_requests_use_cac_phase_representative_altitudes(
         request.metadata["phase"]: request
         for request in requests
         if request.kind == WeatherRequestKind.ALOFT
+        and request.request_id.endswith(":aloft")
     }
     assert aloft["CLIMB"].altitude_ft_msl == 3_010
     assert aloft["CRUISE"].altitude_ft_msl == 6_000

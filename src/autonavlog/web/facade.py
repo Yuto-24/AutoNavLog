@@ -643,6 +643,9 @@ class AutoNavLogWebApplication:
                     "manual_wind_direction_deg": update.manual_wind_direction_deg,
                     "manual_wind_speed_kt": update.manual_wind_speed_kt,
                     "manual_temperature_c": update.manual_temperature_c,
+                    "manual_temperature_c_by_phase": (
+                        update.manual_temperature_c_by_phase
+                    ),
                     "manual_tas_kt": update.manual_tas_kt,
                 }
             )

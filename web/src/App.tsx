@@ -28,7 +28,7 @@ import { PasteDialog } from "./components/PasteDialog";
 import { ProgressRail } from "./components/ProgressRail";
 import { RouteWorkspace } from "./components/RouteWorkspace";
 import { StatusPanel } from "./components/StatusPanel";
-import type { NavSection, WebState } from "./types";
+import type { FlightPhase, NavSection, WebState } from "./types";
 import { useModalFocusTrap } from "./useModalFocusTrap";
 
 interface PendingKmz {
@@ -499,6 +499,7 @@ function App() {
         manual_wind_direction_deg: section.manual_wind_direction_deg,
         manual_wind_speed_kt: section.manual_wind_speed_kt,
         manual_temperature_c: section.manual_temperature_c,
+        manual_temperature_c_by_phase: section.manual_temperature_c_by_phase ?? {},
         manual_tas_kt: section.manual_tas_kt,
       })),
       visual_reporting_point_node_id: arrival?.visual_reporting_point_node_id ?? fallbackVrep,
@@ -511,17 +512,26 @@ function App() {
 
   const handleNavLogEdit = (
     sectionId: string,
+    phase: FlightPhase,
     field: NavLogEditableField,
     value: string,
   ) => {
     const inputSection = state?.project?.sections.find((section) => section.id === sectionId);
     if (!inputSection || !state?.project) return;
-    const next = {
+    const currentDraft =
+      navLogDraftsRef.current[sectionId] ?? draftFromSection(inputSection);
+    const nextDraft = field === "temperature"
+      ? {
+          ...currentDraft,
+          temperatureByPhase: {
+            ...currentDraft.temperatureByPhase,
+            [phase]: value,
+          },
+        }
+      : { ...currentDraft, [field]: value };
+    const next: NavLogEditDrafts = {
       ...navLogDraftsRef.current,
-      [sectionId]: {
-        ...(navLogDraftsRef.current[sectionId] ?? draftFromSection(inputSection)),
-        [field]: value,
-      },
+      [sectionId]: nextDraft,
     };
     const errors = validateNavLogDrafts(state.project.sections, next);
     navLogDraftsRef.current = next;

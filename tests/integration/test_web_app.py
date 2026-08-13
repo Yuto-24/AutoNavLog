@@ -236,8 +236,9 @@ async def test_web_route_calculation_save_and_fail_closed_output(
         assert job["status"] == "succeeded", job
         calculated_state = job["state"]
         assert calculated_state["outcome"] is not None
-        assert calculated_state["destinationWind"]["availability"] == "UNAVAILABLE"
-        assert calculated_state["destinationWind"]["reason_code"] == "DESTINATION_ETA_UNAVAILABLE"
+        assert calculated_state["destinationWind"]["availability"] == "AVAILABLE"
+        assert calculated_state["destinationWind"]["wind_direction_deg_from"] == 200
+        assert calculated_state["destinationWind"]["wind_speed_kt"] == 8
         assert calculated_state["outcome"]["arrival_altitude"]["base_vrep_altitude_ft_msl"] == 1800
         assert calculated_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 2100
         variations = [

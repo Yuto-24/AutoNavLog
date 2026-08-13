@@ -186,6 +186,7 @@ def test_arrival_altitude_flows_through_descent_eoc_weather_and_nav_alt(
         for request in requests.values()
         if request.kind == WeatherRequestKind.ALOFT
         and request.metadata["phase"] == FlightPhase.DESCENT.value
+        and request.request_id.endswith(":aloft")
     )
     visual_request = next(
         request
