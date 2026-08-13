@@ -107,11 +107,22 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(altitudeInputs.last()).toHaveValue("1800");
   await expect(cruiseAltitude).toHaveValue(cruiseCandidate);
   await expect(page.locator(".altitude-review-row")).toHaveCount(0);
-  await page.getByRole("button", { name: "NAV LOGを作る" }).click();
+  await page.route("**/api/calculate", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await route.continue();
+  }, { times: 1 });
+  const calculateButton = page.locator(".status-actions .primary-button");
+  await expect(calculateButton).toHaveText("NAV LOGを作る");
+  await calculateButton.click();
+  const calculationProgress = page.getByRole("progressbar", { name: "NAV LOGを計算中" });
+  await expect(calculationProgress).toBeVisible();
+  await expect(calculateButton).toHaveText("NAV LOGを計算中…");
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
+  await expect(calculationProgress).toBeHidden();
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
   await expect(firstRow.getByLabel(/計画高度$/)).toHaveValue(firstAltitudeCandidate);
   await expect(firstRow.locator("td").nth(7)).toHaveText("+7自動");
+  await expect(firstRow.locator(".nav-log-automatic-wind")).toHaveText("自動: CALM");
 }
 
 test("desktop workflow renders and stays fail-closed", async ({ page }) => {
