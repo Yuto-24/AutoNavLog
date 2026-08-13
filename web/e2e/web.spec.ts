@@ -124,7 +124,9 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
   await expect(calculationProgress).toBeHidden();
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
-  await expect(firstRow.getByLabel(/計画高度$/)).toHaveValue(firstAltitudeCandidate);
+  await expect(
+    page.locator(".nav-log-table").getByLabel(/計画高度$/).first(),
+  ).toHaveValue(firstAltitudeCandidate);
   await expect(firstRow.locator("td").nth(7)).toHaveText("+7");
   const windInputs = firstRow.locator(".nav-log-wind-inputs");
   const windDirectionInput = firstRow.getByLabel(/手動風向$/);
@@ -307,6 +309,10 @@ test("climb and descent legs show magnetic-course altitude candidates", async ({
 
 test("NAV LOG safe inputs validate and recalculate automatically", async ({ page }) => {
   await page.goto("/");
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
   await calculateNavLog(page);
 
   const recalculationRequests: string[] = [];
@@ -354,6 +360,39 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   await windResponse;
   await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
   await expect(windDirection).toHaveAttribute("aria-invalid", "false");
+  const splitRows = page.locator(".nav-log-table .nav-leg-detail-row");
+  await expect(splitRows.first().getByLabel(/手動風向$/)).toHaveAttribute("aria-label", /→RCA 手動風向$/);
+  await expect(splitRows.nth(1).getByLabel(/手動風向$/)).toHaveAttribute("aria-label", /^RCA→/);
+  const cruiseWindDirection = splitRows.nth(1).getByLabel(/手動風向$/);
+  const cruiseWindSpeed = splitRows.nth(1).getByLabel(/手動風速$/);
+  await cruiseWindDirection.fill("180");
+  await expect(cruiseWindDirection).toHaveAttribute("aria-invalid", "true");
+  const cruiseWindResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project/recalculate") && response.ok(),
+  );
+  await cruiseWindSpeed.fill("20");
+  const cruiseResponse = await cruiseWindResponse;
+  await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
+  await expect(windDirection).toHaveValue("270");
+  await expect(windSpeed).toHaveValue("15");
+  const payload = cruiseResponse.request().postDataJSON() as {
+    sections: Array<Record<string, unknown>>;
+  };
+  expect(payload.sections[0]).toMatchObject({
+    manual_wind_direction_deg: 270,
+    manual_wind_speed_kt: 15,
+    manual_wind_by_phase: { CRUISE: { direction_deg_from: 180, speed_kt: 20 } },
+  });
+  await expect(page.getByRole("heading", { name: "NAV LOG" })).toBeVisible();
+  await expect(page.locator("body")).not.toBeEmpty();
+  await expect(
+    page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
+  ).toHaveCount(0);
+  const unexpectedConsoleErrors = consoleErrors.filter(
+    (message) => !message.includes("401 (Unauthorized)"),
+  );
+  expect(unexpectedConsoleErrors).toEqual([]);
+  await page.screenshot({ path: "/tmp/autonavlog-phase-wind.png", fullPage: false });
   await expect(page.locator(".nav-log-table th").nth(6)).toHaveText("TC");
   await expect(page.locator(".derived-readonly-cell").first()).toHaveAttribute("title", /読み取り専用/);
 });

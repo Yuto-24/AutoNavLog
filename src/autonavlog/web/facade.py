@@ -646,6 +646,8 @@ class AutoNavLogWebApplication:
                 section_update["manual_temperature_c_by_phase"] = (
                     update.manual_temperature_c_by_phase
                 )
+            if update.manual_wind_by_phase is not None:
+                section_update["manual_wind_by_phase"] = update.manual_wind_by_phase
             sections[update.section_id] = section.model_copy(update=section_update)
         working.sections = [sections[section.id] for section in working.ordered_sections()]
         self._apply_arrival_plan(working, request)

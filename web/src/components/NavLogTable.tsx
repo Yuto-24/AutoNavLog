@@ -578,8 +578,8 @@ function ResultCells({
         <EditableWindCell
           direction={section.wind_direction_deg_from}
           speed={section.wind_speed_kt}
-          directionValue={draft.windDirection}
-          speedValue={draft.windSpeed}
+          directionValue={draft.windDirectionByPhase[section.phase] ?? ""}
+          speedValue={draft.windSpeedByPhase[section.phase] ?? ""}
           label={inputLabel}
           errors={errors}
           onChange={change}

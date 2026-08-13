@@ -72,10 +72,11 @@ def current_calculation_input_fingerprint(
             "phase": section.phase,
             "manual_wind_direction_deg": (section.manual_wind_direction_deg),
             "manual_wind_speed_kt": section.manual_wind_speed_kt,
+            "manual_wind_by_phase": {
+                phase: wind.model_dump() for phase, wind in section.manual_wind_by_phase.items()
+            },
             "manual_temperature_c": section.manual_temperature_c,
-            "manual_temperature_c_by_phase": (
-                section.manual_temperature_c_by_phase
-            ),
+            "manual_temperature_c_by_phase": (section.manual_temperature_c_by_phase),
             "manual_tas_kt": section.manual_tas_kt,
         }
         for section in project.ordered_sections()

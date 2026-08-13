@@ -19,7 +19,7 @@ from autonavlog.domain.enums import (
     ValueState,
     WeatherRequestKind,
 )
-from autonavlog.domain.project import NavSection, RouteNode
+from autonavlog.domain.project import ManualWind, NavSection, RouteNode
 from autonavlog.domain.weather import WeatherResult
 from autonavlog.nav.airspeed import (
     pressure_altitude_exact_ft,
@@ -336,6 +336,17 @@ def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides
     source = routed.sections[0]
     source.manual_temperature_c = 4.0
     source.manual_temperature_c_by_phase = {FlightPhase.CRUISE: 9.0}
+    source = NavSection.model_validate(
+        source.model_dump()
+        | {
+            "manual_wind_direction_deg": 111.0,
+            "manual_wind_speed_kt": 11.0,
+            "manual_wind_by_phase": {
+                FlightPhase.CRUISE: ManualWind(direction_deg_from=222, speed_kt=22)
+            },
+        }
+    )
+    routed.sections[0] = source
 
     def result_for_representative_altitude(request):
         assert request.altitude_ft_msl is not None
@@ -376,6 +387,15 @@ def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides
         pytest.approx(4.0),
         pytest.approx(9.0),
     ]
+    assert [section.wind_direction_deg_from.adopted() for section in split] == [
+        pytest.approx(111.0),
+        pytest.approx(222.0),
+    ]
+    assert [section.wind_speed_kt.adopted() for section in split] == [
+        pytest.approx(11.0),
+        pytest.approx(22.0),
+    ]
+    assert all(section.wind_speed_kt.adopted_source == AdoptedSource.MANUAL for section in split)
     requests = {
         request.metadata["phase"]: request
         for request in service.last_weather_requests
@@ -456,6 +476,9 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
         )
         for section in descent_project.sections
     ]
+    descent_project.sections[1].manual_wind_by_phase = {
+        FlightPhase.CRUISE: ManualWind(direction_deg_from=270, speed_kt=20)
+    }
 
     outcome = CalculationService(airports, performance_repository).calculate(
         descent_project,
@@ -471,6 +494,12 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
     ]
     assert outcome.sections[-2].to_name == "EOC"
     assert outcome.sections[-1].from_name == "EOC"
+    assert outcome.sections[-2].wind_direction_deg_from.adopted() == pytest.approx(270)
+    assert outcome.sections[-2].wind_speed_kt.adopted() == pytest.approx(20)
+    assert outcome.sections[-1].wind_direction_deg_from.adopted() == pytest.approx(90)
+    assert outcome.sections[-1].wind_speed_kt.adopted() == pytest.approx(30)
+    assert outcome.sections[-2].wind_speed_kt.adopted_source == AdoptedSource.MANUAL
+    assert outcome.sections[-1].wind_speed_kt.adopted_source == AdoptedSource.MANUAL
     assert sum(
         section.zone_distance_nm.adopted() or 0.0 for section in outcome.sections
     ) == pytest.approx(
@@ -487,6 +516,103 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
         abs=1e-6,
     )
     assert [point.type.value for point in outcome.derived_points] == ["EOC"]
+
+
+
+@pytest.mark.parametrize(
+    ("descent_distance_nm", "expected_eoc_distance_nm", "expected_blocker"),
+    [
+        (4.0, 20.0, None),
+        (2.0, None, "DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE"),
+    ],
+)
+def test_eoc_enforces_turn_point_and_vrep_altitude_constraints(
+    airports,
+    performance_repository,
+    project,
+    descent_distance_nm,
+    expected_eoc_distance_nm,
+    expected_blocker,
+) -> None:
+    routed = project.model_copy(deep=True)
+    departure, turn, destination = routed.ordered_nodes()
+    departure.manual_distance_nm = 30.0
+    turn.manual_distance_nm = descent_distance_nm
+    destination.sequence = 3
+    vrep = RouteNode(
+        sequence=2,
+        name="VREP",
+        latitude_deg=33.3,
+        longitude_deg=131.7,
+        role=RouteNodeRole.VISUAL_REPORTING_POINT,
+        manual_distance_nm=5.0,
+    )
+    sections = [
+        NavSection(
+            project_id=routed.id,
+            sequence=0,
+            from_node_id=departure.id,
+            to_node_id=turn.id,
+            phase=FlightPhase.CRUISE,
+            planned_altitude_ft_msl=5_000,
+            manual_wind_direction_deg=0.0,
+            manual_wind_speed_kt=0.0,
+        ),
+        NavSection(
+            project_id=routed.id,
+            sequence=1,
+            from_node_id=turn.id,
+            to_node_id=vrep.id,
+            phase=FlightPhase.DESCENT,
+            planned_altitude_ft_msl=2_500,
+            manual_wind_direction_deg=0.0,
+            manual_wind_speed_kt=0.0,
+            manual_tas_kt=120.0,
+        ),
+        NavSection(
+            project_id=routed.id,
+            sequence=2,
+            from_node_id=vrep.id,
+            to_node_id=destination.id,
+            phase=FlightPhase.VISUAL_ARRIVAL,
+            planned_altitude_ft_msl=1_500,
+        ),
+    ]
+    routed = routed.__class__.model_validate(
+        routed.model_dump()
+        | {
+            "route_nodes": [
+                departure.model_dump(),
+                turn.model_dump(),
+                vrep.model_dump(),
+                destination.model_dump(),
+            ],
+            "sections": [section.model_dump() for section in sections],
+        }
+    )
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    blocker_codes = {issue.code for issue in outcome.blockers}
+    if expected_blocker is not None:
+        assert expected_blocker in blocker_codes
+        assert not any(point.type.value == "EOC" for point in outcome.derived_points)
+        return
+
+    assert not blocker_codes
+    eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
+    # The descent reaches 2,500 ft at 30 NM, then 1,500 ft at VREP.
+    assert eoc.along_route_distance_nm == pytest.approx(expected_eoc_distance_nm)
+    descent = next(section for section in outcome.sections if section.phase == FlightPhase.DESCENT)
+    assert descent.performance_metadata["eoc_constraint_target_altitude_ft_msl"] == 2_500
+    assert descent.performance_metadata["eoc_constraint_route_distance_nm"] == pytest.approx(30.0)
+    assert descent.performance_metadata["planned_duration_seconds"] == pytest.approx(420.0)
+    assert descent.performance_metadata["vertical_descent_duration_seconds"] == pytest.approx(
+        420.0
+    )
 
 
 def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
@@ -706,6 +832,10 @@ def test_visual_arrival_uses_destination_taf_wind_and_falls_back_to_calm(
             "phase": FlightPhase.CRUISE,
             "manual_wind_direction_deg": 0.0,
             "manual_wind_speed_kt": 0.0,
+            "manual_wind_by_phase": {
+                FlightPhase.DESCENT: ManualWind(direction_deg_from=0, speed_kt=0),
+                FlightPhase.CLIMB: ManualWind(direction_deg_from=0, speed_kt=0),
+            },
         }
     )
     visual_project.sections[1].phase = FlightPhase.VISUAL_ARRIVAL

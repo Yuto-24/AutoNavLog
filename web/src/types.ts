@@ -54,6 +54,11 @@ export interface RouteNode {
   source: string;
 }
 
+export interface ManualWind {
+  direction_deg_from: number;
+  speed_kt: number;
+}
+
 export interface NavSection {
   id: string;
   sequence: number;
@@ -63,6 +68,7 @@ export interface NavSection {
   planned_altitude_ft_msl: number;
   manual_wind_direction_deg: number | null;
   manual_wind_speed_kt: number | null;
+  manual_wind_by_phase?: Partial<Record<FlightPhase, ManualWind>>;
   manual_temperature_c: number | null;
   manual_temperature_c_by_phase?: Partial<Record<FlightPhase, number>>;
   manual_tas_kt: number | null;

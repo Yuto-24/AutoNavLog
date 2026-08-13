@@ -102,9 +102,13 @@
 - 目的地TAFの風は、出発予定時刻へ計算済み累積ETEを加えた到着予定時刻に合わせて
   取得します。取得した風をNAV LOG最終行へ採用し、到着区間のETE、燃料、WCA、GSへ反映します。
   TAF取得不能時はCALMへフォールバックします。
-- RCA/EOCは物理Leg端へ丸めず、採用距離軸上の算出位置でLegを分割します。分割後も
-  Zone距離合計、`DIST = GS × ETE`、上昇時間・燃料、降下時間を保存します。RCA/EOCの
-  算出原則は規程で確認済みですが、物理Leg内のexact splitは実装Policyです。
+- RCA/EOCは物理Leg端へ丸めず、採用距離軸上の算出位置でLegを分割します。EOCが
+  VREP直前の変針点を越える場合は、その変針点の採用高度を到達条件として一つ前のLegから
+  再計算し、必要に応じて同じ処理を経路始点方向へ繰り返します。分割後もZone距離合計、
+  `DIST = GS × ETE`、上昇時間・燃料、降下時間を保存します。RCA/EOCの算出原則は
+  規程で確認済みですが、物理Leg内のexact splitと変針点高度による再計算は実装Policyです。
+  各Legで500 fpmの降下に必要な時間がそのLegのETEを超え、変針点とVREPの高度制約を
+  同時に満たせない場合は`DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` Blockerとします。
 - `LOSS`は機上修正値であり地上入力UIを持ちません。旧Projectの非0値もZONE/CUM ETE、
   TTL TIME、Forecast、燃料、fingerprintへ加えず、転記補助のETOは空欄にします。
 - 同じForecast Runで最大5回反復し、代表時刻差30秒未満を収束とします。これは

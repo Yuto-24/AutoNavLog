@@ -498,6 +498,7 @@ function App() {
         phase: section.phase,
         manual_wind_direction_deg: section.manual_wind_direction_deg,
         manual_wind_speed_kt: section.manual_wind_speed_kt,
+        manual_wind_by_phase: section.manual_wind_by_phase ?? {},
         manual_temperature_c: section.manual_temperature_c,
         manual_temperature_c_by_phase: section.manual_temperature_c_by_phase ?? {},
         manual_tas_kt: section.manual_tas_kt,
@@ -528,7 +529,23 @@ function App() {
             [phase]: value,
           },
         }
-      : { ...currentDraft, [field]: value };
+      : field === "windDirection"
+        ? {
+            ...currentDraft,
+            windDirectionByPhase: {
+              ...currentDraft.windDirectionByPhase,
+              [phase]: value,
+            },
+          }
+        : field === "windSpeed"
+          ? {
+              ...currentDraft,
+              windSpeedByPhase: {
+                ...currentDraft.windSpeedByPhase,
+                [phase]: value,
+              },
+            }
+          : { ...currentDraft, [field]: value };
     const next: NavLogEditDrafts = {
       ...navLogDraftsRef.current,
       [sectionId]: nextDraft,

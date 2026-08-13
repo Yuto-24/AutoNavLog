@@ -58,6 +58,11 @@ class VisualReference(DomainModel):
     source: str = "MANUAL"
 
 
+class ManualWind(DomainModel):
+    direction_deg_from: float = Field(ge=0, lt=360)
+    speed_kt: float = Field(ge=0, le=200)
+
+
 class NavSection(DomainModel):
     id: UUID = Field(default_factory=uuid4)
     project_id: UUID | None = None
@@ -69,6 +74,7 @@ class NavSection(DomainModel):
     safe_enroute_altitude_ft_msl: float | None = None
     manual_wind_direction_deg: float | None = Field(default=None, ge=0, lt=360)
     manual_wind_speed_kt: float | None = Field(default=None, ge=0)
+    manual_wind_by_phase: dict[FlightPhase, ManualWind] = Field(default_factory=dict)
     manual_temperature_c: float | None = None
     manual_temperature_c_by_phase: dict[
         FlightPhase,
