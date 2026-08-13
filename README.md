@@ -115,7 +115,7 @@ rg -n '0\.2\.0' pyproject.toml src/autonavlog/version.py web/package.json web/pa
 ```bash
 git pull --ff-only
 docker compose build --pull --no-cache autonavlog
-docker compose up -d --force-recreate --remove-orphans autonavlog
+docker compose up -d --force-recreate autonavlog
 docker compose ps
 curl --fail --silent http://127.0.0.1:8123/healthz
 ```
@@ -138,7 +138,7 @@ env \
   AUTONAVLOG_HOST_PORT=8124 \
   AUTONAVLOG_TRUSTED_LOCAL_IDENTITY=local-user \
   AUTONAVLOG_SESSION_COOKIE_SECURE=false \
-  docker compose -p autonavlog-dev up -d --force-recreate --remove-orphans autonavlog
+  docker compose -p autonavlog-dev up -d --force-recreate autonavlog
 curl --fail --silent "http://$HOST_IP:8124/healthz"
 ```
 
