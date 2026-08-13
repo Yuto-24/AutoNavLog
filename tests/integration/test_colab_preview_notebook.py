@@ -85,7 +85,7 @@ def test_preview_notebook_installs_pinned_wheels_and_real_runtime_components() -
 
     assert '"libeccodes0"' in code
     assert '"--force-reinstall"' in code
-    assert 'importlib.metadata.version("autonavlog") == "0.2.0"' in code
+    assert 'importlib.metadata.version("autonavlog") == "0.2.1"' in code
     assert 'importlib.metadata.version("jma-msm-wind") == "0.2.1"' in code
     assert "ReferenceDataCatalogRepository" in code
     assert "AirportRepository.from_reference_catalog" in code

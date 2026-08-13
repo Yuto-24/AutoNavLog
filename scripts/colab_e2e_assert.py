@@ -3,7 +3,7 @@
 
 Before execution, upload these files to the active VM:
 
-* ``/content/autonavlog-0.2.0-py3-none-any.whl``
+* ``/content/autonavlog-0.2.1-py3-none-any.whl``
 * ``/content/pasted-text-1.txt``
 
 The default entry point installs the wheel, exercises the real pasted Google
@@ -36,10 +36,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 CONTENT_ROOT = Path("/content")
-WHEEL_PATH = CONTENT_ROOT / "autonavlog-0.2.0-py3-none-any.whl"
+WHEEL_PATH = CONTENT_ROOT / "autonavlog-0.2.1-py3-none-any.whl"
 PASTED_KML_PATH = CONTENT_ROOT / "pasted-text-1.txt"
 RESULT_PATH = CONTENT_ROOT / "autonavlog-colab-e2e-result.json"
-EXPECTED_AUTONAVLOG_VERSION = "0.2.0"
+EXPECTED_AUTONAVLOG_VERSION = "0.2.1"
 EXPECTED_KML_WARNING = (
     "KS4-6(SFC/4000): skipped 13 Polygon surface(s) without a usable horizontal boundary"
 )
@@ -315,7 +315,6 @@ def _synthetic_fixture() -> tuple[Any, Any, Any, Any]:
                 availability=Availability.AVAILABLE,
                 kind=request.kind,
                 values={"label": "MSM推定QNH", "qnh_hpa": 1013.0},
-                warnings=("ESTIMATED_QNH_NOT_OFFICIAL",),
                 metadata={"provider": "COLAB_E2E_SYNTHETIC"},
             )
         return WeatherResult(

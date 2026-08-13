@@ -178,10 +178,7 @@ def test_metar_corrected_msm_formula_and_run_covers_both_times() -> None:
     assert result.values["msm_tendency_hpa"] == 3.5
     assert result.values["metar_observation_time_utc"] == OBSERVED.isoformat()
     assert result.values["forecast_time_utc"] == TARGET.isoformat()
-    assert result.warnings == (
-        "ESTIMATED_QNH_NOT_OFFICIAL",
-        "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
-    )
+    assert result.warnings == ()
     assert prepared.metadata["terrain_required"] is False
     assert len(transport.calls) == 1
     assert "ids=RJFM,RJFO" in transport.calls[0]

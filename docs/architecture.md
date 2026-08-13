@@ -1,13 +1,15 @@
-# Architecture
+# アーキテクチャ
 
 AutoNavLogはNotebook、application service、domain、adapterの順に依存します。Notebookや
 Google Drive、MSMの型を計算コアへ持ち込みません。
 
 ```text
-AutoNavLog.ipynb / ipywidgets
+React SPA / AutoNavLog.ipynb
         |
-ProjectService / CalculationService / ForecastService
-        |
+FastAPI Web facade / ProjectService / CalculationService / ForecastService
+        |                                      |
+        |                              DestinationTafProvider
+        |                                      |
 Project / AdoptedValue / CalculationOutcome / Snapshot
         |
 nav + performance policies
@@ -23,3 +25,8 @@ Policy version、Forecast Runから同じ結果を生成します。気象問い
 
 MSMのGRIB2、RISH URL、NetCDF、気圧面配列は`jma-msm-wind`だけが扱います。AutoNavLogの
 MSM adapterは単位、時刻、型、request ID、表示ラベルを変換するだけです。
+
+`DestinationTafProvider`は、計算完了後に目的空港と到着予定時刻を受け取り、
+AviationWeather.govのTAFから卓越風を選びます。結果はWeb sessionの参考表示だけに保持し、
+`CalculationOutcome`、Snapshot、航法計算、出力可否には渡しません。通信やTAF時刻範囲の
+不一致もNAV LOGのBlockerにはしません。

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import isfinite
 from secrets import compare_digest, token_urlsafe
 from threading import RLock
@@ -48,6 +48,12 @@ from autonavlog.storage.reference_data import (
     ReferenceDataCatalogRepository,
 )
 from autonavlog.storage.repository import ProjectSummary
+from autonavlog.version import __version__
+from autonavlog.weather.destination_taf import (
+    DestinationWindForecast,
+    DestinationWindProvider,
+    unavailable_destination_wind,
+)
 from autonavlog.weather.prewarm import WeatherPrewarmer
 from autonavlog.weather.provider import WeatherProvider
 
@@ -120,6 +126,7 @@ class WebSession:
     import_filename: str | None = None
     project: Project | None = None
     outcome: CalculationOutcome | None = None
+    destination_wind: DestinationWindForecast | None = None
     readiness: ReadinessEvaluation | None = None
 
 
@@ -139,6 +146,7 @@ class AutoNavLogWebApplication:
         trusted_local_identity: str | None = None,
         access_verifier: AccessTokenVerifier | None = None,
         weather_prewarmer: WeatherPrewarmer | None = None,
+        destination_wind_provider: DestinationWindProvider | None = None,
     ) -> None:
         if maximum_sessions < 1:
             raise ValueError("maximum_sessions must be positive")
@@ -155,6 +163,7 @@ class AutoNavLogWebApplication:
         self._sessions: dict[str, WebSession] = {}
         self.access_verifier = access_verifier
         self.weather_prewarmer = weather_prewarmer
+        self.destination_wind_provider = destination_wind_provider
         self._session_order: list[str] = []
         self._projects_generation = 0
         self._lock = RLock()
@@ -226,6 +235,7 @@ class AutoNavLogWebApplication:
             session.import_filename = filename
             session.project = None
             session.outcome = None
+            session.destination_wind = None
             session.readiness = None
             return self.present(session)
 
@@ -495,6 +505,7 @@ class AutoNavLogWebApplication:
             materialized = session.readiness_service.evaluate(working, None)
             session.project = materialized.project
             session.outcome = None
+            session.destination_wind = None
             session.readiness = materialized.evaluation
             return self.present(session)
 
@@ -510,6 +521,8 @@ class AutoNavLogWebApplication:
             materialized = session.readiness_service.evaluate(working, session.outcome)
             session.project = materialized.project
             session.outcome = materialized.outcome
+            if materialized.outcome is None:
+                session.destination_wind = None
             session.readiness = materialized.evaluation
             return self.present(session)
 
@@ -527,6 +540,9 @@ class AutoNavLogWebApplication:
             materialized = session.readiness_service.record_calculation(working, outcome)
             session.project = materialized.project
             session.outcome = materialized.outcome
+            session.destination_wind = self._destination_wind(
+                working, materialized.outcome
+            )
             session.readiness = materialized.evaluation
             return self.present(session)
 
@@ -541,8 +557,51 @@ class AutoNavLogWebApplication:
             )
             session.project = materialized.project
             session.outcome = materialized.outcome
+            session.destination_wind = self._destination_wind(
+                session.project, materialized.outcome
+            )
             session.readiness = materialized.evaluation
             return self.present(session)
+
+    def _destination_wind(
+        self,
+        project: Project,
+        outcome: CalculationOutcome | None,
+    ) -> DestinationWindForecast | None:
+        if outcome is None:
+            return None
+        destination_icao = self.airports.get(project.destination_airport_id).icao
+        if not outcome.sections:
+            return unavailable_destination_wind(
+                destination_icao,
+                None,
+                "DESTINATION_ETA_UNAVAILABLE",
+            )
+        cumulative_seconds = outcome.sections[-1].cumulative_ete_seconds.adopted()
+        if cumulative_seconds is None:
+            return unavailable_destination_wind(
+                destination_icao,
+                None,
+                "DESTINATION_ETA_UNAVAILABLE",
+            )
+        eta_utc = project.planned_departure_time_jst + timedelta(
+            seconds=cumulative_seconds
+        )
+        provider = self.destination_wind_provider
+        if provider is None:
+            return unavailable_destination_wind(
+                destination_icao,
+                eta_utc,
+                "TAF_PROVIDER_DISABLED",
+            )
+        try:
+            return provider.forecast(destination_icao, eta_utc)
+        except Exception:
+            return unavailable_destination_wind(
+                destination_icao,
+                eta_utc,
+                "TAF_FETCH_FAILED",
+            )
 
     def _updated_project(
         self,
@@ -677,6 +736,7 @@ class AutoNavLogWebApplication:
             session.project = project
             session.saved_projects_cache = None
             session.outcome = None
+            session.destination_wind = None
             session.import_result = None
             session.import_filename = None
             self._evaluate(session)
@@ -767,10 +827,16 @@ class AutoNavLogWebApplication:
         outcome_payload = (
             None if session.outcome is None else session.outcome.model_dump(mode="json")
         )
+        destination_wind_payload = (
+            None
+            if session.destination_wind is None
+            else session.destination_wind.model_dump(mode="json")
+        )
         candidates = self._candidate_payload(session.import_result)
         summaries = self._owned_project_summaries(session)
         return {
             "runtime": {
+                "appVersion": __version__,
                 "weatherLabel": self.weather_label,
                 "developmentWeather": self.development_weather,
                 "referenceDatasetId": self.reference_catalog.manifest.dataset_id,
@@ -819,6 +885,7 @@ class AutoNavLogWebApplication:
             },
             "project": project_payload,
             "outcome": outcome_payload,
+            "destinationWind": destination_wind_payload,
             "readiness": {
                 "status": None if evaluation is None else evaluation.status.value,
                 "calculationIsCurrent": (

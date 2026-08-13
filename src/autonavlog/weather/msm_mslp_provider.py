@@ -212,10 +212,6 @@ class MsmMslpWeatherProvider:
                 kind=request.kind,
                 values={"label": "MSM MSLP単独推定QNH", "qnh_hpa": None},
                 reason_code="MSM_MSLP_UNAVAILABLE",
-                warnings=(
-                    "ESTIMATED_QNH_NOT_OFFICIAL",
-                    "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
-                ),
                 metadata={"provider": "jma-msm-wind-mslp-compat"},
             )
         value_pa, trace = sampled
@@ -230,10 +226,6 @@ class MsmMslpWeatherProvider:
                 "mslp_pa": float(value_pa),
                 "mslp_hpa": float(value_pa) / 100.0,
             },
-            warnings=(
-                "ESTIMATED_QNH_NOT_OFFICIAL",
-                "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
-            ),
             metadata={
                 "provider": "jma-msm-wind-mslp-compat",
                 "provenance": _jsonable(
@@ -256,13 +248,13 @@ class MsmMslpWeatherProvider:
         warnings = tuple(native.warnings)
         if is_qnh:
             warnings = tuple(
-                dict.fromkeys(
-                    (
-                        *warnings,
-                        "ESTIMATED_QNH_NOT_OFFICIAL",
-                        "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
-                    )
-                )
+                warning
+                for warning in warnings
+                if warning
+                not in {
+                    "ESTIMATED_QNH_NOT_OFFICIAL",
+                    "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
+                }
             )
         return WeatherResult(
             request_id=request.request_id,

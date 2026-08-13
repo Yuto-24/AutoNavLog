@@ -20,7 +20,7 @@ def _default_result(request: WeatherRequest) -> WeatherResult:
             "label": "MSM推定QNH",
             "qnh_hpa": 1013.0,
         }
-        warnings = ("ESTIMATED_QNH_NOT_OFFICIAL",)
+        warnings: tuple[str, ...] = ()
     else:
         values = {
             "u_ms": 0.0,

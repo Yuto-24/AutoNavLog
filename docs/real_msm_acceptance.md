@@ -39,7 +39,7 @@ MSM推定QNHを問い合わせます。4結果がすべて`AVAILABLE`である�
 - 元GRIB URLと、URLをキーにした64桁SHA-256の集合が一致
 - Forecast Run、補間方式、格子・気圧面等のtraceが存在
 - QNHのPzs元データSHA-256が事前検査した地形と一致
-- QNHが`MSM推定QNH`と表示され、非公式推定値の警告を保持
+- QNHが`MSM推定QNH`と表示され、廃止した重複警告コードを含まない
 
 オフライン事前検査の`PASS`はライブ取得成功を意味しません。実MSMをリリース済みと判定
 する証拠は、`mode: LIVE`、`live_executed: true`、`status: PASS`を持つJSONだけです。

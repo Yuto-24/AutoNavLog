@@ -22,10 +22,7 @@ from .msm_metar_provider import (
 from .provider import WeatherProvider
 
 QNH_LABEL = "METAR補正付きMSM QNH推定値"
-QNH_WARNINGS = (
-    "ESTIMATED_QNH_NOT_OFFICIAL",
-    "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
-)
+QNH_WARNINGS: tuple[str, ...] = ()
 DEFAULT_METAR_STATIONS = ("RJFM", "RJFO")
 
 

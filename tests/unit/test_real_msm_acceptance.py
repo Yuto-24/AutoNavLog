@@ -83,7 +83,7 @@ def _weather_result(request: WeatherRequest) -> WeatherResult:
             availability=Availability.AVAILABLE,
             kind=request.kind,
             values={"label": "MSM推定QNH", "qnh_hpa": 1009.4},
-            warnings=("ESTIMATED_QNH_NOT_OFFICIAL", "NOT_FOR_OPERATIONAL_USE"),
+            warnings=("NOT_FOR_OPERATIONAL_USE",),
             metadata={"provenance": _provenance(qnh=True)},
         )
     return WeatherResult(

@@ -1,11 +1,47 @@
 # AutoNavLog UI改善 要求仕様書
 
-- 版: 2.7.3
-- 日付: 2026-08-11
-- 対象: AutoNavLog 0.2.0 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
+- 版: 2.7.4
+- 日付: 2026-08-13
+- 対象: AutoNavLog 0.2.1 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
 - 実装担当: 別エージェント
 
-## v2.7.3 Docker Web service・目的空港場周高度・別添8-1整合（本節を最優先）
+## v2.7.4 表示整理・目的地TAF風・更新確認（本節を最優先）
+
+### D-37 NAV LOG表示
+
+- 自動計算値のセルへ「自動」を付けない。手入力値の「手入力」と未取得表示は残す。
+- 採用QNHはinHgを主表示とし、同じ値のhPaを横へ併記する。
+- `ESTIMATED_QNH_NOT_OFFICIAL` と `VERIFY_WITH_OFFICIAL_AERODROME_QNH` は、
+  QNHの説明と画面末尾の確認文に重複するため生成・表示しない。QNH推定値を公式値と
+  扱わない制約、取得不能時の手入力要求、公式気象との照合は維持する。
+
+### D-38 目的地TAF風（Issue #26）
+
+- 到着予定時刻は、Projectの出発予定時刻へ計算結果末尾の累積ETEを加えて求める。
+- 目的空港ICAOと到着予定時刻をAviationWeather.govのTAF APIへ渡し、該当時刻の卓越風を
+  取得する。`TEMPO` と `PROB` は単一の卓越風として採用しない。
+- 風向、風速、ガスト、TAF発表時刻、有効期間、変化区分、TAF原文を参考欄へ表示する。
+- この風はNAV LOGの風、WCA、GS、ETE、燃料、Snapshot、readiness、出力可否に使わない。
+  到着区間は既存規則のCAS 121 kt・無風を維持する。
+- 通信失敗、TAF欠測、有効期間外は「取得できませんでした」と表示し、計算を失敗させない。
+  同一空港のTAF応答は5分間cacheする。
+
+### D-39 更新とcache
+
+- AutoNavLogの版はPython package、Web package、旧Colab成果物、Notebook、検査コードで揃える。
+- HTML応答は `Cache-Control: no-cache`、API応答は `Cache-Control: no-store` とする。
+- 画面左上へアプリ版を表示し、`/healthz` の版と照合できるようにする。
+- 開発・本番の更新はimageを `--no-cache` で再構築し、containerを
+  `--force-recreate` で交換する。named volumeは削除しない。
+
+### v2.7.4受入基準
+
+- **W-9**: 自動計算されたVARと風の表示に「自動」がなく、手入力値の表示は残る。
+- **W-10**: 廃止した2つのQNH警告が気象結果、Web UI、転記補助へ出ない。
+- **W-11**: ETAがTAF有効期間内なら目的地風を表示し、TAF取得失敗でも計算結果を保持する。
+- **W-12**: HTMLとAPIのcache header、画面版、`/healthz` 版が更新手順どおり確認できる。
+
+## v2.7.3 Docker Web service・目的空港場周高度・別添8-1整合
 
 本節は利用者決定「ColabではなくWeb公開し、`.venv`ではなくDocker serviceで動かす」
 に基づく配布方式の差分仕様である。
@@ -45,7 +81,7 @@
   保存metadataのownerとAccess identityが一致するProjectだけを一覧・読込対象にする。
 - Docker serviceの保存rootは `/var/lib/autonavlog` とし、named volume
   `autonavlog-data` をmountする。参照データ、Project、MSM cacheを同root配下へ分離する。
-- POST/PUTおよびAPI応答は `Cache-Control: no-store` とし、CSP、frame拒否、
+- API応答は `Cache-Control: no-store` とし、CSP、frame拒否、
   MIME sniffing拒否、権限policyを付与する。
 - KML/KMZは既存のbounded parserへ渡し、Web境界ではbase64文字数と展開前10 MiB上限を課す。
 
@@ -75,7 +111,7 @@
 
 - 既定の `--weather fake` は画面と計算の開発確認専用とし、
   `DEVELOPMENT_WEATHER_PROVIDER`（BLOCKER）を必ず追加して転記出力を止める。
-- 実運用候補は `--weather msm` または `--weather msm-metar` とし、
+- 標準の実運用modeは `--weather msm-metar-trend` とし、
   既存の欠損フォールバック禁止とForecast固定契約を維持する。
 - RJFM/RJFOのmaster場周経路高度はいずれも **1,000 ft MSL** とする。VREPの
   標準高度はProjectで確定した採用場周高度を基準にし、5 NMでは+500 ftとする。
@@ -162,8 +198,8 @@
   - **v2.5.0は、第8章 NAV2（宮崎課程）との照合結果と利用者決定を反映した版**。(1) 成果物の目的を「KMLからNAV LOGの**地上準備**を完了する」に限定し、ATO/ATE等の実績欄および実発動時刻を基準にするETOは機上記入のため空欄とした。本文中の「印刷可能」は完成NAV LOGの適合宣言ではなく、別添8-1へ書き写す転記補助HTMLを出力できる意味へ統一した（第1章・D-23）、(2) DEM由来SEAを障害物未考慮の**参考値**として使う方針を明記し、確認・印刷ゲートも規定SEAの保証や障害物照合の証明ではないことを明確化した（第0.2節・第6.2節・第12章・D-24）、(3) 教範のETO/Loss Timeを「実Time Checkを基準とし、通常経路ETEとは別に発生した遅延を加える」と定義し、ZONE/CUM ETE・TTL TIMEはLossを除外、時刻timelineだけにLossを加える二系列へ分離した（**この案はv2.5.1で廃止**。第6.5節・A.2・D-25）、(4) VREP通過高度を空港ARPからのWGS84距離と場周経路高度から自動算出し、5 nm付近は+500 ft、5 nm以遠は1 nm当たり+200 ftとした。端数はWGS84実距離から連続計算後に100 ft切上げる案を仮置きし、Direct Base等は理由付き手動overrideとする（第6.6節・FR-40・D-26。この仮置き式はv2.5.1で廃止）、(5) 経路外CPをRouteNodeへ混入させず、有限Leg上のWGS84最近点をabeam点としてZONE/CUM DISTを分割する契約を追加した（第6.7節・FR-41・D-27）、(6) 空港・地点・CPをmanifest付き参照データパックとして分離し、差し替え・CRUD・版戻しを可能にした。選択行はProjectへsnapshotし、active packの変更を既存Projectへ自動反映しない（第6.8節・FR-42・D-28）、(7) NAV2宮崎課程では「風を予想しない」モードを提供せず、風欠損をBlockerとする現行方針を維持した（D-29）。内部UI状態は `state_schema_version=3` とし、Project/Snapshot本体の `schema_version=1` は維持する
   - **v2.4.1は v2.4 への再レビュー指摘6件を反映した版**。(1)[critical] `PersistedSeaState.adopted_source` に既存 `AdoptedSource` を用い、自動・手入力の確認を実際の `safe_enroute_altitude_ft_msl` と採用元へ結び付け、採用元切替を反対側確認の解除と同一トランザクションにした（第3.2節・第10.3節・第10.5節・C-62）、(2)[major] 404を含む提案へ最短 `negative_cache_expires_at_utc` を保存し、期限到来を `proposal_stale` の時間依存条件へ追加した（第8.7節・第8.9節・第10.5節・C-63）、(3)[major] C-52/C-58/C-60/C-61を `pack.zip`＋`ready.json` の世代ディレクトリ方式へ全面更新し、live読込の4者一致・S-4の3者一致、pack identity、token最終tie-breakを規定した、(4)[major/security] DEMパック専用の数値上限・許可path・固定ZIP属性・`ZIP_STORED`限定・manifest/index schema・bounded central-directory preflight・dirfd/`O_NOFOLLOW`読込・GC容量式をDP-1〜DP-5として新設し、KML用K-3〜K-5の誤参照を除去した（第8.9節・C-64）、(5)[major] `derive_project_status()` を `effective_issues` と複合 `ack_key` に統一し、Project/Outcome/Snapshotのstatusを同じmaterialized projectionとした（第6.3節・E-26）、(6)[medium/schema] `SeaProposal` と構成型の完全なPydantic/JSON契約、およびplain canonical fingerprint payloadを定義した（第8.7節・第10.5節・C-65）。内部UI状態は `state_schema_version=2` とし、Project/Snapshot本体の `schema_version=1` は維持する。既知ゲートはA.10・B.1・基準アーカイブ固定に加え、B.2aのDrive FUSE primitive実測を実装handoff条件へ明示した
   - **v2.4は、レビュー指摘への対応ではなく「不要な複雑性の除去」として行った版**（v2.3〜v2.3.2 で第8.9節の公開モデルが構造的に安定したのを機に、他の箇所にも同じ観点を適用した）。`unknown_mask_fingerprint` を `SeaProposal` と `sea_proposal_fingerprint` から**削除**した（第8.7節・第10.5節・C-59）。`unknown` 分類は第8.4.3節の判定規則により（画素ごとのDEM有効/欠損、陸域マスクの true/false/uncertain、マスク利用可否）の純関数であり、その入力はすべて `tile_content_fingerprint`・`land_mask_version`・`geometry_fingerprint`・`corridor_nm`・`failsafe_reasons` として**既に `sea_proposal_fingerprint` に含まれていた**。したがってこの項は確認keyとしての識別力を一切足さず、Legあたり最大 65,536 B × 1,200 タイル ≒ 78 MB の追加hashと、実装間で一致させるバイト水準契約（dtype・C-order・framing・固定ベクトル）のみを要していた。10.5節のバイト規約と固定テストベクトル、C-59(a)(b) を対応分だけ縮小し、削除しても識別力が落ちないことの確認をC-59(b2)として追加した。`unknown_pixels`（カウント）と `unknown_regions`（利用者への提示用）は維持する。
-  - **v2.3.2は v2.3.1 への再レビュー指摘5件を反映した版**。(1)[major] no-clobberを**真に原子的な primitive** へ置換——`os.path.lexists` + `os.rename` は check-then-act であり、確認とrenameの狭間に宛先が現れればPOSIX renameが上書きするため契約を満たせなかった。`renameat2(RENAME_NOREPLACE)` はFUSE上の可用性が保証できないため、**本節のロック機構が既に前提としている `os.mkdir` の原子性**へ一本化し、パックの単位を「世代ファイル」から**世代ディレクトリ** `{pack名}.g{generation}.{token}/`（`mkdir` で予約 → 中に `pack.zip` → 完成marker `ready.json`）へ変更した。readers・S-4は `ready.json` を持つディレクトリのみを候補とする。`mkdir` 原子性への依存を**脅威境界として明示**し、B.2の実測項目に加えた（第8.9節・C-61(b)）、(2)[major] 2 GB上限の契約を**正直な表現へ訂正**——並行writerが同じ空きを観測すれば超過しうるため、無条件のhard limitは保証できない。「単一writerにはhard limit、並行writerにはbest-effort」とし、一時超過の上限（並行writer数 × 1パック最大サイズ）と収束経路（publish後GC・次回publish前GC・起動時GC）を明記。あわせて容量判定を**完成ZIPをローカルに構築した後**へ移した（圧縮後サイズは作るまで不明のため。第8.9節G1〜G6・C-60）、(3)[major/schema] `size_bytes` を index entry・`ready.json`・P6・S-4・Q1のschema検証へ追加——Q2が「記録サイズとの不一致でcache miss」とする一方、index entryの定義に `size_bytes` が無かった（第8.9節・C-58・C-61）、(4)[minor] 同一 `generation` の優劣を**liveはlast-wins、S-4再構築はcontent hash辞書順の決定的選択**と書き分けた（liveのP6はentryを無条件差替えするため、hash tie-breakが効くのは走査から作り直すS-4だけ。どちらも安全性には影響しない。第8.9節）、(5)[minor/security] Q1のディレクトリ名regexで z10座標を **0..1023** に限定（負数・無制限桁を排除）、root配下判定を文字列prefixから `commonpath` へ、Q2のローカルtempにも同じサイズ上限を適用し成功・失敗いずれの経路でも `finally` で削除、と明記（第8.9節・C-61(d)(e)）。既知ゲート（基準アーカイブのcommit・A.10・B.1）は未変更。
-  - **v2.3.1は v2.3 への再レビュー指摘5件を反映した版**（公開モデルの骨格は維持し、その内側の穴を塞いだ）。(1)[major] `generation` の再採番を廃止——v2.3はP1で仮採番しP3で実値へrenameする規定だったため、ZIP内 `manifest.generation` が仮値のままファイル名とindexが実値になり三者不一致となり、書き換えれば「P2後は不変」契約に違反した。generationはadvisoryなのでP1で確定した値をファイル名・manifest・index entryへ通し、**採番し直さない**。同世代の並行publishは content hash の tie-break で決まる。ファイル名・manifest・index entryの**三者一致**を世代ファイルの自己整合性条件としQ3・S-4で検証（第8.9節・C-58）、(2)[major/security] 読みのTOCTOUを閉塞——Drive上ファイルは外部から差替え可能と本文自身が定めているため、path検証後に再openする形では未検証ZIPを展開できた。Q2でサイズ上限つきに**一度だけローカルtempへコピー**し、以後の whole-file hash・K-3〜K-5・manifest hash・展開を**すべて同一bytes**に対して行う。index entryのファイル名もbasename・厳密regex・pack座標一致・UUID/hash形式・realpathのroot配下としてschema検証する（第8.9節・C-61）、(3)[major] 「古い正当世代＝cache miss」は**正のエントリにしか成立しない**ことを是正——30日TTLの404負キャッシュは、索引が古い世代へ巻き戻ると期限切れの404を有効なhitとして再利用しえた。`.missing` へ `fetched_at_utc` / `expires_at_utc` をmanifest hash対象として持たせ、Q3・Q4で期限切れを常に「エントリ無し」扱いにする。正のエントリは `dem_cache_version` 一致を必須化（第8.9節「negative entryの期限」・C-25・C-52(b)）、(4)[major] 1時間猶予と2 GB上限の優先順位を確定——**2 GBをhard limitとし猶予に優先**。P0で容量を確保し、通常GCで足りなければ猶予前の未参照世代も緊急GCで削除、それでも確保できなければDriveへのpublishをスキップして一次キャッシュのみで継続する（G1〜G4。第8.9節・C-60）、(5)[minor] P1のパック構成を「索引が指す検証済み世代をbaseに一次キャッシュの新規・更新を重ねた全体（同一エントリは一次キャッシュ優先、期限切れ `.missing` は除外）」と確定しsubset publishを禁止、P2の rename を**no-clobber契約**（宛先が既存なら一切触れず新tokenで再試行）として明記（第8.9節・C-61）。既知ゲート（基準アーカイブのcommit・A.10・B.1）は未変更。
+  - **v2.3.2は v2.3.1 への再レビュー指摘5件を反映した版**。(1)[major] no-clobberを**真に原子的な primitive** へ置換。`os.path.lexists` + `os.rename` は check-then-act であり、確認とrenameの狭間に宛先が現れればPOSIX renameが上書きするため契約を満たせなかった。`renameat2(RENAME_NOREPLACE)` はFUSE上の可用性が保証できないため、**本節のロック機構が既に前提としている `os.mkdir` の原子性**へ一本化し、パックの単位を「世代ファイル」から**世代ディレクトリ** `{pack名}.g{generation}.{token}/`（`mkdir` で予約 → 中に `pack.zip` → 完成marker `ready.json`）へ変更した。readers・S-4は `ready.json` を持つディレクトリのみを候補とする。`mkdir` 原子性への依存を**脅威境界として明示**し、B.2の実測項目に加えた（第8.9節・C-61(b)）、(2)[major] 2 GB上限の契約を**正直な表現へ訂正**。並行writerが同じ空きを観測すれば超過しうるため、無条件のhard limitは保証できない。「単一writerにはhard limit、並行writerにはbest-effort」とし、一時超過の上限（並行writer数 × 1パック最大サイズ）と収束経路（publish後GC・次回publish前GC・起動時GC）を明記。あわせて容量判定を**完成ZIPをローカルに構築した後**へ移した（圧縮後サイズは作るまで不明のため。第8.9節G1〜G6・C-60）、(3)[major/schema] `size_bytes` を index entry・`ready.json`・P6・S-4・Q1のschema検証へ追加。Q2が「記録サイズとの不一致でcache miss」とする一方、index entryの定義に `size_bytes` が無かった（第8.9節・C-58・C-61）、(4)[minor] 同一 `generation` の優劣を**liveはlast-wins、S-4再構築はcontent hash辞書順の決定的選択**と書き分けた（liveのP6はentryを無条件差替えするため、hash tie-breakが効くのは走査から作り直すS-4だけ。どちらも安全性には影響しない。第8.9節）、(5)[minor/security] Q1のディレクトリ名regexで z10座標を **0..1023** に限定（負数・無制限桁を排除）、root配下判定を文字列prefixから `commonpath` へ、Q2のローカルtempにも同じサイズ上限を適用し成功・失敗いずれの経路でも `finally` で削除、と明記（第8.9節・C-61(d)(e)）。既知ゲート（基準アーカイブのcommit・A.10・B.1）は未変更。
+  - **v2.3.1は v2.3 への再レビュー指摘5件を反映した版**（公開モデルの骨格は維持し、その内側の穴を塞いだ）。(1)[major] `generation` の再採番を廃止。v2.3はP1で仮採番しP3で実値へrenameする規定だったため、ZIP内 `manifest.generation` が仮値のままファイル名とindexが実値になり三者不一致となり、書き換えれば「P2後は不変」契約に違反した。generationはadvisoryなのでP1で確定した値をファイル名・manifest・index entryへ通し、**採番し直さない**。同世代の並行publishは content hash の tie-break で決まる。ファイル名・manifest・index entryの**三者一致**を世代ファイルの自己整合性条件としQ3・S-4で検証（第8.9節・C-58）、(2)[major/security] 読みのTOCTOUを閉塞。Drive上ファイルは外部から差替え可能と本文自身が定めているため、path検証後に再openする形では未検証ZIPを展開できた。Q2でサイズ上限つきに**一度だけローカルtempへコピー**し、以後の whole-file hash・K-3〜K-5・manifest hash・展開を**すべて同一bytes**に対して行う。index entryのファイル名もbasename・厳密regex・pack座標一致・UUID/hash形式・realpathのroot配下としてschema検証する（第8.9節・C-61）、(3)[major] 「古い正当世代＝cache miss」は**正のエントリにしか成立しない**ことを是正。30日TTLの404負キャッシュは、索引が古い世代へ巻き戻ると期限切れの404を有効なhitとして再利用しえた。`.missing` へ `fetched_at_utc` / `expires_at_utc` をmanifest hash対象として持たせ、Q3・Q4で期限切れを常に「エントリ無し」扱いにする。正のエントリは `dem_cache_version` 一致を必須化（第8.9節「negative entryの期限」・C-25・C-52(b)）、(4)[major] 1時間猶予と2 GB上限の優先順位を確定。**2 GBをhard limitとし猶予に優先**。P0で容量を確保し、通常GCで足りなければ猶予前の未参照世代も緊急GCで削除、それでも確保できなければDriveへのpublishをスキップして一次キャッシュのみで継続する（G1〜G4。第8.9節・C-60）、(5)[minor] P1のパック構成を「索引が指す検証済み世代をbaseに一次キャッシュの新規・更新を重ねた全体（同一エントリは一次キャッシュ優先、期限切れ `.missing` は除外）」と確定しsubset publishを禁止、P2の rename を**no-clobber契約**（宛先が既存なら一切触れず新tokenで再試行）として明記（第8.9節・C-61）。既知ゲート（基準アーカイブのcommit・A.10・B.1）は未変更。
   - **v2.3は v2.2 への再レビュー指摘5件を受け、第8.9節のDriveキャッシュ公開モデルを「固定名canonicalの上書き＋fencing token＋conflict marker」から【不変世代ファイル＋索引ポインタ】へ全面置換した版**。指摘(1)(2)により、v1.8以降の漸進的補強では次の2点が**原理的に解けない**ことが確定したため（(1) 手順7と7bの間に隔離されると、旧writerは後継writerのlockへ根拠を書いてしまい、検査を増やしても窓が移動するだけ。(2) 「stale writerは後から `os.replace` しうるので証跡を時間で無視するな」と「resolver・起動時掃除が証跡を除去する」は両立せず、強制終了できないプロセスはfencingできない）、**上書きされる可変オブジェクトそのものを無くす**方針へ切り替えた（指摘(2)が提示した選択肢のうち後者「immutable世代ファイル＋現ownerだけが更新できる選択情報」を採用）。パックは `{pack名}.g{generation}.{token}.zip` の一意名で一度だけ rename 出現し以後不変、可変なのは `index.json` のポインタ1つだけ。これにより**あらゆる競合の最悪結果が「古いが正当な世代の選択」＝cache missへ収束**し、破損が構造的に発生しない。結果として次をすべて削除した: 4点比較／pack単位ロック／replace前後のfencing token確認（手順7・9）／`publishing.json`（手順7b）／`{pack名}.conflicted`・`index.conflicted` と reader fail-close（seqlock読み）／marker解決手順R1〜R8／エントリ単位merge／`_conflict_`・`_locktimeout_` 別名ZIPと `pending.json` pending契約。`index.lock` は**advisory**（直列化による無駄な上書き合戦の抑制のみ。取得失敗でもpublishを中止してよい）へ格下げし、`generation` の単調増分もadvisoryとした。指摘(3)(4)(5)は対象機構の消滅により解消（pending昇格の迂回・`pending.json` の一時的な上限破れ・r1/r3/r5のbaseline更新は、いずれも該当機構が存在しない）。受け入れ基準はC-52を(a)〜(e)へ全面改訂、C-58を索引の一貫性と再構築へ改訂、C-60を世代ファイルのGC・容量の有界性へ改訂。既知ゲート（基準アーカイブのcommit・A.10・B.1）は未変更。
   - **v2.2は v2.1 への再レビュー指摘5件（critical 2・major 3）を反映した版**。(1)[critical] token喪失検知後の復旧を**merge廃止・fail-safe破棄**へ全面改訂（v2.1の「本名をconflict版へ複製して次回mergeする」は、複製できるのが自分の上書き版のみで、上書きで失われた版を含む復旧集合を構成できず、A+Aを「正常merge」としてmarkerを消せた）。手順9はmarker作成のみを行い複製せず、解決はcanonicalとpending候補の破棄→再取得とする（第8.9節手順9・「次回起動時の解決」・C-52(c)）、(2)[critical] readerのfail-closeを**常時成立**へ強化。手順7と手順8の間のpublish窓を、writer自身が `os.replace` の**前に**書く `lock/publishing.json` として可視化し（手順7b）、隔離renameがこれを窓ごと捕捉するため「手順7bから手順9正常完了まで、そのwriterの `publishing.json` が `.lock/` か `.lock.stale.*/` に必ず存在する」という不変条件が成立する。stale replaceは必ずこの区間の内側で起こるため、fail-closeの根拠が常にreplaceより先に存在する（外部の観測者が競走に勝つ必要がない）。読み側は `.lock.stale.*/` を含むpublish窓集合と `{pack名}.conflicted` を展開の前後で確認する（seqlock相当）（第8.9節手順4c・7b・「conflict markerとreaderのfail-close」・C-52(d)）、(3)[major] marker除去のABA競合を解消。固定path markerの無条件除去を禁止し、resolver専用pathへのrename→内容再確認→自分が移したものだけ削除、という解決手順R1〜R8をpack・index両方へ規定（第8.9節「markerの解決手順」・C-52(e)・C-58）、(4)[major] 別名ZIPの回収・容量契約を新設。`pending.json` へのdurable登録＋registryに依らないpattern走査、canonical不在時のみの昇格（merge禁止）、TTL 7日・pack当たり3件・全体50件/512 MB、2 GB容量上限への算入を規定（第8.9節「別名ZIPのpending契約」・C-60）、(5)[major] Route上限超過の「全Leg `NOT_COMPUTED`」を**今回の試行のセッション表示**と明示し、`PersistedSeaState` を上書き・無効化しないことを確定（第8.8節・C-56）。既知ゲート（基準アーカイブのcommit・A.10・B.1）は未変更。
   - v1.6は v1.5 へのレビュー（16件の設計矛盾・14件の追加修正・15件の受け入れ基準不足・未決事項6件の推奨処理）を反映した版。「実装ゲート」と「リリースゲート」を分離し、fingerprintベースの陳腐化判定・統合Issue判定・手入力SEA全経路対応・海岸線安全側処理・長Leg投影誤差対策・非同期ジョブ世代管理を新規に規定した。
@@ -171,11 +207,11 @@
   - **v1.7は v1.6 への再レビュー指摘11件を反映した版**。(1) 手入力SEA確認を `manual_value_ft` を含む `sea_manual_confirmation` fingerprintへ紐づけ（第10.5節）、(2) Issueの同一性・承認キーを `issue_cause_fingerprint` / `issue_ack_key` として単一定義し `dedupe()` と `acknowledged_warning_codes` で共用（第6.3節）、(3) 計算入力fingerprintの対象payloadを全列挙（第10.2節）、(4) `normalize()` を実装可能な水準まで規定し固定テストベクトルを掲載（第10.1a節）、(5) `validation_status` の許容集合と印刷可否を確定（第0.1節・A.3a）、(6) `corridor_nm` / `margin_ft` をSEA policy定数へ統一（第8.1節・第10.2節・第10.3節）、(7) `SeaJobContext` を `SeaJobState` から分離しメインスレッド単一処理を規定（第8.7節）、(8) 海岸線バッファのpolygon抽出bboxを `d_coast_m` 拡張（第8.4.2節）、(9) HTTP timeout / job deadline を数値契約化（第8.10節）、(10) 根拠ソースを基準commit＋作業ツリーとして固定しPolygon契約を現行機能維持へ更新（本節冒頭・第0.5節・FR-15・D-10）、(11) 第0.1節のデータ状態を作業ツリーの実測値へ更新し欠落時要件を一般則へ書き分け。
   - **v1.7で新たに判明した基準ソースのずれ**（再レビュー指摘10の派生。レビュー指摘外だが同種の欠陥のため併せて修正）: 作業ツリーの `calculation_service.py` は既にSEAを参照しBlockerを2件生成している。v1.6までの「SEAは計算で参照されていない」（第0.2節・A.7）は基準commitに対しては真だが作業ツリーに対しては偽であり、新規コード `PLANNED_ALTITUDE_BELOW_SEA` は既存 `PLANNED_ALTITUDE_BELOW_SAFE_ENROUTE` の重複定義になっていた（第0.3節「重複定義の禁止」違反）。第0.2節・第0.4節・FR-34・A.7・A.9を修正した。
   - **v1.8は v1.7 への再レビュー指摘13件を反映した版**。(1) 第2.1節のKMLスコープをFR-15と整合（エラー対象はskipされた未対応surfaceのみ）、(2) 根拠ソースを基準アーカイブ＋SHA-256で再現可能に固定、(3) KML貼付欄を既存 `kml_text` の再配置に統一し二重Textareaを禁止（FR-1・FR-14）、(4) 陸域マスク利用不可時もDEM有効値は `land`（第8.4.3節）、(5) `IssueContext` を型定義し `dedupe(effective, ...)` / `issue_ack_key(issue, ctx)` へ統一、計算Issueは `calculated_against_fingerprint` に固定（第6.3節）、(6) ETDの解釈規則を単一化しfingerprintへdatetimeオブジェクトを渡す規約に（第10.3節・A.1）、(7) `sea_proposal_fingerprint(section, proposal)` へ署名修正（第10.5節・第6.3節）、(8) DriveパックのTOCTOU対策としてロックプロトコルを新設（第8.9節）、(9) Polygon穴のラスタ化を「Polygon個別マスク→OR合成」へ修正（第8.4.3節・C-39）、(10) タイル取得を共有deadline方式へ修正し試行回数の意味を固定（第8.10節）、(11) `PERFORMANCE_DATA_UNVERIFIED` を新規コードとして統一（第0.1節・A.3a）、(12) 性能manifestの計算影響フィールドを含む `performance_fingerprint` と `airports.csv` の行内容hash `airport_data_fingerprint` を導入（第10.2節）、(13) Polygon外周の選択後座標上限 `max_coordinates_in_selected_polygon_outer` を新設（K-10・FR-15）。受け入れ基準 C-51〜C-53・E-22・F-16・K-12・A-7 を追加し、C-39・E-21 を改訂した。
-  - **v2.1は v2.0 への再レビュー指摘6件＋補足2件を反映した版**。(1)[critical] pack書き戻し手順9のtoken喪失検知後の契約を「conflict版への複製（複製元は読み戻し検証済みの本名ファイル）＋persistent conflict marker `{pack名}.conflicted` の作成＋当該packのindex更新禁止」へ強化し、readerのfail-close（marker存在時はcanonical不使用・cache miss扱い）と次回起動時のエントリ単位決定論的merge／破棄・再構築を新設（第8.9節・C-52(c)・C-58）、(2) `tile_content_fingerprint` / `unknown_mask_fingerprint` のバイト水準の算出規約（hashアルゴリズム・タイルの決定的順序・404/fetch_failed marker・maskのshape/dtype/C-order・framing）と固定ベクトルを確定し、`sea_proposal_fingerprint` へ `failsafe_reasons` / `warnings` を追加、`SeaProposal.fingerprint` を「算出完了時に評価した保存値（同値契約・判定には不使用）」と定義（第10.5節・第8.7節・C-59）、(3) 拡張陸域ポリゴン（`d_coast_m` buffer・差分）はA.10のoffline生成手順で事前生成し同梱すると明確化し（実行時はPILラスタ化のみ）、生成ツールの版固定（Shapely/GDAL等。アプリ実行時依存には加えない）・CRSとbuffer方式・座標丸め・穴/MultiPolygonの扱い・固定test vectorをA.10生成手順の確定必須項目へ追加（第8.4.2節・A.10）、(4) `SeaJobContext.excluded_section_ids: frozenset[UUID]` を型定義し、除外Legの guard／preflight／表示／印刷判定（過去の有効な確認は保持、stale・未算出は手入力SEAまたは除外解除）を確定（第8.7節・第8.8節・C-56）、(5) F-14を「dedupe検証（Blocker例: 1件に畳まれ原因解消まで残る）」と「承認共通性検証（要承認Warningの二重producer fixture）」へ分離——v2.0のBLOCKER承認例は不成立だった（第14章）、(6) `normalize()` のDecimal対応を除去しTypeErrorへ（float経由の丸めで精度を失っていた。現行入力にDecimalは無い。第10.1a節・E-20）。補足対応: lock関連一時path（stale隔離・release・locktimeout・conflict）のtokenをfull UUIDへ統一、`.lock.release.*` を起動時掃除・容量制限対象外へ明記（第8.9節）。
+  - **v2.1は v2.0 への再レビュー指摘6件＋補足2件を反映した版**。(1)[critical] pack書き戻し手順9のtoken喪失検知後の契約を「conflict版への複製（複製元は読み戻し検証済みの本名ファイル）＋persistent conflict marker `{pack名}.conflicted` の作成＋当該packのindex更新禁止」へ強化し、readerのfail-close（marker存在時はcanonical不使用・cache miss扱い）と次回起動時のエントリ単位決定論的merge／破棄・再構築を新設（第8.9節・C-52(c)・C-58）、(2) `tile_content_fingerprint` / `unknown_mask_fingerprint` のバイト水準の算出規約（hashアルゴリズム・タイルの決定的順序・404/fetch_failed marker・maskのshape/dtype/C-order・framing）と固定ベクトルを確定し、`sea_proposal_fingerprint` へ `failsafe_reasons` / `warnings` を追加、`SeaProposal.fingerprint` を「算出完了時に評価した保存値（同値契約・判定には不使用）」と定義（第10.5節・第8.7節・C-59）、(3) 拡張陸域ポリゴン（`d_coast_m` buffer・差分）はA.10のoffline生成手順で事前生成し同梱すると明確化し（実行時はPILラスタ化のみ）、生成ツールの版固定（Shapely/GDAL等。アプリ実行時依存には加えない）・CRSとbuffer方式・座標丸め・穴/MultiPolygonの扱い・固定test vectorをA.10生成手順の確定必須項目へ追加（第8.4.2節・A.10）、(4) `SeaJobContext.excluded_section_ids: frozenset[UUID]` を型定義し、除外Legの guard／preflight／表示／印刷判定（過去の有効な確認は保持、stale・未算出は手入力SEAまたは除外解除）を確定（第8.7節・第8.8節・C-56）、(5) F-14を「dedupe検証（Blocker例: 1件に畳まれ原因解消まで残る）」と「承認共通性検証（要承認Warningの二重producer fixture）」へ分離。v2.0のBLOCKER承認例は不成立だった（第14章）、(6) `normalize()` のDecimal対応を除去しTypeErrorへ（float経由の丸めで精度を失っていた。現行入力にDecimalは無い。第10.1a節・E-20）。補足対応: lock関連一時path（stale隔離・release・locktimeout・conflict）のtokenをfull UUIDへ統一、`.lock.release.*` を起動時掃除・容量制限対象外へ明記（第8.9節）。
   - **v2.0は v1.9 への再レビュー指摘11件（CodeRabbit由来6件＋手動照合5件）を反映した版**。(1) pack lockの解放を「owner token確認→自token専用release pathへのrename→再確認→削除」の所有権付き解放へ全面改訂し、token喪失時は現行lockへ一切触れない契約とした（第8.9節・C-52）、(2) `index.json` 更新へpack lockと同じfencing token手順（取得〜所有権付き解放）を適用し、`manifest.json` の `revision`・`index.json` の `generation` のschema契約（型・初期値・単調増分・期待値取得時点・破損時初期化）を新設（第8.9節・C-58）、(3) lock取得timeout時の動作（本名を上書きせず `_locktimeout_` 別名へ退避・警告・索引不更新）を本文へ明記しC-52と整合（第8.9節）、(4) `IssueContext` を再帰的に不変な値（凍結identity＋正準JSON文字列＋構築時確定のキー）へ改め、`create_effective_issue()` を唯一のfactoryとした（第6.3節・F-17）、(5) Route上限超過からの復帰を「SEA算出対象からの除外（Route・NavSection非変更）＋再preflight」として確定（第8.8節・C-56）、(6) 無効化表へSEA確定値変更・`dem_cache_version`・タイル上限の行を追加（第10.3節・C-57）、(7) E-23(a)を「Snapshot読込」ケースへ、E-23(c)/F-16を「入力fingerprintまたはcause metadataが変わった新outcomeの場合のみ再承認」へ訂正（第14章）、(8) `cause` 構成の個別規則をcode別・producer非依存へ改めF-14のcross-source dedupeを成立させた（第6.3節）、(9) S-9/E-24の「未算出」を「一度も確定結果がないLegのみ」に限定（第13.2節・第14章）、(10) performance実測digestを起動時・明示再読込時は必ず再hashする契約へ強化（第10.2節・E-25）、(11) 実装開始条件の表現を「文書内容の未決はA.10/B.1、実装handoffには加えて基準アーカイブの固定が必須」へ2箇所とも訂正（本節・第15章）。
   - **v1.9は v1.8 への再レビュー指摘15件を反映した版**。(1) pack lockのstale回収をquarantine rename＋fencing token方式へ全面改訂（第8.9節）、(2) 基準の優先順位を「現状記述はアーカイブが正・あるべき姿は本書が正」へ訂正（本節）、(3) `index.json` 更新を専用lock内の不可分操作へ（第8.9節）、(4) SEAジョブ結果のguard順を短絡評価列へ固定し、1件の例外でqueue処理を止めない（第8.7節）、(5) `IssueContext.cause` を生成時にnormalize＋deep freezeし指紋を生成時に確定（第6.3節）、(6) `dedupe` の集約規則を完全定義（第6.3節）、(7) outcome由来ctxの再起動・Snapshot再構築契約を新設（第6.3節・E-23）、(8) S-9の正規化対象を永続モデル上で定義（第13.2節・E-24）、(9) `sea_input_fingerprint` へ `dem_cache_version`・実効タイル上限を追加（第10.5節）、(10) S-3の読込側拒否を `parse_constant` 方式で明記（第13.2節）、(11) DEMデコードのdtype契約を追加（第8.3節）、(12) C-7を `unknown_pixels == 0` に限定しC-38と整合、(13) datetimeのaware判定へ `utcoffset() is not None` を追加（第10.1a節）、(14) `performance_fingerprint` の `table_sha256` を実CSV bytesからの実測digestへ変更（第10.2節）、(15) 基準アーカイブのcommitを成果物条件として明記（本節）。
 
-> **現行規範の優先順位:** 配布方式とUI実行形態はv2.7.1のD-30〜D-34／W-1〜W-6を最優先する。航法計算・データ・安全ゲートはv2.6.0本文を維持する。v2.5.3以前のSEA・DEM・陸域マスク関連記述は履歴・現状説明としてのみ残す。
+> **現行規範の優先順位:** 表示、目的地TAF風、更新確認はv2.7.4のD-37〜D-39／W-9〜W-12を最優先する。配布方式とUI実行形態はv2.7.1のD-30〜D-34／W-1〜W-6を適用する。航法計算・データ・安全ゲートはv2.6.0本文を維持する。v2.5.3以前のSEA・DEM・陸域マスク関連記述は履歴・現状説明としてのみ残す。
 
 ## 本書の位置づけと実装開始条件
 
@@ -198,7 +234,7 @@
 1. 選択経路に必要な空港・地点・CP参照データを整備し、目的空港の実運用場周経路高度を一次資料で検証する
 2. 性能データのmanifestが `validation_status == "VERIFIED"` で、記録hashと実CSVが一致する
 3. 非SEA機能の受け入れ基準（第14章）を満たす
-4. アプリバージョンを `0.2.0` として `pyproject.toml` に反映する
+4. アプリバージョンを `0.2.1` として `pyproject.toml` に反映する
 ```
 
 `Project.schema_version` と `CalculationSnapshot.schema_version` は既存の `1` を維持する。既存のSEA関連fieldは読込互換のため残してよいが、本版の計算・状態・表示・出力には使用しない。
@@ -212,7 +248,7 @@
 **v1.6までの本節は「同梱データが空である」を前提としていたが、これは基準commit時点の状態であり作業ツリーとは一致しない**（再レビュー指摘11）。v2.7.3作業ツリー（2026-08-12）の実測値は次のとおりである。
 
 | ファイル | 実測値（2026-08-12 作業ツリー） |
-|---|---|
+| --- | --- |
 | `data/reference/default/airports.csv` | **14件**（RJFC/RJFE/RJFG/RJFK/RJFM/RJFO/RJFS/RJFT/RJFU/RJOA/RJOB/RJOK/RJOM/RJOT）。全行にAIP由来ARP座標・標高、場周高度、固有出典・revision、`VERIFIED` を記録済み |
 | `data/performance/climb_time_fuel_distance.csv` | **36行**（原表19節点を500 ft刻みに線形補間、ヘッダ除く） |
 | `data/performance/cruise_performance.csv` | **159行**（ヘッダ除く） |
@@ -241,7 +277,7 @@
 CSVが空でないことのみを「充足」の条件としない。最低限、次を検査する。
 
 | データ | 検査項目 |
-|---|---|
+| --- | --- |
 | Reference data | active packのmanifest/hash/schemaが妥当／ID一意／緯度経度が有効範囲内／FROM・TO・VREP・CPの選択行を解決可能／目的空港の `elevation_ft_msl` が有効かつ出典確認済み／`pattern_altitude_ft_msl` が実運用値として出典確認済み |
 | Performance | climb・cruise双方が1件以上／`manifest.json` のhashと実ファイルが一致／`validation_status` が下表の許容集合に属する／`aircraft_profile_id == "SR22_G6"` を解決可能／必要な重量・高度・温度範囲が揃っている |
 
@@ -250,7 +286,7 @@ CSVが空でないことのみを「充足」の条件としない。最低限�
 v1.6は「UNVERIFIED以外」（第1章）・「許可された状態」（本節）・「UNVERIFIEDのみBlocker」（下段）と三様に書いており、**未知値や将来の拒否状態を素通しさせる欠陥があった**（再レビュー指摘5）。現行 `PerformanceManifest.validation_status` は**制約のない `str`**（既定 `"UNVERIFIED"`）であり、`is_verified` は `"VERIFIED"` 完全一致、リリース検証も `"VERIFIED"` 完全一致である。これに合わせて許容集合を次のとおり**閉じた集合**として定義する。
 
 | `validation_status` | 意味 | 印刷可否 | 起動時のデータ充足表示 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `VERIFIED` | 一次資料と突合済み | **可**（他の条件を満たす場合） | 充足 |
 | `UNVERIFIED` | 未突合（既定値） | **不可**（`PERFORMANCE_DATA_UNVERIFIED`／BLOCKER） | 充足（値自体は検査に通るため） |
 | `PENDING` | 突合作業中 | **不可**（同上） | 充足 |
@@ -284,7 +320,7 @@ v1.6は「UNVERIFIED以外」（第1章）・「許可された状態」（本�
 本改修で新設が必要と見えた概念の多くは、既に実装されている。**新しいenumやフィールドを重複して定義してはならない。**
 
 | 新設が不要な概念 | 既存の実装 |
-|---|---|
+| --- | --- |
 | 値ごとの可用性・来歴 | `AdoptedValue[T]`（`automatic_value` / `automatic_status` / `automatic_metadata` / `manual_override` / `adopted_source` / `warnings`） |
 | 値の状態 | `ValueState`（AUTO / MANUAL_OVERRIDE / FIXED_RULE / PERFORMANCE_TABLE / UNAVAILABLE / WARNING） |
 | 気象の可用性 | `Availability`（AVAILABLE / UNAVAILABLE）、`WeatherResult.reason_code` |
@@ -308,7 +344,7 @@ v1.6は「UNVERIFIED以外」（第1章）・「許可された状態」（本�
 UIは未知の `Issue.code` も落とさず、`severity`、`message`、`section_id`、`acknowledgement_required` に従って表示・集計する。本表は本改修で特別な導線を要するコードであり、網羅一覧ではない。
 
 | コード | 重大度 | 扱い |
-|---|---|---|
+| --- | --- | --- |
 | `ROUTE_INCOMPLETE` | BLOCKER | 既存 |
 | `AIRPORT_DATA_UNAVAILABLE` | BLOCKER | 既存 |
 | `PERFORMANCE_DATA_UNAVAILABLE` | BLOCKER | 既存 |
@@ -337,7 +373,7 @@ UIは未知の `Issue.code` も落とさず、`severity`、`message`、`section_
 **v1.6までの本節は「KML貼付テキストエリア・形状Select・確認Checkbox・一括追加・全Leg ALT一括適用・印刷用HTMLダウンロードボタンが存在しない」としていたが、これは基準commitに対する記述であり作業ツリーでは誤りである**（再レビュー指摘10の派生）。作業ツリーの `presentation/colab.py`（`AutoNavLogApp`）には次がすべて**存在する**。
 
 | 要素 | 実体 |
-|---|---|
+| --- | --- |
 | KML貼付テキストエリア | `self.kml_text`（`widgets.Textarea`） |
 | KML/KMZアップロード | `self.upload`（`FileUpload(accept=".kml,.kmz")`） |
 | 形状Select | `self.shape_candidates`（`widgets.Select`。`("line", i)` / `("polygon", i)` / `("point", i)`） |
@@ -365,7 +401,7 @@ Polygonの扱いも同様に修正が必要である。**作業ツリーの `imp
 ### 1.1 設計原則
 
 | 順位 | 原則 |
-|---|---|
+| --- | --- |
 | 1 | 安全側に倒す。不確実な値・未確認の値・古い計算結果を転記させない。欠損値を既定値で埋めない |
 | 2 | 利用者が外部から用意する必須データはKML/KMZのみ |
 | 3 | 次の1手を常に画面に出す。無効化には理由と対処を併記する |
@@ -467,7 +503,7 @@ class PersistedUiState(BaseModel):
 導出規則:
 
 | 表示・操作 | 条件 |
-|---|---|
+| --- | --- |
 | フェーズA | `route_state != READY` |
 | フェーズB1（入力確認） | `route_state == READY` |
 | 入力Section一覧 | `route_state == READY` かつSectionが1件以上 |
@@ -490,7 +526,7 @@ CB=計算ブロッカー、CD=計算必須・既定値あり、PB=転記ブロ�
 ### 4.2 項目一覧（既定値は現行実装の実測値）
 
 | 項目 | ドメイン上の名称 | 分類 | 現行既定値 | 本改修での既定値 | 初期表示 |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | KML / KMZ | — | CB | — | — | 常時表示 |
 | LineString選択 | — | CB | — | 1件なら自動 | 条件表示 |
 | DATE | `flight_date` | CD | **`date.today()`** | **翌日（JST）へ変更** | KML欄直下 |
@@ -545,7 +581,7 @@ KML貼付欄は**既存の `self.kml_text`（`widgets.Textarea`。第0.5節）�
 active参照データパックのAirport viewから最寄り空港を探索する。候補は経路ごとに変わるため、FROM/TOをruntime固定値として持たない。
 
 | 距離 | 空港識別 | 経路端点の座標 |
-|---|---|---|
+| --- | --- | --- |
 | 1 nm 以内 | 自動確定 | KML座標をそのまま使用 |
 | 1 nm 超 5 nm 以下 | 候補提示、利用者が採否 | 同上 |
 | 5 nm 超 | 空港なし。下記から選択 | 同上 |
@@ -599,7 +635,7 @@ SEA算出、SEA入力、SEA確認、結果テーブルのSEA列は実装しな�
 `SectionResult` の各 `AdoptedValue` は読み取り専用表示とする。`ValueState` により表示を分ける。
 
 | ValueState | 表示 |
-|---|---|
+| --- | --- |
 | AUTO | 値のみ |
 | PERFORMANCE_TABLE | 値＋出典（`performance_metadata`） |
 | FIXED_RULE | 値＋`規則値`（例: 降下 500 fpm、到着 無風） |
@@ -622,7 +658,7 @@ Leg単位で利用者が入力するのは **Phase / ALT** であることが一
 現行実装の挙動（維持する）:
 
 | 状況 | 現行の挙動 |
-|---|---|
+| --- | --- |
 | Polygon解析 | `importers/kml.py` が外周（`outer_boundary`）・内周（`inner_boundaries`）・高度を `ImportedPolygon` として保持する |
 | Route化 | `colab.py` で形状Selectから `("polygon", i)` を選び、**確認Checkbox（`quick_run_confirmation`）をONにした場合のみ** 外周の各頂点をRoute候補（`KML/KMZ Polygon (confirmed)` 由来）として適用する |
 | 未確認時 | `_require_quick_run_confirmation(polygon=True)` により「Polygonは空域・区域境界の可能性があります。」として拒否する |
@@ -654,7 +690,7 @@ Leg単位で利用者が入力するのは **Phase / ALT** であることが一
 **入力Section一覧と結果テーブルは別物として扱う**（再レビュー指摘: v1.6初版は「計算により `SectionResult` が得られて初めて一覧を描画する」としていたが、フェーズB1では計算開始前にLegのALT・Phaseを確認・編集する必要があり、第3.2節の導出規則と矛盾していた）。
 
 | 領域 | 表示条件 | 内容 |
-|---|---|---|
+| --- | --- | --- |
 | 入力Section一覧（フェーズB1） | `route_state == READY` かつ `NavSection` が1件以上 | 各LegのFROM/TO・ALT・Phaseの確認と編集 |
 | 結果テーブル（フェーズB2） | `outcome is not None` | `SectionResult` の各 `AdoptedValue`（読み取り専用。FR-13） |
 
@@ -733,7 +769,7 @@ Web版のProject保存はD-32どおり既存の `LocalProjectRepository` を使�
 ### FR-33 Forecast Run の選択と提示 【必須】
 
 | 時機 | 動作 |
-|---|---|
+| --- | --- |
 | 初回 | `ForecastService.build_initial_requirement()` → `resolve_run()` により自動選択。利用者操作を要しない |
 | 表示 | `selected_forecast_run_id` と `initial_time_utc` を結果テーブル直上に常時表示 |
 | 2回目以降 | `selected_forecast_run_id` を既定使用。明示操作なしに変更しない |
@@ -897,7 +933,7 @@ Snapshotはdedupe済み全EffectiveIssueを、canonical cause、凍結安全属�
 ### 6.4 保存・Snapshotの可否
 
 | 操作 | 可否条件 | API |
-|---|---|---|
+| --- | --- | --- |
 | 保存・自動保存 | Project生成後は常に可能 | `save(project, expected_revision)` / `autosave()` |
 | Snapshot | `outcome is not None` | `ProjectService.snapshot(project, outcome, ...)` |
 | 転記補助HTML | 第6.3節の全条件を満たす | — |
@@ -986,7 +1022,7 @@ planned_endpoint_time_utc = planned_departure_time_jst + planned_elapsed_seconds
 ARP座標と `elevation_ft_msl` はAIP Japan AD 2.2を正とし、気象庁「航空気候情報2025年版」の空港名・座標・標高で照合する。AIPと気象観測地点の座標または標高が異なる場合、VREP距離と式フォールバックにはAIPのARP・AD elevationを使用する。取得経路がAIP公開ミラーの場合はURL、取得日、AD2-1有効日を `source_revision` に残し、リリース前に最新AIS Japanとの差分を再確認する。
 
 | 空港 | AIP標高 | 正解値（MSL） | 判定方法 | 根拠 |
-|---|---:|---:|---|---|
+| --- | ---: | ---: | --- | --- |
 | RJFC 屋久島 | 122 ft | 1,100 ft | `DESIGN_FORMULA_FALLBACK` | 122 → 100 + 1,000 |
 | RJFE 福江 | 251 ft | 1,300 ft | `DESIGN_FORMULA_FALLBACK` | 251 → 300 + 1,000 |
 | RJFG 種子島 | 768 ft | 1,800 ft | `DESIGN_FORMULA_FALLBACK` | 768 → 800 + 1,000 |
@@ -1330,7 +1366,7 @@ def make_fingerprint(*, kind: str, fields: dict[str, Any]) -> str:
 規約の要点:
 
 | 規則 | 内容 |
-|---|---|
+| --- | --- |
 | float表現 | **小数6桁の固定文字列**（`"1.000000"`）とする。`json.dumps` のfloat表記（`1.0` と `1` の差、指数表記）に依存しない。結果として `5`（int）と `5.0`（float）は別物として区別される |
 | 負のゼロ | `-0.0` は `0.0` へ畳む（`"0.000000"`） |
 | NaN / ±Infinity | **例外**。`allow_nan=False` を併用して二重に防ぐ |
@@ -1373,7 +1409,7 @@ def make_fingerprint(*, kind: str, fields: dict[str, Any]) -> str:
 ```
 
 | # | 差分 | SHA-256 |
-|---|---|---|
+| --- | --- | --- |
 | V1 | 上記のまま | `cbf72b4daefa6a82e1e68be85b92b7783a52a0573a3f42b9362f8790fef291bd` |
 | V2 | `rounded_float` を `0.12345651` へ（6桁目が変わる） | `dcc631c0d34cc59a19f412895b9ed1d13f07b22a8d19c38bd5237a6a8fd3a5ff` |
 | V3 | `rounded_float` を `0.1234565` へ（丸めるとV1と同値） | `cbf72b4daefa6a82e1e68be85b92b7783a52a0573a3f42b9362f8790fef291bd`（**V1と一致すること**） |
@@ -1388,7 +1424,7 @@ SEA専用の固定vectorは本版では試験対象に含めない。
 ### 10.2 計算入力fingerprint
 
 | クラス | 対象 | 再計算 |
-|---|---|---|
+| --- | --- | --- |
 | DISPLAY | `pilot_name`、`ship_identifier`、Project名 | 不要 |
 | HEADING | RouteNode座標（各Leg出発緯度からVARを導出） | 必要 |
 | FUEL | `total_usable_fuel_gal`、`tgl_count` | 必要 |
@@ -1417,7 +1453,7 @@ performance fingerprintはmanifest記載hashをそのまま信用せず、明示
 ### 10.3 変更時の無効化規則
 
 | 変更 | 航法再計算 |
-|---|---|
+| --- | --- |
 | PILOT / SHIP / Project名 | 不要 |
 | VAR / FUEL / TGL | 必要 |
 | DATE / ETD / QNH / Forecast Run | 必要 |
@@ -1475,7 +1511,7 @@ DATE、ETD、出発地の変更で一致しなくなった場合はQNH値を保�
 ### 11.2 追加要求
 
 | ID | 内容 |
-|---|---|
+| --- | --- |
 | K-1 | Polygonのみで `LineString` が0本の場合、「面を経路として使う（確認付き）」と「経路を作り直す」の2択を提示する（FR-15b。**v1.7で改訂**。旧K-1の「無視した事実をエラーとして提示」は現行実装と矛盾していた） |
 | K-2 | 複数 `LineString` の選択UI（FR-20） |
 | K-3 | DOCTYPE宣言・外部実体参照・エンティティ展開の明示的拒否（`defusedxml` の既定に依存せず設定を明示する） |
@@ -1516,7 +1552,7 @@ DATE、ETD、出発地の変更で一致しなくなった場合はQNH値を保�
 ### 13.1 既存実装を使用する
 
 | 項目 | 既存実装 |
-|---|---|
+| --- | --- |
 | 保存 | `save(project, expected_revision)` → `projects/{project_id}/project.json`。revision不一致で `project-conflict-*.json` を作成し `RevisionConflictError` |
 | 自動保存 | `autosave()` → `projects/{project_id}/autosave.json` |
 | Snapshot | `create_snapshot()` → `snapshots/{project_id}/{snapshot_id}.json`。既存パスなら `FileExistsError`（不変） |
@@ -1526,7 +1562,7 @@ DATE、ETD、出発地の変更で一致しなくなった場合はQNH値を保�
 ### 13.2 追加要求
 
 | ID | 内容 |
-|---|---|
+| --- | --- |
 | S-1 | 書込み後に読み戻して整合性を検証し、失敗時は旧版を維持する |
 | S-2 | `.bak` を1世代保持する |
 | S-3 | 書込み・読込でNaN、Infinity、重複JSON keyを拒否し、同じraw bytesをJSON-modeのstrict Pydantic検証へ渡す |
@@ -1592,7 +1628,7 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 **N（NAV2教範照合）**
 
 | # | 基準 |
-|---|---|
+| --- | --- |
 | N-1 | ZONE ETE、CUM ETE、TTL TIME、Forecast用planned elapsedへLoss Timeを加えない |
 | N-2 | ETD基準の内部時刻をETOとして表示せず、機上実績時刻欄を空欄にする |
 | N-3 | 旧Projectの非0 `loss_time_seconds` が航法時間・燃料・fingerprintを変えない |
@@ -1636,7 +1672,7 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 以下は決定済みである。
 
 | 項目 | 決定 |
-|---|---|
+| --- | --- |
 | 成果物 | KMLからNAV LOGの地上準備を完了する転記補助HTML |
 | ETO / Loss Time | 地上計画へLossを入れず、実績時刻欄は空欄 |
 | VREP高度 | ArrivalPlanで確定した採用場周高度へ500 ftを加え、5 NM超過の整数NM×200 ftを加算 |
@@ -1645,7 +1681,7 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 | NAV2の風 | 欠損を無風補完しない。到着固定規則だけ例外 |
 | SEA・陸域マスク | 本版では実装・表示・出力しない。将来は独立した別表として再設計 |
 | 基準アーカイブ | commit `24058c1` で固定済み |
-| アプリ版 | `0.2.0` |
+| アプリ版 | `0.2.1` |
 
 提供資料の全件照合、式フォールバックの来歴記録、参照データpack整備はリリースゲートであり、コード実装開始を止めない。
 
@@ -1656,7 +1692,7 @@ A.1〜A.9を本版の外部インタフェース契約とする。旧A.10は履�
 ### A.1 既定値
 
 | 項目 | 現行値 | 型・単位 | 所在 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | ALT | 5000 | `FloatText`、ft MSL | `colab.py` `self.altitude` |
 | FUEL | 81.0 | `FloatText`、gal（`total_usable_fuel_gal`、`gt=0`） | `colab.py` `self.fuel` |
 | VAR | 32.0°N以上+8°、未満+7° | Leg出発緯度から自動（東偏差を正） | `nav/variation.py` |
@@ -1693,7 +1729,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 ### A.3 参照データパック
 
 | 項目 | 内容 |
-|---|---|
+| --- | --- |
 | 同梱既定pack | `data/reference/default/reference-manifest.json`、`airports.csv`、`points.csv`、`checkpoints.csv`。airportsは訓練利用14空港を持ち、manifestのrow count・SHA-256と一致する |
 | 利用者pack | `MyDrive/AutoNavLog/reference-data/catalogs/{dataset_id}/{revision}/`。revisionは不変、`active.json` が選択版を指す |
 | schema | 第6.8節の列定義。全モデルはPydantic `extra="forbid"`、strict validation、非finite拒否、緯度 ±90・経度 ±180、kind内ID一意 |
@@ -1709,7 +1745,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 ### A.3a performance manifest
 
 | 項目 | 内容 |
-|---|---|
+| --- | --- |
 | 所在 | `data/performance/manifest.json` |
 | 型 | `PerformanceManifest`（pydantic）。`validation_status` は制約のない `str`（既定 `"UNVERIFIED"`） |
 | `is_verified` | `validation_status == "VERIFIED"` の完全一致 |
@@ -1723,7 +1759,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 ### A.4 保存
 
 | 項目 | 内容 |
-|---|---|
+| --- | --- |
 | 保存先 | `{root}/projects/{project_id}/project.json` |
 | 自動保存 | `{root}/projects/{project_id}/autosave.json` |
 | Snapshot | `{root}/snapshots/{project_id}/{snapshot_id}.json` |
@@ -1737,7 +1773,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 ### A.5 Forecast Run
 
 | 項目 | 内容 |
-|---|---|
+| --- | --- |
 | 要求生成 | `ForecastService.build_initial_requirement()`。推定速度100 ktの初期要求、収束後はいずれもLossを含まない `planned_elapsed_seconds` による各Sectionの中間・終了時刻を要求する。予報coverage末尾だけは飛行timelineと分離して、最終到着計画時刻へ10分＋`tgl_count`×7分を加算する |
 | 最終要求 | `build_final_requirement()`（出発時刻＋代表時刻） |
 | 選択 | `WeatherProvider.resolve_run(requirement)` |
@@ -1750,7 +1786,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 ### A.6 気象・QNH
 
 | 項目 | 内容 |
-|---|---|
+| --- | --- |
 | QNH自動値 | `WeatherRequestKind.ESTIMATED_QNH`、`request_id = "project:qnh"`、出発空港座標・ETD |
 | 表示名 | **`MSM推定QNH`**。公式QNHと表現しない |
 | 欠損時 | `QNH_UNAVAILABLE`（BLOCKER）。手動入力必須 |
@@ -1763,7 +1799,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 ### A.7 航法計算API
 
 | 項目 | 内容 |
-|---|---|
+| --- | --- |
 | 入口 | `CalculationService.calculate(project)` |
 | 入力 | `Project`（deep copyされる） |
 | 出力 | `CalculationOutcome`（`sections: list[SectionResult]` / `derived_points` / `arrival_altitude: ArrivalAltitudeResult` / `check_point_projections: list[CheckPointProjection]` / `fuel_plan` / `issues` / `iterations` / `converged` / `status` / `policy_version` / `performance_table_version` / `qnh_hpa`） |

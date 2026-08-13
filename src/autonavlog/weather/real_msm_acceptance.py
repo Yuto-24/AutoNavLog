@@ -276,8 +276,10 @@ def _validate_weather_result(
             _fail(f"{request.request_id}: qnh_hpa is outside the accepted sanity range")
         if result.values.get("label") != "MSM推定QNH":
             _fail(f"{request.request_id}: QNH is not labelled as MSM推定QNH")
-        if "ESTIMATED_QNH_NOT_OFFICIAL" not in result.warnings:
-            _fail(f"{request.request_id}: estimated-QNH warning is absent")
+        if {"ESTIMATED_QNH_NOT_OFFICIAL", "VERIFY_WITH_OFFICIAL_AERODROME_QNH"} & set(
+            result.warnings
+        ):
+            _fail(f"{request.request_id}: removed estimated-QNH warning is present")
 
     provenance = _validate_source_provenance(
         result,

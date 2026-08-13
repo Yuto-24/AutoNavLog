@@ -668,10 +668,26 @@ tbody tr:last-child td { border-bottom: 0; }
   font-weight: 700;
   text-align: center;
 }
+.nav-log-wind-editor { position: relative; min-height: 27px; }
 .nav-log-wind-inputs { display: grid; grid-template-columns: 52px auto 52px; align-items: center; gap: 2px; }
 .nav-log-wind-inputs .nav-log-number-input { min-width: 0; }
+.nav-log-wind-editor .nav-log-wind-inputs,
+.nav-log-wind-editor .nav-log-automatic-wind { transition: opacity 120ms ease; }
+.nav-log-wind-editor.shows-automatic-value .nav-log-wind-inputs { opacity: 0; }
+.nav-log-wind-editor .nav-log-automatic-wind {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--teal-700);
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+}
+.nav-log-wind-editor.shows-automatic-value:focus-within .nav-log-wind-inputs { opacity: 1; }
+.nav-log-wind-editor.shows-automatic-value:focus-within .nav-log-automatic-wind { opacity: 0; }
 .nav-log-editable-cell small { display: block; margin-top: 2px; color: var(--teal-700); font-size: 8px; font-weight: 700; }
-.nav-log-editable-cell .nav-log-automatic-wind { color: var(--slate-500); }
 .nav-log-invalid-cell { background: var(--red-50); }
 .nav-log-invalid-cell .nav-log-number-input { color: var(--red-700); border-color: var(--red-700); }
 .nav-log-invalid-cell .nav-log-field-error { color: var(--red-700); }
@@ -827,3 +843,39 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .qnh-summary strong { color: var(--navy-950); }
 .qnh-warning { color: #8a4b08; font-weight: 700; }
+
+.destination-wind-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: -4px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #b8d8d5;
+  border-radius: 8px;
+  background: #f2fbfa;
+  font-size: 12px;
+}
+
+.destination-wind-summary strong { color: var(--navy-950); }
+
+.destination-wind-summary details,
+.destination-wind-summary p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.destination-wind-summary summary {
+  color: var(--teal-700);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.destination-wind-summary code {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.destination-wind-summary p { color: var(--slate-500); }

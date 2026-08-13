@@ -60,7 +60,7 @@ jobs:
           python -m venv "$RUNNER_TEMP/release-validation-venv"
           "$RUNNER_TEMP/release-validation-venv/bin/python" -m pip install \
             release/wheels/jma_msm_wind-0.2.1-py3-none-any.whl \
-            release/wheels/autonavlog-0.2.0-py3-none-any.whl
+            release/wheels/autonavlog-0.2.1-py3-none-any.whl
       - name: Validate release runtime data
         id: runtime_data_validation
         continue-on-error: true
@@ -103,11 +103,11 @@ jobs:
             exit 1
           fi
       - name: Build release manifest
-        run: python scripts/build_release_manifest.py release --version 0.2.0
+        run: python scripts/build_release_manifest.py release --version 0.2.1
       - name: Upload versioned release to Drive
         env:
           GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
         run: >-
           python scripts/drive_release.py upload release
           --parent-id "${{ secrets.GDRIVE_RELEASE_FOLDER_ID }}"
-          --folder-name "0.2.0"
+          --folder-name "0.2.1"

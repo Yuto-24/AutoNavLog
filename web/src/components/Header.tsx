@@ -2,6 +2,7 @@ import { CheckCircle2, FolderOpen, Plus, Save } from "lucide-react";
 import type { SavedProject } from "../types";
 
 interface HeaderProps {
+  appVersion: string;
   projectName: string;
   revision: number | null;
   savedProjects: SavedProject[];
@@ -14,6 +15,7 @@ interface HeaderProps {
 }
 
 export function Header({
+  appVersion,
   projectName,
   revision,
   savedProjects,
@@ -28,7 +30,7 @@ export function Header({
     <header className="app-header">
       <div className="brand-block">
         <div className="brand-name">AutoNavLog</div>
-        <div className="brand-subtitle">NAV2 地上準備</div>
+        <div className="brand-subtitle">NAV2 地上準備 / v{appVersion}</div>
       </div>
       <div className="header-project">
         <span className="header-project-label">プロジェクト</span>
