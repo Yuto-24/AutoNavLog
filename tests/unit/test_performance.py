@@ -319,6 +319,26 @@ def test_cruise_multidimensional_interpolation_never_extrapolates(
         )
 
 
+def test_cruise_boundary_policy_uses_nearest_power_without_extrapolation() -> None:
+    repository = PerformanceRepository.from_directory(Path("data/performance"))
+
+    result = CruisePerformanceSelectionPolicy(
+        repository.cruise_rows,
+        use_table_boundaries=True,
+    ).select(
+        2_000,
+        0,
+        distance_nm=100,
+        true_course_deg=0,
+        wind_direction_deg_from=None,
+        wind_speed_kt=0,
+    )
+
+    assert result.row.ktas > 0
+    assert result.row.gph > 0
+    assert "CRUISE_POWER_TABLE_BOUNDARY_USED" in result.warnings
+
+
 def test_issue_15_climb_table_contains_500ft_workbook_points() -> None:
     repository = PerformanceRepository.from_directory(Path("data/performance"))
     by_altitude = {row.pressure_altitude_ft: row for row in repository.climb_rows}

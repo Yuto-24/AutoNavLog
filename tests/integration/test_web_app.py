@@ -122,9 +122,7 @@ async def test_web_route_calculation_save_and_fail_closed_output(
         assert set(created.json()) == {"state"}
         assert created.json()["state"]["runtime"]["appVersion"] == __version__
         destination = next(
-            airport
-            for airport in created.json()["state"]["airports"]
-            if airport["id"] == "RJFO"
+            airport for airport in created.json()["state"]["airports"] if airport["id"] == "RJFO"
         )
         assert destination["elevationFtMsl"] == 17
         assert destination["patternAltitudeFtMsl"] == 1000
@@ -163,8 +161,7 @@ async def test_web_route_calculation_save_and_fail_closed_output(
         assert confirmed_state["project"]["route_nodes"][-2]["role"] == ("VISUAL_REPORTING_POINT")
         assert confirmed_state["project"]["sections"][-1]["planned_altitude_ft_msl"] == 1500
         guidance_variations = [
-            item["variationDegEast"]
-            for item in confirmed_state["altitudeGuidance"]["sections"]
+            item["variationDegEast"] for item in confirmed_state["altitudeGuidance"]["sections"]
         ]
         assert guidance_variations == [7.0, 8.0, 8.0, 8.0]
         assert any(
@@ -189,6 +186,11 @@ async def test_web_route_calculation_save_and_fail_closed_output(
                         "section_id": section["id"],
                         "planned_altitude_ft_msl": section["planned_altitude_ft_msl"],
                         "phase": section["phase"],
+                        "manual_temperature_c_by_phase": (
+                            {"CRUISE": 9}
+                            if section["id"] == confirmed_state["project"]["sections"][0]["id"]
+                            else {}
+                        ),
                     }
                     for section in confirmed_state["project"]["sections"]
                 ],
@@ -236,13 +238,13 @@ async def test_web_route_calculation_save_and_fail_closed_output(
         assert job["status"] == "succeeded", job
         calculated_state = job["state"]
         assert calculated_state["outcome"] is not None
-        assert calculated_state["destinationWind"]["availability"] == "UNAVAILABLE"
-        assert calculated_state["destinationWind"]["reason_code"] == "DESTINATION_ETA_UNAVAILABLE"
+        assert calculated_state["destinationWind"]["availability"] == "AVAILABLE"
+        assert calculated_state["destinationWind"]["wind_direction_deg_from"] == 200
+        assert calculated_state["destinationWind"]["wind_speed_kt"] == 8
         assert calculated_state["outcome"]["arrival_altitude"]["base_vrep_altitude_ft_msl"] == 1800
         assert calculated_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 2100
         variations = [
-            section["variation_deg_east"]
-            for section in calculated_state["outcome"]["sections"]
+            section["variation_deg_east"] for section in calculated_state["outcome"]["sections"]
         ]
         assert {item["automatic_value"] for item in variations} == {7.0, 8.0}
         assert all(item["adopted_source"] == "AUTOMATIC" for item in variations)
@@ -280,21 +282,13 @@ async def test_web_route_calculation_save_and_fail_closed_output(
                     "manual_wind_direction_deg": (
                         270 if section["id"] == first_editable_id else None
                     ),
-                    "manual_wind_speed_kt": (
-                        15 if section["id"] == first_editable_id else None
-                    ),
-                    "manual_temperature_c": (
-                        12 if section["id"] == first_editable_id else None
-                    ),
-                    "manual_tas_kt": (
-                        155 if section["id"] == first_editable_id else None
-                    ),
+                    "manual_wind_speed_kt": (15 if section["id"] == first_editable_id else None),
+                    "manual_temperature_c": (12 if section["id"] == first_editable_id else None),
+                    "manual_tas_kt": (155 if section["id"] == first_editable_id else None),
                 }
                 for section in editable_sections
             ],
-            "visual_reporting_point_node_id": destination_state["project"]["route_nodes"][-2][
-                "id"
-            ],
+            "visual_reporting_point_node_id": destination_state["project"]["route_nodes"][-2]["id"],
             "arrival_altitude_mode": "MANUAL_NON_STANDARD_ENTRY",
             "manual_vrep_altitude_ft_msl": 2100,
             "manual_vrep_reason": "Direct Base training entry",
@@ -311,6 +305,7 @@ async def test_web_route_calculation_save_and_fail_closed_output(
         assert edited_project_section["manual_wind_direction_deg"] == 270
         assert edited_project_section["manual_wind_speed_kt"] == 15
         assert edited_project_section["manual_temperature_c"] == 12
+        assert edited_project_section["manual_temperature_c_by_phase"] == {"CRUISE": 9}
         assert edited_project_section["manual_tas_kt"] == 155
         edited_result = next(
             section
@@ -410,9 +405,7 @@ async def test_departure_override_uses_original_kml_start_and_keeps_old_payload_
             },
         )
         assert incompatible_override.status_code == 400
-        assert incompatible_override.json()["error"]["code"] == (
-            "ROUTE_AIRPORT_ENDPOINT_MISMATCH"
-        )
+        assert incompatible_override.json()["error"]["code"] == ("ROUTE_AIRPORT_ENDPOINT_MISMATCH")
         assert "KML始点" in incompatible_override.json()["error"]["message"]
 
         compatible_old_payload = await client.post(
@@ -426,6 +419,7 @@ async def test_departure_override_uses_original_kml_start_and_keeps_old_payload_
         compatible_project = compatible_old_payload.json()["project"]
         assert compatible_project["departure_airport_id"] == "RJFK"
         assert compatible_project["route_nodes"][0]["name"] == "RJFK"
+
 
 @pytest.mark.anyio
 async def test_web_session_and_upload_boundaries(tmp_path: Path) -> None:

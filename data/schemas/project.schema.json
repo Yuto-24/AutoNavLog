@@ -54,6 +54,18 @@
           "default": null,
           "title": "Manual Temperature C"
         },
+        "manual_temperature_c_by_phase": {
+          "additionalProperties": {
+            "maximum": 60,
+            "minimum": -80,
+            "type": "number"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/FlightPhase"
+          },
+          "title": "Manual Temperature C By Phase",
+          "type": "object"
+        },
         "manual_wind_direction_deg": {
           "anyOf": [
             {

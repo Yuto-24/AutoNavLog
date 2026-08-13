@@ -205,8 +205,7 @@ def test_legacy_safe_enroute_altitude_is_not_used_for_status_or_timing(
         safe_value,
     ]
     assert all(
-        result.safe_enroute_altitude_ft_msl.adopted() is None
-        and result.eto_utc.adopted() is None
+        result.safe_enroute_altitude_ft_msl.adopted() is None and result.eto_utc.adopted() is None
         for result in outcome.sections
     )
     assert outcome.status == baseline.status
@@ -327,6 +326,118 @@ def test_climb_leg_is_automatically_split_at_rca_without_losing_distance(
     assert [point.type.value for point in outcome.derived_points] == ["RCA"]
 
 
+def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    routed = project.model_copy(deep=True)
+    routed.manual_qnh_hpa = 1013.0
+    source = routed.sections[0]
+    source.manual_temperature_c = 4.0
+    source.manual_temperature_c_by_phase = {FlightPhase.CRUISE: 9.0}
+
+    def result_for_representative_altitude(request):
+        assert request.altitude_ft_msl is not None
+        return WeatherResult(
+            request_id=request.request_id,
+            availability=Availability.AVAILABLE,
+            kind=request.kind,
+            values={
+                "u_ms": 0.0,
+                "v_ms": 0.0,
+                "wind_speed_kt": 0.0,
+                "wind_direction_deg_from": None,
+                "temperature_c": request.altitude_ft_msl / 1000.0,
+            },
+        )
+
+    service = CalculationService(airports, performance_repository)
+    outcome = service.calculate(
+        routed,
+        FakeWeatherProvider(result_factory=result_for_representative_altitude),
+    )
+
+    assert not outcome.blockers
+    split = [section for section in outcome.sections if section.section_id == source.id]
+    assert [section.phase for section in split] == [
+        FlightPhase.CLIMB,
+        FlightPhase.CRUISE,
+    ]
+    assert [section.planned_altitude_ft_msl.adopted() for section in split] == [
+        pytest.approx((20.0 + 5_000.0) / 2.0),
+        pytest.approx(5_000.0),
+    ]
+    assert [section.temperature_c.automatic_value for section in split] == [
+        pytest.approx(2.51),
+        pytest.approx(5.0),
+    ]
+    assert [section.temperature_c.adopted() for section in split] == [
+        pytest.approx(4.0),
+        pytest.approx(9.0),
+    ]
+    requests = {
+        request.metadata["phase"]: request
+        for request in service.last_weather_requests
+        if request.request_id.startswith(f"section:{source.id}:")
+    }
+    assert requests["CLIMB"].request_id.endswith(":aloft")
+    assert requests["CRUISE"].request_id.endswith(":cruise")
+
+
+def test_manual_low_altitude_and_hot_toat_keep_cruise_outputs_complete(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    routed = project.model_copy(deep=True)
+    routed.manual_qnh_hpa = 1013.0
+    for section in routed.sections:
+        section.planned_altitude_ft_msl = 1_500.0
+        section.manual_temperature_c = 60.0
+        section.manual_temperature_c_by_phase = {FlightPhase.CRUISE: 60.0}
+    routed.sections[0].manual_temperature_c = 15.0
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    unexpected = [
+        issue
+        for issue in outcome.blockers
+        if issue.code in {"CRUISE_PERFORMANCE_UNAVAILABLE", "CALCULATION_OUTPUT_INCOMPLETE"}
+    ]
+    assert not unexpected, [(issue.code, issue.message) for issue in unexpected]
+    cruise = [section for section in outcome.sections if section.phase == FlightPhase.CRUISE]
+    assert cruise
+    assert all(
+        section.cas_kt.adopted() is not None
+        and section.tas_kt.adopted() is not None
+        and section.zone_ete_seconds.adopted() is not None
+        and section.section_fuel_gal.adopted() is not None
+        for section in cruise
+    )
+    warning_codes = {issue.code for issue in outcome.issues}
+    assert "CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED" in warning_codes
+    assert "CRUISE_ISA_DEVIATION_TABLE_BOUNDARY_USED" in warning_codes
+    metadata = cruise[0].performance_metadata
+    assert metadata["requested_condition"] == {
+        "pressure_altitude_ft": 2_000.0,
+        "isa_deviation_c": pytest.approx(48.9624),
+    }
+    selected_condition = metadata["selected_condition"]
+    assert selected_condition["pressure_altitude_ft"] == 4_000.0
+    assert selected_condition["isa_deviation_c"] == 15.0
+    assert selected_condition["power_percent_by_corner"] == [
+        {
+            "pressure_altitude_ft": 4_000.0,
+            "isa_deviation_c": 15.0,
+            "power_percent": 65.0,
+        }
+    ]
+
+
 def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
     airports,
     performance_repository,
@@ -376,7 +487,6 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
         abs=1e-6,
     )
     assert [point.type.value for point in outcome.derived_points] == ["EOC"]
-
 
 
 def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
@@ -664,9 +774,7 @@ def test_visual_arrival_uses_destination_taf_wind_and_falls_back_to_calm(
     assert mismatched_visual.wind_speed_kt.automatic_metadata["reason_code"] == (
         "DESTINATION_TAF_AIRPORT_MISMATCH"
     )
-    assert mismatched_visual.wind_speed_kt.automatic_metadata["wind_adoption"] == (
-        "CALM_FALLBACK"
-    )
+    assert mismatched_visual.wind_speed_kt.automatic_metadata["wind_adoption"] == ("CALM_FALLBACK")
 
 
 def test_missing_climb_wind_is_not_misreported_as_rca_outside_route(
@@ -842,10 +950,7 @@ def test_weather_warning_does_not_mask_an_unrelated_blocker_status(project) -> N
         ),
     ]
 
-    assert (
-        CalculationService._status(project, issues)
-        == ProjectStatus.MANUAL_INPUT_REQUIRED
-    )
+    assert CalculationService._status(project, issues) == ProjectStatus.MANUAL_INPUT_REQUIRED
 
 
 def test_unverified_performance_is_blocking(airports, project) -> None:

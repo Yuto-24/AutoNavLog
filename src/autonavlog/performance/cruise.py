@@ -69,13 +69,33 @@ def _axis_bracket(values: list[float], target: float, label: str) -> AxisBracket
     return AxisBracket(lower, upper, fraction)
 
 
+def _bounded_target(
+    values: list[float],
+    target: float,
+    label: str,
+) -> tuple[float, bool]:
+    if not isfinite(target):
+        raise CruisePerformanceError(f"{label} must be finite")
+    ordered = sorted(set(values))
+    if not ordered:
+        raise CruisePerformanceError(f"{label} axis is empty")
+    bounded = min(max(target, ordered[0]), ordered[-1])
+    return bounded, bounded != target
+
+
 def _linear(bracket: AxisBracket, lower: float, upper: float) -> float:
     return lower + bracket.fraction * (upper - lower)
 
 
 class CruisePerformanceSelectionPolicy:
-    def __init__(self, rows: list[CruiseRow]):
+    def __init__(
+        self,
+        rows: list[CruiseRow],
+        *,
+        use_table_boundaries: bool = False,
+    ):
         self.rows = rows
+        self.use_table_boundaries = use_table_boundaries
 
     def select(
         self,
@@ -95,14 +115,32 @@ class CruisePerformanceSelectionPolicy:
             )
         ) or distance_nm < 0:
             raise CruisePerformanceError("cruise route inputs must be finite and non-negative")
+        warnings: list[str] = []
+        evaluated_altitude = pressure_altitude_ft
+        evaluated_isa_deviation = isa_deviation_c
+        if self.use_table_boundaries:
+            evaluated_altitude, altitude_bounded = _bounded_target(
+                [row.pressure_altitude_ft for row in self.rows],
+                pressure_altitude_ft,
+                "pressure altitude",
+            )
+            evaluated_isa_deviation, isa_bounded = _bounded_target(
+                [row.isa_deviation_c for row in self.rows],
+                isa_deviation_c,
+                "ISA deviation",
+            )
+            if altitude_bounded:
+                warnings.append("CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED")
+            if isa_bounded:
+                warnings.append("CRUISE_ISA_DEVIATION_TABLE_BOUNDARY_USED")
         altitude = _axis_bracket(
             [row.pressure_altitude_ft for row in self.rows],
-            pressure_altitude_ft,
+            evaluated_altitude,
             "pressure altitude",
         )
         isa_deviation = _axis_bracket(
             [row.isa_deviation_c for row in self.rows],
-            isa_deviation_c,
+            evaluated_isa_deviation,
             "ISA deviation",
         )
         power_percent = 65.0
@@ -119,9 +157,18 @@ class CruisePerformanceSelectionPolicy:
                 if row.pressure_altitude_ft == pressure_altitude
                 and row.isa_deviation_c == temperature
             ]
+            evaluated_power = power_percent
+            if self.use_table_boundaries:
+                evaluated_power, power_bounded = _bounded_target(
+                    [row.power_percent for row in rows],
+                    power_percent,
+                    "65% power",
+                )
+                if power_bounded:
+                    warnings.append("CRUISE_POWER_TABLE_BOUNDARY_USED")
             power = _axis_bracket(
                 [row.power_percent for row in rows],
-                power_percent,
+                evaluated_power,
                 "65% power",
             )
             indexed = {row.power_percent: row for row in rows}
@@ -209,6 +256,6 @@ class CruisePerformanceSelectionPolicy:
             fuel,
             wind.ground_speed_kt,
             trace.method,
-            (),
+            tuple(dict.fromkeys(warnings)),
             trace,
         )

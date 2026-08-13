@@ -1,4 +1,4 @@
-import type { NavSection } from "./types";
+import type { FlightPhase, NavSection } from "./types";
 
 export type NavLogEditableField =
   | "plannedAltitude"
@@ -9,7 +9,7 @@ export type NavLogEditableField =
 
 export interface NavLogEditDraft {
   plannedAltitude: string;
-  temperature: string;
+  temperatureByPhase: Partial<Record<FlightPhase, string>>;
   tas: string;
   windDirection: string;
   windSpeed: string;
@@ -22,9 +22,14 @@ export type NavLogEditErrors = Record<
 >;
 
 export function draftFromSection(section: NavSection): NavLogEditDraft {
+  const temperatureByPhase: Partial<Record<FlightPhase, string>> = {};
+  for (const [phase, value] of Object.entries(section.manual_temperature_c_by_phase ?? {})) {
+    temperatureByPhase[phase as FlightPhase] = String(value);
+  }
+  temperatureByPhase[section.phase] = section.manual_temperature_c?.toString() ?? "";
   return {
     plannedAltitude: String(section.planned_altitude_ft_msl),
-    temperature: section.manual_temperature_c?.toString() ?? "",
+    temperatureByPhase,
     tas: section.manual_tas_kt?.toString() ?? "",
     windDirection: section.manual_wind_direction_deg?.toString() ?? "",
     windSpeed: section.manual_wind_speed_kt?.toString() ?? "",
@@ -60,9 +65,13 @@ export function validateNavLogDrafts(
       }
     }
 
-    const temperature = finiteNumber(draft.temperature);
-    if (draft.temperature.trim() && (temperature === null || temperature < -80 || temperature > 60)) {
-      sectionErrors.temperature = "-80～60 °Cの範囲にしてください。";
+    for (const temperatureDraft of Object.values(draft.temperatureByPhase)) {
+      if (!temperatureDraft?.trim()) continue;
+      const temperature = finiteNumber(temperatureDraft);
+      if (temperature === null || temperature < -80 || temperature > 60) {
+        sectionErrors.temperature = "-80～60 °Cの範囲にしてください。";
+        break;
+      }
     }
 
     if (!isVisualArrival) {
@@ -100,12 +109,21 @@ export function applyDraftToSection(
 ): NavSection {
   if (!draft) return section;
   const isVisualArrival = section.phase === "VISUAL_ARRIVAL";
+  const manualTemperatureByPhase = Object.fromEntries(
+    Object.entries(draft.temperatureByPhase)
+      .filter(([phase]) => phase !== section.phase)
+      .flatMap(([phase, value]) => {
+        const parsed = finiteNumber(value ?? "");
+        return parsed === null ? [] : [[phase, parsed]];
+      }),
+  ) as Partial<Record<FlightPhase, number>>;
   return {
     ...section,
     planned_altitude_ft_msl: isVisualArrival
       ? section.planned_altitude_ft_msl
       : Number(draft.plannedAltitude),
-    manual_temperature_c: finiteNumber(draft.temperature),
+    manual_temperature_c: finiteNumber(draft.temperatureByPhase[section.phase] ?? ""),
+    manual_temperature_c_by_phase: manualTemperatureByPhase,
     manual_tas_kt: isVisualArrival ? section.manual_tas_kt : finiteNumber(draft.tas),
     manual_wind_direction_deg: isVisualArrival
       ? section.manual_wind_direction_deg
