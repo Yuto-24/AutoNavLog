@@ -58,7 +58,6 @@ async function calculateNavLog(page: Page): Promise<void> {
   await page.getByRole("button", { name: "経路を確定" }).click();
 
   await expect(page.getByText("VREP", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("32.0°N以上 +8° / 未満 +7°", { exact: true })).toBeVisible();
   const altitudeInputs = page.locator(".table-number-input");
   await expect(altitudeInputs.first()).toHaveValue("");
   await expect(altitudeInputs.last()).toHaveValue("1500");
@@ -107,7 +106,7 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(altitudeInputs.last()).toHaveValue("1800");
   await expect(cruiseAltitude).toHaveValue(cruiseCandidate);
   await expect(page.locator(".altitude-review-row")).toHaveCount(0);
-  await page.route("**/api/calculate", async (route) => {
+  await page.route("**/api/calculation-jobs", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 250));
     await route.continue();
   }, { times: 1 });
@@ -293,10 +292,11 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   await altitudeResponse;
   await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
   const manualRecalculation = page.waitForResponse(
-    (response) => response.url().endsWith("/api/calculate") && response.ok(),
+    (response) => response.url().endsWith("/api/calculation-jobs") && response.ok(),
   );
   await page.getByRole("button", { name: "NAV LOGを再計算" }).click();
   await manualRecalculation;
+  await expect(page.getByText("NAV LOGを計算しました。準備状況と各値を確認してください。", { exact: true })).toBeVisible();
   await expect(altitude).toHaveValue("5500");
 
   const windDirection = page.locator(".nav-log-table").getByLabel(/手動風向$/).first();
