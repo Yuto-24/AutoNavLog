@@ -176,8 +176,8 @@ QNH推定値は公式の飛行場QNHではありません。利用者は公式�
 
 NAV LOG計算後は、計算上の到着予定時刻に対応する目的地TAFの卓越風を
 [AviationWeather.gov Data API](https://aviationweather.gov/data/api/)から取得して
-別枠に表示します。この風は参考表示で、NAV LOGの計算には
-使いません。TAFが取得できない場合も計算と出力は止めません。開発時だけ `--weather fake` を
+別枠に表示し、NAV LOG最終行の風向・風速および到着区間のWCA、GS、ETE、燃料へ反映します。
+TAFが取得できない場合はCALMへフォールバックし、計算と出力は止めません。開発時だけ `--weather fake` を
 指定でき、この場合はA4転記補助HTMLを出力しません。
 
 RJFM/RJFOの場周経路高度は画面上で100 ft単位に丸めて `1,000 ft` と表示し、

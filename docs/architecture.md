@@ -27,6 +27,6 @@ MSMのGRIB2、RISH URL、NetCDF、気圧面配列は`jma-msm-wind`だけが扱�
 MSM adapterは単位、時刻、型、request ID、表示ラベルを変換するだけです。
 
 `DestinationTafProvider`は、計算完了後に目的空港と到着予定時刻を受け取り、
-AviationWeather.govのTAFから卓越風を選びます。結果はWeb sessionの参考表示だけに保持し、
-`CalculationOutcome`、Snapshot、航法計算、出力可否には渡しません。通信やTAF時刻範囲の
-不一致もNAV LOGのBlockerにはしません。
+AviationWeather.govのTAFから卓越風を選びます。結果はWeb sessionへ保持するとともに、NAV LOG最終行の風向・風速と到着区間の
+WCA、GS、ETE、燃料へ反映します。通信やTAF時刻範囲の不一致はNAV LOGのBlockerにせず、
+到着区間をCALMとして計算します。

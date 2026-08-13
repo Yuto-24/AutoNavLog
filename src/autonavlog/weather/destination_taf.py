@@ -63,6 +63,25 @@ class DestinationWindProvider(Protocol):
     ) -> DestinationWindForecast: ...
 
 
+class FakeDestinationWindProvider:
+    """Return deterministic destination wind for development and browser tests."""
+
+    def forecast(
+        self,
+        airport_icao: str,
+        valid_time_utc: datetime,
+    ) -> DestinationWindForecast:
+        return DestinationWindForecast(
+            airport_icao=airport_icao.strip().upper(),
+            valid_time_utc=valid_time_utc,
+            availability=Availability.AVAILABLE,
+            wind_direction_deg_from=200,
+            wind_speed_kt=8,
+            source_label="開発用固定TAF",
+            forecast_change="BASE",
+        )
+
+
 class TafTransport(Protocol):
     def __call__(
         self,

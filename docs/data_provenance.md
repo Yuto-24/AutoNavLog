@@ -39,9 +39,9 @@ Pzs・外部DEMは使用しません。これは公式飛行場予報QNHでは�
 保存形式の後方互換専用であり、この自動値の来歴には使用しません。
 
 目的地風はAviationWeather.govのTAFを出典とし、目的空港ICAO、到着予定時刻、TAF発表時刻、
-有効期間、変化区分、風向・風速・ガスト、TAF原文をWeb sessionへ保持します。航法計算の
-気象要求やSnapshotには含めません。再計算のたびに到着予定時刻へ合わせて選び直し、取得に
-失敗した場合は参考表示を取得不可とします。
+有効期間、変化区分、風向・風速・ガスト、TAF原文をWeb sessionへ保持します。採用した風向・
+風速と出典metadataはCalculationOutcomeへ含め、NAV LOG最終行と到着区間計算へ使います。
+再計算のたびに到着予定時刻へ合わせて選び直し、取得失敗時はCALMへフォールバックします。
 
 SnapshotはProject revision、入力、手動値、性能表version、Policy version、気象要求と
 結果、パッケージversion、警告を含む不変JSONです。
