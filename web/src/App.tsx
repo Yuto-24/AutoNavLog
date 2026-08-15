@@ -63,6 +63,7 @@ function App() {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pastedKml, setPastedKml] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [projectName, setProjectName] = useState("未保存の新規作業");
   const [pendingKmz, setPendingKmz] = useState<PendingKmz | null>(null);
   const [selectedKmzDocument, setSelectedKmzDocument] = useState("");
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
@@ -97,12 +98,16 @@ function App() {
     options: { syncCalculationInputs?: boolean } = {},
   ) => {
     const nextProjectId = next.project?.id ?? null;
+    const initialState = projectIdRef.current === undefined;
     const projectChanged =
-      projectIdRef.current !== undefined && projectIdRef.current !== nextProjectId;
+      !initialState && projectIdRef.current !== nextProjectId;
     const syncCalculationInputs =
-      options.syncCalculationInputs || projectIdRef.current === undefined || projectChanged;
+      options.syncCalculationInputs || initialState || projectChanged;
     if (projectChanged) cancelPendingRecalculation();
     projectIdRef.current = nextProjectId;
+    if (projectChanged || initialState) {
+      setProjectName(next.project?.name ?? "未保存の新規作業");
+    }
     setState((current) => {
       if (
         !syncCalculationInputs &&
@@ -634,16 +639,17 @@ function App() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (name: string) => {
     if (!state?.project) return;
-    await run(
+    const saved = await run(
       () =>
         api.request<WebState>("/api/projects/save", {
           method: "POST",
-          body: { name: state.project?.name },
+          body: { name },
         }),
       "Projectをローカルへ保存しました。",
     );
+    if (saved?.project) setProjectName(saved.project.name);
   };
 
   const handleLoad = async () => {
@@ -755,11 +761,12 @@ function App() {
     <div className="app-shell">
       <Header
         appVersion={state.runtime.appVersion}
-        projectName={state.project?.name ?? "未保存の新規作業"}
+        projectName={projectName}
         revision={state.project?.revision ?? null}
         savedProjects={state.savedProjects}
         selectedProjectId={selectedProjectId}
         busy={busy}
+        onProjectNameChange={setProjectName}
         onSelectedProjectIdChange={setSelectedProjectId}
         onLoad={handleLoad}
         onDelete={handleDelete}
