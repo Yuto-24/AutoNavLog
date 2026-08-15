@@ -77,7 +77,9 @@
   +8°E、32.0°N未満は+7°Eです。Phase境界で計算行が分割されても元の物理Legの
   出発点を使います。保存済みProjectの`default_variation_deg_east`はschema互換のため
   読み込みますが、新しい計算値には使用しません。
-- 東偏差を正として`MC = TC - VAR`、右WCAを正として`MH = MC + WCA`とします。
+- 東偏差を正として`MC = TC + VAR`、右WCAを正として`MH = MC + WCA`とします。
+  計算結果には未丸め値を保持します。転記表示のMHだけは、同じ行へ表示する1°単位のMCと
+  WCAを加算して3桁表示し、`291 + (-4) = 287`のように転記欄同士の関係を保ちます。
 - NAV LOG計算では`PA = MSL`とし、計画MSL高度をそのままPA、POH性能検索、CAS/TAS換算へ
   使用します。QNH補正後PAや別の500 ft planning PAは作らず、QNHを必須入力またはBlockerに
   しません。保存済みの手動QNH fieldはschema互換のため残しますが計算には使用しません。
@@ -101,22 +103,46 @@
 - 目視位置通報点以降はCAS 121 kt・12 GPH、CALM固定で、WCA=0、GS=TASとします。
   CAS、降下率、燃料流量、到着区間CALMは規程で裏付け済みです。
 - 目的地TAFの風は、出発予定時刻へ計算済み累積ETEを加えた到着予定時刻に合わせて
-  取得します。取得した風はNAV LOG最終行への表示だけに使い、到着区間のETE、燃料、WCA、
-  GSへは反映しません。最終表示行のPAは目的飛行場標高、OATは同地点のMSM予想気温です。
+  取得します。取得した風は独立した`DESTINATION_INFO`行への表示だけに使い、到着区間の
+  ETE、燃料、WCA、MH、GSへは反映しません。到着区間の計算親行はCALM、WCA=0、
+  GS=TASを維持します。`DESTINATION_INFO`行は目的飛行場標高、同地点のMSM予想気温、
+  TAF風だけを表示し、その他の航法・距離・時間・燃料セルは意図的な空欄です。
 - RCA/EOCは採用距離軸上の算出位置で物理LegをCalculation Zoneへ分割します。EOCと物理
   変針点の距離差が0.5 NM未満なら内部計算上も変針点へsnapし、`<TP名> / EOC`と表示します。
-  ちょうど0.5 NMではsnapしません。分割後もZone距離合計と`DIST = GS × ETE`を保存します。
+  ちょうど0.5 NMではsnapしません。このsnap規則をCheck Pointへは適用しません。
+  Check Point、RCA、EOC、物理終点は未丸めのalong-route distance順に並べ、表示丸めで
+  前後関係を変えません。分割後もZone距離合計と`DIST = GS × ETE`を保存します。
 - `CalculationOutcome.sections`は重複しないCalculation Zoneです。`display_rows`はそこから
-  作る表示専用投影で、物理Leg小計行（FROM/TOあり）の下に分割内訳行（FROM空欄）を置きます。
-  小計のZONE DIST/ETEは配下Zoneの未丸め合計、CUMは小計行だけに表示します。小計行は
-  距離・時間・燃料へ再加算しません。
+  作る表示専用投影です。分割の有無にかかわらず各通常Physical LegへFROM/TOを持つ
+  `PHYSICAL_LEG_SUMMARY`と最低1つの`CALCULATION_ZONE`内訳行を置きます。小計の
+  ZONE DIST/ETEは配下Zoneの未丸め合計、CUMは小計行だけに表示します。内訳行のFROMと
+  CUMは空欄です。最終`VISUAL_ARRIVAL`だけは親計算行と`DESTINATION_INFO`行に分け、
+  通常内訳行を作りません。各Physical Legグループの後には`LEG_SEPARATOR`を1行置きます。
+  `display_rows`の親小計・目的地情報・区切りは表示専用であり、距離・時間・燃料の集計へ
+  使いません。
+- `NavLogDisplayCell.state`は表示の意味を明示します。`DISPLAY_VALUE`はcanonicalな値、
+  `INHERIT`は親または直前行の計算値を継承しながら表示は完全な空欄、`BLANK`は継承しない
+  意図的な空欄、`STATE_SYMBOL`は`↗`/`↘`等、`UNAVAILABLE`は本来必要な値の取得・算出失敗です。
+  `INHERIT`と`BLANK`へ`未取得`、`未確定`、`—`を表示しません。`UNAVAILABLE`だけを
+  `未取得`として太字・赤系背景で表示します。WebとA4転記補助HTMLは同じcellの`text`を
+  使用し、各rendererで航法値を再計算しません。
+- 親行はLeg開始時の既定値を表示し、子行はZone固有値、Check Point固有値、親または直前の
+  表示値から変化した値だけを表示します。同値を使う子セルは`INHERIT`です。出発Legの動的な
+  CLIMB/CRUISE性能値は親へ集約せず、対応する内訳行へ表示します。
+- PA表示は計算高度値とは別の表示種別を持ち、数値、上昇`↗`、降下`↘`、推定通過高度
+  `(<高度>)`、空欄、未取得を区別します。推定通過高度は高度制約ではなく、EOC後の経過時間と
+  500 fpmから求める表示用結果です。
 - `LOSS`は機上修正値であり地上入力UIを持ちません。旧Projectの非0値もZONE/CUM ETE、
   TTL TIME、Forecast、燃料、fingerprintへ加えず、転記補助のETOは空欄にします。
 - 同じForecast Runで最大5回反復し、代表時刻差30秒未満を収束とします。これは
   MSMの時刻依存値を扱う実装Policyで、規程にはありません。
 - 内部値は丸めず、表示時にhalf-upで方位1°、距離0.5 nm、時間0.5分、燃料0.1 galへ
-  丸めます。方位・距離・時間の単位は規程で確認済みですが、half-upのtie方法、燃料の
-  一律0.1 gal、および丸め時点は未確認です。
+  丸めます。PAは整数、TOATは0.1℃、CAS/TAS/GSは1 kt、TC/MC/MHは3桁、VAR/WCAは
+  正値へ`+`を付け（0は`0`）、WINDは`DDD/kt`または`CALM`で表示します。親と子は同じ
+  未丸め値をそれぞれ独立に丸めるため、表示上の子合計と親表示が0.5単位だけ異なる場合が
+  ありますが、内部未丸め小計は必ず一致させます。方位・距離・時間の単位は規程で確認済み
+  ですが、half-upのtie方法、燃料の一律0.1 gal、MH転記値を表示済みMC/WCAから作ること、
+  および丸め時点は実装Policyです。
 - v2.6ではSEA・DEM・陸域マスクを計算対象外とします。旧ProjectのSEA fieldは読込互換
   だけに残し、計算、Issue、fingerprint、status、画面、転記補助HTMLのいずれにも
   使用しません。

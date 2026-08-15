@@ -78,6 +78,27 @@ class Availability(StrEnum):
     UNAVAILABLE = "UNAVAILABLE"
 
 
+class DisplayCellState(StrEnum):
+    """Meaning of one cell in the NAV LOG display projection."""
+
+    DISPLAY_VALUE = "DISPLAY_VALUE"
+    INHERIT = "INHERIT"
+    BLANK = "BLANK"
+    UNAVAILABLE = "UNAVAILABLE"
+    STATE_SYMBOL = "STATE_SYMBOL"
+
+
+class PressureAltitudeDisplayKind(StrEnum):
+    """Presentation-only pressure-altitude meaning."""
+
+    NUMERIC = "NUMERIC"
+    CLIMB = "CLIMB"
+    DESCENT = "DESCENT"
+    ESTIMATED = "ESTIMATED"
+    BLANK = "BLANK"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
 class Pa500Policy(StrEnum):
     CEILING = "CEILING"
     NEAREST = "NEAREST"
