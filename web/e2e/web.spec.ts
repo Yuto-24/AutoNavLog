@@ -303,6 +303,18 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   expect(pageErrors).toEqual([]);
 });
 
+test("mobile fuel input allows a temporary blank value", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+
+  const fuel = page.getByLabel("FUEL gal");
+  await expect(fuel).toHaveValue("90");
+  await fuel.fill("");
+  await expect(fuel).toHaveValue("");
+  await fuel.fill("77.5");
+  await expect(fuel).toHaveValue("77.5");
+});
+
 test("changed ALT appears in PA with lesson display precision", async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
