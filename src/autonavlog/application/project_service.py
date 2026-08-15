@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from datetime import date, datetime
+from collections.abc import Callable, Iterable
+from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -29,8 +29,14 @@ from .readiness import (
 
 
 class ProjectService:
-    def __init__(self, repository: ProjectRepository):
+    def __init__(
+        self,
+        repository: ProjectRepository,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ):
         self.repository = repository
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def create(
         self,
@@ -62,6 +68,28 @@ class ProjectService:
 
     def list_projects(self) -> list[ProjectSummary]:
         return self.repository.list_projects()
+
+    def delete_expired_projects(self) -> list[ProjectSummary]:
+        now = self._clock()
+        if now.tzinfo is None:
+            raise ValueError("clock must return a timezone-aware datetime")
+        active: list[ProjectSummary] = []
+        for summary in self.repository.list_projects():
+            try:
+                project = self.repository.load(summary.id)
+            except (FileNotFoundError, ValueError):
+                continue
+            if project.planned_departure_time_jst < now:
+                try:
+                    self.repository.delete(summary.id)
+                except FileNotFoundError:
+                    pass
+            else:
+                active.append(summary)
+        return active
+
+    def delete(self, project_id: UUID) -> None:
+        self.repository.delete(project_id)
 
     @staticmethod
     def ui_state(project: Project) -> PersistedUiState:

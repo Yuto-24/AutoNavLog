@@ -654,6 +654,25 @@ function App() {
     );
   };
 
+  const handleDelete = async () => {
+    if (!selectedProjectId) return;
+    const selected = state?.savedProjects.find((project) => project.id === selectedProjectId);
+    if (!window.confirm(`保存済みProject「${selected?.name ?? "選択中の経路"}」を削除しますか？`)) {
+      return;
+    }
+    cancelPendingRecalculation();
+    const deleted = await runTask(
+      () => api.request<WebState>(`/api/projects/${encodeURIComponent(selectedProjectId)}`, {
+        method: "DELETE",
+      }),
+      { success: "保存済みProjectを削除しました。", fallbackError: "削除できませんでした。" },
+    );
+    if (deleted) {
+      setSelectedProjectId("");
+      applyState(deleted, { syncCalculationInputs: true });
+    }
+  };
+
   const handleNew = async () => {
     if (state?.project && !window.confirm("現在の未保存入力を閉じて新規作業を始めますか？")) {
       return;
@@ -737,6 +756,7 @@ function App() {
         busy={busy}
         onSelectedProjectIdChange={setSelectedProjectId}
         onLoad={handleLoad}
+        onDelete={handleDelete}
         onSave={handleSave}
         onNew={handleNew}
       />

@@ -785,6 +785,26 @@ class AutoNavLogWebApplication:
             self._evaluate(session)
             return self.present(session)
 
+    def delete(self, session: WebSession, project_id: UUID) -> dict[str, Any]:
+        with session.lock:
+            try:
+                project = self.project_service.load(project_id)
+            except (FileNotFoundError, ValueError) as error:
+                raise WebApplicationError(
+                    "PROJECT_NOT_FOUND",
+                    "指定されたProjectは見つかりません。",
+                    status_code=404,
+                ) from error
+            self._assert_project_owner(project, session.owner_id)
+            self.project_service.delete(project_id)
+            if session.project is not None and session.project.id == project_id:
+                session.project = None
+                session.outcome = None
+                session.destination_wind = None
+                session.readiness = None
+            self._projects_changed(session)
+            return self.present(session)
+
     def create_snapshot(self, session: WebSession) -> str:
         with session.lock:
             if session.project is None or session.outcome is None:
@@ -977,15 +997,9 @@ class AutoNavLogWebApplication:
     ) -> tuple[ProjectSummary, ...]:
         with self._lock:
             generation = self._projects_generation
-        if (
-            session.saved_projects_cache is not None
-            and session.saved_projects_generation == generation
-        ):
-            return session.saved_projects_cache
-
         owned = [
             summary
-            for summary in self.project_service.list_projects()
+            for summary in self.project_service.delete_expired_projects()
             if isinstance(summary.web_owner_id, str)
             and _owner_ids_match(summary.web_owner_id, session.owner_id)
         ]

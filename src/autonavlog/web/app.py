@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, cast
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -435,6 +436,13 @@ def create_app(
         session: SessionDependency,
     ) -> dict[str, Any]:
         return web.load(session, payload.project_id)
+
+    @app.delete("/api/projects/{project_id}")
+    def delete_project(
+        project_id: UUID,
+        session: SessionDependency,
+    ) -> dict[str, Any]:
+        return web.delete(session, project_id)
 
     @app.post("/api/snapshots")
     def create_snapshot(session: SessionDependency) -> dict[str, str]:
