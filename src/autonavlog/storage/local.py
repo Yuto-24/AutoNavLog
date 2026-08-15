@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
@@ -194,6 +195,22 @@ class LocalProjectRepository:
         path = self._project_dir(project.id) / "autosave.json"
         atomic_model_write(path, project)
         return path
+
+    def delete(self, project_id: UUID) -> None:
+        with self._lock:
+            project_dir = self._project_dir(project_id)
+            if not (project_dir / "project.json").exists():
+                raise FileNotFoundError(f"project not found: {project_id}")
+            shutil.rmtree(project_dir)
+            snapshot_dir = self.root / "snapshots" / str(project_id)
+            if snapshot_dir.exists():
+                shutil.rmtree(snapshot_dir)
+            projects = [
+                summary
+                for summary in self._read_or_rebuild_index()
+                if summary.id != project_id
+            ]
+            self._write_index(self._sort_summaries(projects))
 
     def create_snapshot(self, snapshot: CalculationSnapshot) -> Path:
         path = self.root / "snapshots" / str(snapshot.project_id) / f"{snapshot.id}.json"

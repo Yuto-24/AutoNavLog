@@ -1,4 +1,4 @@
-import { CheckCircle2, FolderOpen, Plus, Save } from "lucide-react";
+import { CheckCircle2, FolderOpen, Plus, Save, Trash2 } from "lucide-react";
 import type { SavedProject } from "../types";
 
 interface HeaderProps {
@@ -11,6 +11,7 @@ interface HeaderProps {
   onProjectNameChange: (value: string) => void;
   onSelectedProjectIdChange: (value: string) => void;
   onLoad: () => void;
+  onDelete: () => void;
   onSave: (name: string) => void;
   onNew: () => void;
 }
@@ -25,6 +26,7 @@ export function Header({
   onProjectNameChange,
   onSelectedProjectIdChange,
   onLoad,
+  onDelete,
   onSave,
   onNew,
 }: HeaderProps) {
@@ -80,6 +82,16 @@ export function Header({
           title="保存済みProjectを開く"
         >
           <FolderOpen aria-hidden="true" size={18} />
+        </button>
+        <button
+          className="icon-button header-icon-button"
+          type="button"
+          onClick={onDelete}
+          disabled={!selectedProjectId || busy}
+          aria-label="保存済みProjectを削除"
+          title="保存済みProjectを削除"
+        >
+          <Trash2 aria-hidden="true" size={18} />
         </button>
       </div>
       <button

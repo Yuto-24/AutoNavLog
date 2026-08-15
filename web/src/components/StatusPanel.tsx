@@ -158,15 +158,13 @@ export function StatusPanel({
           <Download aria-hidden="true" size={18} />
           {activeOperation === "download" ? "出力を準備中…" : "A4転記補助HTMLを出力"}
         </button>
-        {activeOperation && (
+        {activeOperation === "download" && (
           <div className="operation-progress" role="status" aria-live="polite">
             <span>
-              {activeOperation === "calculate"
-                ? "気象データを取得してNAV LOGを計算しています。"
-                : "A4転記補助HTMLの出力を準備しています。"}
+              A4転記補助HTMLの出力を準備しています。
             </span>
             <progress
-              aria-label={activeOperation === "calculate" ? "NAV LOGを計算中" : "HTMLを出力準備中"}
+              aria-label="HTMLを出力準備中"
             />
           </div>
         )}

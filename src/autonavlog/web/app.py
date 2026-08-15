@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, cast
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -349,6 +350,8 @@ def create_app(
             "job_id": job.id,
             "status": job.status,
             "queue_position": job.queue_position,
+            "progress_percent": job.progress_percent,
+            "progress_message": job.progress_message,
             "created_at_utc": job.created_at_utc.isoformat(),
             "updated_at_utc": job.updated_at_utc.isoformat(),
         }
@@ -365,7 +368,7 @@ def create_app(
             job = calculation_jobs.submit(
                 owner_id=session.owner_id,
                 session_token=session.token,
-                task=lambda: web.calculate(session),
+                task=lambda report_progress: web.calculate(session, progress=report_progress),
             )
         except CalculationJobAlreadyActiveError as error:
             raise WebApplicationError(
@@ -389,6 +392,8 @@ def create_app(
                 "job_id": job.id,
                 "status": "queued",
                 "queue_position": None,
+                "progress_percent": 0,
+                "progress_message": "計算待ちです。",
                 "created_at_utc": job.created_at_utc.isoformat(),
                 "updated_at_utc": job.updated_at_utc.isoformat(),
             }
@@ -435,6 +440,13 @@ def create_app(
         session: SessionDependency,
     ) -> dict[str, Any]:
         return web.load(session, payload.project_id)
+
+    @app.delete("/api/projects/{project_id}")
+    def delete_project(
+        project_id: UUID,
+        session: SessionDependency,
+    ) -> dict[str, Any]:
+        return web.delete(session, project_id)
 
     @app.post("/api/snapshots")
     def create_snapshot(session: SessionDependency) -> dict[str, str]:
