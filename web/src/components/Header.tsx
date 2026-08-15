@@ -8,9 +8,10 @@ interface HeaderProps {
   savedProjects: SavedProject[];
   selectedProjectId: string;
   busy: boolean;
+  onProjectNameChange: (value: string) => void;
   onSelectedProjectIdChange: (value: string) => void;
   onLoad: () => void;
-  onSave: () => void;
+  onSave: (name: string) => void;
   onNew: () => void;
 }
 
@@ -21,11 +22,14 @@ export function Header({
   savedProjects,
   selectedProjectId,
   busy,
+  onProjectNameChange,
   onSelectedProjectIdChange,
   onLoad,
   onSave,
   onNew,
 }: HeaderProps) {
+  const normalizedProjectName = projectName.trim();
+
   return (
     <header className="app-header">
       <div className="brand-block">
@@ -33,8 +37,19 @@ export function Header({
         <div className="brand-subtitle">NAV2 地上準備 / v{appVersion}</div>
       </div>
       <div className="header-project">
-        <span className="header-project-label">プロジェクト</span>
-        <strong>{projectName}</strong>
+        <label className="header-project-label" htmlFor="project-name">
+          プロジェクト
+        </label>
+        <input
+          id="project-name"
+          className="header-project-name"
+          type="text"
+          value={projectName}
+          maxLength={60}
+          disabled={revision === null || busy}
+          aria-invalid={revision !== null && normalizedProjectName.length === 0}
+          onChange={(event) => onProjectNameChange(event.target.value)}
+        />
         {revision !== null && <span className="header-revision">rev.{revision}</span>}
       </div>
       <div className="header-spacer" />
@@ -70,8 +85,8 @@ export function Header({
       <button
         className="header-button header-button-primary"
         type="button"
-        onClick={onSave}
-        disabled={revision === null || busy}
+        onClick={() => onSave(normalizedProjectName)}
+        disabled={revision === null || busy || normalizedProjectName.length === 0}
       >
         <Save aria-hidden="true" size={18} />
         保存

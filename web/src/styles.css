@@ -95,11 +95,25 @@ h1, h2, h3, p { margin-top: 0; }
   font-size: 14px;
 }
 
-.header-project strong {
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.header-project-name {
+  width: clamp(160px, 18vw, 300px);
+  min-height: 38px;
+  color: #ffffff;
+  background: #102e49;
+  border: 1px solid #53708b;
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.header-project-name[aria-invalid="true"] {
+  border-color: #ef8f8f;
+}
+
+.header-project-name:disabled {
+  color: #d5dfe8;
+  opacity: 0.8;
 }
 
 .header-project-label, .header-revision {

@@ -451,8 +451,12 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   const saveResponse = page.waitForResponse(
     (response) => response.url().endsWith("/api/projects/save") && response.ok(),
   );
+  await page.getByLabel("プロジェクト").fill("訓練航法 8月");
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await saveResponse;
+  const savedResponse = await saveResponse;
+  expect((await savedResponse.request().postDataJSON()).name).toBe("訓練航法 8月");
+  await expect(page.getByLabel("プロジェクト")).toHaveValue("訓練航法 8月");
+  await expect(page.locator("#saved-project")).toContainText("訓練航法 8月");
   await expect(windDirection).toHaveValue("270");
   await expect(windDirection).toHaveAttribute("aria-invalid", "true");
 
