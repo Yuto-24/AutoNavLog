@@ -214,6 +214,24 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await expect(page.locator("body")).not.toBeEmpty();
+  const savedProjectButton = page.getByRole("button", { name: "保存済みProjectを開く" });
+  const savedProjectButtonLayout = await savedProjectButton.evaluate((button) => {
+    const icon = button.querySelector("svg");
+    const buttonRect = button.getBoundingClientRect();
+    const iconRect = icon?.getBoundingClientRect();
+    return {
+      buttonWidth: buttonRect.width,
+      iconWidth: iconRect?.width ?? 0,
+      paddingLeft: getComputedStyle(button).paddingLeft,
+      paddingRight: getComputedStyle(button).paddingRight,
+    };
+  });
+  expect(savedProjectButtonLayout).toEqual({
+    buttonWidth: 40,
+    iconWidth: 18,
+    paddingLeft: "0px",
+    paddingRight: "0px",
+  });
   await expect(page.getByText("開発用固定気象（出力不可）", { exact: true })).toBeVisible();
   await expect(page.getByLabel("TO")).toHaveValue("");
   await expect(
