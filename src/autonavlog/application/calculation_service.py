@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from math import isfinite
@@ -289,7 +290,10 @@ class CalculationService:
         project: Project,
         provider: WeatherProvider,
         destination_wind: DestinationWindForecast | None = None,
+        progress: Callable[[int, str], None] | None = None,
     ) -> CalculationOutcome:
+        report = progress or (lambda _percent, _message: None)
+        report(15, "経路データを準備しています。")
         working = project.model_copy(deep=True)
         issues: list[Issue] = []
         ui_state, arrival_altitude = self._load_planning_state(working, issues)
@@ -390,6 +394,7 @@ class CalculationService:
             )
             return self._empty_outcome(working, issues, check_point_projections, arrival_altitude)
 
+        report(25, "気象データを準備しています。")
         initial_requirement = self.forecast_service.build_initial_requirement(working)
         selected_run_id = self._select_and_prepare_run(
             working,
@@ -409,6 +414,10 @@ class CalculationService:
         )
         converged = False
         for iteration in range(1, self.policies.max_iterations + 1):
+            report(
+                30 + round((iteration - 1) * 45 / self.policies.max_iterations),
+                f"気象を反映して経路を計算しています（{iteration}/{self.policies.max_iterations}）。",
+            )
             requests = self._weather_requests(
                 working,
                 departure,
@@ -457,6 +466,7 @@ class CalculationService:
                     "iterations": iteration_records,
                 }
             )
+        report(80, "計算結果を検証しています。")
         issues.extend(final.issues)
         if not converged:
             issues.append(
@@ -503,6 +513,7 @@ class CalculationService:
             )
         issues = self._deduplicate_issues(issues)
         project_status = self._status(working, issues)
+        report(88, "燃料計画とNAV LOGを仕上げています。")
         return CalculationOutcome(
             project_id=working.id,
             selected_forecast_run_id=selected_run_id,

@@ -28,6 +28,7 @@ import { PasteDialog } from "./components/PasteDialog";
 import { ProgressRail } from "./components/ProgressRail";
 import { RouteWorkspace } from "./components/RouteWorkspace";
 import { StatusPanel } from "./components/StatusPanel";
+import { CalculationProgressOverlay } from "./components/CalculationProgressOverlay";
 import type { FlightPhase, NavSection, WebState } from "./types";
 import { useModalFocusTrap } from "./useModalFocusTrap";
 
@@ -53,6 +54,10 @@ function App() {
   }>({ kind: "idle", message: "入力欄を編集すると自動再計算します。" });
   const [busy, setBusy] = useState(false);
   const [activeOperation, setActiveOperation] = useState<ActiveOperation>(null);
+  const [calculationProgress, setCalculationProgress] = useState({
+    percent: 0,
+    message: "計算を開始しています。",
+  });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -607,12 +612,13 @@ function App() {
 
   const handleCalculate = async () => {
     cancelPendingRecalculation();
+    setCalculationProgress({ percent: 0, message: "計算を開始しています。" });
     const calculated = await run(async () => {
       await api.request<WebState>("/api/project", {
         method: "PUT",
         body: updatePayload(),
       });
-      return api.calculate();
+      return api.calculate(setCalculationProgress);
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
       syncCalculationInputs: true,
       operation: "calculate",
@@ -850,6 +856,10 @@ function App() {
         <span>AutoNavLogは非公式の地上準備支援ツールです。</span>
         <span>参照 {state.runtime.referenceRevision} / 性能 {state.runtime.performanceRevision}</span>
       </footer>
+
+      {activeOperation === "calculate" && (
+        <CalculationProgressOverlay {...calculationProgress} />
+      )}
 
       <PasteDialog
         open={pasteOpen}

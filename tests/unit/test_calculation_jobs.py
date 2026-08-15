@@ -16,7 +16,7 @@ def test_job_is_owner_and_session_bound() -> None:
         job = queue.submit(
             owner_id="owner-a",
             session_token="session-a",
-            task=lambda: {"state": "ok"},
+            task=lambda _report: {"state": "ok"},
         )
         assert queue.get(job.id, owner_id="owner-b", session_token="session-a") is None
         assert queue.get(job.id, owner_id="owner-a", session_token="session-b") is None
@@ -30,7 +30,7 @@ def test_queue_is_bounded_and_rejects_duplicate_session_job() -> None:
     release = Event()
     started = Event()
 
-    def blocked() -> dict[str, str]:
+    def blocked(_report: object) -> dict[str, str]:
         started.set()
         release.wait(timeout=2)
         return {"state": "ok"}
@@ -53,6 +53,34 @@ def test_queue_is_bounded_and_rejects_duplicate_session_job() -> None:
         assert snapshot is not None
         assert snapshot.status == "queued"
         assert snapshot.queue_position == 1
+        assert snapshot.progress_percent == 0
+        assert snapshot.progress_message == "計算待ちです。"
     finally:
         release.set()
+        queue.shutdown()
+
+
+def test_job_reports_monotonic_progress() -> None:
+    queue = CalculationJobQueue(workers=1, maximum_queued=1)
+    finished = Event()
+
+    def task(report: object) -> dict[str, str]:
+        assert callable(report)
+        report(25, "気象データを準備しています。")
+        report(20, "古い進捗は割合を戻しません。")
+        finished.wait(timeout=2)
+        return {"state": "ok"}
+
+    try:
+        job = queue.submit(owner_id="a", session_token="s1", task=task)
+        while True:
+            snapshot = queue.snapshot(job.id, owner_id="a", session_token="s1")
+            assert snapshot is not None
+            if snapshot.progress_percent == 25:
+                break
+        assert snapshot.progress_percent == 25
+        assert snapshot.progress_message == "気象データを準備しています。"
+        assert snapshot.status == "preparing_weather"
+    finally:
+        finished.set()
         queue.shutdown()
