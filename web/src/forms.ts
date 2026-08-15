@@ -8,7 +8,7 @@ export interface PlanningForm {
   departureAirportId: string;
   destinationAirportId: string;
   destinationPatternAltitudeFtMsl: string;
-  totalUsableFuelGal: number;
+  totalUsableFuelGal: string;
   variationDegEast: number;
   manualQnhValue: string;
   qnhUnit: QnhUnit;
@@ -99,6 +99,13 @@ export function qnhHpa(form: PlanningForm): number | null {
   return form.qnhUnit === "hPa" ? entered : entered * HPA_PER_INHG;
 }
 
+export function usableFuelGal(form: PlanningForm): number | null {
+  if (!form.totalUsableFuelGal.trim()) return null;
+  const entered = Number(form.totalUsableFuelGal);
+  if (!Number.isFinite(entered) || entered <= 0 || entered > 200) return null;
+  return entered;
+}
+
 export function patternAltitudeFtMsl(value: string): number | null {
   const trimmed = value.trim();
   if (!/^\d+$/.test(trimmed)) return null;
@@ -136,7 +143,7 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     departureAirportId: departure?.id ?? "",
     destinationAirportId: "",
     destinationPatternAltitudeFtMsl: "",
-    totalUsableFuelGal: 90,
+    totalUsableFuelGal: "90",
     variationDegEast: variationForDeparture(departure),
     manualQnhValue: "",
     qnhUnit: "hPa",
@@ -170,7 +177,7 @@ export function formFromProject(
       destinationMaster?.patternAltitudeFtMsl ??
       previous.destinationPatternAltitudeFtMsl,
     ),
-    totalUsableFuelGal: project.total_usable_fuel_gal,
+    totalUsableFuelGal: String(project.total_usable_fuel_gal),
     variationDegEast: project.default_variation_deg_east,
     manualQnhValue:
       project.manual_qnh_hpa === null

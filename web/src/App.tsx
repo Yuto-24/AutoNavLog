@@ -9,6 +9,7 @@ import {
   initialPlanningForm,
   patternAltitudeFtMsl,
   qnhHpa,
+  usableFuelGal,
   variationForDeparture,
 } from "./forms";
 import type { PlanningForm } from "./forms";
@@ -332,6 +333,11 @@ function App() {
 
   const handleConfirmRoute = async () => {
     if (!state) return;
+    const fuelGal = usableFuelGal(form);
+    if (fuelGal === null) {
+      setError("FUELは0より大きく200 gal以下で入力してください。");
+      return;
+    }
     const candidate = candidateFromKey(state.import.candidates, form.candidateKey);
     if (!candidate) {
       setError("飛行経路にする形状を選択してください。");
@@ -360,7 +366,7 @@ function App() {
             departure_time_jst: form.departureTimeJst,
             departure_airport_id: form.departureAirportId,
             destination_airport_id: form.destinationAirportId,
-            total_usable_fuel_gal: form.totalUsableFuelGal,
+            total_usable_fuel_gal: fuelGal,
             default_variation_deg_east: form.variationDegEast,
             manual_qnh_hpa: qnhHpa(form),
             tgl_count: form.tglCount,
@@ -469,6 +475,10 @@ function App() {
   const updatePayload = (sectionOverrides?: NavSection[]) => {
     const payloadSections = sectionOverrides ?? state?.project?.sections ?? [];
     if (!state?.project) throw new Error("Projectがありません。");
+    const fuelGal = usableFuelGal(form);
+    if (fuelGal === null) {
+      throw new Error("FUELは0より大きく200 gal以下で入力してください。");
+    }
     const plannedAltitudes = new Map(
       payloadSections.map((section) => {
         const rawAltitude = (
@@ -497,7 +507,7 @@ function App() {
     return {
       flight_date: form.flightDate,
       departure_time_jst: form.departureTimeJst,
-      total_usable_fuel_gal: form.totalUsableFuelGal,
+      total_usable_fuel_gal: fuelGal,
       default_variation_deg_east: form.variationDegEast,
       manual_qnh_hpa: qnhHpa(form),
       tgl_count: form.tglCount,

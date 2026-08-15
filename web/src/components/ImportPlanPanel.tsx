@@ -241,11 +241,7 @@ export function ImportPlanPanel({
               max="200"
               step="0.1"
               value={form.totalUsableFuelGal}
-              onChange={(event) => {
-                if (Number.isFinite(event.target.valueAsNumber)) {
-                  update("totalUsableFuelGal", event.target.valueAsNumber);
-                }
-              }}
+              onChange={(event) => update("totalUsableFuelGal", event.target.value)}
             />
           </label>
           <div className="form-grid-field span-two">
