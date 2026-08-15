@@ -16,6 +16,7 @@ JobStatus = Literal[
     "succeeded",
     "failed",
 ]
+ProgressReporter = Callable[[int, str], None]
 
 
 @dataclass
@@ -28,6 +29,8 @@ class CalculationJob:
     updated_at_utc: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     result: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
+    progress_percent: int = 0
+    progress_message: str = "計算待ちです。"
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,8 @@ class CalculationJobSnapshot:
     result: dict[str, Any] | None
     error: dict[str, Any] | None
     queue_position: int | None
+    progress_percent: int
+    progress_message: str
 
 
 class CalculationJobAlreadyActiveError(OverflowError):
@@ -68,7 +73,7 @@ class CalculationJobQueue:
         *,
         owner_id: str,
         session_token: str,
-        task: Callable[[], dict[str, Any]],
+        task: Callable[[ProgressReporter], dict[str, Any]],
     ) -> CalculationJob:
         """Submit a bounded asynchronous calculation for one session."""
         with self._lock:
@@ -97,11 +102,14 @@ class CalculationJobQueue:
             raise
         return job
 
-    def _run(self, job_id: str, task: Callable[[], dict[str, Any]]) -> None:
+    def _run(
+        self,
+        job_id: str,
+        task: Callable[[ProgressReporter], dict[str, Any]],
+    ) -> None:
         try:
-            self._set_status(job_id, "preparing_weather")
-            self._set_status(job_id, "calculating")
-            result = task()
+            self._set_progress(job_id, "preparing_weather", 5, "計算条件を確認しています。")
+            result = task(lambda percent, message: self.report_progress(job_id, percent, message))
         except Exception as error:
             with self._lock:
                 job = self._jobs[job_id]
@@ -117,15 +125,33 @@ class CalculationJobQueue:
                 job = self._jobs[job_id]
                 job.status = "succeeded"
                 job.result = result
+                job.progress_percent = 100
+                job.progress_message = "NAV LOGの計算が完了しました。"
                 job.updated_at_utc = datetime.now(timezone.utc)
         finally:
             self._capacity.release()
 
-    def _set_status(self, job_id: str, status: JobStatus) -> None:
+    def _set_progress(
+        self,
+        job_id: str,
+        status: JobStatus,
+        percent: int,
+        message: str,
+    ) -> None:
         with self._lock:
             job = self._jobs[job_id]
+            normalized_percent = min(100, max(0, percent))
+            if normalized_percent < job.progress_percent:
+                return
             job.status = status
+            job.progress_percent = normalized_percent
+            job.progress_message = message
             job.updated_at_utc = datetime.now(timezone.utc)
+
+    def report_progress(self, job_id: str, percent: int, message: str) -> None:
+        """Record monotonic calculation progress for API polling clients."""
+        status: JobStatus = "preparing_weather" if percent < 30 else "calculating"
+        self._set_progress(job_id, status, percent, message)
 
     def snapshot(
         self,
@@ -157,6 +183,8 @@ class CalculationJobQueue:
                 result=deepcopy(job.result),
                 error=deepcopy(job.error),
                 queue_position=position,
+                progress_percent=job.progress_percent,
+                progress_message=job.progress_message,
             )
 
     def get(self, job_id: str, *, owner_id: str, session_token: str) -> CalculationJob | None:

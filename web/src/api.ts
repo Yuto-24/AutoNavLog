@@ -99,22 +99,28 @@ export class ApiClient {
     return this.fetchJson<T>(path, options, true);
   }
 
-  async calculate(): Promise<WebState> {
+  async calculate(
+    onProgress?: (progress: { percent: number; message: string }) => void,
+  ): Promise<WebState> {
     type Job = {
       job_id: string;
       status: "queued" | "preparing_weather" | "calculating" | "succeeded" | "failed";
       state?: WebState;
       error?: { code?: string; message?: string; status?: number };
+      progress_percent: number;
+      progress_message: string;
     };
     const created = await this.request<Job>("/api/calculation-jobs", { method: "POST" });
     const deadline = Date.now() + 10 * 60_000;
     let job = created;
+    onProgress?.({ percent: job.progress_percent, message: job.progress_message });
     while (job.status !== "succeeded" && job.status !== "failed") {
       if (Date.now() >= deadline) {
         throw new ApiError("気象準備と計算がタイムアウトしました。", "CALCULATION_TIMEOUT", 504);
       }
       await new Promise((resolve) => window.setTimeout(resolve, 1_000));
       job = await this.request<Job>(`/api/calculation-jobs/${encodeURIComponent(job.job_id)}`);
+      onProgress?.({ percent: job.progress_percent, message: job.progress_message });
     }
     if (job.status === "failed") {
       throw new ApiError(

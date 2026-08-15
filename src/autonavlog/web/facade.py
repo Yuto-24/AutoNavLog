@@ -544,11 +544,22 @@ class AutoNavLogWebApplication:
             session.readiness = materialized.evaluation
             return self.present(session)
 
-    def calculate(self, session: WebSession) -> dict[str, Any]:
+    def calculate(
+        self,
+        session: WebSession,
+        progress: Callable[[int, str], None] | None = None,
+    ) -> dict[str, Any]:
         with session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
-            outcome, destination_wind = self._calculate_outcome(session, session.project)
+            report = progress or (lambda _percent, _message: None)
+            report(10, "経路と計算条件を確認しています。")
+            outcome, destination_wind = self._calculate_outcome(
+                session,
+                session.project,
+                progress=report,
+            )
+            report(90, "計算結果と準備状況を反映しています。")
             materialized = session.readiness_service.record_calculation(
                 session.project,
                 outcome,
@@ -557,6 +568,7 @@ class AutoNavLogWebApplication:
             session.outcome = materialized.outcome
             session.destination_wind = destination_wind
             session.readiness = materialized.evaluation
+            report(98, "画面表示を準備しています。")
             return self.present(session)
 
     def _destination_wind(
@@ -661,6 +673,7 @@ class AutoNavLogWebApplication:
         self,
         session: WebSession,
         project: Project,
+        progress: Callable[[int, str], None] | None = None,
     ) -> tuple[CalculationOutcome, DestinationWindForecast | None]:
         state = self.project_service.ui_state(project)
         plan = state.arrival_plan
@@ -675,7 +688,11 @@ class AutoNavLogWebApplication:
                 status_code=409,
             )
         destination_wind: DestinationWindForecast | None = None
-        outcome = session.calculation_service.calculate(project, session.weather_provider)
+        outcome = session.calculation_service.calculate(
+            project,
+            session.weather_provider,
+            progress=progress,
+        )
         for _ in range(3):
             forecast = self._destination_wind(project, outcome)
             current_signature = self._destination_wind_signature(destination_wind)
@@ -687,6 +704,7 @@ class AutoNavLogWebApplication:
                 project,
                 session.weather_provider,
                 forecast,
+                progress=progress,
             )
         if not self.development_weather:
             return outcome, destination_wind

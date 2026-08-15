@@ -233,14 +233,19 @@ async def test_web_route_calculation_save_and_fail_closed_output(
         assert created_job.status_code == 202, created_job.text
         job = created_job.json()
         assert job["status"] in {"queued", "preparing_weather", "calculating", "succeeded"}
+        assert 0 <= job["progress_percent"] <= 100
+        assert job["progress_message"]
         for _ in range(100):
             job_response = await client.get(f"/api/calculation-jobs/{job['job_id']}")
             assert job_response.status_code == 200, job_response.text
             job = job_response.json()
+            assert 0 <= job["progress_percent"] <= 100
+            assert job["progress_message"]
             if job["status"] in {"succeeded", "failed"}:
                 break
             await asyncio.sleep(0.01)
         assert job["status"] == "succeeded", job
+        assert job["progress_percent"] == 100
         calculated_state = job["state"]
         assert calculated_state["outcome"] is not None
         assert calculated_state["destinationWind"]["availability"] == "AVAILABLE"
@@ -857,6 +862,8 @@ async def test_calculation_job_snapshot_prune_race_returns_minimal_payload(
         "job_id": "issued-job-id",
         "status": "queued",
         "queue_position": None,
+        "progress_percent": 0,
+        "progress_message": "計算待ちです。",
         "created_at_utc": submitted.created_at_utc.isoformat(),
         "updated_at_utc": submitted.updated_at_utc.isoformat(),
     }
