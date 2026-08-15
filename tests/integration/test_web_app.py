@@ -460,7 +460,7 @@ def _route_payload() -> dict[str, object]:
         "candidate_kind": "line",
         "candidate_index": 0,
         "route_use_confirmed": True,
-        "flight_date": "2026-08-10",
+        "flight_date": "2099-08-10",
         "departure_time_jst": "09:00",
         "departure_airport_id": "RJFM",
         "destination_airport_id": "RJFO",
@@ -697,12 +697,21 @@ async def test_sessions_and_saved_projects_are_owner_isolated(tmp_path: Path) ->
             assert hidden.status_code == 404
             assert hidden.json()["error"]["code"] == "PROJECT_NOT_FOUND"
 
+            forbidden_delete = await bob.delete(f"/api/projects/{alice_project_id}")
+            assert forbidden_delete.status_code == 404
+            assert forbidden_delete.json()["error"]["code"] == "PROJECT_NOT_FOUND"
+
             await _save_route(bob, "bob-route")
             bob_state = (await bob.get("/api/state")).json()
             assert [item["name"] for item in bob_state["savedProjects"]] == ["bob-route"]
 
         alice_state = (await alice.get("/api/state")).json()
         assert [item["name"] for item in alice_state["savedProjects"]] == ["alice-route"]
+
+        deleted = await alice.delete(f"/api/projects/{alice_project_id}")
+        assert deleted.status_code == 200
+        assert deleted.json()["savedProjects"] == []
+        assert deleted.json()["project"] is None
 
 
 @pytest.mark.anyio
