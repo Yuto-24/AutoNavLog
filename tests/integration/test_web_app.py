@@ -186,6 +186,11 @@ async def test_web_route_calculation_save_and_fail_closed_output(
                         "section_id": section["id"],
                         "planned_altitude_ft_msl": section["planned_altitude_ft_msl"],
                         "phase": section["phase"],
+                        "manual_wind_by_phase": (
+                            {"CRUISE": {"direction_deg_from": 222, "speed_kt": 22}}
+                            if section["id"] == confirmed_state["project"]["sections"][0]["id"]
+                            else {}
+                        ),
                         "manual_temperature_c_by_phase": (
                             {"CRUISE": 9}
                             if section["id"] == confirmed_state["project"]["sections"][0]["id"]
@@ -306,6 +311,9 @@ async def test_web_route_calculation_save_and_fail_closed_output(
         assert edited_project_section["manual_wind_speed_kt"] == 15
         assert edited_project_section["manual_temperature_c"] == 12
         assert edited_project_section["manual_temperature_c_by_phase"] == {"CRUISE": 9}
+        assert edited_project_section["manual_wind_by_phase"] == {
+            "CRUISE": {"direction_deg_from": 222, "speed_kt": 22}
+        }
         assert edited_project_section["manual_tas_kt"] == 155
         edited_result = next(
             section

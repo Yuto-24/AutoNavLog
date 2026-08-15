@@ -27,6 +27,12 @@ MSMのGRIB2、RISH URL、NetCDF、気圧面配列は`jma-msm-wind`だけが扱�
 MSM adapterは単位、時刻、型、request ID、表示ラベルを変換するだけです。
 
 `DestinationTafProvider`は、計算完了後に目的空港と到着予定時刻を受け取り、
-AviationWeather.govのTAFから卓越風を選びます。結果はWeb sessionへ保持するとともに、NAV LOG最終行の風向・風速と到着区間の
-WCA、GS、ETE、燃料へ反映します。通信やTAF時刻範囲の不一致はNAV LOGのBlockerにせず、
-到着区間をCALMとして計算します。
+AviationWeather.govのTAFから卓越風を選びます。結果はWeb sessionへ保持するとともに、
+NAV LOGの独立した`DESTINATION_INFO`行へ表示します。到着区間のWCA、MH、GS、ETE、
+燃料には反映せず、同区間はTAF取得成否にかかわらずCALMで計算します。通信やTAF時刻範囲の
+不一致はNAV LOGのBlockerにせず、目的空港情報行の風を`UNAVAILABLE`として表示します。
+
+`CalculationOutcome.sections`は重複しないCalculation Zoneであり、距離・時間・燃料の
+唯一の集計元です。`display_rows`は`sections`から作る表示専用投影で、Physical Leg小計、
+継承空欄、PA記号、目的空港情報、Leg間区切りを含みます。ReactとA4転記補助HTMLは同じ
+`NavLogDisplayCell.text`を表示し、display projectionから合計を作り直しません。

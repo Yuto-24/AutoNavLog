@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from html import escape
 from typing import Any
 
@@ -9,11 +9,18 @@ from autonavlog.application.readiness import (
     can_render_transfer_aid,
     derive_project_status,
 )
-from autonavlog.domain.calculation import CalculationOutcome, SectionResult
-from autonavlog.domain.enums import AdoptedSource, ProjectStatus, ValueState
+from autonavlog.domain.calculation import (
+    CalculationOutcome,
+    NavLogDisplayCell,
+    NavLogDisplayRow,
+)
+from autonavlog.domain.enums import (
+    AdoptedSource,
+    DisplayCellState,
+    ProjectStatus,
+)
 from autonavlog.domain.planning import load_persisted_ui_state
 from autonavlog.domain.project import Project
-from autonavlog.domain.values import AdoptedValue
 from autonavlog.nav.rounding import round_half_up
 
 from .formatting import ROUNDING, format_clock
@@ -27,135 +34,7 @@ DISCLAIMER = (
 
 def _text_cell(value: str, css_class: str = "") -> str:
     class_attribute = f" class='{css_class}'" if css_class else ""
-    return f"<td{class_attribute}>{escape(value)}</td>"
-
-
-def _metadata_detail(metadata: dict[str, Any]) -> str:
-    details: list[str] = []
-    for key in (
-        "source",
-        "source_revision",
-        "source_page",
-        "type",
-        "reason",
-        "policy",
-        "rule_version",
-    ):
-        value = metadata.get(key)
-        if isinstance(value, (str, int, float)) and str(value).strip():
-            details.append(f"{key}={value}")
-    return " / ".join(details)
-
-
-def _origin_text(
-    value: AdoptedValue[Any],
-    formatter: Callable[[Any], str],
-) -> str:
-    state = value.state
-    metadata = value.automatic_metadata
-    details = _metadata_detail(metadata)
-    if state == ValueState.MANUAL_OVERRIDE:
-        automatic = value.automatic_value
-        automatic_text = "—" if automatic is None else formatter(automatic)
-        origin = f"手動 / 自動 {automatic_text}"
-    elif state == ValueState.PERFORMANCE_TABLE:
-        origin = "性能表"
-    elif state == ValueState.FIXED_RULE:
-        origin = "規則値"
-    elif state == ValueState.UNAVAILABLE:
-        reason = metadata.get("reason_code") or metadata.get("availability") or "自動値なし"
-        origin = f"未確定理由: {reason}"
-    elif state == ValueState.WARNING:
-        origin = "⚠ 注意値"
-    else:
-        origin = ""
-    if details and state != ValueState.AUTO:
-        origin = f"{origin} / {details}" if origin else details
-    if value.warnings:
-        warning_text = ", ".join(value.warnings)
-        origin = f"{origin} / ⚠ {warning_text}" if origin else f"⚠ {warning_text}"
-    return origin
-
-
-def _value_cell(
-    value: AdoptedValue[Any],
-    formatter: Callable[[Any], str] = str,
-    css_class: str = "num",
-) -> str:
-    adopted = value.adopted()
-    shown = "—（未確定）" if adopted is None else formatter(adopted)
-    classes = css_class + (" missing" if adopted is None else "")
-    state_class = value.state.value.lower().replace("_", "-")
-    origin = _origin_text(value, formatter)
-    origin_html = "" if not origin else f"<small class='value-origin'>{escape(origin)}</small>"
-    return (
-        f"<td class='{classes} state-{state_class}' "
-        f"title='{escape(value.state.value)}'><span>{escape(shown)}</span>{origin_html}</td>"
-    )
-
-
-def _optional_number(value: float | None, formatter: Callable[[float], str]) -> str:
-    return "未確定" if value is None else formatter(value)
-
-
-def _signed_integer(value: float) -> str:
-    rounded = round_half_up(value, 1.0)
-    # Normalize -0.0 to +0
-    if rounded == 0:
-        rounded = 0.0
-    return f"{rounded:+.0f}"
-
-
-def _format_wind(result: SectionResult) -> str:
-    speed = result.wind_speed_kt.adopted()
-    direction = result.wind_direction_deg_from.adopted()
-    if speed == 0:
-        return "CALM"
-    if speed is None or direction is None:
-        return "未確定"
-    return f"{ROUNDING.bearing(direction):03.0f}/{ROUNDING.wind(speed):.0f}"
-
-
-def _phase_label(result: SectionResult) -> str:
-    return {
-        "CLIMB": "CLIMB",
-        "CRUISE": "CRUISE",
-        "DESCENT": "DESC",
-        "VISUAL_ARRIVAL": "VIS ARR",
-    }.get(result.phase.value, result.phase.value)
-
-
-def _wind_cell(result: SectionResult) -> str:
-    speed = result.wind_speed_kt
-    direction = result.wind_direction_deg_from
-    shown = _format_wind(result)
-    missing = shown == "未確定"
-    representative = (
-        speed
-        if speed.state == ValueState.MANUAL_OVERRIDE
-        or direction.state != ValueState.MANUAL_OVERRIDE
-        else direction
-    )
-    origin = _origin_text(representative, lambda value: f"{value:.0f}")
-    if representative.state == ValueState.MANUAL_OVERRIDE:
-        automatic_speed = speed.automatic_value
-        automatic_direction = direction.automatic_value
-        if automatic_speed == 0:
-            automatic = "CALM"
-        elif automatic_speed is None or automatic_direction is None:
-            automatic = "—"
-        else:
-            automatic = (
-                f"{ROUNDING.bearing(automatic_direction):03.0f}/"
-                f"{ROUNDING.wind(automatic_speed):.0f}"
-            )
-        origin = f"手動 / 自動 {automatic}"
-        warnings = tuple(dict.fromkeys((*speed.warnings, *direction.warnings)))
-        if warnings:
-            origin += " / ⚠ " + ", ".join(warnings)
-    origin_html = "" if not origin else f"<small class='value-origin'>{escape(origin)}</small>"
-    classes = "num missing" if missing else "num"
-    return f"<td class='{classes}'><span>{escape(shown)}</span>{origin_html}</td>"
+    return f"<td{class_attribute} data-display-text='{escape(value)}'>{escape(value)}</td>"
 
 
 def _raw(value: Any | None) -> str:
@@ -167,98 +46,53 @@ def _raw(value: Any | None) -> str:
     return str(value)
 
 
-def _raw_adopted_cell(value: AdoptedValue[Any], css_class: str = "num") -> str:
-    adopted = value.adopted()
-    shown = "—（未確定）" if adopted is None else _raw(adopted)
-    classes = css_class + (" missing" if adopted is None else "")
-    return f"<td class='{classes}'>{escape(shown)}</td>"
-
-
-def _formatted_adopted_cell(
-    value: AdoptedValue[float],
-    formatter: Callable[[float], str],
-    css_class: str = "num",
-) -> str:
-    adopted = value.adopted()
-    shown = "—（未確定）" if adopted is None else formatter(adopted)
-    classes = css_class + (" missing" if adopted is None else "")
-    return f"<td class='{classes}'>{escape(shown)}</td>"
-
-
-def _combined_adopted_cell(
-    primary: AdoptedValue[float],
-    cumulative: AdoptedValue[float],
-    *,
-    formatter: Callable[[float], str],
-) -> str:
-    primary_value = primary.adopted()
-    cumulative_value = cumulative.adopted()
-    missing = primary_value is None or cumulative_value is None
-    classes = "num combined" + (" missing" if missing else "")
-    primary_text = "—" if primary_value is None else formatter(primary_value)
-    cumulative_text = "—" if cumulative_value is None else formatter(cumulative_value)
+def _display_cell(cell: NavLogDisplayCell, css_class: str = "num") -> str:
+    shown = cell.text or ""
+    classes = [css_class, f"display-{cell.state.value.lower().replace('_', '-')}"]
+    if cell.state == DisplayCellState.UNAVAILABLE:
+        classes.append("missing")
+    if cell.manual:
+        classes.append("manual")
+    origin = "<small class='value-origin'>手入力</small>" if cell.manual else ""
     return (
-        f"<td class='{classes}'><span>{escape(primary_text)}</span>"
-        f"<small>{escape(cumulative_text)}</small></td>"
+        f"<td class='{' '.join(classes)}' data-cell-state='{cell.state.value}' "
+        f"data-display-text='{escape(shown)}'>"
+        f"<span>{escape(shown)}</span>{origin}</td>"
     )
 
 
-def _raw_wind_cell(result: SectionResult) -> str:
-    speed = result.wind_speed_kt.adopted()
-    direction = result.wind_direction_deg_from.adopted()
-    if speed == 0:
-        shown = "CALM"
-    elif speed is None or direction is None:
-        shown = "—（未確定）"
-    else:
-        shown = f"{ROUNDING.bearing(direction):03.0f}/{ROUNDING.speed(speed):.0f}"
-    classes = "num" + (" missing" if speed is None or (speed != 0 and direction is None) else "")
-    return f"<td class='{classes}'>{escape(shown)}</td>"
-
-
-def _section_row(result: SectionResult) -> str:
+def _section_row(result: NavLogDisplayRow) -> str:
+    if result.row_type == "LEG_SEPARATOR":
+        return (
+            f"<tr class='leg-separator' aria-hidden='true' data-row-type='LEG_SEPARATOR' "
+            f"data-row-sequence='{result.sequence}'><td colspan='19'></td></tr>"
+        )
     cells = [
         _text_cell(result.from_name, "route-name"),
         _text_cell(result.to_name, "route-name"),
-        _raw_adopted_cell(result.pressure_altitude_planning_ft),
-        _raw_adopted_cell(result.temperature_c),
-        _formatted_adopted_cell(result.cas_kt, lambda value: f"{ROUNDING.speed(value):.0f}"),
-        _formatted_adopted_cell(result.tas_kt, lambda value: f"{ROUNDING.speed(value):.0f}"),
-        _formatted_adopted_cell(
-            result.true_course_deg, lambda value: f"{ROUNDING.bearing(value):03.0f}"
-        ),
-        _formatted_adopted_cell(result.variation_deg_east, _signed_integer),
-        _formatted_adopted_cell(
-            result.magnetic_course_deg, lambda value: f"{ROUNDING.bearing(value):03.0f}"
-        ),
-        _raw_wind_cell(result),
-        _formatted_adopted_cell(result.wca_deg, _signed_integer),
-        _formatted_adopted_cell(
-            result.magnetic_heading_deg, lambda value: f"{ROUNDING.bearing(value):03.0f}"
-        ),
-        _combined_adopted_cell(
-            result.zone_distance_nm,
-            result.cumulative_distance_nm,
-            formatter=lambda value: f"{ROUNDING.distance(value):.1f}",
-        ),
-        _formatted_adopted_cell(
-            result.ground_speed_kt, lambda value: f"{ROUNDING.speed(value):.0f}"
-        ),
-        _combined_adopted_cell(
-            result.zone_ete_seconds,
-            result.cumulative_ete_seconds,
-            formatter=lambda value: f"{ROUNDING.duration_minutes(value):.1f}",
-        ),
-        _text_cell("", "num"),
-        _text_cell("", "num"),
-        _text_cell("", "num"),
-        _combined_adopted_cell(
-            result.section_fuel_gal,
-            result.remaining_fuel_gal,
-            formatter=lambda value: f"{ROUNDING.fuel(value):.1f}",
-        ),
+        _display_cell(result.pa),
+        _display_cell(result.toat),
+        _display_cell(result.cas),
+        _display_cell(result.tas),
+        _display_cell(result.tc),
+        _display_cell(result.variation),
+        _display_cell(result.mc),
+        _display_cell(result.wind),
+        _display_cell(result.wca),
+        _display_cell(result.mh),
+        _display_cell(result.distance),
+        _display_cell(result.gs),
+        _display_cell(result.ete),
+        _display_cell(result.eto),
+        _display_cell(result.ato),
+        _display_cell(result.ate),
+        _display_cell(result.fuel),
     ]
-    return "<tr>" + "".join(cells) + "</tr>"
+    row_class = result.row_type.lower().replace("_", "-")
+    return (
+        f"<tr class='{row_class}' data-row-type='{result.row_type}' "
+        f"data-row-sequence='{result.sequence}'>" + "".join(cells) + "</tr>"
+    )
 
 
 def _project_summary(project: Project, outcome: CalculationOutcome) -> str:
@@ -720,7 +554,7 @@ def render_transfer_aid_html(
     )
     status_label = "転記可（要照合）" if ready else "転記不可"
     status_class = "transfer-ready" if ready else "transfer-blocked"
-    section_rows = "".join(_section_row(result) for result in outcome.sections)
+    section_rows = "".join(_section_row(result) for result in outcome.display_rows)
     if not section_rows:
         section_rows = "<tr><td class='missing' colspan='19'>Section計算結果なし</td></tr>"
     return f"""
@@ -758,6 +592,7 @@ def render_transfer_aid_html(
 .route-table small {{ font-size:5px; font-weight:400; }}
 .route-table .combined small {{ display:block; border-top:1px solid #999; margin-top:2px;
   padding-top:2px; }}
+.route-table .leg-separator td {{ height:7px; border-left:0; border-right:0; }}
 .num {{ text-align:right; font-variant-numeric:tabular-nums; }}
 .missing {{ color:#b00020; background:#fff0f0; font-weight:700; }}
 .official-bottom {{ display:grid; grid-template-columns:2fr 1fr; gap:5px; margin-top:5px;

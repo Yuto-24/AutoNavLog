@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test, type Page } from "@playwright/test";
 
+import type { NavLogDisplayRow, WebState } from "../src/types";
+
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
@@ -33,6 +35,50 @@ const multiDocumentKmz = Buffer.from(
   "UEsDBBQAAAAIAG0kCl36V3yWdAAAAJwAAAAJAAAAZmlyc3Qua21sTY1BCgMhDEWvMsx6MKi7kuYEXRR6ApmmU1HjoAF7/NKu3H14vPcxlbx8SpZ+Xd+q5wVgjGHqyXLEboQVUsngjFsJ7znsXEJLhBIK0yu2rgj/jbco/NAW5SDca23PKEG5k/V283ax3m3eIcwIYZZgyv9O6QtQSwMEFAAAAAgAbSQKXeGCuSN0AAAAnQAAAAoAAABzZWNvbmQua21sTY1BCsMgEEWvErIODuouTOcEXRR6AjFDIuoYVLDHL+3K5efx3seY0/LJSdpjvXq/d4Axhio3yxmaEu4QcwKjzEr4Ss5zdjUSistMjX2RA+E/8BmE370GOQl9KfUI4jo30lZvVi/ams0ahBkhzBJM/d8rfQFQSwECFAMUAAAACABtJApd+ld8lnQAAACcAAAACQAAAAAAAAAAAAAAgAEAAAAAZmlyc3Qua21sUEsBAhQDFAAAAAgAbSQKXeGCuSN0AAAAnQAAAAoAAAAAAAAAAAAAAIABmwAAAHNlY29uZC5rbWxQSwUGAAAAAAIAAgBvAAAANwEAAAAA",
   "base64",
 );
+
+const displayCellFields = [
+  "pa", "toat", "cas", "tas", "tc", "variation", "mc", "wind", "wca",
+  "mh", "distance", "gs", "ete", "eto", "ato", "ate", "fuel",
+] as const satisfies ReadonlyArray<keyof NavLogDisplayRow>;
+
+async function expectDisplayProjectionToMatchWebTable(page: Page): Promise<void> {
+  const state = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  const expectedRows = state.outcome?.display_rows;
+  if (expectedRows === undefined) throw new Error("calculated display rows are missing");
+  const actualRows = await page.locator(".nav-log-table tbody tr[data-row-type]").evaluateAll(
+    (rows) => rows.map((row) => ({
+      rowType: row.getAttribute("data-row-type"),
+      sequence: Number(row.getAttribute("data-row-sequence")),
+      values: Array.from(row.querySelectorAll<HTMLElement>("td[data-display-text]"))
+        .map((cell) => cell.dataset.displayText ?? ""),
+    })),
+  );
+
+  expect(actualRows).toHaveLength(expectedRows.length);
+  expectedRows.forEach((row, index) => {
+    expect(actualRows[index]?.rowType).toBe(row.row_type);
+    expect(actualRows[index]?.sequence).toBe(row.sequence);
+    if (row.row_type === "LEG_SEPARATOR") {
+      expect(actualRows[index]?.values).toEqual([]);
+      return;
+    }
+    expect(actualRows[index]?.values).toEqual([
+      row.from_name,
+      row.to_name,
+      ...displayCellFields.map((field) => {
+        const cell = row[field];
+        if (typeof cell !== "object" || cell === null || !("text" in cell)) {
+          throw new Error(`display field ${field} is not a display cell`);
+        }
+        return cell.text ?? "";
+      }),
+    ]);
+  });
+}
 
 async function calculateNavLog(page: Page): Promise<void> {
   const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
@@ -124,8 +170,10 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
   await expect(calculationProgress).toBeHidden();
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
-  await expect(firstRow.getByLabel(/計画高度$/)).toHaveValue(firstAltitudeCandidate);
-  await expect(firstRow.locator("td").nth(7)).toHaveText("+7");
+  await expect(
+    page.locator(".nav-log-table").getByLabel(/計画高度$/).first(),
+  ).toHaveValue(firstAltitudeCandidate);
+  await expect(page.locator(".nav-log-table .nav-leg-heading-row").first().locator("td").nth(7)).toHaveText("+7");
   const windInputs = firstRow.locator(".nav-log-wind-inputs");
   const windDirectionInput = firstRow.getByLabel(/手動風向$/);
   const windSpeedInput = firstRow.getByLabel(/手動風速$/);
@@ -135,13 +183,14 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(windDirectionInput).toHaveAttribute("placeholder", "DIR");
   await expect(windSpeedInput).toHaveAttribute("placeholder", "0");
   await expect.poll(() => windInputs.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
-  await expect(
-    page.getByLabel("採用QNHと出典").locator("strong"),
-  ).toHaveText("採用QNH: 29.91 inHg（1013.0 hPa）");
+  await expect(page.getByLabel("NAV LOG高度ポリシー")).toContainText("PA = MSL");
+  await expect(page.getByLabel("NAV LOG高度ポリシー")).toContainText(
+    "QNH補正はNAV LOG計算に使用しません。",
+  );
   await expect(page.getByLabel("目的地空港の風予報")).toContainText(
     "目的地風: 200/8 kt",
   );
-  const finalRow = page.locator(".nav-log-table .nav-leg-detail-row").last();
+  const finalRow = page.locator(".nav-log-table .nav-destination-info-row");
   await expect(finalRow.getByRole("cell", { name: "200/8", exact: true })).toBeVisible();
   await expect(finalRow.getByLabel(/手動風向$/)).toHaveCount(0);
   await expect(finalRow.getByLabel(/手動風速$/)).toHaveCount(0);
@@ -154,6 +203,7 @@ async function calculateNavLog(page: Page): Promise<void> {
   ]) {
     await expect(page.locator(".qnh-warning").filter({ hasText: warning })).toHaveCount(0);
   }
+  await expectDisplayProjectionToMatchWebTable(page);
 }
 
 test("desktop workflow renders and stays fail-closed", async ({ page }) => {
@@ -188,6 +238,50 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
     fullPage: true,
   });
 
+  // Render a deliberately failed display cell through the same Web component.
+  // This keeps the visual contract explicit: only UNAVAILABLE says 未取得 and
+  // receives the bold red treatment; a neighboring BLANK remains truly empty.
+  const unavailableState = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    const next = await response.json() as WebState;
+    const destination = next.outcome?.display_rows.find(
+      (row) => row.row_type === "DESTINATION_INFO",
+    );
+    if (destination === undefined) throw new Error("destination display row is missing");
+    destination.cas = {
+      state: "UNAVAILABLE",
+      text: "未取得",
+      effective_value: null,
+      reason_code: "E2E_TRUE_FAILURE",
+      manual: false,
+    };
+    return next;
+  });
+  await page.route("**/api/state", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(unavailableState),
+    });
+  }, { times: 1 });
+  await page.reload();
+  const unavailableCell = page.locator(
+    '.nav-destination-info-row [data-cell-state="UNAVAILABLE"]',
+  );
+  await expect(unavailableCell).toHaveText("未取得");
+  const unavailableStyle = await unavailableCell.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { fontWeight: style.fontWeight, backgroundColor: style.backgroundColor };
+  });
+  expect(Number(unavailableStyle.fontWeight)).toBeGreaterThanOrEqual(700);
+  expect(unavailableStyle.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+  const blankCell = page.locator(
+    '.nav-destination-info-row [data-cell-state="BLANK"]',
+  ).first();
+  await expect(blankCell).toHaveText("");
+  await expect(blankCell).not.toHaveClass(/unavailable-value/);
+
   expect(pageErrors).toEqual([]);
 });
 
@@ -209,21 +303,32 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   await expect(calculate).toBeEnabled();
   await calculate.click();
 
-  const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
-  await expect(firstRow.getByLabel(/計画高度$/)).toHaveValue("5500");
-  await expect(firstRow.locator("td").nth(6)).toHaveText(/^\d{3}$/);
-  await expect(firstRow.locator("td").nth(7)).toHaveText("+7");
-  await expect(firstRow.locator("td").nth(8)).toHaveText(/^\d{3}$/);
-  await expect(firstRow.locator("td").nth(10)).toHaveText(/^[+-]\d+$/);
-  await expect(firstRow.locator("td").nth(11)).toHaveText(/^\d{3}$/);
-  await expect(firstRow.locator("td").nth(12)).toHaveText(
+  const altitudeInput = page.locator(".nav-log-table").getByLabel(/計画高度$/).first();
+  await expect(altitudeInput).toHaveValue("5500");
+  const firstParent = page.locator(".nav-log-table .nav-leg-heading-row").first();
+  await expect(firstParent.locator("td").nth(6)).toHaveText(/^\d{3}$/);
+  await expect(firstParent.locator("td").nth(7)).toHaveText("+7");
+  await expect(firstParent.locator("td").nth(8)).toHaveText(/^\d{3}$/);
+  const course = await firstParent.locator("td").nth(6).textContent();
+  const variation = await firstParent.locator("td").nth(7).textContent();
+  const magneticCourse = await firstParent.locator("td").nth(8).textContent();
+  expect((Number(course) + Number(variation) + 360) % 360).toBe(Number(magneticCourse));
+  await expect(firstParent.locator("td").nth(12)).toHaveText(
     /^\d+\.[05] \/ \d+\.[05]$/,
   );
-  await expect(firstRow.locator("td").nth(14)).toHaveText(
+  await expect(firstParent.locator("td").nth(14)).toHaveText(
     /^\d+\.[05] \/ \d+\.[05]$/,
   );
-  await expect(firstRow.locator("td").nth(18)).toHaveText(
+  await expect(firstParent.locator("td").nth(18)).toHaveText(
     /^\d+\.\d \/ \d+\.\d$/,
+  );
+  const firstDetail = page.locator(".nav-log-table .nav-leg-detail-row").first();
+  await expect(firstDetail.locator("td").nth(12)).toHaveText(/^\d+\.[05]$/);
+  await expect(firstDetail.locator("td").nth(14)).toHaveText(/^\d+\.[05]$/);
+  const displayedWca = await firstDetail.locator("td").nth(10).textContent();
+  const displayedHeading = await firstDetail.locator("td").nth(11).textContent();
+  expect((Number(magneticCourse) + Number(displayedWca) + 360) % 360).toBe(
+    Number(displayedHeading),
   );
   await expect(page.getByText("DESCENT_END", { exact: true })).toHaveCount(0);
   await expect(page.locator(".nav-leg-heading-row")).not.toHaveCount(0);
@@ -307,6 +412,10 @@ test("climb and descent legs show magnetic-course altitude candidates", async ({
 
 test("NAV LOG safe inputs validate and recalculate automatically", async ({ page }) => {
   await page.goto("/");
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
   await calculateNavLog(page);
 
   const recalculationRequests: string[] = [];
@@ -354,8 +463,41 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   await windResponse;
   await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
   await expect(windDirection).toHaveAttribute("aria-invalid", "false");
+  const splitRows = page.locator(".nav-log-table .nav-leg-detail-row");
+  await expect(splitRows.first().getByLabel(/手動風向$/)).toHaveAttribute("aria-label", /→RCA 手動風向$/);
+  await expect(splitRows.nth(1).getByLabel(/手動風向$/)).toHaveAttribute("aria-label", /^RCA→/);
+  const cruiseWindDirection = splitRows.nth(1).getByLabel(/手動風向$/);
+  const cruiseWindSpeed = splitRows.nth(1).getByLabel(/手動風速$/);
+  await cruiseWindDirection.fill("180");
+  await expect(cruiseWindDirection).toHaveAttribute("aria-invalid", "true");
+  const cruiseWindResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project/recalculate") && response.ok(),
+  );
+  await cruiseWindSpeed.fill("20");
+  const cruiseResponse = await cruiseWindResponse;
+  await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
+  await expect(windDirection).toHaveValue("270");
+  await expect(windSpeed).toHaveValue("15");
+  const payload = cruiseResponse.request().postDataJSON() as {
+    sections: Array<Record<string, unknown>>;
+  };
+  expect(payload.sections[0]).toMatchObject({
+    manual_wind_direction_deg: 270,
+    manual_wind_speed_kt: 15,
+    manual_wind_by_phase: { CRUISE: { direction_deg_from: 180, speed_kt: 20 } },
+  });
+  await expect(page.getByRole("heading", { name: "NAV LOG" })).toBeVisible();
+  await expect(page.locator("body")).not.toBeEmpty();
+  await expect(
+    page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
+  ).toHaveCount(0);
+  const unexpectedConsoleErrors = consoleErrors.filter(
+    (message) => !message.includes("401 (Unauthorized)"),
+  );
+  expect(unexpectedConsoleErrors).toEqual([]);
+  await page.screenshot({ path: "/tmp/autonavlog-phase-wind.png", fullPage: false });
   await expect(page.locator(".nav-log-table th").nth(6)).toHaveText("TC");
-  await expect(page.locator(".derived-readonly-cell").first()).toHaveAttribute("title", /読み取り専用/);
+  await expect(page.locator(".derived-readonly-cell").first()).toHaveAttribute("title", /表示専用セル/);
 });
 
 test("stale automatic recalculation cannot overwrite newer planning inputs", async ({ page }) => {

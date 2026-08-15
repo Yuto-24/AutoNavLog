@@ -3,10 +3,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from autonavlog.application.calculation_service import CalculationService
-from autonavlog.domain.calculation import DerivedRoutePoint, Issue
+from autonavlog.domain.calculation import (
+    DerivedRoutePoint,
+    Issue,
+    NavLogDisplayCell,
+)
 from autonavlog.domain.enums import (
     AdoptedSource,
     DerivedPointType,
+    DisplayCellState,
     FlightPhase,
     IssueSeverity,
     ProjectStatus,
@@ -48,6 +53,26 @@ def _outcome_with_sections(project, airports, performance_repository):
             }
         ),
     )
+
+
+def _display_value(text: str, effective_value: float | str, *, manual: bool = False):
+    return NavLogDisplayCell(
+        state=DisplayCellState.DISPLAY_VALUE,
+        text=text,
+        effective_value=effective_value,
+        manual=manual,
+    )
+
+
+def _replace_first_display_row(outcome, **updates):
+    index = next(
+        index
+        for index, row in enumerate(outcome.display_rows)
+        if row.row_type == "PHYSICAL_LEG_SUMMARY"
+    )
+    rows = list(outcome.display_rows)
+    rows[index] = rows[index].model_copy(update=updates)
+    return outcome.model_copy(update={"display_rows": rows})
 
 
 def test_ready_transfer_aid_is_dense_a4_landscape_table(
@@ -158,7 +183,10 @@ def test_transfer_aid_does_not_revive_legacy_sea_or_eto_values(
     assert "SEA" not in route_table
     assert "9876" not in route_table
     assert "21:34" not in route_table
-    assert route_table.count("<td class='num'></td>") == len(legacy_outcome.sections) * 3
+    rendered_rows = [
+        row for row in legacy_outcome.display_rows if row.row_type != "LEG_SEPARATOR"
+    ]
+    assert route_table.count("display-blank") >= len(rendered_rows) * 3
 
 
 def test_non_ready_transfer_aid_is_red_and_marks_missing_values(
@@ -171,13 +199,16 @@ def test_non_ready_transfer_aid_is_red_and_marks_missing_values(
         airports,
         performance_repository,
     )
-    missing_section = outcome.sections[0].model_copy(
-        update={"ground_speed_kt": AdoptedValue[float]()}
-    )
-    blocked = outcome.model_copy(
+    blocked = _replace_first_display_row(
+        outcome,
+        gs=NavLogDisplayCell(
+            state=DisplayCellState.UNAVAILABLE,
+            text="未取得",
+            reason_code="GS_UNAVAILABLE",
+        ),
+    ).model_copy(
         update={
             "status": ProjectStatus.MANUAL_INPUT_REQUIRED,
-            "sections": [missing_section, *outcome.sections[1:]],
             "issues": [
                 Issue(
                     code="GS_UNAVAILABLE",
@@ -193,7 +224,8 @@ def test_non_ready_transfer_aid_is_red_and_marks_missing_values(
     assert "transfer-status transfer-blocked" in html
     assert ">転記不可<br>" in html
     assert "color:#b00020" in html
-    assert "未確定" in html
+    assert "未取得" in html
+    assert "class='num display-unavailable missing'" in html
     assert "GS_UNAVAILABLE" not in html
     assert "GSを確定できません。" not in html
     assert "警告" not in html
@@ -229,7 +261,7 @@ def test_transfer_aid_groups_repeated_issues_and_preserves_segment_range(
     assert "警告・未確定項目" not in html
 
 
-def test_transfer_aid_always_labels_automatic_qnh_as_msm_estimated(
+def test_transfer_aid_does_not_require_qnh_value(
     project,
     airports,
     performance_repository,
@@ -239,21 +271,11 @@ def test_transfer_aid_always_labels_automatic_qnh_as_msm_estimated(
         airports,
         performance_repository,
     )
-    metar_outcome = outcome.model_copy(
-        update={
-            "qnh_hpa": outcome.qnh_hpa.model_copy(
-                update={
-                    "automatic_metadata": outcome.qnh_hpa.automatic_metadata
-                    | {"label": "METAR観測QNH"}
-                }
-            )
-        }
-    )
-
-    html = render_transfer_aid_html(ready_project, metar_outcome)
+    html = render_transfer_aid_html(ready_project, outcome)
 
     assert "QNH" in html
-    assert f"{outcome.qnh_hpa.adopted()} hPa" in html
+    assert outcome.qnh_hpa.adopted() is None
+    assert "None hPa" not in html
     assert "MSM推定QNH" not in html
     assert "METAR観測QNH" not in html
 
@@ -268,53 +290,27 @@ def test_transfer_aid_distinguishes_every_value_state(
         airports,
         performance_repository,
     )
-    section = outcome.sections[0].model_copy(
-        update={
-            "planned_altitude_ft_msl": AdoptedValue[float](
-                automatic_value=5000,
-                automatic_status=ValueState.AUTO,
-                adopted_source=AdoptedSource.AUTOMATIC,
-            ),
-            "pressure_altitude_planning_ft": AdoptedValue[float](
-                automatic_value=5500.125,
-                automatic_status=ValueState.PERFORMANCE_TABLE,
-                automatic_metadata={"source_page": "5-32"},
-                adopted_source=AdoptedSource.AUTOMATIC,
-            ),
-            "true_course_deg": AdoptedValue[float](
-                automatic_value=123.456,
-                automatic_status=ValueState.FIXED_RULE,
-                automatic_metadata={"rule_version": "TEST_RULE"},
-                adopted_source=AdoptedSource.AUTOMATIC,
-            ),
-            "variation_deg_east": AdoptedValue[float](
-                automatic_value=8.25,
-                automatic_status=ValueState.AUTO,
-                manual_override=7.125,
-                adopted_source=AdoptedSource.MANUAL,
-            ),
-            "magnetic_course_deg": AdoptedValue[float](
-                automatic_status=ValueState.UNAVAILABLE,
-                automatic_metadata={"reason_code": "COURSE_MISSING"},
-            ),
-            "wca_deg": AdoptedValue[float](
-                automatic_value=2.375,
-                automatic_status=ValueState.WARNING,
-                adopted_source=AdoptedSource.AUTOMATIC,
-                warnings=("CROSSWIND_NEAR_LIMIT",),
-            ),
-        }
+    marked = _replace_first_display_row(
+        outcome,
+        pa=_display_value("5500", 5500.125),
+        tc=_display_value("123", 123.456),
+        variation=_display_value("+7", 7.125, manual=True),
+        mc=NavLogDisplayCell(
+            state=DisplayCellState.UNAVAILABLE,
+            text="未取得",
+            reason_code="COURSE_MISSING",
+        ),
+        wca=_display_value("+2", 2.375),
     )
-    marked = outcome.model_copy(update={"sections": [section, *outcome.sections[1:]]})
 
     html = render_transfer_aid_html(ready_project, marked)
 
-    assert "5500.125" in html
+    assert ">5500<" in html
     assert ">123<" in html
     assert ">+7<" in html
     assert ">+2<" in html
-    assert "—（未確定）" in html
-    assert "state-" not in html
+    assert ">未取得<" in html
+    assert "display-unavailable missing" in html
     assert "source_page=5-32" not in html
     assert "TEST_RULE" not in html
     assert "COURSE_MISSING" not in html
@@ -378,38 +374,15 @@ def test_transfer_aid_formats_nav_values_at_required_precision(
         airports,
         performance_repository,
     )
-    first = outcome.sections[0].model_copy(
+    formatted_outcome = _replace_first_display_row(
+        outcome,
+        distance=_display_value("12.5 / 35.0", 12.34567),
+        ete=_display_value("1.0 / 14.0", 61.20000000000001),
+        fuel=_display_value("1.2 / 75.8", 1.23456),
+        cas=_display_value("114", 114.07694052991398),
+        tc=_display_value("008", 7.5),
+    ).model_copy(
         update={
-            "zone_distance_nm": AdoptedValue[float](
-                automatic_value=12.34567,
-                automatic_status=ValueState.AUTO,
-                adopted_source=AdoptedSource.AUTOMATIC,
-            ),
-            "zone_ete_seconds": AdoptedValue[float](
-                automatic_value=61.20000000000001,
-                automatic_status=ValueState.AUTO,
-                adopted_source=AdoptedSource.AUTOMATIC,
-            ),
-            "section_fuel_gal": AdoptedValue[float](
-                automatic_value=1.23456,
-                automatic_status=ValueState.AUTO,
-                adopted_source=AdoptedSource.AUTOMATIC,
-            ),
-            "cas_kt": AdoptedValue[float](
-                automatic_value=114.07694052991398,
-                automatic_status=ValueState.AUTO,
-                adopted_source=AdoptedSource.AUTOMATIC,
-            ),
-            "true_course_deg": AdoptedValue[float](
-                automatic_value=7.5,
-                automatic_status=ValueState.AUTO,
-                adopted_source=AdoptedSource.AUTOMATIC,
-            ),
-        }
-    )
-    formatted_outcome = outcome.model_copy(
-        update={
-            "sections": [first, *outcome.sections[1:]],
             "fuel_plan": outcome.fuel_plan.model_copy(
                 update={
                     "total_usable_gal": 90.12345,

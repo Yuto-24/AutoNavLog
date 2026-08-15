@@ -132,7 +132,7 @@ def test_boundary_exactly_on_physical_node_keeps_coordinate_and_stable_label() -
         131.1,
     )
     assert result.eoc_point is not None
-    assert result.eoc_point.label == "EOC"
+    assert result.eoc_point.label == "C / EOC"
     assert result.eoc_point.source_name == "C"
     assert (result.eoc_point.latitude_deg, result.eoc_point.longitude_deg) == (
         31.1,
@@ -174,8 +174,31 @@ def test_coincident_rca_and_eoc_preserve_both_markers() -> None:
 
     assert result.rca_point is result.eoc_point
     assert result.rca_point is not None
-    assert result.rca_point.label == "RCA/EOC"
+    assert result.rca_point.label == "B / RCA / EOC"
     assert result.rca_point.markers == ("RCA", "EOC")
+
+
+@pytest.mark.parametrize(
+    ("eoc_distance", "expected_distance", "expected_label"),
+    [
+        (29.51, 30.0, "C / EOC"),
+        (29.50, 29.50, "EOC"),
+    ],
+)
+def test_eoc_snap_threshold_is_strictly_less_than_half_nm(
+    eoc_distance: float,
+    expected_distance: float,
+    expected_label: str,
+) -> None:
+    result = split_route_into_phase_segments(
+        _legs(),
+        eoc_distance_nm=eoc_distance,
+        descent_end_distance_nm=50.0,
+    )
+
+    assert result.eoc_point is not None
+    assert result.eoc_point.along_route_distance_nm == pytest.approx(expected_distance)
+    assert result.eoc_point.label == expected_label
 
 
 def test_closed_physical_route_is_accepted_and_output_remains_closed() -> None:

@@ -54,6 +54,11 @@ export interface RouteNode {
   source: string;
 }
 
+export interface ManualWind {
+  direction_deg_from: number;
+  speed_kt: number;
+}
+
 export interface NavSection {
   id: string;
   sequence: number;
@@ -63,6 +68,7 @@ export interface NavSection {
   planned_altitude_ft_msl: number;
   manual_wind_direction_deg: number | null;
   manual_wind_speed_kt: number | null;
+  manual_wind_by_phase?: Partial<Record<FlightPhase, ManualWind>>;
   manual_temperature_c: number | null;
   manual_temperature_c_by_phase?: Partial<Record<FlightPhase, number>>;
   manual_tas_kt: number | null;
@@ -142,6 +148,64 @@ export interface SectionResult {
   remaining_fuel_gal: AdoptedValue<number>;
 }
 
+export type DisplayCellState =
+  | "DISPLAY_VALUE"
+  | "INHERIT"
+  | "BLANK"
+  | "UNAVAILABLE"
+  | "STATE_SYMBOL";
+
+export interface NavLogDisplayCell {
+  state: DisplayCellState;
+  text: string | null;
+  effective_value: number | string | null;
+  reason_code: string | null;
+  manual: boolean;
+}
+
+export interface NavLogDisplayRow {
+  section_id: string | null;
+  sequence: number;
+  source_result_sequence: number | null;
+  phase: FlightPhase | null;
+  row_type:
+    | "PHYSICAL_LEG_SUMMARY"
+    | "CALCULATION_ZONE"
+    | "DESTINATION_INFO"
+    | "LEG_SEPARATOR";
+  counts_toward_totals: boolean;
+  from_name: string;
+  to_name: string;
+  pa_display_kind:
+    | "NUMERIC"
+    | "CLIMB"
+    | "DESCENT"
+    | "ESTIMATED"
+    | "BLANK"
+    | "UNAVAILABLE";
+  pa: NavLogDisplayCell;
+  toat: NavLogDisplayCell;
+  cas: NavLogDisplayCell;
+  tas: NavLogDisplayCell;
+  tc: NavLogDisplayCell;
+  variation: NavLogDisplayCell;
+  mc: NavLogDisplayCell;
+  wind: NavLogDisplayCell;
+  wca: NavLogDisplayCell;
+  mh: NavLogDisplayCell;
+  distance: NavLogDisplayCell;
+  gs: NavLogDisplayCell;
+  ete: NavLogDisplayCell;
+  eto: NavLogDisplayCell;
+  ato: NavLogDisplayCell;
+  ate: NavLogDisplayCell;
+  fuel: NavLogDisplayCell;
+  zone_distance_nm_exact: number | null;
+  cumulative_distance_nm_exact: number | null;
+  zone_ete_seconds_exact: number | null;
+  cumulative_ete_seconds_exact: number | null;
+}
+
 export interface DerivedPoint {
   type: "RCA" | "EOC";
   latitude_deg: number;
@@ -167,6 +231,7 @@ export interface CalculationOutcome {
   selected_forecast_run_id: string | null;
   qnh_hpa: AdoptedValue<number>;
   sections: SectionResult[];
+  display_rows: NavLogDisplayRow[];
   derived_points: DerivedPoint[];
   fuel_plan: FuelPlan;
   status: string;

@@ -242,9 +242,9 @@ MSM契約試験やColabリリースでは、Privateリポジトリから作成�
 
 ```bash
 python scripts/build_colab_preview_bundle.py \
-  dist/autonavlog-0.2.1-py3-none-any.whl \
+  dist/autonavlog-0.3.0-py3-none-any.whl \
   /path/to/jma_msm_wind-0.2.1-py3-none-any.whl \
-  dist/autonavlog-colab-preview-0.2.1.zip \
+  dist/autonavlog-colab-preview-0.3.0.zip \
   --terrain /path/to/verified/terrain.npz
 ```
 

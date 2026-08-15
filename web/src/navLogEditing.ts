@@ -11,8 +11,8 @@ export interface NavLogEditDraft {
   plannedAltitude: string;
   temperatureByPhase: Partial<Record<FlightPhase, string>>;
   tas: string;
-  windDirection: string;
-  windSpeed: string;
+  windDirectionByPhase: Partial<Record<FlightPhase, string>>;
+  windSpeedByPhase: Partial<Record<FlightPhase, string>>;
 }
 
 export type NavLogEditDrafts = Record<string, NavLogEditDraft>;
@@ -23,16 +23,29 @@ export type NavLogEditErrors = Record<
 
 export function draftFromSection(section: NavSection): NavLogEditDraft {
   const temperatureByPhase: Partial<Record<FlightPhase, string>> = {};
+  const windDirectionByPhase: Partial<Record<FlightPhase, string>> = {};
+  const windSpeedByPhase: Partial<Record<FlightPhase, string>> = {};
   for (const [phase, value] of Object.entries(section.manual_temperature_c_by_phase ?? {})) {
     temperatureByPhase[phase as FlightPhase] = String(value);
   }
   temperatureByPhase[section.phase] = section.manual_temperature_c?.toString() ?? "";
+  for (const [phase, wind] of Object.entries(section.manual_wind_by_phase ?? {})) {
+    windDirectionByPhase[phase as FlightPhase] = String(wind.direction_deg_from);
+    windSpeedByPhase[phase as FlightPhase] = String(wind.speed_kt);
+  }
+  if (windDirectionByPhase[section.phase] === undefined) {
+    windDirectionByPhase[section.phase] =
+      section.manual_wind_direction_deg?.toString() ?? "";
+  }
+  if (windSpeedByPhase[section.phase] === undefined) {
+    windSpeedByPhase[section.phase] = section.manual_wind_speed_kt?.toString() ?? "";
+  }
   return {
     plannedAltitude: String(section.planned_altitude_ft_msl),
     temperatureByPhase,
     tas: section.manual_tas_kt?.toString() ?? "",
-    windDirection: section.manual_wind_direction_deg?.toString() ?? "",
-    windSpeed: section.manual_wind_speed_kt?.toString() ?? "",
+    windDirectionByPhase,
+    windSpeedByPhase,
   };
 }
 
@@ -80,20 +93,28 @@ export function validateNavLogDrafts(
         sectionErrors.tas = "0より大きく300 kt以下にしてください。";
       }
 
-      const hasDirection = Boolean(draft.windDirection.trim());
-      const hasSpeed = Boolean(draft.windSpeed.trim());
-      if (hasDirection !== hasSpeed) {
-        const message = "風向と風速は両方入力するか、両方空欄にしてください。";
-        sectionErrors.windDirection = message;
-        sectionErrors.windSpeed = message;
-      } else if (hasDirection && hasSpeed) {
-        const direction = finiteNumber(draft.windDirection);
-        const speed = finiteNumber(draft.windSpeed);
-        if (direction === null || direction < 0 || direction >= 360) {
-          sectionErrors.windDirection = "0以上360未満の度数にしてください。";
-        }
-        if (speed === null || speed < 0 || speed > 200) {
-          sectionErrors.windSpeed = "0～200 ktの範囲にしてください。";
+      const windPhases = new Set<FlightPhase>([
+        ...(Object.keys(draft.windDirectionByPhase) as FlightPhase[]),
+        ...(Object.keys(draft.windSpeedByPhase) as FlightPhase[]),
+      ]);
+      for (const phase of windPhases) {
+        const directionDraft = draft.windDirectionByPhase[phase] ?? "";
+        const speedDraft = draft.windSpeedByPhase[phase] ?? "";
+        const hasDirection = Boolean(directionDraft.trim());
+        const hasSpeed = Boolean(speedDraft.trim());
+        if (hasDirection !== hasSpeed) {
+          const message = "風向と風速は両方入力するか、両方空欄にしてください。";
+          sectionErrors.windDirection = message;
+          sectionErrors.windSpeed = message;
+        } else if (hasDirection && hasSpeed) {
+          const direction = finiteNumber(directionDraft);
+          const speed = finiteNumber(speedDraft);
+          if (direction === null || direction < 0 || direction >= 360) {
+            sectionErrors.windDirection = "0以上360未満の度数にしてください。";
+          }
+          if (speed === null || speed < 0 || speed > 200) {
+            sectionErrors.windSpeed = "0～200 ktの範囲にしてください。";
+          }
         }
       }
     }
@@ -117,6 +138,21 @@ export function applyDraftToSection(
         return parsed === null ? [] : [[phase, parsed]];
       }),
   ) as Partial<Record<FlightPhase, number>>;
+  const windPhases = new Set<FlightPhase>([
+    ...(Object.keys(draft.windDirectionByPhase) as FlightPhase[]),
+    ...(Object.keys(draft.windSpeedByPhase) as FlightPhase[]),
+  ]);
+  const manualWindByPhase = Object.fromEntries(
+    [...windPhases]
+      .filter((phase) => phase !== section.phase)
+      .flatMap((phase) => {
+        const direction = finiteNumber(draft.windDirectionByPhase[phase] ?? "");
+        const speed = finiteNumber(draft.windSpeedByPhase[phase] ?? "");
+        return direction === null || speed === null
+          ? []
+          : [[phase, { direction_deg_from: direction, speed_kt: speed }]];
+      }),
+  ) as NonNullable<NavSection["manual_wind_by_phase"]>;
   return {
     ...section,
     planned_altitude_ft_msl: isVisualArrival
@@ -125,12 +161,15 @@ export function applyDraftToSection(
     manual_temperature_c: finiteNumber(draft.temperatureByPhase[section.phase] ?? ""),
     manual_temperature_c_by_phase: manualTemperatureByPhase,
     manual_tas_kt: isVisualArrival ? section.manual_tas_kt : finiteNumber(draft.tas),
+    manual_wind_by_phase: isVisualArrival
+      ? section.manual_wind_by_phase
+      : manualWindByPhase,
     manual_wind_direction_deg: isVisualArrival
       ? section.manual_wind_direction_deg
-      : finiteNumber(draft.windDirection),
+      : finiteNumber(draft.windDirectionByPhase[section.phase] ?? ""),
     manual_wind_speed_kt: isVisualArrival
       ? section.manual_wind_speed_kt
-      : finiteNumber(draft.windSpeed),
+      : finiteNumber(draft.windSpeedByPhase[section.phase] ?? ""),
   };
 }
 

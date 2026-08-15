@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from uuid import UUID
@@ -12,19 +13,17 @@ from autonavlog.domain.calculation import Issue
 from autonavlog.domain.enums import (
     AdoptedSource,
     Availability,
+    DisplayCellState,
     FlightPhase,
     IssueSeverity,
     ProjectStatus,
     RouteNodeRole,
-    ValueState,
     WeatherRequestKind,
 )
-from autonavlog.domain.project import NavSection, RouteNode
+from autonavlog.domain.project import ManualWind, NavSection, RouteNode
+from autonavlog.domain.snapshot import CalculationSnapshot
 from autonavlog.domain.weather import WeatherResult
-from autonavlog.nav.airspeed import (
-    pressure_altitude_exact_ft,
-    tas_from_cas,
-)
+from autonavlog.nav.airspeed import tas_from_cas
 from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
 from autonavlog.presentation.clearcopy import render_clearcopy_html
 from autonavlog.storage.local import LocalProjectRepository
@@ -76,7 +75,7 @@ def test_full_calculation_iteration_and_clearcopy(
     assert "PILOT" in html
     assert "ZONE / CUM" in html
     assert "QNH" in html
-    assert f"{outcome.qnh_hpa.adopted()} hPa" in html
+    assert outcome.qnh_hpa.adopted() is None
 
 
 def test_variation_changes_by_physical_leg_departure_and_ignores_legacy_default(
@@ -268,18 +267,9 @@ def test_climb_leg_is_automatically_split_at_rca_without_losing_distance(
     assert cruise_metadata["selected_cell"]["map_in_hg"] is None
     assert cruise_metadata["interpolation"]["power_percent"] == 65.0
     assert cruise_metadata["interpolation"]["corners"]
-    adopted_qnh = outcome.qnh_hpa.adopted()
-    assert adopted_qnh is not None
-    departure_pressure_altitude = pressure_altitude_exact_ft(
-        airports.get("RJFM").elevation_ft_msl,
-        adopted_qnh,
-    )
-    cruise_pressure_altitude = pressure_altitude_exact_ft(
-        project.sections[0].planned_altitude_ft_msl,
-        adopted_qnh,
-    )
     representative_pressure_altitude = (
-        departure_pressure_altitude + cruise_pressure_altitude
+        airports.get("RJFM").elevation_ft_msl
+        + project.sections[0].planned_altitude_ft_msl
     ) / 2.0
     expected_climb_tas = tas_from_cas(
         111.0,
@@ -324,6 +314,32 @@ def test_climb_leg_is_automatically_split_at_rca_without_losing_distance(
         abs=1e-3,
     )
     assert [point.type.value for point in outcome.derived_points] == ["RCA"]
+    first_leg_rows = [
+        row for row in outcome.display_rows if row.section_id == project.sections[0].id
+    ]
+    assert [row.row_type for row in first_leg_rows] == [
+        "PHYSICAL_LEG_SUMMARY",
+        "CALCULATION_ZONE",
+        "CALCULATION_ZONE",
+    ]
+    summary, *details = first_leg_rows
+    assert summary.from_name == "RJFM"
+    assert all(row.from_name == "" for row in details)
+    assert summary.zone_distance_nm_exact == pytest.approx(
+        sum(row.zone_distance_nm_exact or 0.0 for row in details)
+    )
+    assert summary.zone_ete_seconds_exact == pytest.approx(
+        sum(row.zone_ete_seconds_exact or 0.0 for row in details)
+    )
+    assert all(row.cumulative_distance_nm_exact is None for row in details)
+    assert all(row.cumulative_ete_seconds_exact is None for row in details)
+    assert summary.counts_toward_totals is False
+    assert all(row.counts_toward_totals for row in details)
+    # display_rows intentionally are not a totals source.  In particular the
+    # final visual-arrival Leg has only its parent plus destination information.
+    assert outcome.sections[-1].cumulative_distance_nm.adopted() == pytest.approx(
+        sum(section.zone_distance_nm.adopted() or 0.0 for section in outcome.sections)
+    )
 
 
 def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides(
@@ -336,6 +352,17 @@ def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides
     source = routed.sections[0]
     source.manual_temperature_c = 4.0
     source.manual_temperature_c_by_phase = {FlightPhase.CRUISE: 9.0}
+    source = NavSection.model_validate(
+        source.model_dump()
+        | {
+            "manual_wind_direction_deg": 111.0,
+            "manual_wind_speed_kt": 11.0,
+            "manual_wind_by_phase": {
+                FlightPhase.CRUISE: ManualWind(direction_deg_from=222, speed_kt=22)
+            },
+        }
+    )
+    routed.sections[0] = source
 
     def result_for_representative_altitude(request):
         assert request.altitude_ft_msl is not None
@@ -365,7 +392,7 @@ def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides
         FlightPhase.CRUISE,
     ]
     assert [section.planned_altitude_ft_msl.adopted() for section in split] == [
-        pytest.approx((20.0 + 5_000.0) / 2.0),
+        pytest.approx(5_000.0),
         pytest.approx(5_000.0),
     ]
     assert [section.temperature_c.automatic_value for section in split] == [
@@ -376,6 +403,15 @@ def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides
         pytest.approx(4.0),
         pytest.approx(9.0),
     ]
+    assert [section.wind_direction_deg_from.adopted() for section in split] == [
+        pytest.approx(111.0),
+        pytest.approx(222.0),
+    ]
+    assert [section.wind_speed_kt.adopted() for section in split] == [
+        pytest.approx(11.0),
+        pytest.approx(22.0),
+    ]
+    assert all(section.wind_speed_kt.adopted_source == AdoptedSource.MANUAL for section in split)
     requests = {
         request.metadata["phase"]: request
         for request in service.last_weather_requests
@@ -423,8 +459,8 @@ def test_manual_low_altitude_and_hot_toat_keep_cruise_outputs_complete(
     assert "CRUISE_ISA_DEVIATION_TABLE_BOUNDARY_USED" in warning_codes
     metadata = cruise[0].performance_metadata
     assert metadata["requested_condition"] == {
-        "pressure_altitude_ft": 2_000.0,
-        "isa_deviation_c": pytest.approx(48.9624),
+        "pressure_altitude_ft": 1_500.0,
+        "isa_deviation_c": pytest.approx(47.9718),
     }
     selected_condition = metadata["selected_condition"]
     assert selected_condition["pressure_altitude_ft"] == 4_000.0
@@ -456,6 +492,9 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
         )
         for section in descent_project.sections
     ]
+    descent_project.sections[1].manual_wind_by_phase = {
+        FlightPhase.CRUISE: ManualWind(direction_deg_from=270, speed_kt=20)
+    }
 
     outcome = CalculationService(airports, performance_repository).calculate(
         descent_project,
@@ -471,6 +510,12 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
     ]
     assert outcome.sections[-2].to_name == "EOC"
     assert outcome.sections[-1].from_name == "EOC"
+    assert outcome.sections[-2].wind_direction_deg_from.adopted() == pytest.approx(270)
+    assert outcome.sections[-2].wind_speed_kt.adopted() == pytest.approx(20)
+    assert outcome.sections[-1].wind_direction_deg_from.adopted() == pytest.approx(90)
+    assert outcome.sections[-1].wind_speed_kt.adopted() == pytest.approx(30)
+    assert outcome.sections[-2].wind_speed_kt.adopted_source == AdoptedSource.MANUAL
+    assert outcome.sections[-1].wind_speed_kt.adopted_source == AdoptedSource.MANUAL
     assert sum(
         section.zone_distance_nm.adopted() or 0.0 for section in outcome.sections
     ) == pytest.approx(
@@ -491,19 +536,20 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
 
 
 @pytest.mark.parametrize(
-    ("descent_distance_nm", "expected_eoc_distance_nm", "expected_blocker"),
+    ("descent_distance_nm", "cruise_altitude_ft", "expected_eoc_distance_nm"),
     [
-        (4.0, 20.0, None),
-        (2.0, None, "DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE"),
+        (4.0, 5_000.0, 18.0),
+        (2.0, 5_000.0, 16.0),
+        (2.0, 12_000.0, None),
     ],
 )
-def test_eoc_enforces_turn_point_and_vrep_altitude_constraints(
+def test_eoc_uses_cruise_to_vrep_time_and_carries_into_previous_leg(
     airports,
     performance_repository,
     project,
     descent_distance_nm,
+    cruise_altitude_ft,
     expected_eoc_distance_nm,
-    expected_blocker,
 ) -> None:
     routed = project.model_copy(deep=True)
     departure, turn, destination = routed.ordered_nodes()
@@ -525,7 +571,7 @@ def test_eoc_enforces_turn_point_and_vrep_altitude_constraints(
             from_node_id=departure.id,
             to_node_id=turn.id,
             phase=FlightPhase.CRUISE,
-            planned_altitude_ft_msl=5_000,
+            planned_altitude_ft_msl=cruise_altitude_ft,
             manual_wind_direction_deg=0.0,
             manual_wind_speed_kt=0.0,
         ),
@@ -567,23 +613,23 @@ def test_eoc_enforces_turn_point_and_vrep_altitude_constraints(
         FakeWeatherProvider(),
     )
 
-    blocker_codes = {issue.code for issue in outcome.blockers}
-    if expected_blocker is not None:
-        assert expected_blocker in blocker_codes
+    if expected_eoc_distance_nm is None:
+        assert "EOC_BEFORE_SUPPORTED_LEG" in {
+            issue.code for issue in outcome.blockers
+        }
         assert not any(point.type.value == "EOC" for point in outcome.derived_points)
         return
-
-    assert not blocker_codes
+    assert not outcome.blockers
     eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
-    # The descent reaches 2,500 ft at 30 NM, then 1,500 ft at VREP.
     assert eoc.along_route_distance_nm == pytest.approx(expected_eoc_distance_nm)
     descent = next(section for section in outcome.sections if section.phase == FlightPhase.DESCENT)
-    assert descent.performance_metadata["eoc_constraint_target_altitude_ft_msl"] == 2_500
-    assert descent.performance_metadata["eoc_constraint_route_distance_nm"] == pytest.approx(30.0)
-    assert descent.performance_metadata["planned_duration_seconds"] == pytest.approx(420.0)
+    assert descent.performance_metadata["cruise_altitude_ft_msl"] == cruise_altitude_ft
+    assert descent.performance_metadata["target_altitude_ft_msl"] == 1_500
+    assert descent.performance_metadata["planned_duration_seconds"] == pytest.approx(480.0)
     assert descent.performance_metadata["vertical_descent_duration_seconds"] == pytest.approx(
         420.0
     )
+    assert descent.performance_metadata["operational_addition_seconds"] == 60.0
 
 
 def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
@@ -791,7 +837,7 @@ def test_legacy_loss_time_is_not_used_for_status_or_timing(
     )
 
 
-def test_visual_arrival_uses_destination_taf_wind_and_falls_back_to_calm(
+def test_visual_arrival_calculates_calm_and_displays_destination_forecast(
     airports,
     performance_repository,
     project,
@@ -803,6 +849,10 @@ def test_visual_arrival_uses_destination_taf_wind_and_falls_back_to_calm(
             "phase": FlightPhase.CRUISE,
             "manual_wind_direction_deg": 0.0,
             "manual_wind_speed_kt": 0.0,
+            "manual_wind_by_phase": {
+                FlightPhase.DESCENT: ManualWind(direction_deg_from=0, speed_kt=0),
+                FlightPhase.CLIMB: ManualWind(direction_deg_from=0, speed_kt=0),
+            },
         }
     )
     visual_project.sections[1].phase = FlightPhase.VISUAL_ARRIVAL
@@ -836,11 +886,23 @@ def test_visual_arrival_uses_destination_taf_wind_and_falls_back_to_calm(
     assert not outcome.blockers
     visual = outcome.sections[-1]
     assert visual.phase == FlightPhase.VISUAL_ARRIVAL
-    assert visual.wind_speed_kt.adopted() == 8.0
-    assert visual.wind_direction_deg_from.adopted() == 200.0
-    assert visual.wind_speed_kt.automatic_metadata["provider"] == "destination_taf"
-    assert visual.wca_deg.adopted() != 0.0
-    assert visual.ground_speed_kt.adopted() != visual.tas_kt.adopted()
+    assert visual.wind_speed_kt.adopted() == 0.0
+    assert visual.wind_direction_deg_from.adopted() is None
+    assert visual.wca_deg.adopted() == 0.0
+    assert visual.ground_speed_kt.adopted() == visual.tas_kt.adopted()
+    final_parent = next(
+        row
+        for row in reversed(outcome.display_rows)
+        if row.row_type == "PHYSICAL_LEG_SUMMARY"
+    )
+    destination_row = next(
+        row for row in outcome.display_rows if row.row_type == "DESTINATION_INFO"
+    )
+    assert final_parent.wind.text == "CALM"
+    assert final_parent.wca.text == "0"
+    assert destination_row.wind.text == "200/8"
+    assert destination_row.pa.text == "19"
+    assert destination_row.ete.state == DisplayCellState.BLANK
 
     fallback = CalculationService(airports, performance_repository).calculate(
         visual_project,
@@ -849,15 +911,12 @@ def test_visual_arrival_uses_destination_taf_wind_and_falls_back_to_calm(
     fallback_visual = fallback.sections[-1]
     assert fallback_visual.wind_speed_kt.adopted() == 0.0
     assert fallback_visual.wind_direction_deg_from.adopted() is None
-    assert fallback_visual.wind_speed_kt.automatic_status == ValueState.FIXED_RULE
-    assert fallback_visual.wind_speed_kt.automatic_metadata == {
-        "provider": "destination_taf",
-        "airport_icao": "RJFO",
-        "forecast_airport_icao": None,
-        "availability": "UNAVAILABLE",
-        "reason_code": "DESTINATION_TAF_UNAVAILABLE",
-        "wind_adoption": "CALM_FALLBACK",
-    }
+    assert fallback_visual.wind_speed_kt.automatic_metadata["wind_adoption"] == "CALM"
+    fallback_destination = next(
+        row for row in fallback.display_rows if row.row_type == "DESTINATION_INFO"
+    )
+    assert fallback_destination.wind.state == DisplayCellState.UNAVAILABLE
+    assert fallback_destination.wind.text == "未取得"
 
     other_airport = destination_wind.model_copy(update={"airport_icao": "RJFM"})
     mismatched = CalculationService(airports, performance_repository).calculate(
@@ -868,10 +927,12 @@ def test_visual_arrival_uses_destination_taf_wind_and_falls_back_to_calm(
     mismatched_visual = mismatched.sections[-1]
     assert mismatched_visual.wind_speed_kt.adopted() == 0.0
     assert mismatched_visual.wind_direction_deg_from.adopted() is None
-    assert mismatched_visual.wind_speed_kt.automatic_metadata["reason_code"] == (
-        "DESTINATION_TAF_AIRPORT_MISMATCH"
+    assert mismatched_visual.wind_speed_kt.automatic_metadata["wind_adoption"] == "CALM"
+    mismatched_destination = next(
+        row for row in mismatched.display_rows if row.row_type == "DESTINATION_INFO"
     )
-    assert mismatched_visual.wind_speed_kt.automatic_metadata["wind_adoption"] == ("CALM_FALLBACK")
+    assert mismatched_destination.wind.state == DisplayCellState.UNAVAILABLE
+    assert mismatched_destination.wind.text == "未取得"
 
 
 def test_missing_climb_wind_is_not_misreported_as_rca_outside_route(
@@ -1031,6 +1092,30 @@ def test_outcome_adoption_and_snapshot_round_trip(
     restored = repository.load_snapshot(saved.id, UUID(snapshot_path.stem))
     assert restored.calculation_results.model_dump(mode="json") == outcome.model_dump(mode="json")
     assert restored.input_data.revision == saved.revision
+
+    old_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    old_payload["calculation_results"].pop("display_rows")
+    old_snapshot = CalculationSnapshot.model_validate_json(
+        json.dumps(old_payload, ensure_ascii=False),
+        strict=True,
+    )
+    assert old_snapshot.calculation_results.display_rows == []
+
+    # A short-lived dev schema persisted display rows by inheriting
+    # SectionResult.  Accept the snapshot but discard that projection: Project
+    # inputs, not a saved display_rows list, are the source for regeneration.
+    old_payload["calculation_results"]["display_rows"] = [
+        outcome.sections[0].model_dump(mode="json")
+        | {
+            "row_type": "CALCULATION_ZONE",
+            "counts_toward_totals": True,
+        }
+    ]
+    legacy_snapshot = CalculationSnapshot.model_validate_json(
+        json.dumps(old_payload, ensure_ascii=False),
+        strict=True,
+    )
+    assert legacy_snapshot.calculation_results.display_rows == []
 
 
 def test_weather_warning_does_not_mask_an_unrelated_blocker_status(project) -> None:

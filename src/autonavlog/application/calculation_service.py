@@ -12,6 +12,7 @@ from autonavlog.domain.calculation import (
     FuelPlan,
     Issue,
     IterationRecord,
+    NavLogDisplayRow,
     SectionResult,
 )
 from autonavlog.domain.enums import (
@@ -38,8 +39,6 @@ from autonavlog.domain.weather import ForecastRequirement, WeatherRequest, Weath
 from autonavlog.nav.airspeed import (
     cas_from_tas,
     isa_temperature_c,
-    pressure_altitude_exact_ft,
-    pressure_altitude_planning_ft,
     tas_from_cas,
 )
 from autonavlog.nav.fuel import build_fuel_plan, fuel_for_section, remaining_fuel
@@ -62,6 +61,7 @@ from autonavlog.weather.provider import WeatherProvider
 from .arrival import calculate_arrival_altitude
 from .checkpoints import project_check_points
 from .forecast_service import ForecastService
+from .navlog_display import NavLogPhysicalLeg, build_navlog_display_rows
 from .phase_segments import (
     PhaseSegmentation,
     PhaseSegmentationError,
@@ -73,7 +73,9 @@ from .phase_segments import (
 
 @dataclass(frozen=True)
 class CalculationPolicies:
-    version: str = "nav2-v4"
+    version: str = "nav2-v6-golden-display"
+    # Kept for serialized policy compatibility. NAV2-v5 uses MSL directly and
+    # does not round or QNH-correct a separate planning pressure altitude.
     pa_500_policy: Pa500Policy = Pa500Policy.CEILING
     max_iterations: int = 5
     convergence_seconds: float = 30.0
@@ -146,6 +148,7 @@ class _RouteTraversal:
 @dataclass
 class _IterationResult:
     sections: list[SectionResult]
+    display_rows: list[NavLogDisplayRow]
     issues: list[Issue]
     representative_times: dict[str, datetime]
     phases: list[FlightPhase]
@@ -394,7 +397,7 @@ class CalculationService:
             initial_requirement,
             issues,
         )
-        if selected_run_id is None and working.manual_qnh_hpa is None:
+        if selected_run_id is None:
             return self._empty_outcome(working, issues, check_point_projections, arrival_altitude)
 
         previous_times: dict[str, datetime] = {}
@@ -416,22 +419,12 @@ class CalculationService:
             )
             results = self._query_weather(provider, selected_run_id, requests, issues)
             qnh_value = self._adopt_qnh(working, results)
-            adopted_qnh = qnh_value.adopted()
-            if adopted_qnh is None:
-                issues.append(
-                    self._blocker(
-                        "QNH_UNAVAILABLE",
-                        "自動QNHを取得できません。手動QNHが必要です。",
-                    )
-                )
-                break
             iteration_result = self._calculate_iteration(
                 working,
                 departure,
                 destination,
                 geometries,
                 results,
-                adopted_qnh,
                 check_point_boundaries,
                 arrival_altitude,
                 destination_wind,
@@ -515,6 +508,7 @@ class CalculationService:
             selected_forecast_run_id=selected_run_id,
             qnh_hpa=qnh_value,
             sections=final.sections,
+            display_rows=final.display_rows,
             derived_points=derived_points,
             check_point_projections=check_point_projections,
             arrival_altitude=arrival_altitude,
@@ -694,23 +688,6 @@ class CalculationService:
         arrival_altitude_ft_msl: float | None = None,
     ) -> list[WeatherRequest]:
         requests: list[WeatherRequest] = []
-        if project.manual_qnh_hpa is None:
-            requests.append(
-                WeatherRequest(
-                    request_id="project:qnh",
-                    kind=WeatherRequestKind.ESTIMATED_QNH,
-                    latitude_deg=departure.latitude_deg,
-                    longitude_deg=departure.longitude_deg,
-                    valid_time_utc=project.planned_departure_time_jst,
-                    elevation_ft_msl=departure.elevation_ft_msl,
-                    metadata={
-                        "station_icao": departure.icao,
-                        "source_rule": "AUTOMATIC_QNH_PROVIDER",
-                        "airport_id": departure.id,
-                        "airport_elevation_ft_msl": (departure.elevation_ft_msl),
-                    },
-                )
-            )
         elapsed = 0.0
         for index, geometry in enumerate(geometries):
             default_seconds = (
@@ -744,6 +721,52 @@ class CalculationService:
                         metadata=altitude_metadata,
                     )
                 )
+        last_geometry = geometries[-1]
+        last_default_seconds = (
+            last_geometry.distance_nm
+            / (last_geometry.section.manual_tas_kt or ForecastService.estimate_speed_kt)
+            * 3600.0
+        )
+        last_midpoint_time = previous_times.get(str(last_geometry.section.id))
+        arrival_time = (
+            project.planned_departure_time_jst + timedelta(seconds=elapsed)
+            if last_midpoint_time is None
+            else last_midpoint_time + timedelta(seconds=last_default_seconds / 2.0)
+        )
+        requests.append(
+            WeatherRequest(
+                request_id="departure:surface",
+                kind=WeatherRequestKind.ALOFT,
+                latitude_deg=departure.latitude_deg,
+                longitude_deg=departure.longitude_deg,
+                valid_time_utc=project.planned_departure_time_jst,
+                altitude_ft_msl=float(departure.elevation_ft_msl),
+                metadata={
+                    "source_rule": "NAV2_V6_DEPARTURE_PARENT_ROW",
+                    "phase": "DEPARTURE",
+                    "representative_altitude_policy": "AIRPORT_ELEVATION_MSL",
+                    "representative_altitude_ft_msl": float(departure.elevation_ft_msl),
+                    "airport_id": departure.id,
+                },
+            )
+        )
+        requests.append(
+            WeatherRequest(
+                request_id="destination:surface",
+                kind=WeatherRequestKind.ALOFT,
+                latitude_deg=destination.latitude_deg,
+                longitude_deg=destination.longitude_deg,
+                valid_time_utc=arrival_time,
+                altitude_ft_msl=float(destination.elevation_ft_msl),
+                metadata={
+                    "source_rule": "NAV2_V5_DESTINATION_FINAL_ROW",
+                    "phase": "DESTINATION",
+                    "representative_altitude_policy": "AIRPORT_ELEVATION_MSL",
+                    "representative_altitude_ft_msl": float(destination.elevation_ft_msl),
+                    "airport_id": destination.id,
+                },
+            )
+        )
         return requests
 
     @classmethod
@@ -790,8 +813,19 @@ class CalculationService:
                     arrival_altitude_ft_msl,
                 )
             )
-            upper_altitude = float(section.planned_altitude_ft_msl)
-            altitude_basis = "SECTION_ALTITUDE_AND_NEXT_ROUTE_POINT_ALTITUDE"
+            descent_index = next(
+                (
+                    position
+                    for position, geometry in enumerate(geometries)
+                    if geometry.section.phase == FlightPhase.DESCENT
+                ),
+                index,
+            )
+            cruise_index = max(0, descent_index - 1)
+            upper_altitude = float(
+                geometries[cruise_index].section.planned_altitude_ft_msl
+            )
+            altitude_basis = "CRUISE_ALTITUDE_AND_VISUAL_REPORTING_POINT_ALTITUDE"
         else:
             lower_altitude = float(destination.elevation_ft_msl)
             upper_altitude = float(
@@ -883,7 +917,6 @@ class CalculationService:
         self,
         geometries: list[_Geometry],
         weather_by_id: dict[str, WeatherResult],
-        qnh_hpa: float,
         issues: list[Issue],
         departure: Airport,
         destination: Airport,
@@ -906,7 +939,9 @@ class CalculationService:
                     arrival_altitude_ft_msl,
                     phase,
                 )
-                exact_phase_pa = pressure_altitude_exact_ft(altitude_ft_msl, qnh_hpa)
+                # Project policy PA=MSL: representative MSL altitude is used
+                # directly for airspeed/performance calculations.
+                exact_phase_pa = altitude_ft_msl
                 phase_environments[phase] = _PhaseEnvironment(
                     weather=weather,
                     wind_direction_deg_from=wind_direction,
@@ -916,10 +951,7 @@ class CalculationService:
                     weather_warnings=warnings,
                     altitude_ft_msl=altitude_ft_msl,
                     pressure_altitude_exact_ft=exact_phase_pa,
-                    pressure_altitude_planning_ft=pressure_altitude_planning_ft(
-                        exact_phase_pa,
-                        self.policies.pa_500_policy,
-                    ),
+                    pressure_altitude_planning_ft=exact_phase_pa,
                 )
                 if temperature is None:
                     issues.append(
@@ -949,16 +981,13 @@ class CalculationService:
                 )
                 else section.planned_altitude_ft_msl
             )
-            exact_pa = pressure_altitude_exact_ft(target_altitude_ft_msl, qnh_hpa)
+            exact_pa = float(target_altitude_ft_msl)
             environments.append(
                 _LegEnvironment(
                     geometry=geometry,
                     phase_environments=phase_environments,
                     pressure_altitude_exact_ft=exact_pa,
-                    pressure_altitude_planning_ft=pressure_altitude_planning_ft(
-                        exact_pa,
-                        self.policies.pa_500_policy,
-                    ),
+                    pressure_altitude_planning_ft=exact_pa,
                 )
             )
         return environments
@@ -1019,7 +1048,6 @@ class CalculationService:
         self,
         departure: Airport,
         environments: list[_LegEnvironment],
-        qnh_hpa: float,
         climb_calculator: ClimbCalculator,
         unique_weights: list[float],
         performance_usable: bool,
@@ -1050,10 +1078,7 @@ class CalculationService:
             )
             return None
         try:
-            departure_pa = pressure_altitude_exact_ft(
-                departure.elevation_ft_msl,
-                qnh_hpa,
-            )
+            departure_pa = float(departure.elevation_ft_msl)
             climb = climb_calculator.calculate(
                 departure_pa,
                 climb_environment.pressure_altitude_exact_ft,
@@ -1149,13 +1174,11 @@ class CalculationService:
         cruise_policy: CruisePerformanceSelectionPolicy,
     ) -> float | None:
         last_cas: float | None = None
-        for index, environment in enumerate(environments[: end_index + 1]):
+        for environment in environments[:end_index]:
             phase = environment.geometry.section.phase
-            # A DESCENT-designated physical Section can contain the cruise
-            # portion before EOC, but only when a preceding leg establishes
-            # that pre-descent cruise portion.
-            is_descent_entry = phase == FlightPhase.DESCENT and index == end_index and end_index > 0
-            if phase != FlightPhase.CRUISE and not is_descent_entry:
+            # The immediately preceding physical leg supplies the cruise CAS;
+            # a DESCENT leg's legacy altitude is not an intermediate constraint.
+            if phase in {FlightPhase.DESCENT, FlightPhase.VISUAL_ARRIVAL}:
                 continue
             phase_environment = environment.for_phase(FlightPhase.CRUISE)
             temperature = phase_environment.temperature_c
@@ -1227,123 +1250,104 @@ class CalculationService:
             )
             return None
 
-        ground_speeds: dict[int, float] = {}
+        cruise_altitude = float(
+            geometries[descent_index - 1].section.planned_altitude_ft_msl
+            if descent_index > 0
+            else section.planned_altitude_ft_msl
+        )
+        altitude_difference = cruise_altitude - target_altitude
+        if altitude_difference <= 0:
+            issues.append(
+                self._blocker(
+                    "DESCENT_ALTITUDE_INVALID",
+                    "巡航高度はVREP高度より高く設定してください。",
+                    section.id,
+                    metadata={
+                        "cruise_altitude_ft_msl": cruise_altitude,
+                        "vrep_altitude_ft_msl": target_altitude,
+                    },
+                )
+            )
+            return None
+
+        # Miyazaki NAV2: vertical descent time plus one operational minute.
+        vertical_descent_duration_seconds = altitude_difference / 500.0 * 60.0
+        duration_seconds = vertical_descent_duration_seconds + 60.0
+        common_environment = descent_environment.for_phase(FlightPhase.DESCENT)
+        temperature = common_environment.temperature_c
+        wind_speed = common_environment.wind_speed_kt
+        if temperature is None or wind_speed is None:
+            return None
+        descent_tas = section.manual_tas_kt
+        if descent_tas is None and cruise_cas is not None:
+            descent_tas = tas_from_cas(
+                cruise_cas,
+                common_environment.pressure_altitude_exact_ft,
+                temperature,
+            )
+        if descent_tas is None:
+            return None
 
         def descent_ground_speed(index: int) -> float | None:
-            cached = ground_speeds.get(index)
-            if cached is not None:
-                return cached
-            environment = environments[index]
-            phase_environment = environment.for_phase(FlightPhase.DESCENT)
-            temperature = phase_environment.temperature_c
-            wind_speed = phase_environment.wind_speed_kt
-            if temperature is None or wind_speed is None:
-                return None
-            tas = section.manual_tas_kt
-            if tas is None and cruise_cas is not None:
-                tas = tas_from_cas(
-                    cruise_cas,
-                    phase_environment.pressure_altitude_exact_ft,
-                    temperature,
-                )
-            if tas is None:
-                return None
             try:
-                solution = solve_wind_triangle(
-                    environment.geometry.true_course_deg,
-                    tas,
-                    phase_environment.wind_direction_deg_from,
+                return solve_wind_triangle(
+                    environments[index].geometry.true_course_deg,
+                    descent_tas,
+                    common_environment.wind_direction_deg_from,
                     wind_speed,
-                )
+                ).ground_speed_kt
             except WindTriangleError as error:
                 issues.append(
-                    self._blocker(
-                        "WIND_TRIANGLE_FAILED",
-                        str(error),
-                        section.id,
-                    )
+                    self._blocker("WIND_TRIANGLE_FAILED", str(error), section.id)
                 )
                 return None
-            ground_speeds[index] = solution.ground_speed_kt
-            return solution.ground_speed_kt
 
         offsets = self._route_leg_offsets(geometries)
         route_end_distance = offsets[descent_index][1]
-        constraint_index = descent_index
-        constraint_target_altitude = target_altitude
-        eoc_constraint_target_altitude = target_altitude
-        route_start_distance: float | None = None
-        vertical_descent_duration_seconds = 0.0
-
-        for index in range(descent_index, -1, -1):
-            constraint_section = geometries[index].section
-            altitude_difference = (
-                constraint_section.planned_altitude_ft_msl - constraint_target_altitude
-            )
-            if index == descent_index and altitude_difference <= 0:
-                issues.append(
-                    self._blocker(
-                        "DESCENT_ALTITUDE_INVALID",
-                        "降下開始高度は到着側高度より高く設定してください。",
-                        section.id,
-                        metadata={
-                            "constraint_section_id": str(constraint_section.id),
-                            "constraint_target_altitude_ft_msl": constraint_target_altitude,
-                        },
-                    )
-                )
-                return None
-            if altitude_difference < 0:
-                break
-            if altitude_difference == 0:
-                constraint_target_altitude = constraint_section.planned_altitude_ft_msl
-                continue
-
-            required_seconds = altitude_difference / 500.0 * 60.0
-            ground_speed = descent_ground_speed(index)
-            if ground_speed is None:
-                return None
-            full_leg_seconds = geometries[index].distance_nm / ground_speed * 3600.0
-            if required_seconds > full_leg_seconds + 1e-9:
-                issues.append(
-                    self._blocker(
-                        "DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE",
-                        "変針点とVREPの計画高度を500 fpmの連続した降下で満たせません。",
-                        section.id,
-                        metadata={
-                            "constraint_section_id": str(constraint_section.id),
-                            "constraint_start_altitude_ft_msl": (
-                                constraint_section.planned_altitude_ft_msl
-                            ),
-                            "constraint_target_altitude_ft_msl": (
-                                constraint_target_altitude
-                            ),
-                            "required_seconds": required_seconds,
-                            "available_seconds": full_leg_seconds,
-                        },
-                    )
-                )
-                return None
-
-            route_start_distance = (
-                offsets[index][1] - ground_speed * required_seconds / 3600.0
-            )
-            vertical_descent_duration_seconds += required_seconds
-            constraint_index = index
-            eoc_constraint_target_altitude = constraint_target_altitude
-            constraint_target_altitude = constraint_section.planned_altitude_ft_msl
-
-        if route_start_distance is None:
+        descent_gs = descent_ground_speed(descent_index)
+        if descent_gs is None:
             return None
-
-        duration_seconds = 0.0
-        for index in range(constraint_index, descent_index + 1):
-            ground_speed = descent_ground_speed(index)
-            if ground_speed is None:
+        descent_leg_seconds = geometries[descent_index].distance_nm / descent_gs * 3600.0
+        if duration_seconds <= descent_leg_seconds + 1e-9:
+            route_start_distance = route_end_distance - descent_gs * duration_seconds / 3600.0
+            eoc_leg_index = descent_index
+        else:
+            previous_index = descent_index - 1
+            remaining_seconds = duration_seconds - descent_leg_seconds
+            if previous_index < 0:
+                issues.append(
+                    self._blocker(
+                        "EOC_BEFORE_SUPPORTED_LEG",
+                        "EOCが降下Legより前ですが、直前の巡航Legがありません。",
+                        section.id,
+                    )
+                )
                 return None
-            leg_start_distance = max(route_start_distance, offsets[index][0])
-            distance_nm = offsets[index][1] - leg_start_distance
-            duration_seconds += distance_nm / ground_speed * 3600.0
+            previous_gs = descent_ground_speed(previous_index)
+            if previous_gs is None:
+                return None
+            previous_leg_seconds = (
+                geometries[previous_index].distance_nm / previous_gs * 3600.0
+            )
+            if remaining_seconds > previous_leg_seconds + 1e-9:
+                issues.append(
+                    self._blocker(
+                        "EOC_BEFORE_SUPPORTED_LEG",
+                        "EOCが直前の巡航Leg始点より前になります。",
+                        section.id,
+                        metadata={
+                            "required_seconds": duration_seconds,
+                            "descent_leg_seconds": descent_leg_seconds,
+                            "previous_leg_seconds": previous_leg_seconds,
+                        },
+                    )
+                )
+                return None
+            route_start_distance = (
+                offsets[previous_index][1]
+                - previous_gs * remaining_seconds / 3600.0
+            )
+            eoc_leg_index = previous_index
 
         if cruise_cas is None:
             phase_environment = descent_environment.for_phase(FlightPhase.DESCENT)
@@ -1362,20 +1366,14 @@ class CalculationService:
                 "type": "descent",
                 "descent_rate_fpm": 500.0,
                 "target_altitude_ft_msl": target_altitude,
+                "cruise_altitude_ft_msl": cruise_altitude,
                 "planned_duration_seconds": duration_seconds,
                 "vertical_descent_duration_seconds": vertical_descent_duration_seconds,
-                "eoc_constraint_section_id": str(
-                    geometries[constraint_index].section.id
-                ),
-                "eoc_constraint_target_altitude_ft_msl": (
-                    eoc_constraint_target_altitude
-                ),
-                "eoc_constraint_route_distance_nm": offsets[constraint_index][1],
+                "operational_addition_seconds": 60.0,
+                "eoc_source_section_id": str(geometries[eoc_leg_index].section.id),
                 "cruise_cas_kt": cruise_cas,
                 "fuel_flow_gph": 12.0,
-                "boundary_method": (
-                    "turn-altitude-aware-time-and-leg-specific-wind"
-                ),
+                "boundary_method": "descent-leg-then-immediate-previous-leg-only",
             },
         )
 
@@ -1527,7 +1525,6 @@ class CalculationService:
         destination: Airport,
         geometries: list[_Geometry],
         weather_results: list[WeatherResult],
-        qnh_hpa: float,
         additional_boundaries: tuple[RouteBoundary, ...],
         arrival_altitude: ArrivalAltitudeResult | None,
         destination_wind: DestinationWindForecast | None,
@@ -1570,7 +1567,6 @@ class CalculationService:
         environments = self._build_leg_environments(
             geometries,
             weather_by_id,
-            qnh_hpa,
             issues,
             departure,
             destination,
@@ -1579,7 +1575,6 @@ class CalculationService:
         climb_plan = self._build_climb_plan(
             departure,
             environments,
-            qnh_hpa,
             climb_calculator,
             unique_weights,
             performance_usable,
@@ -1635,12 +1630,30 @@ class CalculationService:
             if descent_plan is not None
             else None
         )
+        common_descent_environment = (
+            next(
+                (
+                    environment.for_phase(FlightPhase.DESCENT)
+                    for environment in environments
+                    if descent_plan is not None
+                    and environment.geometry.section.id == descent_plan.source_section_id
+                ),
+                None,
+            )
+            if descent_plan is not None
+            else None
+        )
 
         for segment in segmentation.segments:
             environment = environments[segment.source_index]
             geometry = environment.geometry
             section = geometry.section
-            phase_environment = environment.for_phase(segment.phase)
+            phase_environment = (
+                common_descent_environment
+                if segment.phase == FlightPhase.DESCENT
+                and common_descent_environment is not None
+                else environment.for_phase(segment.phase)
+            )
             weather = phase_environment.weather
             segment_geometry = geodesic_leg(
                 segment.start.latitude_deg,
@@ -1894,56 +1907,22 @@ class CalculationService:
                         or destination_wind.wind_direction_deg_from is not None
                     )
                 )
-                if usable_destination_wind and destination_wind is not None:
-                    wind_direction = (
-                        None
-                        if destination_wind.wind_speed_kt == 0
-                        else float(destination_wind.wind_direction_deg_from or 0)
-                    )
-                    wind_speed = float(destination_wind.wind_speed_kt or 0)
-                    wind_metadata = {
-                        "provider": "destination_taf",
-                        "source_label": destination_wind.source_label,
-                        "airport_icao": destination_wind.airport_icao,
-                        "valid_time_utc": (
-                            None
-                            if destination_wind.valid_time_utc is None
-                            else destination_wind.valid_time_utc.isoformat()
-                        ),
-                        "forecast_change": destination_wind.forecast_change,
-                    }
-                    wind_warnings = ()
-                else:
-                    wind_direction = None
-                    wind_speed = 0.0
-                    fallback_reason = "DESTINATION_TAF_UNAVAILABLE"
-                    if destination_wind is not None:
-                        if destination_wind.airport_icao.strip().upper() != destination_icao:
-                            fallback_reason = "DESTINATION_TAF_AIRPORT_MISMATCH"
-                        else:
-                            fallback_reason = (
-                                destination_wind.reason_code or "DESTINATION_TAF_UNUSABLE"
-                            )
-                    wind_metadata = {
-                        "provider": "destination_taf",
-                        "airport_icao": destination_icao,
-                        "forecast_airport_icao": (
-                            None if destination_wind is None else destination_wind.airport_icao
-                        ),
-                        "availability": (
-                            Availability.UNAVAILABLE.value
-                            if destination_wind is None
-                            else destination_wind.availability.value
-                        ),
-                        "reason_code": fallback_reason,
-                        "wind_adoption": "CALM_FALLBACK",
-                    }
-                    wind_warnings = ()
+                # Destination forecast wind is display-only.  The VREP to
+                # destination calculation is always CALM by project policy.
+                wind_direction = None
+                wind_speed = 0.0
+                wind_metadata = {
+                    "provider": "fixed_rule",
+                    "airport_icao": destination_icao,
+                    "wind_adoption": "CALM",
+                    "destination_forecast_available_for_display": usable_destination_wind,
+                }
+                wind_warnings = ()
                 performance_metadata.update(
                     {
                         "type": "visual_arrival",
                         "cas_kt": 121.0,
-                        "wind": ("DESTINATION_TAF" if usable_destination_wind else "CALM_FALLBACK"),
+                        "wind": "CALM",
                         "fuel_flow_gph": 12.0,
                     }
                 )
@@ -2012,8 +1991,21 @@ class CalculationService:
             automatic_wind_speed = (
                 None if weather is None else self._numeric(weather, "wind_speed_kt")
             )
-            manual_wind_direction = section.manual_wind_direction_deg
-            manual_wind_speed = section.manual_wind_speed_kt
+            phase_manual_wind = section.manual_wind_by_phase.get(segment.phase)
+            manual_wind_direction = (
+                phase_manual_wind.direction_deg_from
+                if phase_manual_wind is not None
+                else section.manual_wind_direction_deg
+                if segment.phase == section.phase
+                else None
+            )
+            manual_wind_speed = (
+                phase_manual_wind.speed_kt
+                if phase_manual_wind is not None
+                else section.manual_wind_speed_kt
+                if segment.phase == section.phase
+                else None
+            )
             wind_state = ValueState.AUTO
             if segment.phase == FlightPhase.VISUAL_ARRIVAL:
                 automatic_wind_direction = wind_direction
@@ -2024,9 +2016,7 @@ class CalculationService:
 
             has_derived_endpoint = bool(segment.start.markers or segment.end.markers)
             planned_altitude = (
-                phase_environment.altitude_ft_msl
-                if segment.phase in {FlightPhase.CLIMB, FlightPhase.DESCENT}
-                else arrival_altitude_ft_msl
+                arrival_altitude_ft_msl
                 if (
                     segment.phase == FlightPhase.VISUAL_ARRIVAL
                     and arrival_altitude_ft_msl is not None
@@ -2034,13 +2024,7 @@ class CalculationService:
                 else section.planned_altitude_ft_msl
             )
             planned_altitude_metadata: dict[str, Any] = {"source": "PROJECT_INPUT"}
-            if segment.phase in {FlightPhase.CLIMB, FlightPhase.DESCENT}:
-                planned_altitude_metadata = {
-                    "source": "PHASE_REPRESENTATIVE_ALTITUDE",
-                    "phase": segment.phase.value,
-                    "source_section_id": str(section.id),
-                }
-            elif segment.phase == FlightPhase.VISUAL_ARRIVAL and arrival_altitude is not None:
+            if segment.phase == FlightPhase.VISUAL_ARRIVAL and arrival_altitude is not None:
                 planned_altitude_metadata = {
                     "source": "ARRIVAL_ALTITUDE_RULE",
                     "rule_version": arrival_altitude.rule_version,
@@ -2070,7 +2054,7 @@ class CalculationService:
                     pressure_altitude_planning_ft=_automatic(
                         planning_pa,
                         ValueState.FIXED_RULE,
-                        {"policy": self.policies.pa_500_policy},
+                        {"policy": "PA_EQUALS_MSL"},
                     ),
                     true_course_deg=course_value,
                     variation_deg_east=_automatic(
@@ -2201,8 +2185,26 @@ class CalculationService:
             )
             for result, value in zip(sections, remaining, strict=True)
         ]
+        display_rows = build_navlog_display_rows(
+            [
+                NavLogPhysicalLeg(
+                    section_id=geometry.section.id,
+                    phase=geometry.section.phase,
+                    start_name=geometry.start.name,
+                    end_name=geometry.end.name,
+                )
+                for geometry in geometries
+            ],
+            sections,
+            departure,
+            destination,
+            weather_by_id.get("departure:surface"),
+            weather_by_id.get("destination:surface"),
+            destination_wind,
+        )
         return _IterationResult(
             sections,
+            display_rows,
             self._deduplicate_issues(issues),
             representative_times,
             phases,
@@ -2240,16 +2242,23 @@ class CalculationService:
             )
             automatic_speed = CalculationService._numeric(weather, "wind_speed_kt")
             automatic_temperature = CalculationService._numeric(weather, "temperature_c")
-        direction = (
-            section.manual_wind_direction_deg
-            if section.manual_wind_direction_deg is not None
-            else automatic_direction
+        phase_manual_wind = section.manual_wind_by_phase.get(phase)
+        manual_direction = (
+            phase_manual_wind.direction_deg_from
+            if phase_manual_wind is not None
+            else section.manual_wind_direction_deg
+            if phase == section.phase
+            else None
         )
-        speed = (
-            section.manual_wind_speed_kt
-            if section.manual_wind_speed_kt is not None
-            else automatic_speed
+        manual_speed = (
+            phase_manual_wind.speed_kt
+            if phase_manual_wind is not None
+            else section.manual_wind_speed_kt
+            if phase == section.phase
+            else None
         )
+        direction = manual_direction if manual_direction is not None else automatic_direction
+        speed = manual_speed if manual_speed is not None else automatic_speed
         manual_temperature = section.manual_temperature_c_by_phase.get(
             phase,
             section.manual_temperature_c if phase == section.phase else None,

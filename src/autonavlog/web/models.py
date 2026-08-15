@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.planning import ArrivalAltitudeMode
+from autonavlog.domain.project import ManualWind
 
 
 class WebRequestModel(BaseModel):
@@ -72,6 +73,7 @@ class SectionUpdate(WebRequestModel):
     phase: FlightPhase
     manual_wind_direction_deg: float | None = Field(default=None, ge=0, lt=360)
     manual_wind_speed_kt: float | None = Field(default=None, ge=0, le=200)
+    manual_wind_by_phase: dict[FlightPhase, ManualWind] | None = None
     manual_temperature_c: float | None = Field(default=None, ge=-80, le=60)
     manual_temperature_c_by_phase: (
         dict[

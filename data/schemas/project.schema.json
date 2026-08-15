@@ -10,6 +10,29 @@
       "title": "FlightPhase",
       "type": "string"
     },
+    "ManualWind": {
+      "additionalProperties": false,
+      "properties": {
+        "direction_deg_from": {
+          "exclusiveMaximum": 360,
+          "minimum": 0,
+          "title": "Direction Deg From",
+          "type": "number"
+        },
+        "speed_kt": {
+          "maximum": 200,
+          "minimum": 0,
+          "title": "Speed Kt",
+          "type": "number"
+        }
+      },
+      "required": [
+        "direction_deg_from",
+        "speed_kt"
+      ],
+      "title": "ManualWind",
+      "type": "object"
+    },
     "NavSection": {
       "additionalProperties": false,
       "properties": {
@@ -64,6 +87,16 @@
             "$ref": "#/$defs/FlightPhase"
           },
           "title": "Manual Temperature C By Phase",
+          "type": "object"
+        },
+        "manual_wind_by_phase": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ManualWind"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/FlightPhase"
+          },
+          "title": "Manual Wind By Phase",
           "type": "object"
         },
         "manual_wind_direction_deg": {

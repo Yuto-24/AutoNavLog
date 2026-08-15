@@ -629,6 +629,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .nav-leg-heading-row td:nth-child(n + 3) { background: #f3f6f8; }
 .nav-leg-detail-row td:first-child { background: #f7f9fb; }
 .nav-leg-detail-row td:nth-child(2) { padding-left: 10px; }
+.nav-destination-info-row td { background: #fff9e8; }
+.nav-destination-info-row td:nth-child(2) { font-weight: 800; }
 .nav-leg-spacer-row td {
   height: 4px;
   padding: 0;
@@ -647,7 +649,12 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .nav-log-focus-target:focus { outline: 3px solid rgba(12, 124, 120, 0.28); outline-offset: -3px; }
 .manual-value { color: var(--teal-700) !important; font-weight: 700; }
-.unavailable-value { color: var(--red-700) !important; font-weight: 700; }
+.unavailable-value {
+  color: var(--red-700) !important;
+  background-color: var(--red-50) !important;
+  font-weight: 700;
+}
+.display-state-symbol { font-size: 15px !important; font-weight: 800; }
 
 .fuel-plan-table { flex: 0 0 420px; width: 420px; table-layout: fixed; border-left: 2px solid #7990a5; font-size: 11px; line-height: 1.15; }
 .fuel-plan-table col:nth-child(1) { width: 10%; }

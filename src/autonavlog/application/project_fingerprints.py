@@ -72,10 +72,11 @@ def current_calculation_input_fingerprint(
             "phase": section.phase,
             "manual_wind_direction_deg": (section.manual_wind_direction_deg),
             "manual_wind_speed_kt": section.manual_wind_speed_kt,
+            "manual_wind_by_phase": {
+                phase: wind.model_dump() for phase, wind in section.manual_wind_by_phase.items()
+            },
             "manual_temperature_c": section.manual_temperature_c,
-            "manual_temperature_c_by_phase": (
-                section.manual_temperature_c_by_phase
-            ),
+            "manual_temperature_c_by_phase": (section.manual_temperature_c_by_phase),
             "manual_tas_kt": section.manual_tas_kt,
         }
         for section in project.ordered_sections()
@@ -108,7 +109,6 @@ def current_calculation_input_fingerprint(
             "total_usable_fuel_gal": project.total_usable_fuel_gal,
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
-            "manual_qnh_hpa": project.manual_qnh_hpa,
             "selected_forecast_run_id": project.selected_forecast_run_id,
             "route_nodes": route_nodes,
             "sections": sections,
