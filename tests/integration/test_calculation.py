@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from uuid import UUID
@@ -12,6 +13,7 @@ from autonavlog.domain.calculation import Issue
 from autonavlog.domain.enums import (
     AdoptedSource,
     Availability,
+    DisplayCellState,
     FlightPhase,
     IssueSeverity,
     ProjectStatus,
@@ -19,6 +21,7 @@ from autonavlog.domain.enums import (
     WeatherRequestKind,
 )
 from autonavlog.domain.project import ManualWind, NavSection, RouteNode
+from autonavlog.domain.snapshot import CalculationSnapshot
 from autonavlog.domain.weather import WeatherResult
 from autonavlog.nav.airspeed import tas_from_cas
 from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
@@ -322,21 +325,21 @@ def test_climb_leg_is_automatically_split_at_rca_without_losing_distance(
     summary, *details = first_leg_rows
     assert summary.from_name == "RJFM"
     assert all(row.from_name == "" for row in details)
-    assert summary.zone_distance_nm.adopted() == pytest.approx(
-        sum(row.zone_distance_nm.adopted() or 0.0 for row in details)
+    assert summary.zone_distance_nm_exact == pytest.approx(
+        sum(row.zone_distance_nm_exact or 0.0 for row in details)
     )
-    assert summary.zone_ete_seconds.adopted() == pytest.approx(
-        sum(row.zone_ete_seconds.adopted() or 0.0 for row in details)
+    assert summary.zone_ete_seconds_exact == pytest.approx(
+        sum(row.zone_ete_seconds_exact or 0.0 for row in details)
     )
-    assert all(row.cumulative_distance_nm.adopted() is None for row in details)
-    assert all(row.cumulative_ete_seconds.adopted() is None for row in details)
+    assert all(row.cumulative_distance_nm_exact is None for row in details)
+    assert all(row.cumulative_ete_seconds_exact is None for row in details)
     assert summary.counts_toward_totals is False
     assert all(row.counts_toward_totals for row in details)
-    assert sum(
-        row.zone_distance_nm.adopted() or 0.0
-        for row in outcome.display_rows
-        if row.counts_toward_totals
-    ) == pytest.approx(outcome.sections[-1].cumulative_distance_nm.adopted())
+    # display_rows intentionally are not a totals source.  In particular the
+    # final visual-arrival Leg has only its parent plus destination information.
+    assert outcome.sections[-1].cumulative_distance_nm.adopted() == pytest.approx(
+        sum(section.zone_distance_nm.adopted() or 0.0 for section in outcome.sections)
+    )
 
 
 def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides(
@@ -714,7 +717,7 @@ def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
     magnetic_course = first_segment.magnetic_course_deg.adopted()
     assert true_course == pytest.approx(284.0, abs=1.0)
     assert first_segment.variation_deg_east.adopted() == 7.0
-    assert magnetic_course == pytest.approx((true_course - 7.0) % 360.0)
+    assert magnetic_course == pytest.approx((true_course + 7.0) % 360.0)
 
 
 def test_incomplete_descent_output_and_missing_eoc_cannot_be_ready(
@@ -887,10 +890,19 @@ def test_visual_arrival_calculates_calm_and_displays_destination_forecast(
     assert visual.wind_direction_deg_from.adopted() is None
     assert visual.wca_deg.adopted() == 0.0
     assert visual.ground_speed_kt.adopted() == visual.tas_kt.adopted()
-    final_row = outcome.display_rows[-1]
-    assert final_row.wind_speed_kt.adopted() == 8.0
-    assert final_row.wind_direction_deg_from.adopted() == 200.0
-    assert final_row.pressure_altitude_planning_ft.adopted() == 19.0
+    final_parent = next(
+        row
+        for row in reversed(outcome.display_rows)
+        if row.row_type == "PHYSICAL_LEG_SUMMARY"
+    )
+    destination_row = next(
+        row for row in outcome.display_rows if row.row_type == "DESTINATION_INFO"
+    )
+    assert final_parent.wind.text == "CALM"
+    assert final_parent.wca.text == "0"
+    assert destination_row.wind.text == "200/8"
+    assert destination_row.pa.text == "19"
+    assert destination_row.ete.state == DisplayCellState.BLANK
 
     fallback = CalculationService(airports, performance_repository).calculate(
         visual_project,
@@ -900,7 +912,11 @@ def test_visual_arrival_calculates_calm_and_displays_destination_forecast(
     assert fallback_visual.wind_speed_kt.adopted() == 0.0
     assert fallback_visual.wind_direction_deg_from.adopted() is None
     assert fallback_visual.wind_speed_kt.automatic_metadata["wind_adoption"] == "CALM"
-    assert fallback.display_rows[-1].wind_speed_kt.adopted() is None
+    fallback_destination = next(
+        row for row in fallback.display_rows if row.row_type == "DESTINATION_INFO"
+    )
+    assert fallback_destination.wind.state == DisplayCellState.UNAVAILABLE
+    assert fallback_destination.wind.text == "未取得"
 
     other_airport = destination_wind.model_copy(update={"airport_icao": "RJFM"})
     mismatched = CalculationService(airports, performance_repository).calculate(
@@ -912,7 +928,11 @@ def test_visual_arrival_calculates_calm_and_displays_destination_forecast(
     assert mismatched_visual.wind_speed_kt.adopted() == 0.0
     assert mismatched_visual.wind_direction_deg_from.adopted() is None
     assert mismatched_visual.wind_speed_kt.automatic_metadata["wind_adoption"] == "CALM"
-    assert mismatched.display_rows[-1].wind_speed_kt.adopted() is None
+    mismatched_destination = next(
+        row for row in mismatched.display_rows if row.row_type == "DESTINATION_INFO"
+    )
+    assert mismatched_destination.wind.state == DisplayCellState.UNAVAILABLE
+    assert mismatched_destination.wind.text == "未取得"
 
 
 def test_missing_climb_wind_is_not_misreported_as_rca_outside_route(
@@ -1072,6 +1092,30 @@ def test_outcome_adoption_and_snapshot_round_trip(
     restored = repository.load_snapshot(saved.id, UUID(snapshot_path.stem))
     assert restored.calculation_results.model_dump(mode="json") == outcome.model_dump(mode="json")
     assert restored.input_data.revision == saved.revision
+
+    old_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    old_payload["calculation_results"].pop("display_rows")
+    old_snapshot = CalculationSnapshot.model_validate_json(
+        json.dumps(old_payload, ensure_ascii=False),
+        strict=True,
+    )
+    assert old_snapshot.calculation_results.display_rows == []
+
+    # A short-lived dev schema persisted display rows by inheriting
+    # SectionResult.  Accept the snapshot but discard that projection: Project
+    # inputs, not a saved display_rows list, are the source for regeneration.
+    old_payload["calculation_results"]["display_rows"] = [
+        outcome.sections[0].model_dump(mode="json")
+        | {
+            "row_type": "CALCULATION_ZONE",
+            "counts_toward_totals": True,
+        }
+    ]
+    legacy_snapshot = CalculationSnapshot.model_validate_json(
+        json.dumps(old_payload, ensure_ascii=False),
+        strict=True,
+    )
+    assert legacy_snapshot.calculation_results.display_rows == []
 
 
 def test_weather_warning_does_not_mask_an_unrelated_blocker_status(project) -> None:

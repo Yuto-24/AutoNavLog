@@ -1,4 +1,3 @@
-import { Fragment } from "react";
 import { draftFromSection } from "../navLogEditing";
 import type {
   NavLogEditDrafts,
@@ -8,7 +7,7 @@ import type {
 import type {
   AdoptedValue, CalculationOutcome, DestinationWindForecast, NavSection, Project,
   FlightPhase,
-  NavLogDisplayRow, SectionResult,
+  NavLogDisplayCell, NavLogDisplayRow, SectionResult,
 } from "../types";
 
 function adopted<T>(value: AdoptedValue<T>): T | null {
@@ -109,22 +108,10 @@ function fixedQuantum(quantum: number, fractionDigits: number): NumberFormatter 
 }
 
 const integer = fixedQuantum(1, 0);
-const distance = fixedQuantum(0.5, 1);
-const durationMinutes = fixedQuantum(0.5, 1);
 const fuelAmount = fixedQuantum(0.1, 1);
 const CLIMB_PHASES = new Set<string>(["CLIMB"]);
 const CRUISE_PHASES = new Set<string>(["CRUISE"]);
 const DESCENT_PHASES = new Set<string>(["DESCENT", "VISUAL_ARRIVAL"]);
-
-const bearing = (value: number) => {
-  const normalized = ((value % 360) + 360) % 360;
-  const rounded = roundHalfUp(normalized, 1) % 360;
-  return rounded.toFixed(0).padStart(3, "0");
-};
-const signedInteger = (value: number) => {
-  const rounded = roundHalfUp(value, 1);
-  return `${rounded >= 0 ? "+" : ""}${rounded.toFixed(0)}`;
-};
 
 function numberValue(
   value: AdoptedValue<number>,
@@ -138,144 +125,6 @@ function numberValue(
   };
 }
 
-function valueClass(formatted: FormattedValue): string {
-  return formatted.unavailable
-    ? "unavailable-value"
-    : formatted.manual
-      ? "manual-value"
-      : "";
-}
-
-function ValueCell({
-  value,
-  formatter = integer,
-}: {
-  value: AdoptedValue<number>;
-  formatter?: NumberFormatter;
-}) {
-  const formatted = numberValue(value, formatter);
-  return (
-    <td
-      className={`${valueClass(formatted)} derived-readonly-cell`}
-      title="計算・出典から導出されるため、この欄は読み取り専用です。"
-    >
-      {formatted.text}
-      {formatted.manual && <small>手入力</small>}
-    </td>
-  );
-}
-
-function CombinedValueCell({
-  first,
-  second,
-  formatter = integer,
-  showSecond = true,
-}: {
-  first: AdoptedValue<number>;
-  second: AdoptedValue<number>;
-  formatter?: NumberFormatter;
-  showSecond?: boolean;
-}) {
-  const firstValue = numberValue(first, formatter);
-  const secondValue = numberValue(second, formatter);
-  const formatted: FormattedValue = {
-    text: firstValue.text + " / " + (showSecond ? secondValue.text : ""),
-    manual: firstValue.manual || secondValue.manual,
-    unavailable: firstValue.unavailable || (showSecond && secondValue.unavailable),
-  };
-  return (
-    <td
-      className={`${valueClass(formatted)} derived-readonly-cell`}
-      title="計算・出典から導出されるため、この欄は読み取り専用です。"
-    >
-      {formatted.text}
-      {formatted.manual && <small>手入力</small>}
-    </td>
-  );
-}
-
-function ete(value: AdoptedValue<number>): FormattedValue {
-  const seconds = adopted(value);
-  if (seconds === null) {
-    return { text: "未取得", manual: false, unavailable: true };
-  }
-  return {
-    text: durationMinutes(seconds / 60),
-    manual: value.adopted_source === "MANUAL",
-    unavailable: false,
-  };
-}
-
-function wind(
-  direction: AdoptedValue<number>,
-  speed: AdoptedValue<number>,
-): FormattedValue {
-  const directionValue = adopted(direction);
-  const speedValue = adopted(speed);
-  const manual =
-    direction.adopted_source === "MANUAL" || speed.adopted_source === "MANUAL";
-  if (speedValue === null || (speedValue >= 0.5 && directionValue === null)) {
-    return { text: "未取得", manual, unavailable: true };
-  }
-  if (speedValue < 0.5) {
-    return { text: "CALM", manual, unavailable: false };
-  }
-  return {
-    text:
-      integer(((directionValue ?? 0) % 360 + 360) % 360).padStart(3, "0") +
-      "/" +
-      integer(speedValue),
-    manual,
-    unavailable: false,
-  };
-}
-
-function WindCell({
-  direction,
-  speed,
-}: {
-  direction: AdoptedValue<number>;
-  speed: AdoptedValue<number>;
-}) {
-  const formatted = wind(direction, speed);
-  return (
-    <td
-      className={`${valueClass(formatted)} derived-readonly-cell`}
-      title="計算・出典から導出されるため、この欄は読み取り専用です。"
-    >
-      {formatted.text}
-      {formatted.manual && <small>手入力</small>}
-    </td>
-  );
-}
-
-function CombinedEteCell({
-  first,
-  second,
-  showSecond = true,
-}: {
-  first: AdoptedValue<number>;
-  second: AdoptedValue<number>;
-  showSecond?: boolean;
-}) {
-  const firstValue = ete(first);
-  const secondValue = ete(second);
-  const formatted: FormattedValue = {
-    text: firstValue.text + " / " + (showSecond ? secondValue.text : ""),
-    manual: firstValue.manual || secondValue.manual,
-    unavailable: firstValue.unavailable || (showSecond && secondValue.unavailable),
-  };
-  return (
-    <td
-      className={`${valueClass(formatted)} derived-readonly-cell`}
-      title="計算・出典から導出されるため、この欄は読み取り専用です。"
-    >
-      {formatted.text}
-      {formatted.manual && <small>手入力</small>}
-    </td>
-  );
-}
-
 function EditableNumberCell({
   value,
   draftValue,
@@ -287,6 +136,7 @@ function EditableNumberCell({
   max,
   step,
   formatter = integer,
+  displayPlaceholder,
   required = false,
 }: {
   value: AdoptedValue<number>;
@@ -299,11 +149,15 @@ function EditableNumberCell({
   max: number;
   step: number;
   formatter?: NumberFormatter;
+  displayPlaceholder?: string;
   required?: boolean;
 }) {
   const formatted = numberValue(value, formatter);
   return (
-    <td className={`nav-log-editable-cell ${error ? "nav-log-invalid-cell" : ""}`}>
+    <td
+      className={`nav-log-editable-cell ${error ? "nav-log-invalid-cell" : ""}`}
+      data-display-text={displayPlaceholder ?? formatted.text}
+    >
       <input
         className="nav-log-number-input"
         type="number"
@@ -315,7 +169,7 @@ function EditableNumberCell({
         aria-invalid={Boolean(error)}
         title={error ?? (required ? "この値は必須です。" : "空欄にすると自動値へ戻ります。")}
         value={draftValue}
-        placeholder={formatted.text}
+        placeholder={displayPlaceholder ?? formatted.text}
         onChange={(event) => onChange(field, event.target.value)}
       />
       {error && <small className="nav-log-field-error">要確認</small>}
@@ -331,6 +185,7 @@ function EditableWindCell({
   speedValue,
   label,
   errors,
+  displayText,
   onChange,
 }: {
   direction: AdoptedValue<number>;
@@ -339,19 +194,28 @@ function EditableWindCell({
   speedValue: string;
   label: string;
   errors: Partial<Record<NavLogEditableField, string>>;
+  displayText?: string;
   onChange: (field: NavLogEditableField, value: string) => void;
 }) {
   const invalid = Boolean(errors.windDirection || errors.windSpeed);
   const automaticDirection = adopted(direction);
   const automaticSpeed = adopted(speed);
-  const directionPlaceholder =
+  const [displayDirection, displaySpeed] = displayText?.includes("/")
+    ? displayText.split("/", 2)
+    : [undefined, displayText === "CALM" ? "0" : undefined];
+  const directionPlaceholder = displayDirection ?? (
     automaticDirection === null
       ? "DIR"
-      : integer(((automaticDirection % 360) + 360) % 360).padStart(3, "0");
-  const speedPlaceholder =
-    automaticSpeed === null ? "kt" : integer(automaticSpeed);
+      : integer(((automaticDirection % 360) + 360) % 360).padStart(3, "0")
+  );
+  const speedPlaceholder = displaySpeed ?? (
+    automaticSpeed === null ? "kt" : integer(automaticSpeed)
+  );
   return (
-    <td className={`nav-log-editable-cell ${invalid ? "nav-log-invalid-cell" : ""}`}>
+    <td
+      className={`nav-log-editable-cell ${invalid ? "nav-log-invalid-cell" : ""}`}
+      data-display-text={displayText ?? ""}
+    >
       <div className="nav-log-wind-editor">
         <div className="nav-log-wind-inputs">
           <input
@@ -484,16 +348,50 @@ function FuelPlanTable({ outcome }: { outcome: CalculationOutcome }) {
   );
 }
 
-function ResultCells({
-  section,
+function displayCellClass(cell: NavLogDisplayCell): string {
+  return [
+    "derived-readonly-cell",
+    `display-${cell.state.toLowerCase().replaceAll("_", "-")}`,
+    cell.state === "UNAVAILABLE" ? "unavailable-value" : "",
+    cell.manual ? "manual-value" : "",
+  ].filter(Boolean).join(" ");
+}
+
+function DisplayCell({
+  cell,
+  extraClass = "",
+}: {
+  cell: NavLogDisplayCell;
+  extraClass?: string;
+}) {
+  return (
+    <td
+      className={`${displayCellClass(cell)} ${extraClass}`.trim()}
+      title={cell.reason_code ?? "計算結果から生成した表示専用セルです。"}
+      data-display-text={cell.text ?? ""}
+      data-cell-state={cell.state}
+    >
+      {cell.text ?? ""}
+      {cell.manual && <small>手入力</small>}
+    </td>
+  );
+}
+
+function isVisibleCell(cell: NavLogDisplayCell): boolean {
+  return cell.state === "DISPLAY_VALUE" || cell.state === "UNAVAILABLE";
+}
+
+function DisplayResultCells({
+  row,
+  source,
   inputSection,
   drafts,
   editErrors,
   onEdit,
-  showCumulative = true,
 }: {
-  section: SectionResult;
-  inputSection: NavSection;
+  row: NavLogDisplayRow;
+  source?: SectionResult;
+  inputSection?: NavSection;
   drafts: NavLogEditDrafts;
   editErrors: NavLogEditErrors;
   onEdit: (
@@ -502,34 +400,30 @@ function ResultCells({
     field: NavLogEditableField,
     value: string,
   ) => void;
-  showCumulative?: boolean;
 }) {
-  const variationValue = adopted(section.variation_deg_east);
-  const departureLatitude =
-    section.variation_deg_east.automatic_metadata.departure_latitude_deg;
-  const variationTitle = typeof departureLatitude === "number"
-    ? `出発緯度 ${departureLatitude.toFixed(4)}° / 32.0°N基準で自動判定`
-    : "Leg出発緯度から自動判定";
-  const variation: FormattedValue = {
-    text: variationValue === null ? "未取得" : signedInteger(variationValue),
-    manual: section.variation_deg_east.adopted_source === "MANUAL",
-    unavailable: variationValue === null,
-  };
-  const draft = drafts[inputSection.id] ?? draftFromSection(inputSection);
-  const errors = editErrors[inputSection.id] ?? {};
-  const isVisualArrival = section.phase === "VISUAL_ARRIVAL";
-  const altitudeEditable = section.phase === "CRUISE";
-  const inputLabel = `${section.from_name}→${section.to_name}`;
+  const editable = source !== undefined && inputSection !== undefined && row.phase !== null;
+  const draft = inputSection === undefined
+    ? undefined
+    : drafts[inputSection.id] ?? draftFromSection(inputSection);
+  const errors = inputSection === undefined ? {} : editErrors[inputSection.id] ?? {};
+  const isVisualArrival = row.phase === "VISUAL_ARRIVAL";
+  const altitudeEditable = editable
+    && row.phase === "CRUISE"
+    && row.pa_display_kind === "NUMERIC"
+    && isVisibleCell(row.pa);
+  const inputLabel = `${source?.from_name ?? row.from_name}→${source?.to_name ?? row.to_name}`;
   const change = (field: NavLogEditableField, value: string) => {
-    onEdit(inputSection.id, section.phase, field, value);
+    if (inputSection !== undefined && row.phase !== null) {
+      onEdit(inputSection.id, row.phase, field, value);
+    }
   };
   return (
     <>
-      {!altitudeEditable ? (
-        <ValueCell value={section.pressure_altitude_planning_ft} />
+      {!altitudeEditable || source === undefined || draft === undefined ? (
+        <DisplayCell cell={row.pa} />
       ) : (
         <EditableNumberCell
-          value={section.planned_altitude_ft_msl}
+          value={source.planned_altitude_ft_msl}
           draftValue={draft.plannedAltitude}
           field="plannedAltitude"
           label={`${inputLabel} 計画高度`}
@@ -537,27 +431,35 @@ function ResultCells({
           min={100}
           max={25_000}
           step={100}
+          displayPlaceholder={row.pa.text ?? undefined}
           required
           onChange={change}
         />
       )}
-      <EditableNumberCell
-        value={section.temperature_c}
-        draftValue={draft.temperatureByPhase[section.phase] ?? ""}
-        field="temperature"
-        label={`${inputLabel} 手動気温`}
-        error={errors.temperature}
-        min={-80}
-        max={60}
-        step={1}
-        onChange={change}
-      />
-      <ValueCell value={section.cas_kt} />
-      {isVisualArrival ? (
-        <ValueCell value={section.tas_kt} />
+      {editable && source !== undefined && draft !== undefined && isVisibleCell(row.toat) && !(
+        row.row_type === "PHYSICAL_LEG_SUMMARY" && source.phase === "CLIMB"
+      ) ? (
+        <EditableNumberCell
+          value={source.temperature_c}
+          draftValue={draft.temperatureByPhase[row.phase!] ?? ""}
+          field="temperature"
+          label={`${inputLabel} 手動気温`}
+          error={errors.temperature}
+          min={-80}
+          max={60}
+          step={0.1}
+          displayPlaceholder={row.toat.text ?? undefined}
+          onChange={change}
+        />
+      ) : (
+        <DisplayCell cell={row.toat} />
+      )}
+      <DisplayCell cell={row.cas} />
+      {isVisualArrival || !editable || source === undefined || draft === undefined || !isVisibleCell(row.tas) ? (
+        <DisplayCell cell={row.tas} />
       ) : (
         <EditableNumberCell
-          value={section.tas_kt}
+          value={source.tas_kt}
           draftValue={draft.tas}
           field="tas"
           label={`${inputLabel} 手動TAS`}
@@ -565,69 +467,38 @@ function ResultCells({
           min={1}
           max={300}
           step={1}
+          displayPlaceholder={row.tas.text ?? undefined}
           onChange={change}
         />
       )}
-      <ValueCell value={section.true_course_deg} formatter={bearing} />
-      <td
-        className={`${valueClass(variation)} derived-readonly-cell`}
-        title={`${variationTitle} / Project入力から導出される読み取り専用値です。`}
-      >
-        {variation.text}
-        {variation.manual && <small>手入力</small>}
-      </td>
-      <ValueCell value={section.magnetic_course_deg} formatter={bearing} />
-      {isVisualArrival ? (
-        <WindCell direction={section.wind_direction_deg_from} speed={section.wind_speed_kt} />
+      <DisplayCell cell={row.tc} />
+      <DisplayCell cell={row.variation} />
+      <DisplayCell cell={row.mc} />
+      {isVisualArrival || !editable || source === undefined || draft === undefined || !isVisibleCell(row.wind) ? (
+        <DisplayCell cell={row.wind} />
       ) : (
         <EditableWindCell
-          direction={section.wind_direction_deg_from}
-          speed={section.wind_speed_kt}
-          directionValue={draft.windDirectionByPhase[section.phase] ?? ""}
-          speedValue={draft.windSpeedByPhase[section.phase] ?? ""}
+          direction={source.wind_direction_deg_from}
+          speed={source.wind_speed_kt}
+          directionValue={draft.windDirectionByPhase[row.phase!] ?? ""}
+          speedValue={draft.windSpeedByPhase[row.phase!] ?? ""}
           label={inputLabel}
           errors={errors}
+          displayText={row.wind.text ?? undefined}
           onChange={change}
         />
       )}
-      <ValueCell value={section.wca_deg} formatter={signedInteger} />
-      <ValueCell value={section.magnetic_heading_deg} formatter={bearing} />
-      <CombinedValueCell
-        first={section.zone_distance_nm}
-        second={section.cumulative_distance_nm}
-        formatter={distance}
-        showSecond={showCumulative}
-      />
-      <ValueCell value={section.ground_speed_kt} />
-      <CombinedEteCell
-        first={section.zone_ete_seconds}
-        second={section.cumulative_ete_seconds}
-        showSecond={showCumulative}
-      />
-      <td className="manual-entry-cell" aria-label="ETO転記欄" />
-      <td className="manual-entry-cell" aria-label="ATO転記欄" />
-      <td className="manual-entry-cell" aria-label="ATE転記欄" />
-      <CombinedValueCell
-        first={section.section_fuel_gal}
-        second={section.remaining_fuel_gal}
-        formatter={fuelAmount}
-        showSecond={showCumulative}
-      />
+      <DisplayCell cell={row.wca} />
+      <DisplayCell cell={row.mh} />
+      <DisplayCell cell={row.distance} />
+      <DisplayCell cell={row.gs} />
+      <DisplayCell cell={row.ete} />
+      <DisplayCell cell={row.eto} extraClass="manual-entry-cell" />
+      <DisplayCell cell={row.ato} extraClass="manual-entry-cell" />
+      <DisplayCell cell={row.ate} extraClass="manual-entry-cell" />
+      <DisplayCell cell={row.fuel} />
     </>
   );
-}
-
-function groupByPhysicalLeg(sections: NavLogDisplayRow[]): NavLogDisplayRow[][] {
-  const groups: NavLogDisplayRow[][] = [];
-  for (const section of sections) {
-    const current = groups.at(-1);
-    if (current?.[0]?.section_id === section.section_id) {
-      current.push(section);
-    } else {
-      groups.push([section]);
-    }
-  }
-  return groups;
 }
 
 function formatJst(value: string): string {
@@ -707,15 +578,11 @@ export function NavLogTable({
     value: string,
   ) => void;
 }) {
-  const displayRows: NavLogDisplayRow[] = outcome.display_rows?.length
-    ? outcome.display_rows
-    : outcome.sections.map((section) => ({
-        ...section,
-        row_type: "PHYSICAL_LEG_SUMMARY" as const,
-        counts_toward_totals: true,
-      }));
-  const physicalLegs = groupByPhysicalLeg(displayRows);
+  const displayRows: NavLogDisplayRow[] = outcome.display_rows;
   const inputSections = new Map(project.sections.map((section) => [section.id, section]));
+  const sourceResults = new Map(
+    outcome.sections.map((section) => [section.sequence, section]),
+  );
   return (
     <section className="nav-log-section" aria-labelledby="nav-log-title">
       <div className="nav-log-heading">
@@ -764,43 +631,52 @@ export function NavLogTable({
             </tr>
           </thead>
           <tbody>
-            {physicalLegs.map((leg) => {
-              const first = leg[0];
-              const last = leg.at(-1);
-              if (!first || !last) return null;
-              return (
-                <Fragment key={first.section_id}>
-                  {leg.map((section) => (
-                    <tr
-                      className={
-                        section.row_type === "PHYSICAL_LEG_SUMMARY"
-                          ? "nav-leg-heading-row"
-                          : "nav-leg-detail-row"
-                      }
-                      key={`${section.section_id}-${section.sequence}`}
-                    >
-                      <td className="route-name-cell">{section.from_name}</td>
-                      <td className="route-name-cell">{section.to_name}</td>
-                      {inputSections.has(section.section_id) ? (
-                        <ResultCells
-                          section={section}
-                          inputSection={inputSections.get(section.section_id)!}
-                          drafts={drafts}
-                          editErrors={editErrors}
-                          onEdit={onEdit}
-                          showCumulative={section.row_type === "PHYSICAL_LEG_SUMMARY"}
-                        />
-                      ) : (
-                        <td colSpan={17} className="unavailable-value">
-                          入力元Legが見つかりません
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                  <tr className="nav-leg-spacer-row" aria-hidden="true">
+            {displayRows.length === 0 && (
+              <tr><td colSpan={19} className="unavailable-value">表示行を再計算してください</td></tr>
+            )}
+            {displayRows.map((row) => {
+              if (row.row_type === "LEG_SEPARATOR") {
+                return (
+                  <tr
+                    className="nav-leg-spacer-row"
+                    aria-hidden="true"
+                    key={row.sequence}
+                    data-row-type={row.row_type}
+                    data-row-sequence={row.sequence}
+                  >
                     <td colSpan={19} />
                   </tr>
-                </Fragment>
+                );
+              }
+              const source = row.source_result_sequence === null
+                ? undefined
+                : sourceResults.get(row.source_result_sequence);
+              const inputSection = row.section_id === null
+                ? undefined
+                : inputSections.get(row.section_id);
+              const rowClass = row.row_type === "PHYSICAL_LEG_SUMMARY"
+                ? "nav-leg-heading-row"
+                : row.row_type === "DESTINATION_INFO"
+                  ? "nav-destination-info-row"
+                  : "nav-leg-detail-row";
+              return (
+                <tr
+                  className={rowClass}
+                  key={row.sequence}
+                  data-row-type={row.row_type}
+                  data-row-sequence={row.sequence}
+                >
+                  <td className="route-name-cell" data-display-text={row.from_name}>{row.from_name}</td>
+                  <td className="route-name-cell" data-display-text={row.to_name}>{row.to_name}</td>
+                  <DisplayResultCells
+                    row={row}
+                    source={source}
+                    inputSection={inputSection}
+                    drafts={drafts}
+                    editErrors={editErrors}
+                    onEdit={onEdit}
+                  />
+                </tr>
               );
             })}
           </tbody>

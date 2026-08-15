@@ -1,11 +1,57 @@
 # AutoNavLog UI改善 要求仕様書
 
-- 版: 2.7.4
-- 日付: 2026-08-13
+- 版: 2.7.5
+- 日付: 2026-08-15
 - 対象: AutoNavLog 0.3.0 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
 - 実装担当: 別エージェント
 
-## v2.7.4 表示整理・目的地TAF風・更新確認（本節を最優先）
+## v2.7.5 Issue #43 Golden NAVLOG表示（本節を最優先）
+
+本節はIssue #43の後発コメントで確定した表示・計算Policyであり、v2.7.4以前の
+目的地TAF採用、最終行、正常空欄、Physical Leg表示に関する矛盾する記述を置き換える。
+
+### D-40 方位計算
+
+- VARは東偏差を正とし、`MC = (TC + VAR) mod 360`を使用する。
+- WCAは右修正を正とし、`MH = (MC + WCA) mod 360`を使用する。
+- 計算DTOには未丸めMHを保持する。転記表示のMHは1°へhalf-upした表示MCと表示WCAを
+  加算・正規化し、`291 + (-4) = 287`のように同一行の転記値間で式が成立するようにする。
+- altitude guidanceを含む派生MCも同じ規則を使用する。
+
+### D-41 計算結果と表示投影
+
+- `CalculationOutcome.sections`は重複しないCalculation Zoneであり、距離・時間・燃料の
+  唯一の集計元とする。
+- `CalculationOutcome.display_rows`は表示専用とし、`PHYSICAL_LEG_SUMMARY`、
+  `CALCULATION_ZONE`、`DESTINATION_INFO`、`LEG_SEPARATOR`を持つ。display rowから
+  TTL DIST、TTL TIME、Fuelを再集計しない。
+- 最終VISUAL_ARRIVAL以外の全Physical Legに親小計行と最低1つの内訳行を作る。親は
+  FROM/TO、未丸めZone小計、Leg終点CUMを表示し、子はFROM/CUMを空欄にする。
+- 子行の親または直前行と同じ計算値は`INHERIT`、継承しない意図的な空欄は`BLANK`とする。
+  どちらも完全な空欄であり、`未取得`、`未確定`、`—`を表示しない。本来必要な値の取得・
+  算出失敗だけを`UNAVAILABLE`として`未取得`、太字、赤系背景で表示する。
+- PAは数値と表示状態を分け、`↗`、`↘`、`(<推定通過高度>)`を表現する。
+- Check Point、RCA、EOC、物理終点は未丸めalong-route distance順に並べる。EOCの
+  0.5 NM未満snapは物理変針点だけに適用し、Check Pointへ拡張しない。
+
+### D-42 最終Legと目的空港情報
+
+- VREPから目的空港までの計算親行はCAS 121 kt、CALM、WCA=0、GS=TASで計算する。
+  目的地TAF風をWCA、MH、GS、ETE、燃料へ使用しない。
+- 次行の`DESTINATION_INFO`はFROM空欄、TO=目的空港、空港標高、空港予想気温、TAF風
+  だけを表示する。その他の航法・距離・時間・燃料セルは`BLANK`とする。
+- WebとA4転記補助HTMLは同じ`NavLogDisplayCell.text`を表示し、別々に値を再計算しない。
+
+### v2.7.5受入基準
+
+- **W-13**: Python、Web、altitude guidance、schema、文書が`MC = TC + VAR`で一致する。
+- **W-14**: 全通常Legの親/子、継承空欄、PA記号、Check Point/EOC順序、Leg間空行が
+  Issue #43 Golden fixtureと一致する。
+- **W-15**: 到着計算親行がCALMで、独立した目的空港情報行に空港諸元だけを表示する。
+- **W-16**: 旧Snapshotのdisplay field欠損を読め、保存Projectを切り替えて再選択しても
+  Project入力から同じ最新display projectionを再生成する。
+
+## v2.7.4 表示整理・目的地TAF風・更新確認
 
 ### D-37 NAV LOG表示
 
@@ -21,11 +67,10 @@
 - 目的空港ICAOと到着予定時刻をAviationWeather.govのTAF APIへ渡し、該当時刻の卓越風を
   取得する。`TEMPO` と `PROB` は単一の卓越風として採用しない。
 - 風向、風速、ガスト、TAF発表時刻、有効期間、変化区分、TAF原文を参考欄へ表示する。
-- 取得した卓越風をNAV LOG最終行の風向・風速へ採用し、到着区間のWCA、GS、
-  ETE、燃料へ反映する。
-  CAS 121 ktと燃料流量12 GPHは維持する。
-- 通信失敗、TAF欠測、有効期間外は「取得できませんでした」と表示し、到着区間は
-  CALMへフォールバックして計算を継続する。
+- 取得した卓越風は独立した`DESTINATION_INFO`行と参考欄だけに表示する。到着区間は
+  CAS 121 kt、CALM、WCA=0、GS=TAS、燃料流量12 GPHを維持する。
+- 通信失敗、TAF欠測、有効期間外は`DESTINATION_INFO`のWINDを真の`UNAVAILABLE`として
+  `未取得`と表示する。到着区間のCALM計算はTAF取得成否に依存しない。
   同一空港のTAF応答は5分間cacheする。
 
 ### D-39 更新とcache
@@ -40,8 +85,8 @@
 
 - **W-9**: 自動計算されたVARと風の表示に「自動」がなく、手入力値の表示は残る。
 - **W-10**: 廃止した2つのQNH警告が気象結果、Web UI、転記補助へ出ない。
-- **W-11**: ETAがTAF有効期間内なら目的地風をNAV LOG最終行と到着区間計算へ反映し、
-  TAF取得失敗時はCALMへフォールバックする。
+- **W-11**: ETAがTAF有効期間内なら目的地風を`DESTINATION_INFO`行へ表示し、到着区間の
+  CALM計算から分離する。
 - **W-12**: HTMLとAPIのcache header、画面版、`/healthz` 版が更新手順どおり確認できる。
 
 ## v2.7.3 Docker Web service・目的空港場周高度・別添8-1整合
@@ -214,7 +259,10 @@
   - **v2.0は v1.9 への再レビュー指摘11件（CodeRabbit由来6件＋手動照合5件）を反映した版**。(1) pack lockの解放を「owner token確認→自token専用release pathへのrename→再確認→削除」の所有権付き解放へ全面改訂し、token喪失時は現行lockへ一切触れない契約とした（第8.9節・C-52）、(2) `index.json` 更新へpack lockと同じfencing token手順（取得〜所有権付き解放）を適用し、`manifest.json` の `revision`・`index.json` の `generation` のschema契約（型・初期値・単調増分・期待値取得時点・破損時初期化）を新設（第8.9節・C-58）、(3) lock取得timeout時の動作（本名を上書きせず `_locktimeout_` 別名へ退避・警告・索引不更新）を本文へ明記しC-52と整合（第8.9節）、(4) `IssueContext` を再帰的に不変な値（凍結identity＋正準JSON文字列＋構築時確定のキー）へ改め、`create_effective_issue()` を唯一のfactoryとした（第6.3節・F-17）、(5) Route上限超過からの復帰を「SEA算出対象からの除外（Route・NavSection非変更）＋再preflight」として確定（第8.8節・C-56）、(6) 無効化表へSEA確定値変更・`dem_cache_version`・タイル上限の行を追加（第10.3節・C-57）、(7) E-23(a)を「Snapshot読込」ケースへ、E-23(c)/F-16を「入力fingerprintまたはcause metadataが変わった新outcomeの場合のみ再承認」へ訂正（第14章）、(8) `cause` 構成の個別規則をcode別・producer非依存へ改めF-14のcross-source dedupeを成立させた（第6.3節）、(9) S-9/E-24の「未算出」を「一度も確定結果がないLegのみ」に限定（第13.2節・第14章）、(10) performance実測digestを起動時・明示再読込時は必ず再hashする契約へ強化（第10.2節・E-25）、(11) 実装開始条件の表現を「文書内容の未決はA.10/B.1、実装handoffには加えて基準アーカイブの固定が必須」へ2箇所とも訂正（本節・第15章）。
   - **v1.9は v1.8 への再レビュー指摘15件を反映した版**。(1) pack lockのstale回収をquarantine rename＋fencing token方式へ全面改訂（第8.9節）、(2) 基準の優先順位を「現状記述はアーカイブが正・あるべき姿は本書が正」へ訂正（本節）、(3) `index.json` 更新を専用lock内の不可分操作へ（第8.9節）、(4) SEAジョブ結果のguard順を短絡評価列へ固定し、1件の例外でqueue処理を止めない（第8.7節）、(5) `IssueContext.cause` を生成時にnormalize＋deep freezeし指紋を生成時に確定（第6.3節）、(6) `dedupe` の集約規則を完全定義（第6.3節）、(7) outcome由来ctxの再起動・Snapshot再構築契約を新設（第6.3節・E-23）、(8) S-9の正規化対象を永続モデル上で定義（第13.2節・E-24）、(9) `sea_input_fingerprint` へ `dem_cache_version`・実効タイル上限を追加（第10.5節）、(10) S-3の読込側拒否を `parse_constant` 方式で明記（第13.2節）、(11) DEMデコードのdtype契約を追加（第8.3節）、(12) C-7を `unknown_pixels == 0` に限定しC-38と整合、(13) datetimeのaware判定へ `utcoffset() is not None` を追加（第10.1a節）、(14) `performance_fingerprint` の `table_sha256` を実CSV bytesからの実測digestへ変更（第10.2節）、(15) 基準アーカイブのcommitを成果物条件として明記（本節）。
 
-> **現行規範の優先順位:** 表示、目的地TAF風、更新確認はv2.7.4のD-37〜D-39／W-9〜W-12を最優先する。配布方式とUI実行形態はv2.7.1のD-30〜D-34／W-1〜W-6を適用する。航法計算・データ・安全ゲートはv2.6.0本文を維持する。v2.5.3以前のSEA・DEM・陸域マスク関連記述は履歴・現状説明としてのみ残す。
+> **現行規範の優先順位:** 方位計算、Golden表示、目的地TAF風はv2.7.5の
+> D-40〜D-42／W-13〜W-16を最優先する。更新確認はv2.7.4のD-39／W-12、配布方式と
+> UI実行形態はv2.7.1のD-30〜D-34／W-1〜W-6を適用する。航法計算・データ・安全ゲートは
+> v2.6.0本文を維持する。v2.5.3以前のSEA・DEM・陸域マスク関連記述は履歴・現状説明としてのみ残す。
 
 ## 本書の位置づけと実装開始条件
 
@@ -643,7 +691,7 @@ SEA算出、SEA入力、SEA確認、結果テーブルのSEA列は実装しな�
 | PERFORMANCE_TABLE | 値＋出典（`performance_metadata`） |
 | FIXED_RULE | 値＋`規則値`（例: 降下 500 fpm、到着 無風） |
 | MANUAL_OVERRIDE | 値＋`手動`＋自動値の併記 |
-| UNAVAILABLE | `—（未確定）`＋理由 |
+| UNAVAILABLE | `未取得`（太字・赤系背景）＋理由 |
 | WARNING | 値＋警告アイコン |
 
 Leg単位で利用者が入力するのは **Phase / ALT** であることが一目で分かるようにする。Loss TimeとSEAは地上入力に含めない。
@@ -817,7 +865,7 @@ CPはRouteNodeではなく `VisualReference(role=CHECK_POINT)` として保持�
 
 ### FR-43 NAV2の風必須方針 【必須】
 
-NAV2（宮崎課程）の地上準備では全ての対象区間で風を予想する。「風を予想しない」選択肢および気象欠損の無風補完は提供せず、既存の `WIND_UNAVAILABLE` を維持する。到着区間はD-38を優先し、取得できた目的地TAF風を採用する。取得不能時だけCALMへフォールバックする。
+NAV2（宮崎課程）の地上準備では全ての対象区間で風を予想する。「風を予想しない」選択肢および気象欠損の無風補完は提供せず、既存の `WIND_UNAVAILABLE` を維持する。到着区間だけは規程に基づく固定CALMで計算し、目的地TAF風はD-42の`DESTINATION_INFO`へ表示する。
 ### FR-44 KML Pointの役割選択 【必須】
 
 KMLのPoint Placemarkは自動でRouteNodeへ追加しない。取込後に「経路点」「VREP」「CP」「参照のみ」から役割を選ぶ。経路点/VREPだけが確認後にRouteNodeとなり、CPは `VisualReference(role=CHECK_POINT)` として関連Legを確認する。CPを選んでも選択LineStringの形状・総距離・TCを変更してはならない。
@@ -1641,7 +1689,7 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 | N-7 | 算出VREP高度を降下目標、降下ETE、EOC、到着区間代表高度、転記ALTへ一貫して渡す |
 | N-8 | 変則Entryは100 ft単位の手動高度と理由を必須とする |
 | N-9 | 経路外CPは有限Leg上のabeam stationで区間を分け、cross-track距離を加算しない |
-| N-10 | NAV2対象区間で風欠損を無風補完しない。目的地TAF風をVREP→空港へ採用し、取得不能時だけCALMへフォールバックする |
+| N-10 | NAV2対象区間で風欠損を無風補完しない。VREP→空港は常にCALMで計算し、目的地TAF風は`DESTINATION_INFO`だけへ表示する |
 | N-11 | FROM/TO、空港・地点・CPをactive参照データから選択でき、選択行をProjectへsnapshotする |
 
 **M（参照・性能データ）**
@@ -1699,6 +1747,9 @@ A.1〜A.9を本版の外部インタフェース契約とする。旧A.10は履�
 | ALT | 5000 | `FloatText`、ft MSL | `colab.py` `self.altitude` |
 | FUEL | 81.0 | `FloatText`、gal（`total_usable_fuel_gal`、`gt=0`） | `colab.py` `self.fuel` |
 | VAR | 32.0°N以上+8°、未満+7° | Leg出発緯度から自動（東偏差を正） | `nav/variation.py` |
+
+方位計算は、プロジェクト定義として東偏差を正に保持し、`MC = TC + VAR`、
+`MH = MC + WCA`を使用する。表示前に正規化し、方位は3桁で表す。
 | TGL | 0 | `BoundedIntText(min=0)`、回数 | `colab.py` `self.tgl_count` |
 | Phase | `CRUISE` | `Dropdown`（FlightPhase） | `colab.py` `self.phase` |
 | DATE | `date.today()` | `DatePicker` | 本改修で翌日へ変更 |
@@ -1805,9 +1856,9 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | --- | --- |
 | 入口 | `CalculationService.calculate(project)` |
 | 入力 | `Project`（deep copyされる） |
-| 出力 | `CalculationOutcome`（`sections: list[SectionResult]` / `derived_points` / `arrival_altitude: ArrivalAltitudeResult` / `check_point_projections: list[CheckPointProjection]` / `fuel_plan` / `issues` / `iterations` / `converged` / `status` / `policy_version` / `performance_table_version` / `qnh_hpa`） |
+| 出力 | `CalculationOutcome`（集計正本`sections: list[SectionResult]` / 表示専用`display_rows: list[NavLogDisplayRow]` / `derived_points` / `arrival_altitude: ArrivalAltitudeResult` / `check_point_projections: list[CheckPointProjection]` / `fuel_plan` / `issues` / `iterations` / `converged` / `status` / `policy_version` / `performance_table_version` / `qnh_hpa`） |
 | 各値 | `AdoptedValue[T]`。`adopted()` で採用値、`state` で `ValueState` |
-| Policy | `CalculationPolicies.version = "nav2-v4"`。Variationは`DEPARTURE_LATITUDE_32N_V1`、VREP個別規則は`ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"`とする |
+| Policy | `CalculationPolicies.version = "nav2-v6-golden-display"`。Variationは`DEPARTURE_LATITUDE_32N_V1`、VREP個別規則は`ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"`とする |
 | 陳腐化判定 | 計算入力fingerprintは`calculation_policy_version`に加えて`variation_rule_version`を含み、Variation規則だけの変更でも再計算を要求する |
 | エラー | 例外ではなく `Issue` として返る。`blockers` プロパティで抽出 |
 | SEAの使用 | **なし（v2.6.0）**。`safe_enroute_altitude_ft_msl` は互換fieldとして残してよいが、計算・Issue・fingerprint・status・表示・出力へ使用しない |

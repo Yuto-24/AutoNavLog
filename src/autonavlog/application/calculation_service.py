@@ -61,6 +61,7 @@ from autonavlog.weather.provider import WeatherProvider
 from .arrival import calculate_arrival_altitude
 from .checkpoints import project_check_points
 from .forecast_service import ForecastService
+from .navlog_display import NavLogPhysicalLeg, build_navlog_display_rows
 from .phase_segments import (
     PhaseSegmentation,
     PhaseSegmentationError,
@@ -72,7 +73,7 @@ from .phase_segments import (
 
 @dataclass(frozen=True)
 class CalculationPolicies:
-    version: str = "nav2-v5-msl-display-rows"
+    version: str = "nav2-v6-golden-display"
     # Kept for serialized policy compatibility. NAV2-v5 uses MSL directly and
     # does not round or QNH-correct a separate planning pressure altitude.
     pa_500_policy: Pa500Policy = Pa500Policy.CEILING
@@ -731,6 +732,23 @@ class CalculationService:
             project.planned_departure_time_jst + timedelta(seconds=elapsed)
             if last_midpoint_time is None
             else last_midpoint_time + timedelta(seconds=last_default_seconds / 2.0)
+        )
+        requests.append(
+            WeatherRequest(
+                request_id="departure:surface",
+                kind=WeatherRequestKind.ALOFT,
+                latitude_deg=departure.latitude_deg,
+                longitude_deg=departure.longitude_deg,
+                valid_time_utc=project.planned_departure_time_jst,
+                altitude_ft_msl=float(departure.elevation_ft_msl),
+                metadata={
+                    "source_rule": "NAV2_V6_DEPARTURE_PARENT_ROW",
+                    "phase": "DEPARTURE",
+                    "representative_altitude_policy": "AIRPORT_ELEVATION_MSL",
+                    "representative_altitude_ft_msl": float(departure.elevation_ft_msl),
+                    "airport_id": departure.id,
+                },
+            )
         )
         requests.append(
             WeatherRequest(
@@ -1500,154 +1518,6 @@ class CalculationService:
                 )
         return points
 
-    @staticmethod
-    def _display_rows(
-        geometries: list[_Geometry],
-        sections: list[SectionResult],
-        destination: Airport,
-        destination_weather: WeatherResult | None,
-        destination_wind: DestinationWindForecast | None,
-    ) -> list[NavLogDisplayRow]:
-        """Project calculation zones into physical-leg subtotal/detail rows."""
-
-        grouped = {
-            geometry.section.id: [
-                section for section in sections if section.section_id == geometry.section.id
-            ]
-            for geometry in geometries
-        }
-        rows: list[NavLogDisplayRow] = []
-        sequence = 0
-
-        def summed(values: list[AdoptedValue[float]]) -> AdoptedValue[float]:
-            adopted = [value.adopted() for value in values]
-            if any(value is None for value in adopted):
-                return _unavailable("DISPLAY_SUBTOTAL_UNAVAILABLE")
-            return _automatic(sum(value for value in adopted if value is not None))
-
-        for geometry in geometries:
-            zones = grouped[geometry.section.id]
-            if not zones:
-                continue
-            first, last = zones[0], zones[-1]
-            split = len(zones) > 1
-            summary_updates: dict[str, Any] = {
-                "sequence": sequence,
-                "row_type": "PHYSICAL_LEG_SUMMARY",
-                "counts_toward_totals": not split,
-                "from_name": geometry.start.name,
-                "to_name": last.to_name,
-                "segment_label": None,
-                "zone_distance_nm": summed([zone.zone_distance_nm for zone in zones]),
-                "zone_ete_seconds": summed([zone.zone_ete_seconds for zone in zones]),
-                "section_fuel_gal": summed([zone.section_fuel_gal for zone in zones]),
-                "cumulative_distance_nm": last.cumulative_distance_nm,
-                "cumulative_ete_seconds": last.cumulative_ete_seconds,
-                "remaining_fuel_gal": last.remaining_fuel_gal,
-            }
-            if split:
-                for field in (
-                    "planned_altitude_ft_msl",
-                    "pressure_altitude_exact_ft",
-                    "pressure_altitude_planning_ft",
-                    "true_course_deg",
-                    "variation_deg_east",
-                    "magnetic_course_deg",
-                    "wind_direction_deg_from",
-                    "wind_speed_kt",
-                    "wca_deg",
-                    "magnetic_heading_deg",
-                    "temperature_c",
-                    "cas_kt",
-                    "tas_kt",
-                    "ground_speed_kt",
-                ):
-                    summary_updates[field] = _unavailable("DISPLAY_SUBTOTAL_ONLY")
-
-            if geometry.section.phase == FlightPhase.VISUAL_ARRIVAL:
-                destination_temperature = (
-                    None
-                    if destination_weather is None
-                    else CalculationService._numeric(destination_weather, "temperature_c")
-                )
-                forecast_usable = (
-                    destination_wind is not None
-                    and destination_wind.airport_icao.strip().upper()
-                    == destination.icao.strip().upper()
-                    and destination_wind.availability == Availability.AVAILABLE
-                    and destination_wind.wind_speed_kt is not None
-                    and not destination_wind.variable_direction
-                    and (
-                        destination_wind.wind_speed_kt == 0
-                        or destination_wind.wind_direction_deg_from is not None
-                    )
-                )
-                summary_updates.update(
-                    {
-                        "planned_altitude_ft_msl": _automatic(
-                            float(destination.elevation_ft_msl), ValueState.FIXED_RULE
-                        ),
-                        "pressure_altitude_exact_ft": _automatic(
-                            float(destination.elevation_ft_msl), ValueState.FIXED_RULE
-                        ),
-                        "pressure_altitude_planning_ft": _automatic(
-                            float(destination.elevation_ft_msl),
-                            ValueState.FIXED_RULE,
-                            {"policy": "PA_EQUALS_MSL", "row": "DESTINATION"},
-                        ),
-                        "temperature_c": (
-                            _automatic(destination_temperature)
-                            if destination_temperature is not None
-                            else _unavailable("DESTINATION_TEMPERATURE_UNAVAILABLE")
-                        ),
-                        "wind_direction_deg_from": (
-                            _automatic(
-                                None
-                                if destination_wind is None
-                                or destination_wind.wind_speed_kt == 0
-                                else destination_wind.wind_direction_deg_from
-                            )
-                            if forecast_usable
-                            else _unavailable("DESTINATION_WIND_UNAVAILABLE")
-                        ),
-                        "wind_speed_kt": (
-                            _automatic(float(destination_wind.wind_speed_kt or 0))
-                            if forecast_usable and destination_wind is not None
-                            else _unavailable("DESTINATION_WIND_UNAVAILABLE")
-                        ),
-                    }
-                )
-
-            rows.append(
-                NavLogDisplayRow.model_validate(first.model_dump() | summary_updates)
-            )
-            sequence += 1
-            if not split:
-                continue
-            for zone in zones:
-                rows.append(
-                    NavLogDisplayRow.model_validate(
-                        zone.model_dump()
-                        | {
-                            "sequence": sequence,
-                            "row_type": "CALCULATION_ZONE",
-                            "counts_toward_totals": True,
-                            "from_name": "",
-                            "cumulative_distance_nm": _unavailable(
-                                "DISPLAY_DETAIL_CUMULATIVE_HIDDEN"
-                            ),
-                            "cumulative_ete_seconds": _unavailable(
-                                "DISPLAY_DETAIL_CUMULATIVE_HIDDEN"
-                            ),
-                            "remaining_fuel_gal": _unavailable(
-                                "DISPLAY_DETAIL_REMAINING_HIDDEN"
-                            ),
-                        }
-                    )
-                )
-                sequence += 1
-        return rows
-
     def _calculate_iteration(
         self,
         project: Project,
@@ -1846,7 +1716,7 @@ class CalculationService:
             magnetic_course = (
                 None
                 if adopted_course is None or variation_deg_east is None
-                else (adopted_course - variation_deg_east) % 360
+                else (adopted_course + variation_deg_east) % 360
             )
 
             wind_direction = phase_environment.wind_direction_deg_from
@@ -2315,10 +2185,20 @@ class CalculationService:
             )
             for result, value in zip(sections, remaining, strict=True)
         ]
-        display_rows = self._display_rows(
-            geometries,
+        display_rows = build_navlog_display_rows(
+            [
+                NavLogPhysicalLeg(
+                    section_id=geometry.section.id,
+                    phase=geometry.section.phase,
+                    start_name=geometry.start.name,
+                    end_name=geometry.end.name,
+                )
+                for geometry in geometries
+            ],
             sections,
+            departure,
             destination,
+            weather_by_id.get("departure:surface"),
             weather_by_id.get("destination:surface"),
             destination_wind,
         )

@@ -306,6 +306,7 @@
           "type": "array"
         },
         "display_rows": {
+          "description": "Presentation-only projection containing Physical Leg subtotals, inheritance, blank cells, symbols, destination information, and separators.",
           "items": {
             "$ref": "#/$defs/NavLogDisplayRow"
           },
@@ -354,6 +355,7 @@
           "$ref": "#/$defs/AdoptedValue_float_"
         },
         "sections": {
+          "description": "Non-overlapping Calculation Zones and the sole source of truth for distance, time, and fuel totals.",
           "items": {
             "$ref": "#/$defs/SectionResult"
           },
@@ -506,6 +508,18 @@
       ],
       "title": "DerivedRoutePoint",
       "type": "object"
+    },
+    "DisplayCellState": {
+      "description": "Meaning of one cell in the NAV LOG display projection.",
+      "enum": [
+        "DISPLAY_VALUE",
+        "INHERIT",
+        "BLANK",
+        "UNAVAILABLE",
+        "STATE_SYMBOL"
+      ],
+      "title": "DisplayCellState",
+      "type": "string"
     },
     "FlightPhase": {
       "enum": [
@@ -748,85 +762,33 @@
       "title": "ManualWind",
       "type": "object"
     },
-    "NavLogDisplayRow": {
+    "NavLogDisplayCell": {
       "additionalProperties": false,
-      "description": "One rendered NAV LOG row, projected from calculation zones.\n\n``sections`` remain the non-overlapping calculation source of truth.  A\nsplit physical-leg summary therefore never participates in route, time, or\nfuel accumulation even though it carries the displayed subtotals.  An\nunsplit summary is also the sole calculation-zone display row.",
+      "description": "A formatted display cell with explicit blank/error semantics.\n\n``text`` is the canonical value rendered by both Web and A4 output.\n``effective_value`` may remain populated when ``state`` is ``INHERIT`` so\nthe projection records which parent/preceding value is used without\nrepeating it visually.",
       "properties": {
-        "cas_kt": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+        "effective_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Effective raw/canonical value, including values hidden by INHERIT.",
+          "title": "Effective Value"
         },
-        "counts_toward_totals": {
+        "manual": {
           "default": false,
-          "title": "Counts Toward Totals",
+          "description": "Whether the effective calculation value came from a manual override.",
+          "title": "Manual",
           "type": "boolean"
         },
-        "cumulative_distance_nm": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "cumulative_ete_seconds": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "eto_utc": {
-          "$ref": "#/$defs/AdoptedValue_datetime_"
-        },
-        "from_name": {
-          "title": "From Name",
-          "type": "string"
-        },
-        "ground_speed_kt": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "loss_time_seconds": {
-          "minimum": 0,
-          "title": "Loss Time Seconds",
-          "type": "number"
-        },
-        "magnetic_course_deg": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "magnetic_heading_deg": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "performance_metadata": {
-          "additionalProperties": true,
-          "title": "Performance Metadata",
-          "type": "object"
-        },
-        "phase": {
-          "$ref": "#/$defs/FlightPhase"
-        },
-        "planned_altitude_ft_msl": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "pressure_altitude_exact_ft": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "pressure_altitude_planning_ft": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "remaining_fuel_gal": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "row_type": {
-          "enum": [
-            "PHYSICAL_LEG_SUMMARY",
-            "CALCULATION_ZONE"
-          ],
-          "title": "Row Type",
-          "type": "string"
-        },
-        "safe_enroute_altitude_ft_msl": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "section_fuel_gal": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "section_id": {
-          "format": "uuid",
-          "title": "Section Id",
-          "type": "string"
-        },
-        "segment_label": {
+        "reason_code": {
           "anyOf": [
             {
               "type": "string"
@@ -836,75 +798,239 @@
             }
           ],
           "default": null,
-          "title": "Segment Label"
+          "description": "Failure reason used only when state is UNAVAILABLE.",
+          "title": "Reason Code"
+        },
+        "state": {
+          "$ref": "#/$defs/DisplayCellState",
+          "description": "DISPLAY_VALUE shows text; INHERIT and BLANK render empty; UNAVAILABLE renders a true acquisition/calculation failure; STATE_SYMBOL renders a presentation symbol such as an arrow."
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Canonical formatted text shared by Web and A4 renderers.",
+          "title": "Text"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "NavLogDisplayCell",
+      "type": "object"
+    },
+    "NavLogDisplayRow": {
+      "additionalProperties": false,
+      "description": "Presentation-only NAV LOG row projected from calculation zones.\n\n``CalculationOutcome.sections`` remains the sole non-overlapping source of\ntruth for distance, time, and fuel.  These rows may contain display-only\nsubtotals, inheritance, symbols, separators, and destination reference\ninformation and must never be used to recompute route totals.",
+      "properties": {
+        "ate": {
+          "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "ato": {
+          "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "cas": {
+          "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "counts_toward_totals": {
+          "default": false,
+          "description": "Legacy projection metadata only. Route totals must always come from CalculationOutcome.sections, never from display_rows.",
+          "title": "Counts Toward Totals",
+          "type": "boolean"
+        },
+        "cumulative_distance_nm_exact": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cumulative Distance Nm Exact"
+        },
+        "cumulative_ete_seconds_exact": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cumulative Ete Seconds Exact"
+        },
+        "distance": {
+          "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "ete": {
+          "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "eto": {
+          "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "from_name": {
+          "default": "",
+          "title": "From Name",
+          "type": "string"
+        },
+        "fuel": {
+          "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "gs": {
+          "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "mc": {
+          "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "mh": {
+          "$ref": "#/$defs/NavLogDisplayCell",
+          "description": "Magnetic heading display cell. The calculation effective value is MC + WCA; transcription text adds the separately rounded 1-degree MC and WCA display operands."
+        },
+        "pa": {
+          "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "pa_display_kind": {
+          "$ref": "#/$defs/PressureAltitudeDisplayKind",
+          "default": "BLANK"
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FlightPhase"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "row_type": {
+          "description": "Presentation row kind: Physical Leg subtotal, Calculation Zone, destination reference information, or visual Leg separator.",
+          "enum": [
+            "PHYSICAL_LEG_SUMMARY",
+            "CALCULATION_ZONE",
+            "DESTINATION_INFO",
+            "LEG_SEPARATOR"
+          ],
+          "title": "Row Type",
+          "type": "string"
+        },
+        "section_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Physical source Leg identifier; null for a pure separator row.",
+          "title": "Section Id"
         },
         "sequence": {
           "minimum": 0,
           "title": "Sequence",
           "type": "integer"
         },
-        "tas_kt": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+        "source_result_sequence": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source Calculation Zone sequence used for editing/provenance only.",
+          "title": "Source Result Sequence"
         },
-        "temperature_c": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+        "tas": {
+          "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "tc": {
+          "$ref": "#/$defs/NavLogDisplayCell"
         },
         "to_name": {
+          "default": "",
           "title": "To Name",
           "type": "string"
         },
-        "true_course_deg": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+        "toat": {
+          "$ref": "#/$defs/NavLogDisplayCell"
         },
-        "variation_deg_east": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+        "variation": {
+          "$ref": "#/$defs/NavLogDisplayCell"
         },
-        "wca_deg": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+        "wca": {
+          "$ref": "#/$defs/NavLogDisplayCell"
         },
-        "wind_direction_deg_from": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+        "wind": {
+          "$ref": "#/$defs/NavLogDisplayCell"
         },
-        "wind_speed_kt": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+        "zone_distance_nm_exact": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unrounded display-row zone/subtotal distance; never a totals source.",
+          "title": "Zone Distance Nm Exact"
         },
-        "zone_distance_nm": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
-        "zone_ete_seconds": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+        "zone_ete_seconds_exact": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unrounded display-row zone/subtotal ETE; never a totals source.",
+          "title": "Zone Ete Seconds Exact"
         }
       },
       "required": [
-        "section_id",
         "sequence",
-        "phase",
-        "from_name",
-        "to_name",
-        "planned_altitude_ft_msl",
-        "safe_enroute_altitude_ft_msl",
-        "loss_time_seconds",
-        "pressure_altitude_exact_ft",
-        "pressure_altitude_planning_ft",
-        "true_course_deg",
-        "variation_deg_east",
-        "magnetic_course_deg",
-        "wind_direction_deg_from",
-        "wind_speed_kt",
-        "wca_deg",
-        "magnetic_heading_deg",
-        "temperature_c",
-        "cas_kt",
-        "tas_kt",
-        "ground_speed_kt",
-        "zone_distance_nm",
-        "cumulative_distance_nm",
-        "zone_ete_seconds",
-        "cumulative_ete_seconds",
-        "eto_utc",
-        "section_fuel_gal",
-        "remaining_fuel_gal",
-        "row_type"
+        "row_type",
+        "pa",
+        "toat",
+        "cas",
+        "tas",
+        "tc",
+        "variation",
+        "mc",
+        "wind",
+        "wca",
+        "mh",
+        "distance",
+        "gs",
+        "ete",
+        "eto",
+        "ato",
+        "ate",
+        "fuel"
       ],
       "title": "NavLogDisplayRow",
       "type": "object"
@@ -1059,6 +1185,19 @@
       ],
       "title": "NavSection",
       "type": "object"
+    },
+    "PressureAltitudeDisplayKind": {
+      "description": "Presentation-only pressure-altitude meaning.",
+      "enum": [
+        "NUMERIC",
+        "CLIMB",
+        "DESCENT",
+        "ESTIMATED",
+        "BLANK",
+        "UNAVAILABLE"
+      ],
+      "title": "PressureAltitudeDisplayKind",
+      "type": "string"
     },
     "Project": {
       "additionalProperties": false,
@@ -1364,10 +1503,12 @@
           "type": "number"
         },
         "magnetic_course_deg": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+          "$ref": "#/$defs/AdoptedValue_float_",
+          "description": "Magnetic course: MC = (TC + VAR) mod 360."
         },
         "magnetic_heading_deg": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+          "$ref": "#/$defs/AdoptedValue_float_",
+          "description": "Magnetic heading: MH = (MC + WCA) mod 360."
         },
         "performance_metadata": {
           "additionalProperties": true,
@@ -1428,13 +1569,16 @@
           "type": "string"
         },
         "true_course_deg": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+          "$ref": "#/$defs/AdoptedValue_float_",
+          "description": "True course in degrees, normalized to [0, 360)."
         },
         "variation_deg_east": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+          "$ref": "#/$defs/AdoptedValue_float_",
+          "description": "Magnetic variation in degrees with east variation positive."
         },
         "wca_deg": {
-          "$ref": "#/$defs/AdoptedValue_float_"
+          "$ref": "#/$defs/AdoptedValue_float_",
+          "description": "Wind correction angle in degrees with right correction positive."
         },
         "wind_direction_deg_from": {
           "$ref": "#/$defs/AdoptedValue_float_"
