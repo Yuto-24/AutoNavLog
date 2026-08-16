@@ -219,7 +219,7 @@ export function RouteWorkspace({
           <p>
             {project
               ? `${project.departure_airport_id} → ${project.destination_airport_id}`
-              : candidate?.name ?? "形状を選択すると地図へ表示します"}
+              : candidate?.name ?? "飛行経路候補を選択すると地図へ表示します"}
           </p>
         </div>
         {project && <span className="route-count">{nodes.length}点 / {sections.length} Leg</span>}
@@ -335,7 +335,7 @@ export function RouteWorkspace({
         {!coordinates.length && (
           <div className="map-empty">
             <strong>経路はまだありません</strong>
-            <span>KML/KMZを読み込み、飛行経路にする形状を選択してください。</span>
+            <span>KML/KMZを読み込み、飛行経路候補を選択してください。</span>
           </div>
         )}
       </div>

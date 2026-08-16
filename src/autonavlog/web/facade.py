@@ -35,7 +35,10 @@ from autonavlog.domain.project import NavSection, Project, RouteNode, VisualRefe
 from autonavlog.importers.kml import (
     KmlImportError,
     KmlImportResult,
+    KmlRouteCoordinateLimitExceeded,
+    connected_line_route_shape,
     imported_line_length_nm,
+    select_imported_connected_line,
     select_imported_line,
     select_imported_polygon_outer,
     waypoint_name_slots_from_line,
@@ -303,6 +306,14 @@ class AutoNavLogWebApplication:
                     "web_original_destination_coordinate": list(original_destination_coordinate),
                 }
             )
+            if request.candidate_kind == "connected_lines":
+                connected = result.connected_lines[request.candidate_index]
+                project.metadata.update(
+                    {
+                        "web_import_container_path": list(connected.container_path),
+                        "web_import_segment_names": list(connected.segment_names),
+                    }
+                )
             self._install_route(
                 project,
                 entries,
@@ -1217,9 +1228,55 @@ class AutoNavLogWebApplication:
         result: KmlImportResult,
         request: ConfirmRouteRequest,
     ) -> list[RouteEntry]:
+        if request.candidate_kind == "connected_lines":
+            try:
+                connected_line = select_imported_connected_line(
+                    result, request.candidate_index
+                )
+            except KmlRouteCoordinateLimitExceeded as error:
+                raise WebApplicationError(
+                    "ROUTE_COORDINATE_LIMIT_EXCEEDED",
+                    f"選択した経路は座標数の上限（{error.maximum}点）を超えています。"
+                    f"{error.maximum}点以下の経路を選択してください。",
+                ) from error
+            except KmlImportError as error:
+                raise WebApplicationError(
+                    "ROUTE_CANDIDATE_NOT_FOUND",
+                    "選択した連結LineStringが現在のKMLにありません。",
+                ) from error
+            return [
+                (
+                    name or f"WP{index + 1}",
+                    lat,
+                    lon,
+                    (
+                        "KML/KMZ Point"
+                        if source == "point"
+                        else (
+                            "KML/KMZ LineString name"
+                            if source == "line"
+                            else "KML/KMZ LineString"
+                        )
+                    ),
+                )
+                for index, ((lat, lon), name, source) in enumerate(
+                    zip(
+                        connected_line.coordinates,
+                        connected_line.waypoint_names,
+                        connected_line.waypoint_sources,
+                        strict=True,
+                    )
+                )
+            ]
         if request.candidate_kind == "line":
             try:
                 line = select_imported_line(result, request.candidate_index)
+            except KmlRouteCoordinateLimitExceeded as error:
+                raise WebApplicationError(
+                    "ROUTE_COORDINATE_LIMIT_EXCEEDED",
+                    f"選択した経路は座標数の上限（{error.maximum}点）を超えています。"
+                    f"{error.maximum}点以下の経路を選択してください。",
+                ) from error
             except KmlImportError as error:
                 raise WebApplicationError(
                     "ROUTE_CANDIDATE_NOT_FOUND",
@@ -1488,18 +1545,58 @@ class AutoNavLogWebApplication:
     def _candidate_payload(self, result: KmlImportResult | None) -> dict[str, Any]:
         if result is None:
             return {"warnings": [], "sourceFiles": [], "candidates": []}
-        candidates: list[dict[str, Any]] = []
-        for index, line in enumerate(result.lines):
-            candidates.append(
-                {
-                    "kind": "line",
-                    "index": index,
-                    "name": line.name,
-                    "vertexCount": len(line.coordinates),
-                    "distanceNm": round(imported_line_length_nm(line), 2),
-                    "coordinates": [list(item) for item in line.display_coordinates],
-                }
+        route_candidates: list[tuple[int, int, dict[str, Any]]] = []
+        suppressed_line_indices = {
+            line_index
+            for connected in result.connected_lines
+            for line_index in connected.segment_indices
+        }
+        ordinal = 0
+        for index, connected in enumerate(result.connected_lines):
+            route_shape = connected_line_route_shape(connected)
+            route_candidates.append(
+                (
+                    connected.document_order,
+                    ordinal,
+                    {
+                        "kind": "connected_lines",
+                        "index": index,
+                        "name": connected.name,
+                        "containerPath": list(connected.container_path),
+                        "segmentNames": list(connected.segment_names),
+                        "segmentCount": len(connected.segment_names),
+                        "legCount": len(route_shape.coordinates) - 1,
+                        "vertexCount": len(route_shape.coordinates),
+                        "distanceNm": round(connected.distance_nm, 2),
+                        "maxJoinGapNm": round(connected.max_join_gap_nm, 5),
+                        "coordinates": [
+                            list(item) for item in route_shape.display_coordinates
+                        ],
+                    },
+                )
             )
+            ordinal += 1
+        for index, line in enumerate(result.lines):
+            if index in suppressed_line_indices:
+                continue
+            route_candidates.append(
+                (
+                    line.document_order,
+                    ordinal,
+                    {
+                        "kind": "line",
+                        "index": index,
+                        "name": line.name,
+                        "vertexCount": len(line.coordinates),
+                        "distanceNm": round(imported_line_length_nm(line), 2),
+                        "coordinates": [list(item) for item in line.display_coordinates],
+                    },
+                )
+            )
+            ordinal += 1
+        candidates = [
+            item[2] for item in sorted(route_candidates, key=lambda item: item[:2])
+        ]
         for index, polygon in enumerate(result.polygons):
             candidates.append(
                 {
@@ -1511,7 +1608,7 @@ class AutoNavLogWebApplication:
                     "coordinates": [list(item) for item in polygon.display_outer_boundary],
                 }
             )
-        if len(result.points) >= 2:
+        if len(result.points) >= 2 and not result.lines and not result.connected_lines:
             candidates.append(
                 {
                     "kind": "points",

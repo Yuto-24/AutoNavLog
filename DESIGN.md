@@ -140,10 +140,17 @@
 - desktopは1240 px超で3列、tabletは821〜1240 pxで2列、820 px以下は1列とし、
   表は領域内横scrollを許可する。3列表示の地図は320〜900 pxで高さを変更でき、
   pointerとkeyboardの双方で操作できる。tablet/mobileは固定高を維持する。
-- KML/KMZのdrop・file選択・XML貼付、複数形状選択、Polygon確認、
+- KML/KMZのdrop・file選択・KML XML貼付、飛行経路候補の選択、Polygon確認、
   FROM/TO、DATE/ETD、FUEL（既定90 gal）/VAR/QNH（hPa・inHg自動変換）/TGL、
   Leg計画高度/Phase、確認事項、保存・読込、計算、転記補助HTMLをcode-nativeなcontrolで提供する。
   PILOT/SHIPは入力させず、KMLの名称は区切り名またはPoint名を優先し、WPはfallbackに限る。
+- drop・file選択・KML XML貼付・KMZ内で選択されたKMLのすべてにFR-20の連結候補生成を
+  適用する。複数候補時は未選択から開始し、候補名、Leg数、全長を確認して
+  1件を明示選択させる。確定前の地図には選択した連結経路全体を表示する。
+- 連結候補を採用したProjectは、直近コンテナのpathを
+  `Project.metadata["web_import_container_path"]`、構成LineString名を
+  `Project.metadata["web_import_segment_names"]` に保存する。Project／Snapshotの
+  `schema_version` は変更しない。
 - CLIMB / CRUISE / DESCENT LegはMC 0〜179°で3,500 ftから奇数千+500、
   180〜359°で4,500 ftから偶数千+500の候補を示す。ALTはCLIMBでは上昇先の
   巡航高度、CRUISEではそのLegの巡航高度、DESCENTでは降下開始時の巡航高度を表す。
@@ -218,8 +225,10 @@
 - **W-1**: clean checkoutから `docker compose up -d --build` が成功してserviceがhealthyとなり、
   hostのloopback経由で `/healthz` と `/` が200を返す。Access headerまたは明示した
   trusted local identityなしの `/api/session` は401、認証済みでは200を返す。
-- **W-2**: Chromium 1440×1000でKML貼付→形状選択→経路確定→計算→NAV LOG表示・focusが動作し、
-  JavaScript例外と開発overlayがない。
+- **W-2**: Chromium 1440×1000でKML貼付→飛行経路候補選択→連結経路全体の地図確認→
+  経路確定→計算→NAV LOG表示・focusが動作し、JavaScript例外と開発overlayがない。
+  複数の連結候補がある場合は未選択から始まり、選択した候補だけが地図・FROM/TO・
+  確定後のRouteNodeへ反映される。
 - **W-3**: 390×844で計算後の主要操作とNAV LOGが存在し、document bodyに水平overflowがない。
 - **W-4**: 未確定の採用場周高度は `PATTERN_ALTITUDE_REQUIRED` で計算を止める。
   確定後は同Issueを解消し、開発用気象のBlockerによりA4転記補助HTMLを止める。
@@ -611,7 +620,7 @@ DATE の既定値のみ変更する。当日を既定にすると、翌日の飛
 
 ### 4.3 規則
 
-- **R-1**: 外部から用意する必須データは KML/KMZ のみ。ただし入力が不正な場合、または複数LineStringの選択が未完了の場合は計算を開始しない
+- **R-1**: 外部から用意する必須データは KML/KMZ のみ。ただし入力が不正な場合、または複数の飛行経路候補からの選択が未完了の場合は計算を開始しない
 - **R-2**: 値の来歴は既存の `AdoptedValue.adopted_source` と `ValueState` で表す。UI固有の入力（ALT/FUEL/VAR/TGL）についてのみ、既定値のままか編集済みかをUI層で保持する
 - **R-3**: DATE / ETD は既定値確認の対象外（常時表示のため）
 - **R-4**: 未解消のBlockerを含む折りたたみは、フェーズB到達後に自動で開く
@@ -705,7 +714,7 @@ Leg単位で利用者が入力するのは **Phase / ALT** であることが一
 
 ### FR-14 ルート追加手段の整理 【推奨】
 
-現行のRoute追加手段（FileUpload・**既存のKML貼付テキストエリア `kml_text`**（FR-1により初期表示へ再配置）・候補Select・手入力座標。第0.5節）と複数LineString選択（FR-20）を含め、追加手段の一覧をひとつの折りたたみへ集約する。個別の追加手段を画面上に常時並べない。**貼付Textareaを新設しない**（FR-1。v1.8で修正: v1.7までの「本改修で追加する」は誤り）。
+現行のRoute追加手段（FileUpload・**既存のKML貼付テキストエリア `kml_text`**（FR-1により初期表示へ再配置）・候補Select・手入力座標。第0.5節）と連結経路候補の選択（FR-20）を含め、追加手段の一覧をひとつの折りたたみへ集約する。個別の追加手段を画面上に常時並べない。**貼付Textareaを新設しない**（FR-1。v1.8で修正: v1.7までの「本改修で追加する」は誤り）。
 
 受け入れ条件: 初期表示（FR-1）に追加手段の詳細UIが並ばないこと。折りたたみを開いたときに全追加手段が列挙されること。
 
@@ -774,11 +783,37 @@ Route追加時の並べ替え操作（既存UIに存在する上下移動等の�
 
 ### FR-20 複数LineStringの選択 【必須】
 
-`KmlImportResult.lines` が複数の場合、候補一覧（名前・点数・全長）を提示して1つ選ばせる。1本なら自動選択し選択UIを出さない。
+KMLの `Document` / `Folder` 階層とPlacemarkの記載順を保持する。複数の
+`LineString` が最も内側の同じコンテナにあり、記載順に並べたすべての隣接組で
+前の線の終点と次の線の始点が `0.02 NM` 以下なら、順序・方向を変えずに
+`connected_lines` 候補を1件作る。自動反転、距離による並べ替え、別コンテナ間の連結は行わない。
+
+接続点では、同じ直近コンテナのPoint Placemarkのうち両側の線端点からそれぞれ
+`0.02 NM` 以内に一致するものだけをRouteNodeの名称・座標に採用する。該当Pointがなければ
+前のLineStringの終点を採用し、線端点間が10 mを超える場合は警告する。線の途中にあるPointや
+接続条件を満たさないPointは自動でRouteNodeへ加えない。隣接端点が `0.02 NM` を超える場合は
+連結候補を作らず、個別LineString候補と不連続の警告を残す。一致するPointが複数ある場合は、
+両端点までの距離の最大値が最小、距離合計が最小、KML記載順の順で決定する。
+
+有効な連結候補に含まれる個別LineString候補は重複表示しない。連結の成否にかかわらず、
+`connected_lines` または個別LineString候補が1件でもあれば、文書内の全Pointを記載順に
+並べただけの候補は表示しない。LineStringがないPoint-only KMLでは既存fallbackを維持する。
+複数の経路候補が残る場合は先頭を自動採用せず、「飛行経路候補」で1件の明示選択を要求する。
+候補表示は `RJFM→RJFO① · 7 Leg · 124.66 NM` のように、候補名、Leg数、全長を示す。
+
+Web APIは確認要求の `candidate_kind` に `"connected_lines"` を追加する。取込候補は既存の
+`name` / `index` / `kind` に加えて `containerPath` / `segmentNames` / `segmentCount` /
+`legCount` / `vertexCount` / `distanceNm` / `coordinates` / `maxJoinGapNm` を返す。
+`segmentCount` は構成LineString数、`legCount` は10 m以内の隣接点統合後の経路点間数とする。
+選択した連結経路の合計座標数は500点以下とし、採用コンテナと構成LineString名をD-33のProject metadataへ保存する。
+既存の `line` / `polygon` / `points` 契約は維持する。
+
+本要件は現行Web版に適用する。旧Colab UIは従来どおり個別の形状を選択する互換実装とし、
+Folder単位の連結候補選択へ変更しない。
 
 ### FR-21 KMZ対応 【必須】
 
-FileUploadは既に `.kml,.kmz` を受理する。貼付欄はKML XMLのみとする。KMZ内KMLの選択規則は第11.2節K-5に一本化する（v1.5は存在しない「第11.5節」を参照していた）。
+FileUploadは既に `.kml,.kmz` を受理する。貼付欄はKML XMLのみとする。KMZ内KMLの選択規則は第11.2節K-5に一本化し、選択後のKMLにはFR-20と同じ連結候補生成を適用する（v1.5は存在しない「第11.5節」を参照していた）。
 
 ### FR-22: 欠番（SEAタイル要求をv2.6.0で対象外化）
 
@@ -877,7 +912,7 @@ Webでは地図clickまたは緯度・経度入力から作成し、名称・座
 NAV2（宮崎課程）の地上準備では全ての対象区間で風を予想する。「風を予想しない」選択肢および気象欠損の無風補完は提供せず、既存の `WIND_UNAVAILABLE` を維持する。到着区間だけは規程に基づく固定CALMで計算し、目的地TAF風はD-42の`DESTINATION_INFO`へ表示する。
 ### FR-44 KML Pointの役割選択 【必須】
 
-KMLのPoint Placemarkは自動でRouteNodeへ追加しない。取込後に「経路点」「VREP」「CP」「参照のみ」から役割を選ぶ。経路点/VREPだけが確認後にRouteNodeとなり、CPは `VisualReference(role=CHECK_POINT)` として関連Legを確認する。CPを選んでも選択LineStringの形状・総距離・TCを変更してはならない。
+KMLのPoint Placemarkは、FR-20で隣接LineStringの接続点として一致したPointを除き、自動でRouteNodeへ追加しない。取込後に「経路点」「VREP」「CP」「参照のみ」から役割を選ぶ。経路点/VREPだけが確認後にRouteNodeとなり、CPは `VisualReference(role=CHECK_POINT)` として関連Legを確認する。CPを選んでも選択LineStringの形状・総距離・TCを変更してはならない。接続点として一致したPointは連結経路の変針点名称・座標にだけ使い、線途中のC'K等へ役割を自動付与しない。
 
 Point名は選択した役割の名称として保持し、マスターへ登録する場合はProject取込と別の明示操作にする。KML読込だけでactive参照データを変更してはならない。
 
@@ -1565,6 +1600,7 @@ DATE、ETD、出発地の変更で一致しなくなった場合はQNH値を保�
 
 - `defusedxml` による解析
 - `Point` / `LineString` / **`Polygon`** の処理（**v1.7で修正**: 作業ツリーはPolygonを `ImportedPolygon` として保持する。「Polygonは無視」は基準commitに対する記述で、作業ツリーには当てはまらない。FR-15・D-10）
+- `Document` / `Folder` の階層、各Placemarkの直近コンテナpath、KML記載順の保持
 - Polygon面（`gx:` 拡張等の非対応サーフェス）は件数を数えて警告に記録（`skipped N Polygon surface(s)`）
 - 経度,緯度,高度 の順、範囲検証、空白区切り
 - `ImportLimits`（アーカイブ10 MB / 展開50 MB / ファイル50 / 座標50,000 / 表示頂点2,000）
@@ -1577,7 +1613,7 @@ DATE、ETD、出発地の変更で一致しなくなった場合はQNH値を保�
 | ID | 内容 |
 | --- | --- |
 | K-1 | Polygonのみで `LineString` が0本の場合、「面を経路として使う（確認付き）」と「経路を作り直す」の2択を提示する（FR-15b。**v1.7で改訂**。旧K-1の「無視した事実をエラーとして提示」は現行実装と矛盾していた） |
-| K-2 | 複数 `LineString` の選択UI（FR-20） |
+| K-2 | 同じ直近 `Folder` / `Document` の複数 `LineString` を記載順・記載方向のまま連結候補にする。全隣接端点差が `0.02 NM` 以下の場合だけ `connected_lines` を作り、複数候補時はWeb UIで明示選択を要求する。自動反転・並べ替えは行わない（FR-20） |
 | K-3 | DOCTYPE宣言・外部実体参照・エンティティ展開の明示的拒否（`defusedxml` の既定に依存せず設定を明示する） |
 | K-4 | KMZのパストラバーサル・シンボリックリンク・暗号化エントリ・入れ子ZIP・Unicode正規化後の重複エントリの拒否 |
 | K-5 | KMZ内KML選択規則の一本化（`doc.kml` 1件→自動 / 複数または大小文字重複→エラー / なしでKML1件→自動 / なしで複数→選択 / 0件→エラー） |
@@ -1585,12 +1621,29 @@ DATE、ETD、出発地の変更で一致しなくなった場合はQNH値を保�
 | K-7 | 隣接重複点の統合規則: 先頭から順に、最後に採用した点と次の点を比較し、10 m以内なら次の点を捨てる（先頭末尾の一致は統合しない）。統合後にLineStringが2点未満になった場合はエラーとする |
 | K-8 | Waypoint名は `WP1`…`WPn`。Placemark名は Project名生成にのみ使用 |
 | K-9 | 高度値を使用しない旨をUIに明示する |
-| K-10 | 座標点数上限を二段階化する（レビュー指摘: グローバル上限を500へ一律引き下げると、複数LineStringを含むKMLで選択前の全体座標数が500を超え、選択操作前にファイル全体が拒否されてしまう）。<br>・`max_total_coordinates_in_document = 50,000`（文書全体。既存の `ImportLimits.max_coordinates` を維持。表示用簡略化のための上限） <br>・`max_coordinates_in_selected_line = 500`（**新規**。利用者が選択した1本のLineStringに対する運用上の上限。Leg生成に用いる座標数を制限する） <br>・`max_coordinates_in_selected_polygon_outer = 500`（**v1.8で新規**。再レビュー指摘13: `ImportedPolygon.outer_boundary` は簡略化されないため、上限がないと文書上限50,000点近い外周がそのままRouteNode/Leg化されうる。Polygon外周をRoute化する場合（FR-15a）の選択後上限としてLineStringと同値を課し、超過は選択操作後にエラーとする） |
-| K-13 | Point Placemarkは取込後に経路点/VREP/CP/参照のみの役割選択を必須とし、自動RouteNode化しない。CP選択では `VisualReference` を作りLineStringを変更せず、マスター登録も別の明示操作にする（FR-44） |
+| K-10 | 座標点数上限を二段階化する（レビュー指摘: グローバル上限を500へ一律引き下げると、複数LineStringを含むKMLで選択前の全体座標数が500を超え、選択操作前にファイル全体が拒否されてしまう）。<br>・`max_total_coordinates_in_document = 50,000`（文書全体。既存の `ImportLimits.max_coordinates` を維持。表示用簡略化のための上限） <br>・選択した1本のLineStringまたは1件の `connected_lines` は合計500点（Leg生成に用いる座標数を制限する） <br>・`max_coordinates_in_selected_polygon_outer = 500`（**v1.8で新規**。再レビュー指摘13: `ImportedPolygon.outer_boundary` は簡略化されないため、上限がないと文書上限50,000点近い外周がそのままRouteNode/Leg化されうる。Polygon外周をRoute化する場合（FR-15a）の選択後上限としてLineStringと同値を課し、超過は選択操作後にエラーとする） |
+| K-11 | 接続点の両側の線端点からそれぞれ `0.02 NM` 以内にある同一コンテナのPointだけを変針点に採用する。複数一致時は「両端点までの距離の最大値が最小→距離合計が最小→KML記載順」で決定する。Pointから採用した名称のRouteNodeはsourceも `KML/KMZ Point` として保持する。該当Pointなしでは前の線の終点を使い、線端点間が10 m超なら警告する。`0.02 NM` 超では連結候補を作らず、個別LineStringと警告を残す |
+| K-12 | 有効な連結候補の構成LineStringは個別候補から抑制する。連結候補または個別LineString候補が1件でもあれば全Point候補を抑制し、LineStringがない場合だけPoint-only fallbackを提示する |
+| K-13 | Point PlacemarkはFR-20/K-11の接続点一致を除き、取込後に経路点/VREP/CP/参照のみの役割選択を必須とし、自動RouteNode化しない。CP選択では `VisualReference` を作りLineStringを変更せず、マスター登録も別の明示操作にする（FR-44） |
 
 ### 11.3 受け入れテスト用サンプル
 
 初版のサンプルKML（7点・宮崎→大分）を用いる。期待値は座標点数7、Leg数6、Waypoint名 WP1…WP7、選択UI非表示、各Legの `status` は `COMPLETE`（フェイルセーフ非発動時）。
+
+複数の分割経路を含むサンプル `大分経路.kml` では、23本のLineStringを直近Folder単位で
+次の4候補にまとめる。複数候補のため初期状態は未選択とし、候補選択に応じてFROM/TO、地図、
+RouteNodeの名称・座標・順序が切り替わることを確認する。
+
+| 候補 | Leg数 | 経路点数 | 全長 |
+| --- | ---: | ---: | ---: |
+| `RJFM→RJFO①` | 7 | 8 | 124.66 NM |
+| `RJFM→RJFO②` | 6 | 7 | 151.42 NM |
+| `RJFO→RJFM①` | 5 | 6 | 112.03 NM |
+| `RJFO→RJFM②` | 5 | 6 | 129.01 NM |
+
+追加fixtureでは、不連続、逆向き、記載順違い、同名Folder、Pointなし、複数Point候補、
+選択後500点超過を個別に検証する。不連続・逆向き・記載順違いは線の自動修正で救済せず、
+個別LineString候補と警告へfallbackする。複数Point候補はK-11の優先順位で決定的に1点を選ぶ。
 
 > **v1.7で更新**: `airports.csv` には `RJFM`（宮崎）・`RJFO`（大分）が整備済みであるため（第0.1節）、FROM=RJFM / TO=RJFO の自動識別は**現在の作業ツリーで判定できる**。v1.6の「空である間は成立しない」という注記は基準commitに対するものであり、もはや当てはまらない。
 
@@ -1657,7 +1710,7 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 **A（導線）**
 
 - 初期表示の必須外部入力はKML/KMZだけである
-- 複数LineString選択前は計算できない
+- 複数の飛行経路候補がある場合、明示選択前は計算できない
 - DATE/ETD、保存済みProject、データ不足理由、次の操作が初期画面から分かる
 - KML貼付Textareaは既存 `kml_text` の1つだけである
 - コードセルはColab上で折りたたまれている
@@ -1666,9 +1719,13 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 
 - 隣接重複点から距離0のLegを作らず、閉路 `A→B→C→A` は4点3Legとして保持する
 - 不正座標、DOCTYPE、座標上限、KMZの暗号化・path traversal・symlink・ZIP bomb・重複entryを拒否する
-- 複数LineStringは名称・点数・全長から1件を選択できる
+- 同一コンテナの近接LineStringはKML記載順・記載方向の連結候補となり、複数候補から
+  名称・Leg数・全長を確認して1件を選択できる
+- 接続差10 m超は警告し、`0.02 NM` 超、不正な順序、逆向きの線は自動修正せず
+  個別LineString候補と警告へfallbackする
+- 連結候補の接続点に一致するPointだけを変針点へ採用し、線途中のPointを自動追加しない
 - Polygonは確認なしにRoute化せず、Polygonのみの場合は「外周を使う」「経路を作り直す」の2択を示す
-- KML Pointは経路点/VREP/CP/参照のみを明示選択し、CP選択でLineStringを変更しない
+- 接続点一致以外のKML Pointは経路点/VREP/CP/参照のみを明示選択し、CP選択でLineStringを変更しない
 
 **E（保存・状態）**
 

@@ -23,6 +23,29 @@ function destinationAirportLabel(airport: AirportOption): string {
   return `${airport.icao} ${airport.name}（場周 ${roundedPatternAltitude.toLocaleString("ja-JP")} ft${verification}）`;
 }
 
+function routeCandidateLabel(
+  candidate: ImportState["candidates"][number],
+  duplicateName: boolean,
+  ordinal: number,
+): string {
+  const containerLabel = candidate.containerPath?.join(" / ");
+  const contextualName = containerLabel && containerLabel !== candidate.name
+    ? containerLabel
+    : candidate.name;
+  const candidateName = duplicateName
+    ? `${contextualName}（候補${ordinal + 1}）`
+    : candidate.name;
+  if (candidate.kind === "connected_lines") {
+    const legCount = candidate.legCount ?? Math.max(0, candidate.vertexCount - 1);
+    return `${candidateName} · ${legCount} Leg${
+      candidate.distanceNm === null ? "" : ` · ${candidate.distanceNm} NM`
+    }`;
+  }
+  return `${candidateName} · ${candidate.vertexCount}点${
+    candidate.distanceNm === null ? "" : ` · ${candidate.distanceNm} NM`
+  }`;
+}
+
 export function ImportPlanPanel({
   importState,
   airports,
@@ -42,6 +65,13 @@ export function ImportPlanPanel({
   const selectedDestination = airports.find(
     (airport) => airport.id === form.destinationAirportId,
   );
+  const candidateNameCounts = new Map<string, number>();
+  for (const candidate of importState.candidates) {
+    candidateNameCounts.set(
+      candidate.name,
+      (candidateNameCounts.get(candidate.name) ?? 0) + 1,
+    );
+  }
   const acceptDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     if (busy) return;
@@ -108,24 +138,37 @@ export function ImportPlanPanel({
         )}
         {!projectExists && importState.candidates.length > 0 && (
           <div className="field-group candidate-control">
-            <label htmlFor="route-candidate">飛行経路にする形状</label>
+            <label htmlFor="route-candidate">飛行経路候補</label>
             <select
               id="route-candidate"
               value={form.candidateKey}
               onChange={(event) => {
-                update("candidateKey", event.target.value);
-                update("routeUseConfirmed", false);
-                update("polygonRouteConfirmed", false);
+                const candidateKey = event.target.value;
+                setForm((current) => ({
+                  ...current,
+                  candidateKey,
+                  departureAirportId: candidateKey ? current.departureAirportId : "",
+                  destinationAirportId: candidateKey ? current.destinationAirportId : "",
+                  destinationPatternAltitudeFtMsl: candidateKey
+                    ? current.destinationPatternAltitudeFtMsl
+                    : "",
+                  routeUseConfirmed: false,
+                  polygonRouteConfirmed: false,
+                  manualQnhConfirmed: candidateKey ? current.manualQnhConfirmed : false,
+                }));
               }}
             >
-              <option value="">形状を選択</option>
-              {importState.candidates.map((candidate) => (
+              <option value="">経路を選択</option>
+              {importState.candidates.map((candidate, index) => (
                 <option
                   key={`${candidate.kind}:${candidate.index}`}
                   value={`${candidate.kind}:${candidate.index}`}
                 >
-                  {candidate.name} · {candidate.vertexCount}点
-                  {candidate.distanceNm === null ? "" : ` · ${candidate.distanceNm} NM`}
+                  {routeCandidateLabel(
+                    candidate,
+                    (candidateNameCounts.get(candidate.name) ?? 0) > 1,
+                    index,
+                  )}
                 </option>
               ))}
             </select>

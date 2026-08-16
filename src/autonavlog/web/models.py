@@ -33,7 +33,7 @@ class ImportRouteRequest(WebRequestModel):
 
 
 class ConfirmRouteRequest(WebRequestModel):
-    candidate_kind: Literal["line", "polygon", "points"]
+    candidate_kind: Literal["line", "connected_lines", "polygon", "points"]
     candidate_index: int = Field(default=0, ge=0)
     point_indices: list[Annotated[int, Field(ge=0)]] = Field(
         default_factory=list,

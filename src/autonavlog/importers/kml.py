@@ -3,10 +3,11 @@ from __future__ import annotations
 import re
 import stat
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import BytesIO
-from math import hypot, isfinite
+from math import cos, floor, hypot, isfinite, radians, sin
 from pathlib import Path, PurePosixPath
+from typing import Literal
 from xml.etree.ElementTree import Element, ParseError
 from zipfile import BadZipFile, ZipFile
 
@@ -17,10 +18,29 @@ from autonavlog.nav.geodesy import geodesic_leg
 
 _ROUTE_NAME_SEPARATOR = re.compile(r"\s*[～〜~→⇒]\s*")
 _ARCHIVE_READ_CHUNK_BYTES = 64 * 1024
+_CONNECTED_LINE_JOIN_LIMIT_NM = 0.02
+_CONNECTED_LINE_JOIN_WARNING_METERS = 10.0
+# Unit-sphere cells are about 64 m wide; a 0.02 NM (37 m) match is in a neighboring cell.
+_POINT_BUCKET_SIZE = 1e-5
 
 
 class KmlImportError(ValueError):
     pass
+
+
+class KmlRouteCoordinateLimitExceeded(KmlImportError):
+    def __init__(
+        self,
+        coordinate_count: int,
+        maximum: int,
+        *,
+        route_kind: str = "route",
+    ) -> None:
+        super().__init__(
+            f"selected {route_kind} coordinate limit exceeded: {coordinate_count} > {maximum}"
+        )
+        self.coordinate_count = coordinate_count
+        self.maximum = maximum
 
 
 class KmlDocumentSelectionRequired(KmlImportError):
@@ -62,6 +82,8 @@ class ImportedPoint:
     latitude_deg: float
     longitude_deg: float
     altitude_m: float | None = None
+    container_path: tuple[str, ...] = ()
+    document_order: int = 0
 
 
 @dataclass(frozen=True)
@@ -70,8 +92,41 @@ class ImportedLine:
     coordinates: tuple[tuple[float, float], ...]
     display_coordinates: tuple[tuple[float, float], ...] = ()
     original_coordinate_count: int = 0
+    container_path: tuple[str, ...] = ()
+    document_order: int = 0
 
     def __post_init__(self) -> None:
+        if not self.display_coordinates:
+            object.__setattr__(self, "display_coordinates", self.coordinates)
+        if not self.original_coordinate_count:
+            object.__setattr__(self, "original_coordinate_count", len(self.coordinates))
+
+
+@dataclass(frozen=True)
+class ImportedConnectedLine:
+    name: str
+    container_path: tuple[str, ...]
+    segment_names: tuple[str, ...]
+    segment_indices: tuple[int, ...]
+    coordinates: tuple[tuple[float, float], ...]
+    waypoint_names: tuple[str | None, ...]
+    waypoint_sources: tuple[Literal["point", "line"] | None, ...]
+    distance_nm: float
+    max_join_gap_nm: float
+    display_coordinates: tuple[tuple[float, float], ...] = ()
+    original_coordinate_count: int = 0
+    document_order: int = 0
+
+    def __post_init__(self) -> None:
+        if len(self.coordinates) != len(self.waypoint_names):
+            raise ValueError("connected LineString coordinates and waypoint names must align")
+        if len(self.coordinates) != len(self.waypoint_sources):
+            raise ValueError("connected LineString coordinates and waypoint sources must align")
+        if any(
+            (name is None) != (source is None)
+            for name, source in zip(self.waypoint_names, self.waypoint_sources, strict=True)
+        ):
+            raise ValueError("connected LineString waypoint names and sources must align")
         if not self.display_coordinates:
             object.__setattr__(self, "display_coordinates", self.coordinates)
         if not self.original_coordinate_count:
@@ -89,6 +144,8 @@ class ImportedPolygon:
     maximum_altitude_m: float | None = None
     altitude_mode: str | None = None
     display_outer_boundary: tuple[tuple[float, float], ...] = ()
+    container_path: tuple[str, ...] = ()
+    document_order: int = 0
 
     def __post_init__(self) -> None:
         if not self.display_outer_boundary:
@@ -102,6 +159,7 @@ class KmlImportResult:
     polygons: tuple[ImportedPolygon, ...] = ()
     warnings: tuple[str, ...] = ()
     source_files: tuple[str, ...] = ()
+    connected_lines: tuple[ImportedConnectedLine, ...] = ()
 
 
 def _local_name(tag: str) -> str:
@@ -293,12 +351,254 @@ def _polygon_boundaries(
     )
 
 
+def _direct_element_name(element: Element) -> str:
+    name_element = next(
+        (child for child in element if _local_name(child.tag) == "name"),
+        None,
+    )
+    name = "" if name_element is None else (name_element.text or "").strip()
+    return name or f"Unnamed {_local_name(element.tag)}"
+
+
+def _container_context(
+    placemark: Element,
+    parents: dict[Element, Element],
+) -> tuple[Element | None, tuple[str, ...]]:
+    nearest: Element | None = None
+    ancestry: list[Element] = []
+    current = parents.get(placemark)
+    while current is not None:
+        if _local_name(current.tag) in {"Document", "Folder"}:
+            if nearest is None:
+                nearest = current
+            ancestry.append(current)
+        current = parents.get(current)
+    ancestry.reverse()
+    return nearest, tuple(_direct_element_name(item) for item in ancestry)
+
+
+def _coordinate_separation_nm(
+    left: tuple[float, float],
+    right: tuple[float, float],
+) -> float:
+    return geodesic_leg(left[0], left[1], right[0], right[1]).distance_nm
+
+
+def _point_bucket_key(coordinate: tuple[float, float]) -> tuple[int, int, int]:
+    latitude = radians(coordinate[0])
+    longitude = radians(coordinate[1])
+    cos_latitude = cos(latitude)
+    return (
+        floor(cos_latitude * cos(longitude) / _POINT_BUCKET_SIZE),
+        floor(cos_latitude * sin(longitude) / _POINT_BUCKET_SIZE),
+        floor(sin(latitude) / _POINT_BUCKET_SIZE),
+    )
+
+
+class _PointSpatialIndex:
+    def __init__(self, points: list[ImportedPoint]) -> None:
+        self._buckets: dict[tuple[int, int, int], list[ImportedPoint]] = {}
+        for point in points:
+            coordinate = (point.latitude_deg, point.longitude_deg)
+            self._buckets.setdefault(_point_bucket_key(coordinate), []).append(point)
+
+    def nearby(self, coordinate: tuple[float, float]) -> list[ImportedPoint]:
+        center = _point_bucket_key(coordinate)
+        nearby: list[ImportedPoint] = []
+        for x_offset in (-1, 0, 1):
+            for y_offset in (-1, 0, 1):
+                for z_offset in (-1, 0, 1):
+                    nearby.extend(
+                        self._buckets.get(
+                            (
+                                center[0] + x_offset,
+                                center[1] + y_offset,
+                                center[2] + z_offset,
+                            ),
+                            (),
+                        )
+                    )
+        return nearby
+
+
+def _matching_junction_point(
+    points: _PointSpatialIndex | None,
+    previous_end: tuple[float, float],
+    next_start: tuple[float, float],
+) -> ImportedPoint | None:
+    if points is None:
+        return None
+    matches: list[tuple[float, float, int, int, ImportedPoint]] = []
+    for index, point in enumerate(points.nearby(previous_end)):
+        coordinate = (point.latitude_deg, point.longitude_deg)
+        previous_distance = _coordinate_separation_nm(previous_end, coordinate)
+        next_distance = _coordinate_separation_nm(next_start, coordinate)
+        if (
+            previous_distance <= _CONNECTED_LINE_JOIN_LIMIT_NM
+            and next_distance <= _CONNECTED_LINE_JOIN_LIMIT_NM
+        ):
+            matches.append(
+                (
+                    max(previous_distance, next_distance),
+                    previous_distance + next_distance,
+                    point.document_order,
+                    index,
+                    point,
+                )
+            )
+    return None if not matches else min(matches, key=lambda item: item[:-1])[-1]
+
+
+def _matching_endpoint_point(
+    points: _PointSpatialIndex | None,
+    endpoint: tuple[float, float],
+) -> ImportedPoint | None:
+    if points is None:
+        return None
+    matches: list[tuple[float, int, int, ImportedPoint]] = []
+    for index, point in enumerate(points.nearby(endpoint)):
+        coordinate = (point.latitude_deg, point.longitude_deg)
+        distance = _coordinate_separation_nm(endpoint, coordinate)
+        if distance <= _CONNECTED_LINE_JOIN_LIMIT_NM:
+            matches.append((distance, point.document_order, index, point))
+    return None if not matches else min(matches, key=lambda item: item[:-1])[-1]
+
+
+def _connected_lines(
+    points: list[ImportedPoint],
+    point_containers: list[Element | None],
+    lines: list[ImportedLine],
+    line_containers: list[Element | None],
+    limits: ImportLimits,
+    warnings: list[str],
+) -> list[ImportedConnectedLine]:
+    points_by_container: dict[Element, list[ImportedPoint]] = {}
+    for point, container in zip(points, point_containers, strict=True):
+        if container is not None:
+            points_by_container.setdefault(container, []).append(point)
+    point_indexes_by_container = {
+        container: _PointSpatialIndex(container_points)
+        for container, container_points in points_by_container.items()
+    }
+
+    lines_by_container: dict[Element, list[tuple[int, ImportedLine]]] = {}
+    for index, (line, container) in enumerate(zip(lines, line_containers, strict=True)):
+        if container is not None:
+            lines_by_container.setdefault(container, []).append((index, line))
+
+    connected: list[ImportedConnectedLine] = []
+    for container, indexed_lines in lines_by_container.items():
+        if len(indexed_lines) < 2:
+            continue
+        joins = [
+            _coordinate_separation_nm(previous.coordinates[-1], following.coordinates[0])
+            for (_, previous), (_, following) in zip(
+                indexed_lines,
+                indexed_lines[1:],
+                strict=False,
+            )
+        ]
+        invalid_joins = [
+            (indexed_lines[index][1], indexed_lines[index + 1][1], gap)
+            for index, gap in enumerate(joins)
+            if gap > _CONNECTED_LINE_JOIN_LIMIT_NM
+        ]
+        container_path = indexed_lines[0][1].container_path
+        display_path = " / ".join(container_path) or _direct_element_name(container)
+        if invalid_joins:
+            for previous, following, gap in invalid_joins:
+                warnings.append(
+                    f"{display_path}: LineString join {previous.name} -> {following.name} "
+                    f"is {gap:.5f} NM and exceeds {_CONNECTED_LINE_JOIN_LIMIT_NM:.2f} NM; "
+                    "kept as individual candidates"
+                )
+            continue
+
+        container_points = point_indexes_by_container.get(container)
+        first_line = indexed_lines[0][1]
+        coordinates = list(first_line.coordinates)
+        waypoint_names = list(waypoint_name_slots_from_line(first_line))
+        waypoint_sources: list[Literal["point", "line"] | None] = [
+            "line" if name is not None else None for name in waypoint_names
+        ]
+        for join_index, ((_, previous), (_, following)) in enumerate(
+            zip(indexed_lines, indexed_lines[1:], strict=False)
+        ):
+            junction_point = _matching_junction_point(
+                container_points,
+                previous.coordinates[-1],
+                following.coordinates[0],
+            )
+            if junction_point is not None:
+                coordinates[-1] = (
+                    junction_point.latitude_deg,
+                    junction_point.longitude_deg,
+                )
+                junction_name = junction_point.name.strip()
+                if junction_name:
+                    waypoint_names[-1] = junction_name
+                    waypoint_sources[-1] = "point"
+            elif joins[join_index] * 1852.0 > _CONNECTED_LINE_JOIN_WARNING_METERS:
+                warnings.append(
+                    f"{display_path}: merged LineString join {previous.name} -> "
+                    f"{following.name} across {joins[join_index] * 1852.0:.1f} m "
+                    "without a matching Point Placemark"
+                )
+            following_names = waypoint_name_slots_from_line(following)
+            coordinates.extend(following.coordinates[1:])
+            waypoint_names.extend(following_names[1:])
+            waypoint_sources.extend(
+                "line" if name is not None else None for name in following_names[1:]
+            )
+
+        if waypoint_names[0] is None:
+            start_point = _matching_endpoint_point(container_points, coordinates[0])
+            if start_point is not None:
+                start_name = start_point.name.strip()
+                if start_name:
+                    waypoint_names[0] = start_name
+                    waypoint_sources[0] = "point"
+        if waypoint_names[-1] is None:
+            end_point = _matching_endpoint_point(container_points, coordinates[-1])
+            if end_point is not None:
+                end_name = end_point.name.strip()
+                if end_name:
+                    waypoint_names[-1] = end_name
+                    waypoint_sources[-1] = "point"
+
+        candidate = ImportedConnectedLine(
+            name=container_path[-1] if container_path else _direct_element_name(container),
+            container_path=container_path,
+            segment_names=tuple(line.name for _, line in indexed_lines),
+            segment_indices=tuple(index for index, _ in indexed_lines),
+            coordinates=tuple(coordinates),
+            waypoint_names=tuple(waypoint_names),
+            waypoint_sources=tuple(waypoint_sources),
+            distance_nm=sum(imported_line_length_nm(line) for _, line in indexed_lines),
+            max_join_gap_nm=max(joins, default=0.0),
+            display_coordinates=_simplify(coordinates, limits.max_display_vertices),
+            original_coordinate_count=len(coordinates),
+            document_order=first_line.document_order,
+        )
+        try:
+            _deduplicate_connected_line(candidate)
+        except KmlImportError:
+            warnings.append(
+                f"{display_path}: connected LineStrings have fewer than two distinct points "
+                "after 10 m deduplication; kept as individual candidates"
+            )
+            continue
+        connected.append(candidate)
+    return connected
+
+
 def _parse_kml(
     data: bytes,
     limits: ImportLimits,
 ) -> tuple[
     list[ImportedPoint],
     list[ImportedLine],
+    list[ImportedConnectedLine],
     list[ImportedPolygon],
     list[str],
     int,
@@ -321,7 +621,12 @@ def _parse_kml(
     polygons: list[ImportedPolygon] = []
     warnings: list[str] = []
     coordinate_count = 0
+    document_order = 0
+    parents = {child: parent for parent in root.iter() for child in parent}
+    point_containers: list[Element | None] = []
+    line_containers: list[Element | None] = []
     for placemark in (item for item in root.iter() if _local_name(item.tag) == "Placemark"):
+        container, container_path = _container_context(placemark, parents)
         name_element = next(
             (child for child in placemark.iter() if _local_name(child.tag) == "name"),
             None,
@@ -332,6 +637,8 @@ def _parse_kml(
             kind = _local_name(geometry.tag)
             if kind not in {"Point", "LineString", "Polygon"}:
                 continue
+            geometry_order = document_order
+            document_order += 1
             if kind == "Polygon":
                 (
                     outer_boundary,
@@ -366,6 +673,8 @@ def _parse_kml(
                         display_outer_boundary=_display_ring(
                             outer_boundary, limits.max_display_vertices
                         ),
+                        container_path=container_path,
+                        document_order=geometry_order,
                     )
                 )
                 continue
@@ -379,20 +688,47 @@ def _parse_kml(
                 raise KmlImportError("KML coordinate limit exceeded")
             if kind == "Point" and parsed:
                 latitude, longitude, altitude = parsed[0]
-                points.append(ImportedPoint(name, latitude, longitude, altitude))
+                points.append(
+                    ImportedPoint(
+                        name,
+                        latitude,
+                        longitude,
+                        altitude,
+                        container_path,
+                        geometry_order,
+                    )
+                )
+                point_containers.append(container)
             elif len(parsed) >= 2:
                 coordinates = tuple((latitude, longitude) for latitude, longitude, _ in parsed)
                 display = _simplify(
                     list(coordinates),
                     limits.max_display_vertices,
                 )
-                lines.append(ImportedLine(name, coordinates, display))
+                lines.append(
+                    ImportedLine(
+                        name,
+                        coordinates,
+                        display,
+                        container_path=container_path,
+                        document_order=geometry_order,
+                    )
+                )
+                line_containers.append(container)
         if skipped_polygon_surfaces:
             warnings.append(
                 f"{name}: skipped {skipped_polygon_surfaces} Polygon surface(s) "
                 "without a usable horizontal boundary"
             )
-    return points, lines, polygons, warnings, coordinate_count
+    connected = _connected_lines(
+        points,
+        point_containers,
+        lines,
+        line_containers,
+        limits,
+        warnings,
+    )
+    return points, lines, connected, polygons, warnings, coordinate_count
 
 
 def _safe_archive_path(filename: str) -> PurePosixPath:
@@ -490,7 +826,7 @@ def _select_kmz_document(
     return selected
 
 
-def imported_line_length_nm(line: ImportedLine) -> float:
+def imported_line_length_nm(line: ImportedLine | ImportedConnectedLine) -> float:
     return sum(
         geodesic_leg(start[0], start[1], end[0], end[1]).distance_nm
         for start, end in zip(
@@ -542,7 +878,11 @@ def select_imported_line(
     except IndexError as error:
         raise KmlImportError("selected LineString is unavailable") from error
     if len(line.coordinates) > limits.max_coordinates_in_selected_line:
-        raise KmlImportError("selected LineString coordinate limit exceeded")
+        raise KmlRouteCoordinateLimitExceeded(
+            len(line.coordinates),
+            limits.max_coordinates_in_selected_line,
+            route_kind="LineString",
+        )
     coordinates = _deduplicate_selected_line(line.coordinates)
     return ImportedLine(
         name=line.name,
@@ -552,6 +892,94 @@ def select_imported_line(
             limits.max_display_vertices,
         ),
         original_coordinate_count=line.original_coordinate_count,
+        container_path=line.container_path,
+        document_order=line.document_order,
+    )
+
+
+def _deduplicate_connected_line(
+    line: ImportedConnectedLine,
+) -> tuple[
+    tuple[tuple[float, float], ...],
+    tuple[str | None, ...],
+    tuple[Literal["point", "line"] | None, ...],
+]:
+    adopted_coordinates: list[tuple[float, float]] = []
+    adopted_names: list[str | None] = []
+    adopted_sources: list[Literal["point", "line"] | None] = []
+    final_index = len(line.coordinates) - 1
+    for index, (coordinate, name, source) in enumerate(
+        zip(
+            line.coordinates,
+            line.waypoint_names,
+            line.waypoint_sources,
+            strict=True,
+        )
+    ):
+        if not adopted_coordinates:
+            adopted_coordinates.append(coordinate)
+            adopted_names.append(name)
+            adopted_sources.append(source)
+            continue
+        if (
+            index == final_index
+            and coordinate == line.coordinates[0]
+            and len(adopted_coordinates) > 1
+        ):
+            adopted_coordinates.append(coordinate)
+            adopted_names.append(name)
+            adopted_sources.append(source)
+            continue
+        separation_m = _coordinate_separation_nm(adopted_coordinates[-1], coordinate) * 1852.0
+        if separation_m <= _CONNECTED_LINE_JOIN_WARNING_METERS:
+            if adopted_names[-1] is None and name is not None:
+                adopted_names[-1] = name
+                adopted_sources[-1] = source
+            continue
+        adopted_coordinates.append(coordinate)
+        adopted_names.append(name)
+        adopted_sources.append(source)
+    if len(adopted_coordinates) < 2 or len(set(adopted_coordinates)) < 2:
+        raise KmlImportError(
+            "selected connected LineString has fewer than two points after deduplication"
+        )
+    return tuple(adopted_coordinates), tuple(adopted_names), tuple(adopted_sources)
+
+
+def connected_line_route_shape(line: ImportedConnectedLine) -> ImportedConnectedLine:
+    """Return the connected route exactly as it will be installed after 10 m deduplication."""
+
+    coordinates, waypoint_names, waypoint_sources = _deduplicate_connected_line(line)
+    return replace(
+        line,
+        coordinates=coordinates,
+        waypoint_names=waypoint_names,
+        waypoint_sources=waypoint_sources,
+        display_coordinates=_simplify(list(coordinates), ImportLimits().max_display_vertices),
+    )
+
+
+def select_imported_connected_line(
+    result: KmlImportResult,
+    index: int,
+    *,
+    limits: ImportLimits | None = None,
+) -> ImportedConnectedLine:
+    limits = limits or ImportLimits()
+    try:
+        line = result.connected_lines[index]
+    except IndexError as error:
+        raise KmlImportError("selected connected LineString is unavailable") from error
+    if len(line.coordinates) > limits.max_coordinates_in_selected_line:
+        raise KmlRouteCoordinateLimitExceeded(
+            len(line.coordinates),
+            limits.max_coordinates_in_selected_line,
+            route_kind="connected LineString",
+        )
+    selected = connected_line_route_shape(line)
+    return replace(
+        selected,
+        display_coordinates=_simplify(list(selected.coordinates), limits.max_display_vertices),
     )
 
 
@@ -611,6 +1039,7 @@ def import_kml_or_kmz(
 
     points: list[ImportedPoint] = []
     lines: list[ImportedLine] = []
+    connected_lines: list[ImportedConnectedLine] = []
     polygons: list[ImportedPolygon] = []
     warnings: list[str] = []
     total_coordinates = 0
@@ -618,6 +1047,7 @@ def import_kml_or_kmz(
         (
             parsed_points,
             parsed_lines,
+            parsed_connected_lines,
             parsed_polygons,
             parsed_warnings,
             count,
@@ -625,13 +1055,24 @@ def import_kml_or_kmz(
         total_coordinates += count
         if total_coordinates > limits.max_coordinates:
             raise KmlImportError("KML coordinate limit exceeded")
+        line_index_offset = len(lines)
         points.extend(parsed_points)
         lines.extend(parsed_lines)
+        connected_lines.extend(
+            replace(
+                connected,
+                segment_indices=tuple(
+                    line_index_offset + index for index in connected.segment_indices
+                ),
+            )
+            for connected in parsed_connected_lines
+        )
         polygons.extend(parsed_polygons)
         warnings.extend(parsed_warnings)
     return KmlImportResult(
         points=tuple(points),
         lines=tuple(lines),
+        connected_lines=tuple(connected_lines),
         polygons=tuple(polygons),
         warnings=tuple(warnings),
         source_files=tuple(name for name, _ in documents),

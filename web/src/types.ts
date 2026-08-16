@@ -29,12 +29,17 @@ export interface AirportOption {
 }
 
 export interface RouteCandidate {
-  kind: "line" | "polygon" | "points";
+  kind: "line" | "polygon" | "points" | "connected_lines";
   index: number;
   name: string;
   vertexCount: number;
   distanceNm: number | null;
   coordinates: [number, number][];
+  containerPath?: string[];
+  segmentNames?: string[];
+  segmentCount?: number;
+  legCount?: number;
+  maxJoinGapNm?: number;
 }
 
 export interface ImportState {
