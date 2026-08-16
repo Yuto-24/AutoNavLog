@@ -2,7 +2,7 @@
 
 - 版: 2.7.5
 - 日付: 2026-08-15
-- 対象: AutoNavLog 0.3.1 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
+- 対象: AutoNavLog 1.0.0 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
 - 実装担当: 別エージェント
 
 ## v2.7.5 Issue #43 Golden NAVLOG表示（本節を最優先）
@@ -292,7 +292,7 @@
 1. 選択経路に必要な空港・地点・CP参照データを整備し、目的空港の実運用場周経路高度を一次資料で検証する
 2. 性能データのmanifestが `validation_status == "VERIFIED"` で、記録hashと実CSVが一致する
 3. 非SEA機能の受け入れ基準（第14章）を満たす
-4. アプリバージョンを `0.3.1` として `pyproject.toml` に反映する
+4. アプリバージョンを `1.0.0` として `pyproject.toml` に反映する
 ```
 
 `Project.schema_version` と `CalculationSnapshot.schema_version` は既存の `1` を維持する。既存のSEA関連fieldは読込互換のため残してよいが、本版の計算・状態・表示・出力には使用しない。
@@ -1745,7 +1745,7 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 | NAV2の風 | 欠損を無風補完しない。到着固定規則だけ例外 |
 | SEA・陸域マスク | 本版では実装・表示・出力しない。将来は独立した別表として再設計 |
 | 基準アーカイブ | commit `24058c1` で固定済み |
-| アプリ版 | `0.3.1` |
+| アプリ版 | `1.0.0` |
 
 提供資料の全件照合、式フォールバックの来歴記録、参照データpack整備はリリースゲートであり、コード実装開始を止めない。
 

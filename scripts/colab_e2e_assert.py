@@ -3,7 +3,7 @@
 
 Before execution, upload these files to the active VM:
 
-* ``/content/autonavlog-0.3.1-py3-none-any.whl``
+* ``/content/autonavlog-1.0.0-py3-none-any.whl``
 * ``/content/pasted-text-1.txt``
 
 The default entry point installs the wheel, exercises the real pasted Google
@@ -36,10 +36,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 CONTENT_ROOT = Path("/content")
-WHEEL_PATH = CONTENT_ROOT / "autonavlog-0.3.1-py3-none-any.whl"
+WHEEL_PATH = CONTENT_ROOT / "autonavlog-1.0.0-py3-none-any.whl"
 PASTED_KML_PATH = CONTENT_ROOT / "pasted-text-1.txt"
 RESULT_PATH = CONTENT_ROOT / "autonavlog-colab-e2e-result.json"
-EXPECTED_AUTONAVLOG_VERSION = "0.3.1"
+EXPECTED_AUTONAVLOG_VERSION = "1.0.0"
 EXPECTED_KML_WARNING = (
     "KS4-6(SFC/4000): skipped 13 Polygon surface(s) without a usable horizontal boundary"
 )

@@ -30,7 +30,11 @@ def test_release_workflow_validates_isolated_wheels_before_manifest_and_upload()
     upload = text.index("- name: Upload versioned release to Drive")
 
     assert assemble < isolated_install < runtime_data < real_msm < enforce < manifest < upload
-    assert "release/wheels/autonavlog-0.3.1-py3-none-any.whl" in text
+    assert "release/wheels/autonavlog-1.0.0-py3-none-any.whl" in text
+    assert "actions/setup-node@v4" in text
+    assert "npm --prefix web run build" in text
+    assert "cp -R web/dist/. src/autonavlog/web/static/" in text
+    assert 'assert (static / "index.html").is_file()' in text
     assert "release/wheels/jma_msm_wind-0.2.1-py3-none-any.whl" in text
     assert "scripts/validate_runtime_data.py" in text
     assert "scripts/validate_real_msm_release.py" in text
