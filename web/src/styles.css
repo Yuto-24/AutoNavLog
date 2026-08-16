@@ -95,11 +95,25 @@ h1, h2, h3, p { margin-top: 0; }
   font-size: 14px;
 }
 
-.header-project strong {
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.header-project-name {
+  width: clamp(160px, 18vw, 300px);
+  min-height: 38px;
+  color: #ffffff;
+  background: #102e49;
+  border: 1px solid #53708b;
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.header-project-name[aria-invalid="true"] {
+  border-color: #ef8f8f;
+}
+
+.header-project-name:disabled {
+  color: #d5dfe8;
+  opacity: 0.8;
 }
 
 .header-project-label, .header-revision {
@@ -153,6 +167,12 @@ h1, h2, h3, p { margin-top: 0; }
   padding: 0 16px;
   font-size: 13px;
   font-weight: 650;
+}
+
+.header-icon-button {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
 }
 
 .header-button-primary {
@@ -710,6 +730,56 @@ tbody tr:last-child td { border-bottom: 0; }
   accent-color: var(--teal-700);
   border: 0;
   border-radius: 999px;
+}
+
+.calculation-progress-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(11, 27, 43, .72);
+  backdrop-filter: blur(2px);
+}
+.calculation-progress-dialog {
+  width: min(520px, 100%);
+  padding: 28px;
+  color: var(--navy-950);
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, .7);
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .34);
+}
+.calculation-progress-eyebrow {
+  margin: 0 0 10px;
+  color: var(--teal-700);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.calculation-progress-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+.calculation-progress-heading strong { font-size: 18px; line-height: 1.5; }
+.calculation-progress-heading span { color: var(--teal-700); font-size: 24px; font-weight: 800; }
+.calculation-progress-dialog progress {
+  display: block;
+  width: 100%;
+  height: 14px;
+  overflow: hidden;
+  accent-color: var(--teal-700);
+  border: 0;
+  border-radius: 999px;
+}
+.calculation-progress-dialog small {
+  display: block;
+  margin-top: 12px;
+  color: var(--slate-500);
 }
 
 .app-footer {

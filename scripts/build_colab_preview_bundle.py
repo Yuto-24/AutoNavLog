@@ -18,9 +18,9 @@ from typing import Any, NoReturn
 from autonavlog.storage.reference_data import ReferenceDataCatalogRepository, ReferenceDataError
 
 BUNDLE_SCHEMA_VERSION = 1
-BUNDLE_VERSION = "0.3.0"
+BUNDLE_VERSION = "0.3.1"
 AUTONAVLOG_DISTRIBUTION = "autonavlog"
-AUTONAVLOG_VERSION = "0.3.0"
+AUTONAVLOG_VERSION = "0.3.1"
 MSM_DISTRIBUTION = "jma-msm-wind"
 MSM_VERSION = "0.2.1"
 BUNDLE_FILENAME = f"autonavlog-colab-preview-{BUNDLE_VERSION}.zip"

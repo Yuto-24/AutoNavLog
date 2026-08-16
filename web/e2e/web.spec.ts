@@ -214,6 +214,24 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await expect(page.locator("body")).not.toBeEmpty();
+  const savedProjectButton = page.getByRole("button", { name: "保存済みProjectを開く" });
+  const savedProjectButtonLayout = await savedProjectButton.evaluate((button) => {
+    const icon = button.querySelector("svg");
+    const buttonRect = button.getBoundingClientRect();
+    const iconRect = icon?.getBoundingClientRect();
+    return {
+      buttonWidth: buttonRect.width,
+      iconWidth: iconRect?.width ?? 0,
+      paddingLeft: getComputedStyle(button).paddingLeft,
+      paddingRight: getComputedStyle(button).paddingRight,
+    };
+  });
+  expect(savedProjectButtonLayout).toEqual({
+    buttonWidth: 40,
+    iconWidth: 18,
+    paddingLeft: "0px",
+    paddingRight: "0px",
+  });
   await expect(page.getByText("開発用固定気象（出力不可）", { exact: true })).toBeVisible();
   await expect(page.getByLabel("TO")).toHaveValue("");
   await expect(
@@ -283,6 +301,18 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   await expect(blankCell).not.toHaveClass(/unavailable-value/);
 
   expect(pageErrors).toEqual([]);
+});
+
+test("mobile fuel input allows a temporary blank value", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+
+  const fuel = page.getByLabel("FUEL gal");
+  await expect(fuel).toHaveValue("90");
+  await fuel.fill("");
+  await expect(fuel).toHaveValue("");
+  await fuel.fill("77.5");
+  await expect(fuel).toHaveValue("77.5");
 });
 
 test("changed ALT appears in PA with lesson display precision", async ({ page }) => {
@@ -451,8 +481,12 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   const saveResponse = page.waitForResponse(
     (response) => response.url().endsWith("/api/projects/save") && response.ok(),
   );
+  await page.getByLabel("プロジェクト").fill("訓練航法 8月");
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await saveResponse;
+  const savedResponse = await saveResponse;
+  expect((await savedResponse.request().postDataJSON()).name).toBe("訓練航法 8月");
+  await expect(page.getByLabel("プロジェクト")).toHaveValue("訓練航法 8月");
+  await expect(page.locator("#saved-project")).toContainText("訓練航法 8月");
   await expect(windDirection).toHaveValue("270");
   await expect(windDirection).toHaveAttribute("aria-invalid", "true");
 

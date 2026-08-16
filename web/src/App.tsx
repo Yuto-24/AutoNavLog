@@ -9,6 +9,7 @@ import {
   initialPlanningForm,
   patternAltitudeFtMsl,
   qnhHpa,
+  usableFuelGal,
   variationForDeparture,
 } from "./forms";
 import type { PlanningForm } from "./forms";
@@ -28,6 +29,7 @@ import { PasteDialog } from "./components/PasteDialog";
 import { ProgressRail } from "./components/ProgressRail";
 import { RouteWorkspace } from "./components/RouteWorkspace";
 import { StatusPanel } from "./components/StatusPanel";
+import { CalculationProgressOverlay } from "./components/CalculationProgressOverlay";
 import type { FlightPhase, NavSection, WebState } from "./types";
 import { useModalFocusTrap } from "./useModalFocusTrap";
 
@@ -53,11 +55,16 @@ function App() {
   }>({ kind: "idle", message: "入力欄を編集すると自動再計算します。" });
   const [busy, setBusy] = useState(false);
   const [activeOperation, setActiveOperation] = useState<ActiveOperation>(null);
+  const [calculationProgress, setCalculationProgress] = useState({
+    percent: 0,
+    message: "計算を開始しています。",
+  });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pastedKml, setPastedKml] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [projectName, setProjectName] = useState("未保存の新規作業");
   const [pendingKmz, setPendingKmz] = useState<PendingKmz | null>(null);
   const [selectedKmzDocument, setSelectedKmzDocument] = useState("");
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
@@ -92,12 +99,16 @@ function App() {
     options: { syncCalculationInputs?: boolean } = {},
   ) => {
     const nextProjectId = next.project?.id ?? null;
+    const initialState = projectIdRef.current === undefined;
     const projectChanged =
-      projectIdRef.current !== undefined && projectIdRef.current !== nextProjectId;
+      !initialState && projectIdRef.current !== nextProjectId;
     const syncCalculationInputs =
-      options.syncCalculationInputs || projectIdRef.current === undefined || projectChanged;
+      options.syncCalculationInputs || initialState || projectChanged;
     if (projectChanged) cancelPendingRecalculation();
     projectIdRef.current = nextProjectId;
+    if (projectChanged || initialState) {
+      setProjectName(next.project?.name ?? "未保存の新規作業");
+    }
     setState((current) => {
       if (
         !syncCalculationInputs &&
@@ -322,6 +333,11 @@ function App() {
 
   const handleConfirmRoute = async () => {
     if (!state) return;
+    const fuelGal = usableFuelGal(form);
+    if (fuelGal === null) {
+      setError("FUELは0より大きく200 gal以下で入力してください。");
+      return;
+    }
     const candidate = candidateFromKey(state.import.candidates, form.candidateKey);
     if (!candidate) {
       setError("飛行経路にする形状を選択してください。");
@@ -350,7 +366,7 @@ function App() {
             departure_time_jst: form.departureTimeJst,
             departure_airport_id: form.departureAirportId,
             destination_airport_id: form.destinationAirportId,
-            total_usable_fuel_gal: form.totalUsableFuelGal,
+            total_usable_fuel_gal: fuelGal,
             default_variation_deg_east: form.variationDegEast,
             manual_qnh_hpa: qnhHpa(form),
             tgl_count: form.tglCount,
@@ -459,6 +475,10 @@ function App() {
   const updatePayload = (sectionOverrides?: NavSection[]) => {
     const payloadSections = sectionOverrides ?? state?.project?.sections ?? [];
     if (!state?.project) throw new Error("Projectがありません。");
+    const fuelGal = usableFuelGal(form);
+    if (fuelGal === null) {
+      throw new Error("FUELは0より大きく200 gal以下で入力してください。");
+    }
     const plannedAltitudes = new Map(
       payloadSections.map((section) => {
         const rawAltitude = (
@@ -487,7 +507,7 @@ function App() {
     return {
       flight_date: form.flightDate,
       departure_time_jst: form.departureTimeJst,
-      total_usable_fuel_gal: form.totalUsableFuelGal,
+      total_usable_fuel_gal: fuelGal,
       default_variation_deg_east: form.variationDegEast,
       manual_qnh_hpa: qnhHpa(form),
       tgl_count: form.tglCount,
@@ -607,12 +627,13 @@ function App() {
 
   const handleCalculate = async () => {
     cancelPendingRecalculation();
+    setCalculationProgress({ percent: 0, message: "計算を開始しています。" });
     const calculated = await run(async () => {
       await api.request<WebState>("/api/project", {
         method: "PUT",
         body: updatePayload(),
       });
-      return api.calculate();
+      return api.calculate(setCalculationProgress);
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
       syncCalculationInputs: true,
       operation: "calculate",
@@ -628,16 +649,17 @@ function App() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (name: string) => {
     if (!state?.project) return;
-    await run(
+    const saved = await run(
       () =>
         api.request<WebState>("/api/projects/save", {
           method: "POST",
-          body: { name: state.project?.name },
+          body: { name },
         }),
       "Projectをローカルへ保存しました。",
     );
+    if (saved?.project) setProjectName(saved.project.name);
   };
 
   const handleLoad = async () => {
@@ -749,11 +771,12 @@ function App() {
     <div className="app-shell">
       <Header
         appVersion={state.runtime.appVersion}
-        projectName={state.project?.name ?? "未保存の新規作業"}
+        projectName={projectName}
         revision={state.project?.revision ?? null}
         savedProjects={state.savedProjects}
         selectedProjectId={selectedProjectId}
         busy={busy}
+        onProjectNameChange={setProjectName}
         onSelectedProjectIdChange={setSelectedProjectId}
         onLoad={handleLoad}
         onDelete={handleDelete}
@@ -850,6 +873,10 @@ function App() {
         <span>AutoNavLogは非公式の地上準備支援ツールです。</span>
         <span>参照 {state.runtime.referenceRevision} / 性能 {state.runtime.performanceRevision}</span>
       </footer>
+
+      {activeOperation === "calculate" && (
+        <CalculationProgressOverlay {...calculationProgress} />
+      )}
 
       <PasteDialog
         open={pasteOpen}
