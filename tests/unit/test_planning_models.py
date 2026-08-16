@@ -234,8 +234,25 @@ def test_ui_state_v3_migration_discards_sea_state() -> None:
     }
     migrated = load_persisted_ui_state(raw)
     assert isinstance(migrated, PersistedUiState)
-    assert migrated.state_schema_version == 4
+    assert migrated.state_schema_version == 5
     assert "sea" not in migrated.model_dump_json().lower()
+
+
+def test_ui_state_v4_migrates_with_empty_rjfm_state() -> None:
+    migrated = load_persisted_ui_state(
+        {
+            "state_schema_version": 4,
+            "calculated_against_fingerprint": HEX,
+            "defaults_review_fingerprint": None,
+            "manual_qnh_fingerprint": None,
+            "arrival_plan": None,
+            "reference_data_snapshot": None,
+        }
+    )
+
+    assert migrated.state_schema_version == 5
+    assert migrated.rjfm_departure_plan is None
+    assert migrated.rjfm_departure_guidance is None
 
 
 def test_ui_state_rejects_unknown_versions_and_fields() -> None:

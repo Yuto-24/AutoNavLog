@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from html import escape
+from math import cos, radians
 from typing import Any
 
 from autonavlog.application.readiness import (
@@ -19,7 +20,7 @@ from autonavlog.domain.enums import (
     DisplayCellState,
     ProjectStatus,
 )
-from autonavlog.domain.planning import load_persisted_ui_state
+from autonavlog.domain.planning import RjfmGuidanceStatus, load_persisted_ui_state
 from autonavlog.domain.project import Project
 from autonavlog.nav.rounding import round_half_up
 
@@ -505,6 +506,210 @@ def _route_source_notice(project: Project) -> str:
     )
 
 
+def _rjfm_guidance_svg(outcome: CalculationOutcome) -> str:
+    guidance = outcome.rjfm_departure_guidance
+    if guidance is None:
+        return ""
+    usable = [
+        candidate
+        for candidate in guidance.candidates
+        if candidate.status in {RjfmGuidanceStatus.VALID, RjfmGuidanceStatus.WARNING}
+        and candidate.path
+    ]
+    coordinates = [
+        (point.latitude_deg, point.longitude_deg)
+        for candidate in usable
+        for point in candidate.path
+    ] + [(point.latitude_deg, point.longitude_deg) for point in guidance.center_route]
+    if len(coordinates) < 2:
+        return ""
+    mean_latitude = sum(float(item[0]) for item in coordinates) / len(coordinates)
+    x_scale = max(cos(radians(mean_latitude)), 0.1)
+    projected = [(float(lon) * x_scale, float(lat)) for lat, lon in coordinates]
+    min_x = min(point[0] for point in projected)
+    max_x = max(point[0] for point in projected)
+    min_y = min(point[1] for point in projected)
+    max_y = max(point[1] for point in projected)
+    span_x = max(max_x - min_x, 1e-9)
+    span_y = max(max_y - min_y, 1e-9)
+
+    def xy(latitude: float, longitude: float) -> tuple[float, float]:
+        x = (longitude * x_scale - min_x) / span_x * 700 + 20
+        y = 300 - (latitude - min_y) / span_y * 260
+        return x, y
+
+    colors = {"09": "#2368a2", "27": "#6e4aa0"}
+    lines: list[str] = []
+    for candidate in usable:
+        points = " ".join(
+            f"{xy(float(point.latitude_deg), float(point.longitude_deg))[0]:.1f},"
+            f"{xy(float(point.latitude_deg), float(point.longitude_deg))[1]:.1f}"
+            for point in candidate.path
+        )
+        lines.append(
+            f"<polyline points='{points}' fill='none' stroke='{colors[candidate.runway]}' "
+            "stroke-width='3.5' stroke-linejoin='round' stroke-linecap='round'/>"
+        )
+    center_points = " ".join(
+        f"{xy(float(point.latitude_deg), float(point.longitude_deg))[0]:.1f},"
+        f"{xy(float(point.latitude_deg), float(point.longitude_deg))[1]:.1f}"
+        for point in guidance.center_route
+    )
+    lines.append(
+        f"<polyline points='{center_points}' fill='none' stroke='#198754' "
+        "stroke-width='3' stroke-dasharray='7 4'/>"
+    )
+    labels = []
+    for name, point in zip(
+        ("UMK/RCA 5500", "OVER FIELD", "OMARU"),
+        guidance.center_route,
+        strict=True,
+    ):
+        x, y = xy(float(point.latitude_deg), float(point.longitude_deg))
+        labels.append(
+            f"<circle cx='{x:.1f}' cy='{y:.1f}' r='4' fill='#198754'/>"
+            f"<text x='{x + 7:.1f}' y='{y - 6:.1f}'>{escape(name)}</text>"
+        )
+    legend = "".join(
+        f"<text x='{20 + index * 140}' y='318' fill='{colors[candidate.runway]}'>"
+        f"RWY{candidate.runway}</text>"
+        for index, candidate in enumerate(usable)
+    )
+    return (
+        "<svg class='rjfm-guidance-map' viewBox='0 0 740 330' role='img' "
+        "aria-label='RJFM北行き出発案内経路'>"
+        + "".join(lines)
+        + "".join(labels)
+        + legend
+        + "</svg>"
+    )
+
+
+def _rjfm_candidate_summary(candidate: Any) -> str:
+    status = {
+        RjfmGuidanceStatus.VALID: "成立",
+        RjfmGuidanceStatus.WARNING: "成立（注意）",
+    }.get(candidate.status, candidate.status.value)
+    turn_method = {
+        "FIXED_BANK_20": "左20°バンク",
+        "ADJUSTED_MAX_RADIUS": "最大半径へ調整",
+        "NONE": "旋回解なし",
+    }.get(candidate.turn_method.value, candidate.turn_method.value)
+    delta = candidate.expected_time_delta_seconds
+    delta_text = "算出不可"
+    if delta is not None:
+        minutes = round_half_up(float(delta) / 60.0, 0.5)
+        delta_text = f"{'+' if minutes > 0 else ''}{minutes:.1f}分"
+    radial = (
+        "-"
+        if candidate.turn_entry_radial_deg is None
+        else f"R-{round_half_up(float(candidate.turn_entry_radial_deg), 1.0):03.0f}"
+    )
+    dme = (
+        "-"
+        if candidate.turn_entry_dme_nm is None
+        else f"{round_half_up(float(candidate.turn_entry_dme_nm), 0.1):.1f} DME"
+    )
+    partial = (
+        "-"
+        if candidate.partial_left_turn_deg is None
+        else f"{round_half_up(float(candidate.partial_left_turn_deg), 1.0):.0f}°"
+    )
+    return (
+        f"RWY{candidate.runway}: {escape(status)} / "
+        f"{escape(turn_method)} / "
+        f"左360°×{candidate.full_left_turns} + {partial} / "
+        f"進入 {radial} {dme} / UMK 5500 ft / LOSS・GAIN {delta_text}"
+    )
+
+
+def _rjfm_guidance_section(outcome: CalculationOutcome) -> str:
+    guidance = outcome.rjfm_departure_guidance
+    if guidance is None:
+        return ""
+    usable = [
+        candidate
+        for candidate in guidance.candidates
+        if candidate.status in {RjfmGuidanceStatus.VALID, RjfmGuidanceStatus.WARNING}
+        and candidate.path
+    ]
+    invalid = [
+        candidate
+        for candidate in guidance.candidates
+        if candidate.status in {RjfmGuidanceStatus.HARD_INVALID, RjfmGuidanceStatus.UNAVAILABLE}
+    ]
+    summaries = "".join(
+        f"<li>{_rjfm_candidate_summary(candidate)}</li>" for candidate in usable
+    )
+    advisories = "".join(
+        "<li>"
+        f"RWY{candidate.runway}: "
+        + escape(
+            " / ".join(
+                constraint.message
+                for constraint in candidate.constraints
+                if not constraint.hard and not constraint.passed
+            )
+        )
+        + "</li>"
+        for candidate in usable
+        if candidate.status == RjfmGuidanceStatus.WARNING
+        and any(
+            not constraint.hard and not constraint.passed
+            for constraint in candidate.constraints
+        )
+    )
+    failures = "".join(
+        "<li>"
+        f"RWY{candidate.runway}: "
+        + escape(
+            " / ".join(
+                constraint.message
+                for constraint in candidate.constraints
+                if constraint.hard and not constraint.passed
+            )
+            or "案内経路を生成できません。"
+        )
+        + "</li>"
+        for candidate in invalid
+    )
+    source_dates = " / ".join(
+        f"{escape(name)}: {escape(value)}"
+        for name, value in sorted(guidance.source_effective_dates.items())
+    )
+    invalid_html = (
+        f"<p class='rjfm-invalid'><strong>案内不成立:</strong></p><ul>{failures}</ul>"
+        if failures
+        else ""
+    )
+    advisory_html = (
+        f"<p class='rjfm-advisory'><strong>成立候補の注意条件:</strong></p>"
+        f"<ul>{advisories}</ul>"
+        if advisories
+        else ""
+    )
+    return f"""
+<section class='rjfm-guidance'>
+  <h3>RJFM北行き RCA / CENTER ROUTE 案内（非公式）</h3>
+  <div class='rjfm-guidance-layout'>
+    {_rjfm_guidance_svg(outcome)}
+    <div>
+      <p><strong>主NAVLOG例外:</strong> 直線LegのDIST・WCA・MH・GSを表示し、
+      CLIMB ETE/FUELはPOHの5500 ft到達値を採用しています。DIST÷GSとは一致しません。</p>
+      <p><strong>CENTER ROUTE:</strong> UMK → OVER FIELD → OMARU / 5500 ft</p>
+      <ul>{summaries or '<li>使用可能な案内経路なし</li>'}</ul>
+      {advisory_html}
+      {invalid_html}
+      <p><strong>参照版:</strong> {escape(guidance.reference_revision)}<br>
+      <strong>payload SHA-256:</strong> {escape(guidance.reference_content_fingerprint)}<br>
+      {source_dates}</p>
+      <p>ATC指示を優先してください。地形・障害物・未定義の他空域は本案内の保証対象外です。</p>
+    </div>
+  </div>
+</section>
+"""
+
+
 def _transfer_context(
     project: Project,
     outcome: CalculationOutcome,
@@ -617,6 +822,15 @@ def render_transfer_aid_html(
 .fuel-amount span:first-child {{ text-align:right; }}
 .fuel-reserve-row td,.fuel-min-row td {{ border-bottom:3px solid #111; }}
 .fuel-extra-row td {{ border-bottom:3px double #111; }}
+.rjfm-guidance {{ margin-top:8px; border-top:2px solid #111; padding-top:6px; }}
+.rjfm-guidance h3 {{ margin:0 0 5px; font-size:13px; }}
+.rjfm-guidance-layout {{ display:grid; grid-template-columns:1.35fr 1fr; gap:8px; }}
+.rjfm-guidance-map {{ width:100%; border:1px solid #777; background:#fff; }}
+.rjfm-guidance-map text {{ font-size:10px; font-weight:700; }}
+.rjfm-guidance p,.rjfm-guidance li {{ font-size:8px; line-height:1.3; }}
+.rjfm-guidance ul {{ margin:3px 0; padding-left:18px; }}
+.rjfm-advisory {{ color:#8a4b08; }}
+.rjfm-invalid {{ color:#b00020; }}
 @media print {{
   html,body {{ margin:0; padding:0; background:#fff; }}
   .autonavlog-transfer-aid {{ max-width:none; width:auto; margin:0; padding:0; }}
@@ -629,6 +843,8 @@ def render_transfer_aid_html(
   .route-table th,.route-table td {{ padding:.55mm .35mm; }}
   .info-table,.fuel-table {{ font-size:5.2pt; }}
   .official-bottom,.route-table tr {{ break-inside:avoid; }}
+  .rjfm-guidance {{ break-before:page; }}
+  .rjfm-guidance p,.rjfm-guidance li {{ font-size:6.5pt; }}
 }}
 </style>
 <main class="autonavlog-transfer-aid">
@@ -662,6 +878,7 @@ def render_transfer_aid_html(
     {_info_table(outcome)}
     {_fuel_table(outcome)}
   </div>
+  {_rjfm_guidance_section(outcome)}
 </main>
 """
 

@@ -32,6 +32,8 @@ from autonavlog.domain.planning import (
     ArrivalAltitudeResult,
     CheckPointProjection,
     PersistedUiState,
+    RjfmDeparturePlan,
+    RjfmMainRouteMode,
     load_persisted_ui_state,
 )
 from autonavlog.domain.project import Airport, NavSection, Project, RouteNode
@@ -70,11 +72,12 @@ from .phase_segments import (
     RouteBoundary,
     split_route_into_phase_segments,
 )
+from .rjfm_departure_plan import rjfm_plan_matches_project
 
 
 @dataclass(frozen=True)
 class CalculationPolicies:
-    version: str = "nav2-v6-golden-display"
+    version: str = "nav2-v7-rjfm-umk-guidance"
     # Kept for serialized policy compatibility. NAV2-v5 uses MSL directly and
     # does not round or QNH-correct a separate planning pressure altitude.
     pa_500_policy: Pa500Policy = Pa500Policy.CEILING
@@ -210,11 +213,18 @@ class CalculationService:
         performance: PerformanceRepository,
         policies: CalculationPolicies | None = None,
         forecast_service: ForecastService | None = None,
+        *,
+        expected_rjfm_reference_revision: str | None = None,
+        expected_rjfm_reference_content_fingerprint: str | None = None,
     ):
         self.airports = airports
         self.performance = performance
         self.policies = policies or CalculationPolicies()
         self.forecast_service = forecast_service or ForecastService()
+        self.expected_rjfm_reference_revision = expected_rjfm_reference_revision
+        self.expected_rjfm_reference_content_fingerprint = (
+            expected_rjfm_reference_content_fingerprint
+        )
         self.last_weather_requests: list[WeatherRequest] = []
         self.last_weather_results: list[WeatherResult] = []
         self.last_forecast_metadata: dict[str, Any] = {}
@@ -297,6 +307,48 @@ class CalculationService:
         working = project.model_copy(deep=True)
         issues: list[Issue] = []
         ui_state, arrival_altitude = self._load_planning_state(working, issues)
+        rjfm_departure_plan = None if ui_state is None else ui_state.rjfm_departure_plan
+        rjfm_plan_rejection_reason: str | None = None
+        if rjfm_departure_plan is not None:
+            if (
+                self.expected_rjfm_reference_revision is None
+                or self.expected_rjfm_reference_content_fingerprint is None
+            ):
+                rjfm_plan_rejection_reason = "CURRENT_REFERENCE_IDENTITY_UNAVAILABLE"
+            elif (
+                rjfm_departure_plan.reference_revision
+                != self.expected_rjfm_reference_revision
+                or rjfm_departure_plan.reference_content_fingerprint
+                != self.expected_rjfm_reference_content_fingerprint
+            ):
+                rjfm_plan_rejection_reason = "REFERENCE_IDENTITY_MISMATCH"
+            elif not rjfm_plan_matches_project(working, rjfm_departure_plan):
+                rjfm_plan_rejection_reason = "ROUTE_INPUT_MISMATCH"
+        if rjfm_departure_plan is not None and rjfm_plan_rejection_reason is not None:
+            issues.append(
+                Issue(
+                    code="RJFM_DEPARTURE_PLAN_STALE",
+                    severity=IssueSeverity.BLOCKER,
+                    message=(
+                        "保存済みRJFM出発例外を現在の経路・参照パックと照合できません。"
+                        "現在の参照データで経路を再正規化してから再計算してください。"
+                    ),
+                    metadata={
+                        "reason": rjfm_plan_rejection_reason,
+                        "reference_revision": rjfm_departure_plan.reference_revision,
+                        "reference_content_fingerprint": (
+                            rjfm_departure_plan.reference_content_fingerprint
+                        ),
+                        "expected_reference_revision": (
+                            self.expected_rjfm_reference_revision
+                        ),
+                        "expected_reference_content_fingerprint": (
+                            self.expected_rjfm_reference_content_fingerprint
+                        ),
+                    },
+                )
+            )
+            rjfm_departure_plan = None
         arrival_altitude_ft_msl = (
             None if arrival_altitude is None else float(arrival_altitude.adopted_altitude_ft_msl)
         )
@@ -437,6 +489,7 @@ class CalculationService:
                 check_point_boundaries,
                 arrival_altitude,
                 destination_wind,
+                rjfm_departure_plan,
             )
             final = iteration_result
             delta = self._maximum_time_delta(previous_times, iteration_result.representative_times)
@@ -1474,6 +1527,37 @@ class CalculationService:
             return source_phase_fallback()
 
     @staticmethod
+    def _label_rjfm_rca(
+        segmentation: PhaseSegmentation,
+        *,
+        assumed: bool,
+    ) -> PhaseSegmentation:
+        point = segmentation.rca_point
+        if point is None:
+            return segmentation
+        labeled = replace(
+            point,
+            label="UMK/RCA（仮定）" if assumed else "UMK/RCA",
+            source_name=None if assumed else point.source_name,
+        )
+
+        def relabel(candidate: Any) -> Any:
+            return labeled if "RCA" in candidate.markers else candidate
+
+        return replace(
+            segmentation,
+            segments=tuple(
+                replace(
+                    segment,
+                    start=relabel(segment.start),
+                    end=relabel(segment.end),
+                )
+                for segment in segmentation.segments
+            ),
+            rca_point=labeled,
+        )
+
+    @staticmethod
     def _derived_points_from_segmentation(
         segmentation: PhaseSegmentation,
         boundary_times: dict[float, datetime],
@@ -1539,6 +1623,7 @@ class CalculationService:
         additional_boundaries: tuple[RouteBoundary, ...],
         arrival_altitude: ArrivalAltitudeResult | None,
         destination_wind: DestinationWindForecast | None,
+        rjfm_departure_plan: RjfmDeparturePlan | None,
     ) -> _IterationResult:
         issues: list[Issue] = []
         arrival_altitude_ft_msl = (
@@ -1591,6 +1676,36 @@ class CalculationService:
             performance_usable,
             issues,
         )
+        if climb_plan is not None and rjfm_departure_plan is not None:
+            requested_rca_distance = float(rjfm_departure_plan.virtual_rca_distance_nm)
+            route_distance = sum(geometry.distance_nm for geometry in geometries)
+            if requested_rca_distance < route_distance - 1e-9:
+                climb_plan = replace(
+                    climb_plan,
+                    route_end_distance_nm=requested_rca_distance,
+                    metadata={
+                        **climb_plan.metadata,
+                        "boundary_method": "RJFM_UMK_FIXED_RCA",
+                        "rjfm_rule_version": rjfm_departure_plan.rule_version,
+                        "rjfm_main_route_mode": rjfm_departure_plan.main_route_mode.value,
+                        "direct_leg_display_values_retained": True,
+                        "ete_policy": "POH_CLIMB_TIME_TO_5500",
+                    },
+                )
+            else:
+                issues.append(
+                    Issue(
+                        code="RJFM_UMK_RCA_OUTSIDE_ROUTE",
+                        severity=IssueSeverity.WARNING,
+                        message=(
+                            "UMK/RCA仮定距離が主経路内に収まらないため、通常RCAを表示します。"
+                        ),
+                        metadata={
+                            "requested_rca_distance_nm": requested_rca_distance,
+                            "route_distance_nm": route_distance,
+                        },
+                    )
+                )
         descent_plan = self._build_descent_plan(
             environments,
             geometries,
@@ -1606,6 +1721,14 @@ class CalculationService:
             additional_boundaries,
             issues,
         )
+        if rjfm_departure_plan is not None and segmentation.rca_point is not None:
+            segmentation = self._label_rjfm_rca(
+                segmentation,
+                assumed=(
+                    rjfm_departure_plan.main_route_mode
+                    == RjfmMainRouteMode.OMARU_VIRTUAL_UMK
+                ),
+            )
 
         sections: list[SectionResult] = []
         section_fuels: list[float | None] = []
@@ -1964,6 +2087,17 @@ class CalculationService:
                 if wind_solution is None or adopted_distance is None
                 else adopted_distance / wind_solution.ground_speed_kt * 3600.0
             )
+            if (
+                segment.phase == FlightPhase.CLIMB
+                and climb_plan is not None
+                and rjfm_departure_plan is not None
+                and climb_plan.metadata.get("boundary_method") == "RJFM_UMK_FIXED_RCA"
+            ):
+                ete_seconds = (
+                    climb_plan.duration_seconds
+                    * segment.distance_nm
+                    / climb_plan.route_end_distance_nm
+                )
             if (
                 segment.phase == FlightPhase.CLIMB
                 and climb_plan is not None

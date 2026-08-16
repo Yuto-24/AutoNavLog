@@ -284,6 +284,70 @@ export interface FuelPlan {
   extra_endurance_seconds: number | null;
 }
 
+export type RjfmGuidanceStatus =
+  | "VALID"
+  | "WARNING"
+  | "HARD_INVALID"
+  | "UNAVAILABLE";
+
+export type RjfmTurnMethod =
+  | "FIXED_BANK_20"
+  | "ADJUSTED_MAX_RADIUS"
+  | "NONE";
+
+export interface RjfmCoordinate {
+  latitude_deg: number;
+  longitude_deg: number;
+  source: string;
+  estimated_error_nm: number;
+}
+
+export interface RjfmGuidancePathPoint {
+  latitude_deg: number;
+  longitude_deg: number;
+  altitude_ft_msl: number;
+  elapsed_seconds: number;
+  segment: string;
+}
+
+export interface RjfmConstraintResult {
+  code: string;
+  passed: boolean;
+  hard: boolean;
+  message: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface RjfmRunwayGuidance {
+  runway: "09" | "27";
+  status: RjfmGuidanceStatus;
+  turn_method: RjfmTurnMethod;
+  path: RjfmGuidancePathPoint[];
+  constraints: RjfmConstraintResult[];
+  full_left_turns: number;
+  partial_left_turn_deg: number | null;
+  turn_entry_radial_deg: number | null;
+  turn_entry_dme_nm: number | null;
+  turn_entry_altitude_ft_msl: number | null;
+  exit_drift_nm: number | null;
+  expected_time_delta_seconds: number | null;
+  position_residual_nm: number | null;
+  altitude_residual_ft: number | null;
+  tangent_residual_deg: number | null;
+  notes: string[];
+}
+
+export interface RjfmDepartureGuidance {
+  rule_version: "RJFM_NORTHBOUND_R6_5_1_V1";
+  reference_revision: string;
+  reference_content_fingerprint: string;
+  source_effective_dates: Record<string, string>;
+  generated_against_fingerprint: string;
+  candidates: RjfmRunwayGuidance[];
+  center_route: RjfmCoordinate[];
+  limitations: string[];
+}
+
 export interface CalculationOutcome {
   selected_forecast_run_id: string | null;
   qnh_hpa: AdoptedValue<number>;
@@ -292,6 +356,7 @@ export interface CalculationOutcome {
   derived_points: DerivedPoint[];
   check_point_projections: CheckPointProjection[];
   fuel_plan: FuelPlan;
+  rjfm_departure_guidance?: RjfmDepartureGuidance | null;
   status: string;
 }
 

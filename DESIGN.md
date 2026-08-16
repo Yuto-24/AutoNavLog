@@ -1,9 +1,68 @@
 # AutoNavLog UI改善 要求仕様書
 
-- 版: 2.7.5
-- 日付: 2026-08-15
+- 版: 2.8.0
+- 日付: 2026-08-17
 - 対象: AutoNavLog 1.0.0 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
 - 実装担当: 別エージェント
+
+## v2.8.0 RJFM北行き UMK/RCA例外（本節を最優先）
+
+本節は、宮崎から大分方面へ `UMK → OVER FIELD → OMARU` のNewta CENTER Routeを
+使用し、UMKを5,500 ft MSLで通過する計画だけに適用する。通常経路の距離・風三角・
+燃料・到着計算、および既存の転記可否判定は、ここで明示した差分以外変更しない。
+
+### D-43 座標トリガーと主経路
+
+- FROMがRJFMで、KMLの最初の中間点が規則パックのUMKまたはOMARUから1.0 NM以内の
+  場合だけ自動適用する。点名は判定に使わない。
+- UMKを先に通るKMLでは、既存の後続OMARUをその位置のまま使う。後続OMARUがなければ
+  UMK直後へ規則パック座標のOMARUを1点だけ挿入する。再読込・再計算で重複挿入しない。
+- OMARUを最初に通るKMLでは、主経路へUMKを挿入せず、RJFMから基準UMKまでの距離を
+  仮想RCA距離として保持する。
+- KML内でUMKまたはOMARUに一致する座標はKMLを優先する。OVER FIELDと欠けた点だけを
+  規則パックから補う。UMKからOMARUまでは5,500 ft MSLとする。
+- OMARU自動挿入で分割される手入力距離は測地線距離比で2 Legへ配分して合計を保存する。
+  端点が変わる手入力Courseは例外適用中に流用せず、解除時に元の経路・Phase・高度とともに
+  復元する。規則改訂で制御区間が短くなったLegにも旧5,500 ft設定を残さない。
+
+### D-44 UMK/RCAのPOH時間例外
+
+- RCA位置は風で得た直線距離ではなく、物理UMKではその物理Legの採用終端、仮想UMKでは
+  RJFM→OMARU親Legの採用距離を測地線距離比で換算した主経路位置へ固定する。
+- CLIMBのETEと燃料は、採用温度を反映したPOHの5,500 ft到達値を採用する。
+- 主表のDIST、TC、VAR、MC、WIND、WCA、MH、GSはKMLの直線Legについて通常どおり
+  表示する。この例外のCLIMB行だけは、意図的に `ETE != DIST / GS` となる。
+- 旋回案内の経路長、旋回時間、風偏位を主NAVLOGのTTL DIST・TTL TIME・燃料へ加えない。
+
+### D-45 RWY別の診断案内
+
+- RWY09とRWY27を毎回同じ採用風、TAS、POH高度時間で解く。20°固定バンクの空気塊旋回を
+  優先し、解がなければ全方位の最大地上旋回半径を満たす20°以下の調整円を試す。
+- 延長直線と最終UMK直線のMC範囲、PCA、UMK位置・5,500 ft・接線残差をhard制約とする。
+  最終左旋回開始点のMZE 4.0 DME以上はwarningのみとする。
+- hard不適合経路は編集地図へ赤い診断線として残すが、転記補助へ経路を出さない。
+  `NO_SOLUTION`と入力不足は算出不可理由を保存する。
+- この診断の不成立・warningは`Issue`、ProjectStatus、転記可否へ加えない。ATC指示、地形、
+  障害物、未定義の他空域は保証対象外である。
+
+### D-46 規則パックと保存状態
+
+- RJFM規則パックはmanifestとpayload SHA-256を検証して起動時に読む。UMK、OVER FIELD、
+  OMARUは添付図の未検証デジタイズとして推定誤差を保持し、AIP公開ミラー・国交省告示・
+  添付訓練要領・利用者Policyを同一出典として扱わない。
+- 内部UI状態を`state_schema_version=5`とし、正規化済み計画と両RWYの診断結果を保存する。
+  v4/v3は凍結modelで検証してv5へ移行する。診断結果は計算入力fingerprintの対象外だが、
+  計画、規則版、payload SHA-256、主経路、気象・性能入力が変われば再計算で置き換える。
+  保存計画が現在の経路・制御Leg・RCA距離・規則パックと一致しない場合は例外計算へ渡さず、
+  Webでは旧診断線を非表示、直接計算ではBlockerとする。
+
+### v2.8.0受入基準
+
+- **W-17**: 点名が誤っていても座標でUMK/OMARUを判定し、既存点の移動・重複挿入をしない。
+- **W-18**: UMK/RCAまでのCLIMB ETE/FUELがPOH値と一致し、直線GSとDISTは変わらない。
+- **W-19**: RWY09/27の成立・注意・不成立・算出不可を同じDTOで保存し、診断不成立だけでは
+  ProjectStatusと転記可否が変わらない。
+- **W-20**: Web編集地図、転記補助、保存再読込、schema、出典文書で同じ規則版を扱う。
 
 ## v2.7.5 Issue #43 Golden NAVLOG表示（本節を最優先）
 
@@ -555,17 +614,24 @@ class ViewMode(Enum):
 
 class PersistedUiState(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    state_schema_version: Literal[4]
+    state_schema_version: Literal[5]
     calculated_against_fingerprint: Sha256Hex | None = None
     defaults_review_fingerprint: Sha256Hex | None = None
     manual_qnh_fingerprint: Sha256Hex | None = None
     arrival_plan: ArrivalPlan | None = None
     reference_data_snapshot: ReferenceDataSnapshot | None = None
+    rjfm_departure_plan: RjfmDeparturePlan | None = None
+    rjfm_departure_guidance: RjfmDepartureGuidance | None = None
 ```
 
 `current_calculation_input_fingerprint` は現在のProjectから都度導出し、保存しない。直近の計算完了時に `calculated_against_fingerprint` を保存する。両者が異なる場合は `RECALCULATION_REQUIRED`（BLOCKER）とする。
 
-`state_schema_version=4` はProject/Snapshot本体のschema versionを変更しない。旧v3を読み込む場合は凍結したv3 modelで厳格検証し、計算fingerprint、既定値確認、手動QNH確認、ArrivalPlan、参照データsnapshotだけをv4へ移す。`sea_states` は移行せず破棄する。v2以前はArrivalPlanと参照データを安全に復元できないため、経路・FROM/TO・VREP・参照行の再確認を要求する。不正または未知versionを推測で補完しない。
+`state_schema_version=5` はProject/Snapshot本体のschema versionを変更しない。旧v4を
+読み込む場合は既存状態を維持し、RJFM状態を空で追加する。旧v3は凍結したv3 modelで
+厳格検証し、計算fingerprint、既定値確認、手動QNH確認、ArrivalPlan、参照データsnapshot
+だけをv5へ移す。`sea_states` は移行せず破棄する。v2以前はArrivalPlanと参照データを
+安全に復元できないため、経路・FROM/TO・VREP・参照行の再確認を要求する。不正または
+未知versionを推測で補完しない。
 
 導出規則:
 
@@ -1734,7 +1800,7 @@ Snapshotの「変更不能」は、アプリ上編集不可であることと、
 - `current_calculation_input_fingerprint` と `calculated_against_fingerprint` の陳腐化判定は再起動後も同じである
 - performance bytes、選択参照行、ArrivalPlan、CP、ALT、Phase、経路、DATE/ETD/QNH等の計算依存入力変更でfingerprintが変わる
 - `safe_enroute_altitude_ft_msl`、旧SEA state、pilot、ship、Project名、未選択参照行の変更ではfingerprintが変わらない
-- `state_schema_version=3` からv4への移行でSEA stateを捨て、非SEA状態だけを保持する
+- `state_schema_version=3` またはv4からv5へ移行し、v3のSEA stateだけを捨てる
 - ProjectStatusは全 `EffectiveIssue` と複合ack keyから再導出し、生のIssue codeだけを承認集合へ入れても承認にならない
 
 **F（表示・出力）**

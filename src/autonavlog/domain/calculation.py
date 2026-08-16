@@ -14,7 +14,7 @@ from .enums import (
     PressureAltitudeDisplayKind,
     ProjectStatus,
 )
-from .planning import ArrivalAltitudeResult, CheckPointProjection
+from .planning import ArrivalAltitudeResult, CheckPointProjection, RjfmDepartureGuidance
 from .values import AdoptedValue
 
 
@@ -249,6 +249,7 @@ class CalculationOutcome(CalculationModel):
     derived_points: list[DerivedRoutePoint] = Field(default_factory=list)
     arrival_altitude: ArrivalAltitudeResult | None = None
     check_point_projections: list[CheckPointProjection] = Field(default_factory=list)
+    rjfm_departure_guidance: RjfmDepartureGuidance | None = None
     fuel_plan: FuelPlan
     issues: list[Issue] = Field(default_factory=list)
     iterations: list[IterationRecord] = Field(default_factory=list)

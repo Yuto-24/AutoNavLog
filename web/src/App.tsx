@@ -50,6 +50,8 @@ function App() {
   const [navLogDrafts, setNavLogDrafts] = useState<NavLogEditDrafts>({});
   const [navLogEditErrors, setNavLogEditErrors] = useState<NavLogEditErrors>({});
   const [navLogEditVersion, setNavLogEditVersion] = useState(0);
+  const [calculationInputsAreLocallyCurrent, setCalculationInputsAreLocallyCurrent] =
+    useState(true);
   const [navLogEditStatus, setNavLogEditStatus] = useState<{
     kind: "idle" | "pending" | "saving" | "saved" | "error";
     message: string;
@@ -79,6 +81,7 @@ function App() {
 
   const invalidateCalculationInputs = () => {
     calculationInputGenerationRef.current += 1;
+    setCalculationInputsAreLocallyCurrent(false);
     if (navLogEditPendingRef.current) {
       setNavLogEditVersion(calculationInputGenerationRef.current);
     }
@@ -105,6 +108,9 @@ function App() {
       !initialState && projectIdRef.current !== nextProjectId;
     const syncCalculationInputs =
       options.syncCalculationInputs || initialState || projectChanged;
+    if (syncCalculationInputs) {
+      setCalculationInputsAreLocallyCurrent(true);
+    }
     if (projectChanged) cancelPendingRecalculation();
     projectIdRef.current = nextProjectId;
     if (projectChanged || initialState) {
@@ -615,6 +621,7 @@ function App() {
     );
     navLogEditPendingRef.current = true;
     calculationInputGenerationRef.current += 1;
+    setCalculationInputsAreLocallyCurrent(false);
     setNavLogEditVersion(calculationInputGenerationRef.current);
   };
 
@@ -879,6 +886,9 @@ function App() {
           project={state.project}
           altitudeGuidance={state.altitudeGuidance}
           outcome={state.outcome}
+          calculationIsCurrent={
+            state.readiness.calculationIsCurrent && calculationInputsAreLocallyCurrent
+          }
           altitudeInputs={altitudeInputs}
           destinationAirport={selectedDestinationAirport}
           destinationPatternAltitudeFtMsl={form.destinationPatternAltitudeFtMsl}

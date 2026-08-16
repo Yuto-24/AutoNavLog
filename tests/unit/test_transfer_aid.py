@@ -17,6 +17,15 @@ from autonavlog.domain.enums import (
     ProjectStatus,
     ValueState,
 )
+from autonavlog.domain.planning import (
+    RjfmConstraintResult,
+    RjfmCoordinate,
+    RjfmDepartureGuidance,
+    RjfmGuidancePathPoint,
+    RjfmGuidanceStatus,
+    RjfmRunwayGuidance,
+    RjfmTurnMethod,
+)
 from autonavlog.domain.values import AdoptedValue
 from autonavlog.presentation.clearcopy import render_clearcopy_html
 from autonavlog.presentation.transfer_aid import (
@@ -428,3 +437,95 @@ def test_transfer_aid_uses_requested_five_column_fuel_table(
     assert "MIN REQUIRED" in fuel_table
     assert "<span>0</span><span>:</span><span>10</span>" in fuel_table
     assert "<span>0</span><span>:</span><span>45</span>" in fuel_table
+
+
+def test_transfer_aid_renders_only_usable_rjfm_path_and_invalid_reason(
+    project,
+    airports,
+    performance_repository,
+) -> None:
+    ready_project, outcome = _outcome_with_sections(
+        project,
+        airports,
+        performance_repository,
+    )
+    center = [
+        RjfmCoordinate(
+            latitude_deg=latitude,
+            longitude_deg=longitude,
+            source="fixture-map",
+            estimated_error_nm=0.2,
+        )
+        for latitude, longitude in (
+            (32.08, 131.50),
+            (32.10, 131.47),
+            (32.22, 131.55),
+        )
+    ]
+    path = [
+        RjfmGuidancePathPoint(
+            latitude_deg=latitude,
+            longitude_deg=longitude,
+            altitude_ft_msl=altitude,
+            elapsed_seconds=elapsed,
+            segment="TEST",
+        )
+        for latitude, longitude, altitude, elapsed in (
+            (31.877, 131.449, 19, 0),
+            (32.08, 131.50, 5500, 300),
+        )
+    ]
+    guidance = RjfmDepartureGuidance(
+        reference_revision="fixture-r1",
+        reference_content_fingerprint="b" * 64,
+        source_effective_dates={"AIP": "2025-08-07"},
+        generated_against_fingerprint="a" * 64,
+        center_route=center,
+        candidates=[
+            RjfmRunwayGuidance(
+                runway="09",
+                status=RjfmGuidanceStatus.WARNING,
+                turn_method=RjfmTurnMethod.FIXED_BANK_20,
+                path=path,
+                constraints=[
+                    RjfmConstraintResult(
+                        code="MZE_ENTRY_DME",
+                        passed=False,
+                        hard=False,
+                        message="MZE旋回開始点が4.0 DME未満",
+                    )
+                ],
+                full_left_turns=1,
+                partial_left_turn_deg=42,
+                turn_entry_radial_deg=305,
+                turn_entry_dme_nm=3.9,
+                expected_time_delta_seconds=75,
+            ),
+            RjfmRunwayGuidance(
+                runway="27",
+                status=RjfmGuidanceStatus.HARD_INVALID,
+                constraints=[
+                    RjfmConstraintResult(
+                        code="PCA",
+                        passed=False,
+                        hard=True,
+                        message="PCA高度帯へ進入",
+                    )
+                ],
+            ),
+        ],
+    )
+
+    html = render_transfer_aid_html(
+        ready_project,
+        outcome.model_copy(update={"rjfm_departure_guidance": guidance}),
+    )
+
+    assert "RJFM北行き RCA / CENTER ROUTE 案内" in html
+    assert "RWY09: 成立（注意）" in html
+    assert "成立候補の注意条件" in html
+    assert "RWY09: MZE旋回開始点が4.0 DME未満" in html
+    assert "RWY27: PCA高度帯へ進入" in html
+    assert html.count("<polyline") == 2  # RWY09 plus CENTER ROUTE; no invalid RWY27 path.
+    assert "DIST÷GSとは一致しません" in html
+    assert "AIP: 2025-08-07" in html

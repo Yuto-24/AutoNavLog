@@ -138,6 +138,11 @@ docker compose -p autonavlog-dev down
 `DESTINATION INFO` 行に参考値として表示します。NAV LOG の WCA、GS、ETE、燃料には使いません。
 TAF を取得できなくても計算は続きます。
 
+RJFMから大分方面へ北上する経路で、最初のWaypointがUMKまたはOMARUの参照座標から
+1.0 NM以内なら、UMK 5,500 ftのRCA例外を自動適用します。NAV LOGには直線主経路の
+DIST・GSを表示する一方、ETE・燃料はPOHの5,500 ft上昇値とし、延長旋回は別の参考案内として
+表示します。適用条件と制限は[計算規則](docs/calculation_rules.md#rjfm大分方面のumkrca例外)を参照してください。
+
 同梱している RJFM/RJFO の場周経路高度は、一次資料による出典確認が終わっていないため
 `UNVERIFIED` です。経路の取込、入力確認、下書き保存はできますが、
 `PATTERN_ALTITUDE_REQUIRED` が転記補助表の出力を止めます。
