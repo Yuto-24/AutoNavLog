@@ -1,0 +1,371 @@
+{
+  "schema_version": 1,
+  "validation_status": "SOURCE_BACKED_WITH_UNVERIFIED_MAP_POINTS",
+  "sources": [
+    {
+      "id": "cac-rjfm-training-r6-5-1",
+      "title": "宮崎空港及びその周辺における航空大学校所属機の訓練飛行実施要領",
+      "publisher": "独立行政法人航空大学校宮崎本校運用課",
+      "distribution": "ATTACHED_DOCUMENT",
+      "url": null,
+      "effective_date": "2024-05-01",
+      "retrieved_date": "2026-08-16",
+      "sha256": "29b21992454cc2c9995512dec2f011004ddd839ef9b7784d5b4696fa13e4eab7",
+      "pages_or_sections": [
+        "PDF p.8 / document p.5: IV departure procedures",
+        "PDF p.13 / document p.10: VI traffic pattern altitude",
+        "PDF p.35 / Appendix 9: Newtabaru routes"
+      ],
+      "notes": "The attachment is the controlling source for the training procedure. Appendix 9 specifies 5,500 ft northbound and the CENTER route reporting sequence; its map does not publish coordinates for UMK, OVER FIELD, or OMARU."
+    },
+    {
+      "id": "aip-rjfm-2026-03-01-public-mirror",
+      "title": "AIP Japan RJFM AD 2",
+      "publisher": "Civil Aviation Bureau, Japan",
+      "distribution": "PUBLIC_AIP_MIRROR",
+      "url": "https://nagodede.github.io/aip/japan/documents/RJFM_full.pdf",
+      "effective_date": "2026-03-01",
+      "retrieved_date": "2026-08-17",
+      "sha256": "e493984c5cbd0340a421b2e049077e1bd5cafeb0b5a21d456ea7c65bb8d318d6",
+      "pages_or_sections": [
+        "RJFM AD 2.2 p.AD2-1, EFF 1 MAR 2026: ARP and aerodrome elevation",
+        "RJFM AD 2.12 p.AD2-5, EFF 15 MAY 2025: runway thresholds, bearings, dimensions, elevations",
+        "RJFM AD 2.19 p.AD2-9, EFF 8 NOV 2018: MZE position, DME elevation, VOR declination"
+      ],
+      "notes": "The data publisher is JCAB, but this artifact was obtained from a public third-party AIP mirror because an official machine-readable AIP artifact was not available in the workspace. Section effective dates, rather than the merged-file date alone, control each value."
+    },
+    {
+      "id": "mlit-special-control-area-consolidated-2024-02-08",
+      "title": "航空交通管制区又は航空交通管制圏のうち計器飛行方式により飛行しなければならない空域を指定する告示",
+      "publisher": "国土交通省",
+      "distribution": "OFFICIAL_MLIT",
+      "url": "https://www.mlit.go.jp/notice/noticedata/pdf/20240214/03_20240208_kouku.pdf",
+      "effective_date": "2020-11-05",
+      "retrieved_date": "2026-08-17",
+      "sha256": "8dcf0dbb4242150085c31ccc5517858b59b6497c3336df0d455a73057fa0d30c",
+      "pages_or_sections": [
+        "p.19: 宮崎特別管制区"
+      ],
+      "notes": "The official consolidated notice defines the four horizontal vertices, the 9 km exclusion centered on N31°53′ E131°27′, and source vertical limits of 200 m through 800 m."
+    },
+    {
+      "id": "mlit-radio-navigation-aids-mze",
+      "title": "航空保安無線施設の名称、位置等に関する告示",
+      "publisher": "国土交通省",
+      "distribution": "OFFICIAL_MLIT",
+      "url": "https://www.mlit.go.jp/notice/noticedata/sgml/1977/68023000/68023000.html",
+      "effective_date": null,
+      "retrieved_date": "2026-08-17",
+      "sha256": "e94b11920eed90db961a47dc5a4b6a96dd1680b806f48abe31917607cb65607f",
+      "pages_or_sections": [
+        "宮崎VOR row: MZE, 112.4 MHz, N31°53′ E131°26′",
+        "宮崎DME row: MZE, 1158 MHz, N31°53′ E131°26′"
+      ],
+      "notes": "The official notice independently confirms the MZE identifier, frequency, and coarse location. Second-level coordinates, station declination, and DME antenna elevation remain sourced from the AIP snapshot."
+    },
+    {
+      "id": "gsi-address-search-controls-2026-08-17",
+      "title": "国土地理院住所検索APIによる庁舎位置",
+      "publisher": "国土地理院",
+      "distribution": "OFFICIAL_GSI_API",
+      "url": "https://msearch.gsi.go.jp/address-search/AddressSearch",
+      "effective_date": null,
+      "retrieved_date": "2026-08-17",
+      "sha256": null,
+      "pages_or_sections": [
+        "query 日向市役所, addressCode 45206, dataSource 3",
+        "query 都農町役場, addressCode 45406, dataSource 3",
+        "query 川南町役場, addressCode 45405, dataSource 3",
+        "query 高鍋町役場, addressCode 45401, dataSource 3",
+        "query 西都市役所, addressCode 45208, dataSource 3",
+        "query 国富町役場, addressCode 45382, dataSource 3"
+      ],
+      "notes": "Six government-office symbols distributed across Appendix 9 were used as control points. API coordinates are retained verbatim in the control-point records."
+    },
+    {
+      "id": "user-approved-rjfm-guidance-policy-2026-08-16",
+      "title": "RJFM→UMK→OMARU RCA例外対応に関する利用者決定",
+      "publisher": "AutoNavLog user",
+      "distribution": "USER_DECISION",
+      "url": null,
+      "effective_date": "2026-08-16",
+      "retrieved_date": "2026-08-16",
+      "sha256": null,
+      "pages_or_sections": [
+        "Conversation decisions finalized 2026-08-16"
+      ],
+      "notes": "This source supplies planning-policy values that are not asserted to be AIP or training-document facts, including the 656–2,700 ft inclusive operational PCA test, 4.0 NM warning threshold, 20° bank, coordinate trigger radius, and numeric solver tolerances."
+    }
+  ],
+  "airport": {
+    "icao": "RJFM",
+    "arp": {
+      "latitude_deg": 31.877222222222223,
+      "longitude_deg": 131.44861111111112
+    },
+    "elevation_ft_msl": 19.0,
+    "traffic_pattern_altitude_ft_msl": 1000.0,
+    "source_ids": [
+      "aip-rjfm-2026-03-01-public-mirror",
+      "cac-rjfm-training-r6-5-1"
+    ]
+  },
+  "runway": {
+    "designator": "09/27",
+    "length_m": 2500.0,
+    "width_m": 45.0,
+    "ends": {
+      "09": {
+        "id": "09",
+        "threshold": {
+          "latitude_deg": 31.876183333333334,
+          "longitude_deg": 131.43528333333333
+        },
+        "true_bearing_deg": 85.18,
+        "threshold_elevation_ft_msl": 15.0,
+        "source_ids": [
+          "aip-rjfm-2026-03-01-public-mirror"
+        ]
+      },
+      "27": {
+        "id": "27",
+        "threshold": {
+          "latitude_deg": 31.878072222222222,
+          "longitude_deg": 131.4616111111111
+        },
+        "true_bearing_deg": 265.18,
+        "threshold_elevation_ft_msl": 20.7,
+        "source_ids": [
+          "aip-rjfm-2026-03-01-public-mirror"
+        ]
+      }
+    },
+    "center": {
+      "latitude_deg": 31.877128459304384,
+      "longitude_deg": 131.44844708793116
+    },
+    "center_method": "WGS84_GEODESIC_MIDPOINT_OF_THRESHOLDS"
+  },
+  "mze": {
+    "identifier": "MZE",
+    "frequency_mhz": 112.4,
+    "position": {
+      "latitude_deg": 31.87872777777778,
+      "longitude_deg": 131.43746666666667
+    },
+    "elevation_ft_msl": 54.0,
+    "station_declination_deg": -6.0,
+    "station_declination_epoch": 2013,
+    "declination_convention": "EAST_POSITIVE_WEST_NEGATIVE",
+    "source_ids": [
+      "aip-rjfm-2026-03-01-public-mirror",
+      "mlit-radio-navigation-aids-mze"
+    ]
+  },
+  "georeferencing": {
+    "source_id": "cac-rjfm-training-r6-5-1",
+    "source_page": 35,
+    "rendered_width_px": 2105,
+    "rendered_height_px": 2977,
+    "coordinate_frame": "FULL_PAGE_PIXELS_TOP_LEFT_ORIGIN",
+    "target_symbol_anchor": "OPEN_TRIANGLE_CENTROID",
+    "transform": {
+      "type": "AFFINE_PIXEL_TO_WGS84",
+      "latitude_deg_coefficients": [
+        7.146179172877757e-7,
+        -0.0002392703225390959,
+        32.51802753883745
+      ],
+      "longitude_deg_coefficients": [
+        0.00028354652459481016,
+        -1.3316485675263223e-6,
+        131.25118437334615
+      ]
+    },
+    "control_points": [
+      {
+        "id": "HYUGA_CITY_HALL",
+        "label": "日向市役所",
+        "pixel": {"x": 1317, "y": 403},
+        "position": {"latitude_deg": 32.42248717, "longitude_deg": 131.62440541},
+        "residual_nm": 0.01693341034924787,
+        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
+      },
+      {
+        "id": "TSUNO_TOWN_HALL",
+        "label": "都農町役場",
+        "pixel": {"x": 1095, "y": 1098},
+        "position": {"latitude_deg": 32.25666667, "longitude_deg": 131.5597222},
+        "residual_nm": 0.04233510835434205,
+        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
+      },
+      {
+        "id": "KAWAMINAMI_TOWN_HALL",
+        "label": "川南町役場",
+        "pixel": {"x": 976, "y": 1366},
+        "position": {"latitude_deg": 32.19194444, "longitude_deg": 131.5258333},
+        "residual_nm": 0.01442004379341962,
+        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
+      },
+      {
+        "id": "TAKANABE_TOWN_HALL",
+        "label": "高鍋町役場",
+        "pixel": {"x": 895, "y": 1631},
+        "position": {"latitude_deg": 32.12797446, "longitude_deg": 131.50328098},
+        "residual_nm": 0.03656952763352949,
+        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
+      },
+      {
+        "id": "SAITO_CITY_HALL",
+        "label": "西都市役所",
+        "pixel": {"x": 537, "y": 1713},
+        "position": {"latitude_deg": 32.1078619, "longitude_deg": 131.40094833},
+        "residual_nm": 0.04218371221255373,
+        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
+      },
+      {
+        "id": "KUNITOMI_TOWN_HALL",
+        "label": "国富町役場",
+        "pixel": {"x": 265, "y": 2207},
+        "position": {"latitude_deg": 31.99068685, "longitude_deg": 131.32354028},
+        "residual_nm": 0.03325883228611923,
+        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
+      }
+    ],
+    "rms_residual_nm": 0.032939048004967386,
+    "max_residual_nm": 0.04233510835434205,
+    "maximum_allowed_residual_nm": 0.5,
+    "estimated_target_error_nm": 0.35,
+    "estimated_target_error_basis": "Maximum control residual plus conservative half-width of the open-triangle reporting-point symbol at the rendered map scale."
+  },
+  "points": {
+    "UMK": {
+      "id": "UMK",
+      "name": "UMK・GC",
+      "position": {
+        "latitude_deg": 31.985137767624444,
+        "longitude_deg": 131.42429852046251
+      },
+      "map_pixel": {"x": 621, "y": 2229},
+      "estimated_error_nm": 0.35,
+      "validation_status": "UNVERIFIED_MAP_DIGITIZATION",
+      "source_ids": [
+        "cac-rjfm-training-r6-5-1",
+        "gsi-address-search-controls-2026-08-17"
+      ],
+      "notes": "Open-triangle centroid digitized from Appendix 9. Use a matching KML coordinate in preference to this master value when available."
+    },
+    "OVER_FIELD": {
+      "id": "OVER_FIELD",
+      "name": "新田原直上 / OVER FIELD",
+      "position": {
+        "latitude_deg": 32.08521636344042,
+        "longitude_deg": 131.4500907902527
+      },
+      "map_pixel": {"x": 710, "y": 1811},
+      "estimated_error_nm": 0.35,
+      "validation_status": "UNVERIFIED_MAP_DIGITIZATION",
+      "source_ids": [
+        "cac-rjfm-training-r6-5-1",
+        "gsi-address-search-controls-2026-08-17"
+      ],
+      "notes": "Open-triangle centroid digitized from Appendix 9. This guidance point is not asserted to be the published RJFN ARP."
+    },
+    "OMARU": {
+      "id": "OMARU",
+      "name": "小丸 / OMARU",
+      "position": {
+        "latitude_deg": 32.16255070087476,
+        "longitude_deg": 131.47036916946163
+      },
+      "map_pixel": {"x": 780, "y": 1488},
+      "estimated_error_nm": 0.35,
+      "validation_status": "UNVERIFIED_MAP_DIGITIZATION",
+      "source_ids": [
+        "cac-rjfm-training-r6-5-1",
+        "gsi-address-search-controls-2026-08-17"
+      ],
+      "notes": "Open-triangle centroid digitized from Appendix 9. Use a matching KML coordinate in preference to this master value when available."
+    }
+  },
+  "pca": {
+    "name": "MIYAZAKI_SPECIAL_CONTROL_AREA",
+    "polygon_vertices": [
+      {"latitude_deg": 31.934444444444445, "longitude_deg": 131.52},
+      {"latitude_deg": 31.834444444444443, "longitude_deg": 131.5327777777778},
+      {"latitude_deg": 31.851666666666667, "longitude_deg": 131.74166666666665},
+      {"latitude_deg": 31.951666666666664, "longitude_deg": 131.73111111111112}
+    ],
+    "exclusion_center": {
+      "latitude_deg": 31.883333333333333,
+      "longitude_deg": 131.45
+    },
+    "exclusion_radius_km": 9.0,
+    "source_altitude_lower_m": 200.0,
+    "source_altitude_upper_m": 800.0,
+    "operational_altitude_lower_ft_msl": 656.0,
+    "operational_altitude_upper_ft_msl": 2700.0,
+    "altitude_bounds_inclusive": true,
+    "operational_altitude_policy_status": "USER_APPROVED_NOT_EXACT_METRIC_CONVERSION",
+    "source_ids": [
+      "mlit-special-control-area-consolidated-2024-02-08",
+      "user-approved-rjfm-guidance-policy-2026-08-16"
+    ]
+  },
+  "policy": {
+    "scope": "RJFM_NORTHBOUND_OITA_ONLY",
+    "target_altitude_ft_msl": 5500.0,
+    "southbound_reference_altitude_ft_msl": 4500.0,
+    "center_route_sequence": ["UMK", "OVER_FIELD", "OMARU"],
+    "trigger_point_ids": ["UMK", "OMARU"],
+    "trigger_radius_nm": 1.0,
+    "runways": {
+      "09": {
+        "runway_id": "09",
+        "initial_magnetic_course_deg": 92.0,
+        "initial_straight_distance_nm": null,
+        "initial_straight_until_altitude_ft_msl": 1000.0,
+        "initial_turn_direction": "LEFT",
+        "initial_turn_angle_deg": 45.0,
+        "post_cut_magnetic_course_deg": 47.0
+      },
+      "27": {
+        "runway_id": "27",
+        "initial_magnetic_course_deg": 272.0,
+        "initial_straight_distance_nm": 1.5,
+        "initial_straight_until_altitude_ft_msl": null,
+        "initial_turn_direction": "RIGHT",
+        "initial_turn_angle_deg": 45.0,
+        "post_cut_magnetic_course_deg": 317.0
+      }
+    },
+    "turn_bank_angle_deg": 20.0,
+    "extension_turn_direction": "LEFT",
+    "minimum_turn_entry_dme_nm": 4.0,
+    "minimum_turn_entry_dme_inclusive": true,
+    "dme_constraint_scope": "FINAL_LEFT_TURN_ENTRY_POINT",
+    "dme_constraint_severity": "WARNING_ONLY",
+    "post_cut_straight_allowed_magnetic_courses": [
+      {
+        "lower_deg": 0.0,
+        "upper_deg": 92.0,
+        "lower_inclusive": true,
+        "upper_inclusive": false
+      },
+      {
+        "lower_deg": 272.0,
+        "upper_deg": 360.0,
+        "lower_inclusive": false,
+        "upper_inclusive": false
+      }
+    ],
+    "target_position_tolerance_nm": 0.01,
+    "target_altitude_tolerance_ft": 10.0,
+    "tangent_course_tolerance_deg": 0.1,
+    "pca_violation_severity": "HARD_INVALID",
+    "source_ids": [
+      "cac-rjfm-training-r6-5-1",
+      "user-approved-rjfm-guidance-policy-2026-08-16"
+    ]
+  }
+}

@@ -3,7 +3,11 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import type { NavLogDisplayRow, WebState } from "../src/types";
+import type {
+  NavLogDisplayRow,
+  RjfmDepartureGuidance,
+  WebState,
+} from "../src/types";
 
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -30,6 +34,185 @@ const kmlFromRjfk = `<?xml version="1.0" encoding="UTF-8"?>
     131.7372222222,33.4794444444,0
   </coordinates></LineString></Placemark></Document>
 </kml>`;
+
+const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
+  rule_version: "RJFM_NORTHBOUND_R6_5_1_V1",
+  reference_revision: "2026-08-17-rjfm-umk-guidance-v1",
+  reference_content_fingerprint: "b".repeat(64),
+  source_effective_dates: {
+    training_procedure: "2024-05-01",
+    aip_rjfm: "2026-03-01",
+    pca_notice: "2020-11-05",
+  },
+  generated_against_fingerprint: "a".repeat(64),
+  center_route: [
+    {
+      latitude_deg: 31.9851378,
+      longitude_deg: 131.4242985,
+      source: "KML:UMK",
+      estimated_error_nm: 0,
+    },
+    {
+      latitude_deg: 32.0852164,
+      longitude_deg: 131.4500908,
+      source: "RJFM_REFERENCE:OVER_FIELD",
+      estimated_error_nm: 0.35,
+    },
+    {
+      latitude_deg: 32.1625507,
+      longitude_deg: 131.4703692,
+      source: "KML:OMARU",
+      estimated_error_nm: 0,
+    },
+  ],
+  candidates: [
+    {
+      runway: "09",
+      status: "WARNING",
+      turn_method: "FIXED_BANK_20",
+      path: [
+        {
+          latitude_deg: 31.87618,
+          longitude_deg: 131.43528,
+          altitude_ft_msl: 15,
+          elapsed_seconds: 0,
+          segment: "INITIAL",
+        },
+        {
+          latitude_deg: 31.91,
+          longitude_deg: 131.39,
+          altitude_ft_msl: 2400,
+          elapsed_seconds: 150,
+          segment: "LEFT_TURN",
+        },
+        {
+          latitude_deg: 31.9851378,
+          longitude_deg: 131.4242985,
+          altitude_ft_msl: 5500,
+          elapsed_seconds: 360,
+          segment: "CENTER_INTERCEPT",
+        },
+      ],
+      constraints: [
+        {
+          code: "UMK_TARGET",
+          passed: true,
+          hard: true,
+          message: "UMK位置・高度の許容差内です。",
+          metadata: {},
+        },
+        {
+          code: "MZE_MINIMUM_DME",
+          passed: false,
+          hard: false,
+          message: "旋回開始点がMZE 4 DME未満です。",
+          metadata: { threshold_nm: 4 },
+        },
+      ],
+      full_left_turns: 1,
+      partial_left_turn_deg: 92.4,
+      turn_entry_radial_deg: 326.2,
+      turn_entry_dme_nm: 3.8,
+      turn_entry_altitude_ft_msl: 2380,
+      exit_drift_nm: 0.31,
+      expected_time_delta_seconds: 47,
+      position_residual_nm: 0.004,
+      altitude_residual_ft: 4,
+      tangent_residual_deg: 0.1,
+      notes: ["風を含む地上軌跡です。"],
+    },
+    {
+      runway: "27",
+      status: "HARD_INVALID",
+      turn_method: "ADJUSTED_MAX_RADIUS",
+      path: [
+        {
+          latitude_deg: 31.87807,
+          longitude_deg: 131.46161,
+          altitude_ft_msl: 21,
+          elapsed_seconds: 0,
+          segment: "INITIAL",
+        },
+        {
+          latitude_deg: 31.93,
+          longitude_deg: 131.5,
+          altitude_ft_msl: 2700,
+          elapsed_seconds: 185,
+          segment: "LEFT_TURN",
+        },
+        {
+          latitude_deg: 31.9851378,
+          longitude_deg: 131.4242985,
+          altitude_ft_msl: 5500,
+          elapsed_seconds: 340,
+          segment: "CENTER_INTERCEPT",
+        },
+      ],
+      constraints: [
+        {
+          code: "PCA_PENETRATION",
+          passed: false,
+          hard: true,
+          message: "PCA運用高度帯への進入を検出しました。",
+          metadata: {},
+        },
+      ],
+      full_left_turns: 0,
+      partial_left_turn_deg: 188.1,
+      turn_entry_radial_deg: 41.6,
+      turn_entry_dme_nm: 5.2,
+      turn_entry_altitude_ft_msl: 2850,
+      exit_drift_nm: 0.52,
+      expected_time_delta_seconds: -20,
+      position_residual_nm: 0.008,
+      altitude_residual_ft: 7,
+      tangent_residual_deg: 0.1,
+      notes: ["不成立経路は編集画面の診断専用です。"],
+    },
+  ],
+  limitations: [
+    "経路候補は計画支援用であり、ATC指示と実機の飛行を優先してください。",
+  ],
+};
+
+const rjfmValidUnavailableGuidanceFixture: RjfmDepartureGuidance = {
+  ...rjfmDepartureGuidanceFixture,
+  candidates: [
+    {
+      ...rjfmDepartureGuidanceFixture.candidates[0]!,
+      status: "VALID",
+      constraints: [
+        {
+          code: "UMK_TARGET",
+          passed: true,
+          hard: true,
+          message: "UMK位置・高度の許容差内です。",
+          metadata: {},
+        },
+      ],
+      turn_entry_dme_nm: 4.8,
+      notes: ["全制約に適合した候補です。"],
+    },
+    {
+      runway: "27",
+      status: "UNAVAILABLE",
+      turn_method: "NONE",
+      path: [],
+      constraints: [],
+      full_left_turns: 0,
+      partial_left_turn_deg: null,
+      turn_entry_radial_deg: null,
+      turn_entry_dme_nm: null,
+      turn_entry_altitude_ft_msl: null,
+      exit_drift_nm: null,
+      expected_time_delta_seconds: null,
+      position_residual_nm: null,
+      altitude_residual_ft: null,
+      tangent_residual_deg: null,
+      notes: ["採用済みの風データがないため算出できません。"],
+    },
+  ],
+};
 
 const twoConnectedRouteCandidatesKml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
@@ -435,6 +618,137 @@ test("desktop map height is keyboard adjustable and fixed below breakpoint", asy
   await page.setViewportSize({ width: 1240, height: 1000 });
   await expect(separator).toBeHidden();
   expect((await map.boundingBox())?.height).toBeCloseTo(500, 0);
+});
+
+test("RJFM departure guidance renders route overlays and runway diagnostics", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await calculateNavLog(page);
+
+  const guidanceState = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  if (guidanceState.outcome === null) throw new Error("calculation outcome is missing");
+  guidanceState.outcome.rjfm_departure_guidance = rjfmDepartureGuidanceFixture;
+  await page.route("**/api/state", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(guidanceState),
+    });
+  }, { times: 1 });
+  await page.reload();
+
+  const guidance = page.getByRole("region", { name: "RJFM北方面出発ガイダンス" });
+  await expect(guidance).toBeVisible();
+  await expect(guidance.getByRole("heading", {
+    name: "Newta CENTER Route 出発ガイダンス",
+  })).toBeVisible();
+  const runway09 = guidance.getByRole("article", { name: "RWY 09 候補 成立（注意）" });
+  const runway27 = guidance.getByRole("article", { name: "RWY 27 候補 不成立" });
+  await expect(runway09).toContainText("左旋回 1周 + 92.4°");
+  await expect(runway09).toContainText("R326° / 3.8 DME");
+  await expect(runway09).toContainText("UMK 5,500 ft MSL");
+  await expect(runway09).toContainText("LOSS +1.0 min");
+  await expect(runway09).toContainText("MZE 4 DME未満");
+  await expect(runway09).toContainText("非ブロッキング注意");
+  await expect(runway27).toContainText("GAIN −0.5 min");
+  await expect(runway27).toContainText("PCA運用高度帯への進入");
+  await expect(guidance).toContainText("訓練飛行実施要領");
+  await expect(guidance).toContainText("2024-05-01");
+  await expect(guidance).toContainText("ATC指示と実機の飛行を優先");
+
+  const legend = page.getByRole("group", { name: "RJFMガイダンス凡例" });
+  await expect(legend).toContainText("Newta CENTER");
+  await expect(legend).toContainText("RWY 09 成立（注意）");
+  await expect(legend).toContainText("RWY 27 不成立");
+  await expect(page.locator(".rjfm-center-route")).toHaveAttribute("stroke-dasharray", "8 6");
+  await expect(page.locator(".rjfm-guidance-path.is-rwy-09")).toHaveAttribute(
+    "stroke",
+    "#2368a2",
+  );
+  await expect(page.locator(".rjfm-guidance-path.is-warning")).toHaveAttribute(
+    "stroke-dasharray",
+    "9 5",
+  );
+  await expect(page.locator(".rjfm-guidance-path.is-invalid")).toHaveAttribute(
+    "stroke",
+    "#b42318",
+  );
+  await expect(page.locator(".rjfm-center-marker")).toHaveCount(3);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const runway09Box = await runway09.boundingBox();
+  const runway27Box = await runway27.boundingBox();
+  if (!runway09Box || !runway27Box) throw new Error("runway guidance cards are missing");
+  expect(runway27Box.y).toBeGreaterThan(runway09Box.y + runway09Box.height - 1);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(1);
+  expect(pageErrors).toEqual([]);
+
+  await page.getByLabel("FUEL gal").fill("77");
+  await expect(guidance).toHaveCount(0);
+  await expect(page.getByLabel("RJFMガイダンス凡例")).toHaveCount(0);
+  await expect(page.locator(".rjfm-guidance-path")).toHaveCount(0);
+  await expect(page.locator(".rjfm-center-route")).toHaveCount(0);
+  await expect(page.locator(".rjfm-center-marker")).toHaveCount(0);
+
+  guidanceState.readiness.calculationIsCurrent = false;
+  await page.route("**/api/state", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(guidanceState),
+    });
+  }, { times: 1 });
+  await page.reload();
+  await expect(page.getByRole("region", {
+    name: "RJFM北方面出発ガイダンス",
+  })).toHaveCount(0);
+  await expect(page.getByLabel("RJFMガイダンス凡例")).toHaveCount(0);
+  await expect(page.locator(".rjfm-guidance-path")).toHaveCount(0);
+  await expect(page.locator(".rjfm-center-route")).toHaveCount(0);
+  await expect(page.locator(".rjfm-center-marker")).toHaveCount(0);
+
+  guidanceState.readiness.calculationIsCurrent = true;
+  guidanceState.outcome.rjfm_departure_guidance = rjfmValidUnavailableGuidanceFixture;
+  await page.route("**/api/state", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(guidanceState),
+    });
+  }, { times: 1 });
+  await page.reload();
+
+  const statusCoverageGuidance = page.getByRole("region", {
+    name: "RJFM北方面出発ガイダンス",
+  });
+  await expect(statusCoverageGuidance.getByRole("article", {
+    name: "RWY 09 候補 成立",
+  })).toContainText("全制約に適合した候補です。");
+  await expect(statusCoverageGuidance.getByRole("article", {
+    name: "RWY 27 候補 算出不可",
+  })).toContainText("採用済みの風データがないため算出できません。");
+  const statusCoverageLegend = page.getByRole("group", { name: "RJFMガイダンス凡例" });
+  await expect(statusCoverageLegend).toContainText("RWY 09 成立");
+  await expect(statusCoverageLegend).not.toContainText("RWY 27");
+  await expect(statusCoverageLegend.locator("span").first()).toHaveCSS("font-size", "12px");
+  await expect(statusCoverageGuidance.locator(".rjfm-candidate-metrics dt").first()).toHaveCSS(
+    "font-size",
+    "12px",
+  );
+  await expect(statusCoverageGuidance.locator(".rjfm-candidate.is-unavailable .rjfm-status"))
+    .toHaveCSS("color", "rgb(51, 74, 96)");
+  await expect(page.locator(".rjfm-guidance-path.is-rwy-09")).toHaveCount(1);
+  await expect(page.locator(".rjfm-guidance-path.is-unavailable")).toHaveCount(0);
+  expect(pageErrors).toEqual([]);
 });
 
 test("FTD route settings and checkpoint CRUD are available from the web UI", async ({ page }) => {

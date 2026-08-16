@@ -23,6 +23,7 @@ Sha256Hex = Annotated[
 
 ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"
 CP_PROJECTION_POLICY_VERSION = "CP_ABEAM_WGS84_V1"
+RJFM_DEPARTURE_RULE_VERSION = "RJFM_NORTHBOUND_R6_5_1_V1"
 
 
 class PlanningModel(BaseModel):
@@ -43,6 +44,106 @@ class PatternAltitudeValidationStatus(StrEnum):
     VERIFIED = "VERIFIED"
     UNVERIFIED = "UNVERIFIED"
     REJECTED = "REJECTED"
+
+
+class RjfmDepartureTrigger(StrEnum):
+    UMK = "UMK"
+    OMARU = "OMARU"
+
+
+class RjfmMainRouteMode(StrEnum):
+    UMK_PHYSICAL = "UMK_PHYSICAL"
+    OMARU_VIRTUAL_UMK = "OMARU_VIRTUAL_UMK"
+
+
+class RjfmGuidanceStatus(StrEnum):
+    VALID = "VALID"
+    WARNING = "WARNING"
+    HARD_INVALID = "HARD_INVALID"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
+class RjfmTurnMethod(StrEnum):
+    FIXED_BANK_20 = "FIXED_BANK_20"
+    ADJUSTED_MAX_RADIUS = "ADJUSTED_MAX_RADIUS"
+    NONE = "NONE"
+
+
+class RjfmCoordinate(PlanningModel):
+    latitude_deg: FiniteFloat = Field(ge=-90, le=90)
+    longitude_deg: FiniteFloat = Field(ge=-180, le=180)
+    source: str = Field(min_length=1)
+    estimated_error_nm: FiniteFloat = Field(ge=0)
+
+
+class RjfmDeparturePlan(PlanningModel):
+    rule_version: Literal["RJFM_NORTHBOUND_R6_5_1_V1"] = (
+        "RJFM_NORTHBOUND_R6_5_1_V1"
+    )
+    trigger: RjfmDepartureTrigger
+    main_route_mode: RjfmMainRouteMode
+    target_altitude_ft_msl: Literal[5500] = 5500
+    umk: RjfmCoordinate
+    over_field: RjfmCoordinate
+    omaru: RjfmCoordinate
+    virtual_rca_distance_nm: FiniteFloat = Field(gt=0)
+    route_application_key: str = Field(min_length=1)
+    reference_revision: str = Field(min_length=1)
+    reference_content_fingerprint: Sha256Hex
+
+
+class RjfmGuidancePathPoint(PlanningModel):
+    latitude_deg: FiniteFloat = Field(ge=-90, le=90)
+    longitude_deg: FiniteFloat = Field(ge=-180, le=180)
+    altitude_ft_msl: FiniteFloat
+    elapsed_seconds: FiniteFloat = Field(ge=0)
+    segment: str = Field(min_length=1)
+
+
+class RjfmConstraintResult(PlanningModel):
+    code: str = Field(min_length=1)
+    passed: bool
+    hard: bool
+    message: str = Field(min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RjfmRunwayGuidance(PlanningModel):
+    runway: Literal["09", "27"]
+    status: RjfmGuidanceStatus
+    turn_method: RjfmTurnMethod = RjfmTurnMethod.NONE
+    path: list[RjfmGuidancePathPoint] = Field(default_factory=list)
+    constraints: list[RjfmConstraintResult] = Field(default_factory=list)
+    full_left_turns: int = Field(default=0, ge=0)
+    partial_left_turn_deg: FiniteFloat | None = Field(default=None, ge=0, lt=360)
+    turn_entry_radial_deg: FiniteFloat | None = Field(default=None, ge=0, lt=360)
+    turn_entry_dme_nm: FiniteFloat | None = Field(default=None, ge=0)
+    turn_entry_altitude_ft_msl: FiniteFloat | None = None
+    exit_drift_nm: FiniteFloat | None = Field(default=None, ge=0)
+    expected_time_delta_seconds: FiniteFloat | None = None
+    position_residual_nm: FiniteFloat | None = Field(default=None, ge=0)
+    altitude_residual_ft: FiniteFloat | None = Field(default=None, ge=0)
+    tangent_residual_deg: FiniteFloat | None = Field(default=None, ge=0)
+    notes: list[str] = Field(default_factory=list)
+
+
+class RjfmDepartureGuidance(PlanningModel):
+    rule_version: Literal["RJFM_NORTHBOUND_R6_5_1_V1"] = (
+        "RJFM_NORTHBOUND_R6_5_1_V1"
+    )
+    reference_revision: str = Field(min_length=1)
+    reference_content_fingerprint: Sha256Hex
+    source_effective_dates: dict[str, str] = Field(default_factory=dict)
+    generated_against_fingerprint: Sha256Hex
+    candidates: list[RjfmRunwayGuidance] = Field(min_length=2, max_length=2)
+    center_route: list[RjfmCoordinate] = Field(min_length=3, max_length=3)
+    limitations: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_runways(self) -> RjfmDepartureGuidance:
+        if {candidate.runway for candidate in self.candidates} != {"09", "27"}:
+            raise ValueError("RJFM guidance must contain exactly RWY09 and RWY27")
+        return self
 
 
 class MasterReference(PlanningModel):
@@ -153,7 +254,18 @@ class ArrivalPlan(PlanningModel):
 
 
 class PersistedUiState(PlanningModel):
-    state_schema_version: Literal[4] = 4
+    state_schema_version: Literal[5] = 5
+    calculated_against_fingerprint: Sha256Hex | None = None
+    defaults_review_fingerprint: Sha256Hex | None = None
+    manual_qnh_fingerprint: Sha256Hex | None = None
+    arrival_plan: ArrivalPlan | None = None
+    reference_data_snapshot: ReferenceDataSnapshot | None = None
+    rjfm_departure_plan: RjfmDeparturePlan | None = None
+    rjfm_departure_guidance: RjfmDepartureGuidance | None = None
+
+
+class _PersistedUiStateV4(PlanningModel):
+    state_schema_version: Literal[4]
     calculated_against_fingerprint: Sha256Hex | None = None
     defaults_review_fingerprint: Sha256Hex | None = None
     manual_qnh_fingerprint: Sha256Hex | None = None
@@ -181,16 +293,25 @@ def load_persisted_ui_state(raw: Any) -> PersistedUiState:
         separators=(",", ":"),
         allow_nan=False,
     )
-    if version == 4:
+    if version == 5:
         return PersistedUiState.model_validate_json(payload)
-    if version == 3:
-        legacy = _PersistedUiStateV3.model_validate_json(payload)
+    if version == 4:
+        legacy_v4 = _PersistedUiStateV4.model_validate_json(payload)
         return PersistedUiState(
-            calculated_against_fingerprint=(legacy.calculated_against_fingerprint),
-            defaults_review_fingerprint=legacy.defaults_review_fingerprint,
-            manual_qnh_fingerprint=legacy.manual_qnh_fingerprint,
-            arrival_plan=legacy.arrival_plan,
-            reference_data_snapshot=legacy.reference_data_snapshot,
+            calculated_against_fingerprint=legacy_v4.calculated_against_fingerprint,
+            defaults_review_fingerprint=legacy_v4.defaults_review_fingerprint,
+            manual_qnh_fingerprint=legacy_v4.manual_qnh_fingerprint,
+            arrival_plan=legacy_v4.arrival_plan,
+            reference_data_snapshot=legacy_v4.reference_data_snapshot,
+        )
+    if version == 3:
+        legacy_v3 = _PersistedUiStateV3.model_validate_json(payload)
+        return PersistedUiState(
+            calculated_against_fingerprint=(legacy_v3.calculated_against_fingerprint),
+            defaults_review_fingerprint=legacy_v3.defaults_review_fingerprint,
+            manual_qnh_fingerprint=legacy_v3.manual_qnh_fingerprint,
+            arrival_plan=legacy_v3.arrival_plan,
+            reference_data_snapshot=legacy_v3.reference_data_snapshot,
         )
     raise ValueError("unsupported ui_state schema version")
 

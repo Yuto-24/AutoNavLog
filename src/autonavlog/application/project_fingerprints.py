@@ -5,6 +5,7 @@ from typing import Any
 from autonavlog.domain.enums import VisualReferenceRole
 from autonavlog.domain.planning import (
     CP_PROJECTION_POLICY_VERSION,
+    RJFM_DEPARTURE_RULE_VERSION,
     PersistedUiState,
     ReferenceDataSnapshot,
 )
@@ -126,6 +127,21 @@ def current_calculation_input_fingerprint(
                 None
                 if ui_state.arrival_plan is None
                 else ui_state.arrival_plan.model_dump(mode="python")
+            ),
+            "rjfm_departure_plan": (
+                None
+                if ui_state.rjfm_departure_plan is None
+                else ui_state.rjfm_departure_plan.model_dump(mode="python")
+            ),
+            "rjfm_departure_rule_version": (
+                RJFM_DEPARTURE_RULE_VERSION
+                if ui_state.rjfm_departure_plan is not None
+                else None
+            ),
+            "rjfm_reference_content_fingerprint": (
+                None
+                if ui_state.rjfm_departure_plan is None
+                else ui_state.rjfm_departure_plan.reference_content_fingerprint
             ),
             "check_points": check_points,
             "selected_reference_snapshot": (

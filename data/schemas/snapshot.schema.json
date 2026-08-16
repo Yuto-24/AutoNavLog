@@ -354,6 +354,17 @@
         "qnh_hpa": {
           "$ref": "#/$defs/AdoptedValue_float_"
         },
+        "rjfm_departure_guidance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RjfmDepartureGuidance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "sections": {
           "description": "Non-overlapping Calculation Zones and the sole source of truth for distance, time, and fuel totals.",
           "items": {
@@ -1410,6 +1421,373 @@
         "SNAPSHOTTED"
       ],
       "title": "ProjectStatus",
+      "type": "string"
+    },
+    "RjfmConstraintResult": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "hard": {
+          "title": "Hard",
+          "type": "boolean"
+        },
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "passed",
+        "hard",
+        "message"
+      ],
+      "title": "RjfmConstraintResult",
+      "type": "object"
+    },
+    "RjfmCoordinate": {
+      "additionalProperties": false,
+      "properties": {
+        "estimated_error_nm": {
+          "minimum": 0,
+          "title": "Estimated Error Nm",
+          "type": "number"
+        },
+        "latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude Deg",
+          "type": "number"
+        },
+        "longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude Deg",
+          "type": "number"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "latitude_deg",
+        "longitude_deg",
+        "source",
+        "estimated_error_nm"
+      ],
+      "title": "RjfmCoordinate",
+      "type": "object"
+    },
+    "RjfmDepartureGuidance": {
+      "additionalProperties": false,
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/RjfmRunwayGuidance"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Candidates",
+          "type": "array"
+        },
+        "center_route": {
+          "items": {
+            "$ref": "#/$defs/RjfmCoordinate"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Center Route",
+          "type": "array"
+        },
+        "generated_against_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Generated Against Fingerprint",
+          "type": "string"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "reference_content_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Reference Content Fingerprint",
+          "type": "string"
+        },
+        "reference_revision": {
+          "minLength": 1,
+          "title": "Reference Revision",
+          "type": "string"
+        },
+        "rule_version": {
+          "const": "RJFM_NORTHBOUND_R6_5_1_V1",
+          "default": "RJFM_NORTHBOUND_R6_5_1_V1",
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "source_effective_dates": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Source Effective Dates",
+          "type": "object"
+        }
+      },
+      "required": [
+        "reference_revision",
+        "reference_content_fingerprint",
+        "generated_against_fingerprint",
+        "candidates",
+        "center_route"
+      ],
+      "title": "RjfmDepartureGuidance",
+      "type": "object"
+    },
+    "RjfmGuidancePathPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "altitude_ft_msl": {
+          "title": "Altitude Ft Msl",
+          "type": "number"
+        },
+        "elapsed_seconds": {
+          "minimum": 0,
+          "title": "Elapsed Seconds",
+          "type": "number"
+        },
+        "latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude Deg",
+          "type": "number"
+        },
+        "longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude Deg",
+          "type": "number"
+        },
+        "segment": {
+          "minLength": 1,
+          "title": "Segment",
+          "type": "string"
+        }
+      },
+      "required": [
+        "latitude_deg",
+        "longitude_deg",
+        "altitude_ft_msl",
+        "elapsed_seconds",
+        "segment"
+      ],
+      "title": "RjfmGuidancePathPoint",
+      "type": "object"
+    },
+    "RjfmGuidanceStatus": {
+      "enum": [
+        "VALID",
+        "WARNING",
+        "HARD_INVALID",
+        "UNAVAILABLE"
+      ],
+      "title": "RjfmGuidanceStatus",
+      "type": "string"
+    },
+    "RjfmRunwayGuidance": {
+      "additionalProperties": false,
+      "properties": {
+        "altitude_residual_ft": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Altitude Residual Ft"
+        },
+        "constraints": {
+          "items": {
+            "$ref": "#/$defs/RjfmConstraintResult"
+          },
+          "title": "Constraints",
+          "type": "array"
+        },
+        "exit_drift_nm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Drift Nm"
+        },
+        "expected_time_delta_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Time Delta Seconds"
+        },
+        "full_left_turns": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Full Left Turns",
+          "type": "integer"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "partial_left_turn_deg": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 360,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Partial Left Turn Deg"
+        },
+        "path": {
+          "items": {
+            "$ref": "#/$defs/RjfmGuidancePathPoint"
+          },
+          "title": "Path",
+          "type": "array"
+        },
+        "position_residual_nm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Position Residual Nm"
+        },
+        "runway": {
+          "enum": [
+            "09",
+            "27"
+          ],
+          "title": "Runway",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/RjfmGuidanceStatus"
+        },
+        "tangent_residual_deg": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tangent Residual Deg"
+        },
+        "turn_entry_altitude_ft_msl": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Turn Entry Altitude Ft Msl"
+        },
+        "turn_entry_dme_nm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Turn Entry Dme Nm"
+        },
+        "turn_entry_radial_deg": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 360,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Turn Entry Radial Deg"
+        },
+        "turn_method": {
+          "$ref": "#/$defs/RjfmTurnMethod",
+          "default": "NONE"
+        }
+      },
+      "required": [
+        "runway",
+        "status"
+      ],
+      "title": "RjfmRunwayGuidance",
+      "type": "object"
+    },
+    "RjfmTurnMethod": {
+      "enum": [
+        "FIXED_BANK_20",
+        "ADJUSTED_MAX_RADIUS",
+        "NONE"
+      ],
+      "title": "RjfmTurnMethod",
       "type": "string"
     },
     "RouteNode": {

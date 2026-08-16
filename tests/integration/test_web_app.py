@@ -942,6 +942,62 @@ async def test_intermediate_line_names_preserve_every_original_coordinate(
             (33.78695544494976, 131.9894319344609),
             (33.62999835453385, 131.67890296839),
         ]
+        rjfm_plan = confirmed.json()["project"]["metadata"]["ui_state"][
+            "rjfm_departure_plan"
+        ]
+        assert rjfm_plan["trigger"] == "UMK"
+        assert rjfm_plan["main_route_mode"] == "UMK_PHYSICAL"
+        assert rjfm_plan["umk"]["source"] == "KML:UMK"
+        assert rjfm_plan["omaru"]["source"] == "KML:OMARU"
+        first_altitudes = [
+            section["planned_altitude_ft_msl"]
+            for section in confirmed.json()["project"]["sections"][:2]
+        ]
+        assert first_altitudes == [
+            5500,
+            5500,
+        ]
+
+        destination = await client.post(
+            "/api/destination/confirm",
+            json={
+                "destination_airport_id": "RJFO",
+                "selected_pattern_altitude_ft_msl": 1000,
+            },
+        )
+        assert destination.status_code == 200, destination.text
+        calculated = await client.post("/api/calculate")
+        assert calculated.status_code == 200, calculated.text
+        assert not any(
+            issue["code"] == "RJFM_DEPARTURE_PLAN_STALE"
+            for issue in calculated.json()["outcome"]["issues"]
+        )
+        guidance = calculated.json()["outcome"]["rjfm_departure_guidance"]
+        assert [candidate["runway"] for candidate in guidance["candidates"]] == [
+            "09",
+            "27",
+        ]
+        assert [point["source"] for point in guidance["center_route"]][:2] == [
+            "KML:UMK",
+            rjfm_plan["over_field"]["source"],
+        ]
+        assert calculated.json()["project"]["metadata"]["ui_state"][
+            "rjfm_departure_guidance"
+        ] == guidance
+        assert guidance["generated_against_fingerprint"] == calculated.json()["project"][
+            "metadata"
+        ]["ui_state"]["calculated_against_fingerprint"]
+
+        saved = await client.post("/api/projects/save", json={"name": "RJFM guidance"})
+        assert saved.status_code == 200, saved.text
+        loaded = await client.post(
+            "/api/projects/load",
+            json={"project_id": saved.json()["project"]["id"]},
+        )
+        assert loaded.status_code == 200, loaded.text
+        assert loaded.json()["project"]["metadata"]["ui_state"][
+            "rjfm_departure_guidance"
+        ] == guidance
 
 
 @pytest.mark.anyio

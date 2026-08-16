@@ -95,7 +95,7 @@ class ProjectService:
     def ui_state(project: Project) -> PersistedUiState:
         raw_state = project.metadata.get("ui_state")
         if raw_state is None:
-            raise ValueError("ProjectにPersistedUiState v4がありません。")
+            raise ValueError("ProjectにPersistedUiState v5がありません。")
         try:
             return load_persisted_ui_state(raw_state)
         except (TypeError, ValueError) as error:

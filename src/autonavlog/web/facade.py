@@ -16,6 +16,10 @@ from autonavlog.application.checkpoints import project_check_points
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.readiness import ReadinessEvaluation
 from autonavlog.application.readiness_service import ReadinessService
+from autonavlog.application.rjfm_departure_service import (
+    build_rjfm_departure_guidance,
+    normalize_rjfm_departure_plan,
+)
 from autonavlog.domain.calculation import CalculationOutcome, Issue
 from autonavlog.domain.enums import (
     AdoptedSource,
@@ -53,6 +57,7 @@ from autonavlog.storage.reference_data import (
     ReferenceDataCatalogRepository,
 )
 from autonavlog.storage.repository import ProjectSummary
+from autonavlog.storage.rjfm_reference import RjfmReferencePack
 from autonavlog.version import __version__
 from autonavlog.weather.destination_taf import (
     DestinationWindForecast,
@@ -146,6 +151,7 @@ class AutoNavLogWebApplication:
         project_service: ProjectService,
         airports: AirportRepository,
         performance: PerformanceRepository,
+        rjfm_reference_pack: RjfmReferencePack,
         reference_repository: ReferenceDataCatalogRepository,
         reference_catalog: ReferenceCatalog,
         weather_factory: Callable[[], WeatherProvider],
@@ -162,6 +168,7 @@ class AutoNavLogWebApplication:
         self.project_service = project_service
         self.airports = airports
         self.performance = performance
+        self.rjfm_reference_pack = rjfm_reference_pack
         self.reference_repository = reference_repository
         self.reference_catalog = reference_catalog
         self.weather_factory = weather_factory
@@ -184,7 +191,14 @@ class AutoNavLogWebApplication:
                 self._sessions.pop(expired, None)
             token = token_urlsafe(32)
             weather = self.weather_factory()
-            calculation = CalculationService(self.airports, self.performance)
+            calculation = CalculationService(
+                self.airports,
+                self.performance,
+                expected_rjfm_reference_revision=self.rjfm_reference_pack.revision,
+                expected_rjfm_reference_content_fingerprint=(
+                    self.rjfm_reference_pack.content_fingerprint
+                ),
+            )
             session = WebSession(
                 token=token,
                 calculation_service=calculation,
@@ -335,6 +349,7 @@ class AutoNavLogWebApplication:
                 ),
             )
             self.project_service.set_ui_state(project, state, reconfirmed=True)
+            self._normalize_rjfm_departure(project)
             if request.defaults_confirmed:
                 session.readiness_service.confirm_defaults(project, None)
             if request.manual_qnh_hpa is not None and request.manual_qnh_confirmed:
@@ -503,6 +518,7 @@ class AutoNavLogWebApplication:
                 ),
                 reconfirmed=True,
             )
+            self._normalize_rjfm_departure(working)
             if working.sections:
                 distance_nm = geodesic_leg(
                     vrep.latitude_deg,
@@ -762,6 +778,7 @@ class AutoNavLogWebApplication:
             sections[update.section_id] = section.model_copy(update=section_update)
         working.sections = [sections[section.id] for section in working.ordered_sections()]
         self._apply_arrival_plan(working, request)
+        self._normalize_rjfm_departure(working)
         if request.defaults_confirmed:
             session.readiness_service.confirm_defaults(working, session.outcome)
         if request.manual_qnh_hpa is not None and request.manual_qnh_confirmed:
@@ -774,6 +791,7 @@ class AutoNavLogWebApplication:
         project: Project,
         progress: Callable[[int, str], None] | None = None,
     ) -> tuple[CalculationOutcome, DestinationWindForecast | None]:
+        self._normalize_rjfm_departure(project)
         state = self.project_service.ui_state(project)
         plan = state.arrival_plan
         if (
@@ -803,7 +821,7 @@ class AutoNavLogWebApplication:
                 None,
                 "FTD_MODE_NO_TAF",
             ).model_copy(update={"source_label": "FTD固定気象"})
-            return outcome, ftd_destination_wind
+            return self._with_rjfm_guidance(session, project, outcome), ftd_destination_wind
 
         destination_wind: DestinationWindForecast | None = None
         outcome = session.calculation_service.calculate(
@@ -825,7 +843,7 @@ class AutoNavLogWebApplication:
                 progress=progress,
             )
         if not self.development_weather:
-            return outcome, destination_wind
+            return self._with_rjfm_guidance(session, project, outcome), destination_wind
         decorated = outcome.model_copy(
             deep=True,
             update={
@@ -842,7 +860,38 @@ class AutoNavLogWebApplication:
                 ]
             },
         )
-        return decorated, destination_wind
+        return self._with_rjfm_guidance(session, project, decorated), destination_wind
+
+    def _normalize_rjfm_departure(self, project: Project) -> None:
+        normalize_rjfm_departure_plan(project, self.rjfm_reference_pack)
+
+    def _with_rjfm_guidance(
+        self,
+        session: WebSession,
+        project: Project,
+        outcome: CalculationOutcome,
+    ) -> CalculationOutcome:
+        state = self.project_service.ui_state(project)
+        fingerprint_project = project.model_copy(
+            deep=True,
+            update={"selected_forecast_run_id": outcome.selected_forecast_run_id},
+        )
+        fingerprint = session.readiness_service.fingerprints(
+            fingerprint_project,
+            outcome,
+            state,
+        ).calculation_input
+        guidance = build_rjfm_departure_guidance(
+            project,
+            outcome,
+            state,
+            self.performance,
+            self.rjfm_reference_pack,
+            generated_against_fingerprint=fingerprint,
+        )
+        updated_state = state.model_copy(update={"rjfm_departure_guidance": guidance})
+        self.project_service.set_ui_state(project, updated_state)
+        return outcome.model_copy(update={"rjfm_departure_guidance": guidance})
 
     @staticmethod
     def _destination_wind_signature(
@@ -912,6 +961,7 @@ class AutoNavLogWebApplication:
                     status_code=404,
                 ) from error
             self._assert_project_owner(project, session.owner_id)
+            self._normalize_rjfm_departure(project)
             session.project = project
             session.saved_projects_cache = None
             session.outcome = None

@@ -13,6 +13,7 @@ from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.storage.airports import AirportRepository
 from autonavlog.storage.local import LocalProjectRepository
 from autonavlog.storage.reference_data import ReferenceDataCatalogRepository
+from autonavlog.storage.rjfm_reference import RjfmReferencePack
 from autonavlog.weather.destination_taf import (
     AviationWeatherTafProvider,
     FakeDestinationWindProvider,
@@ -179,11 +180,14 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
     data_root = config.data_root.resolve()
     storage_root = config.storage_root.resolve()
     reference_default = data_root / "reference" / "default"
+    rjfm_reference_root = data_root / "reference" / "rjfm"
     performance_root = data_root / "performance"
     if not reference_default.is_dir():
         raise RuntimeError(f"reference data directory is unavailable: {reference_default}")
     if not performance_root.is_dir():
         raise RuntimeError(f"performance data directory is unavailable: {performance_root}")
+    if not rjfm_reference_root.is_dir():
+        raise RuntimeError(f"RJFM reference data directory is unavailable: {rjfm_reference_root}")
 
     reference_repository = ReferenceDataCatalogRepository(
         storage_root / "reference",
@@ -192,6 +196,7 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
     reference_catalog = reference_repository.open_active()
     airports = AirportRepository.from_reference_catalog(reference_catalog)
     performance = PerformanceRepository.from_directory_for_application(performance_root)
+    rjfm_reference_pack = RjfmReferencePack.from_directory(rjfm_reference_root)
     project_service = ProjectService(LocalProjectRepository(storage_root))
     weather_factory, weather_label, development_weather = _weather_factory(config)
     weather_prewarmer = None
@@ -217,6 +222,7 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
         project_service=project_service,
         airports=airports,
         performance=performance,
+        rjfm_reference_pack=rjfm_reference_pack,
         reference_repository=reference_repository,
         trusted_local_identity=config.trusted_local_identity,
         reference_catalog=reference_catalog,
