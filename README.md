@@ -48,6 +48,29 @@ docker compose logs -f autonavlog
 docker compose down
 ```
 
+### Windows から WSL 上の Docker へ接続する
+
+WSL の mirrored networking では、Docker の公開ポートが Windows の `localhost` へ転送されない
+場合があります。その場合は WSL 用 override で host network を使います。
+
+```bash
+AUTONAVLOG_TRUSTED_LOCAL_IDENTITY=local-user \
+AUTONAVLOG_SESSION_COOKIE_SECURE=false \
+docker compose -f compose.yaml -f compose.wsl.yaml up -d --build
+
+docker compose -f compose.yaml -f compose.wsl.yaml ps
+```
+
+Windows のブラウザで `http://localhost:8123` を開きます。Windows Firewall と WSL の
+Hyper-V Firewall では TCP 8123 の受信を許可してください。停止時も同じ構成ファイルを指定します。
+
+```bash
+docker compose -f compose.yaml -f compose.wsl.yaml down
+```
+
+この構成はコンテナを WSL host network の `0.0.0.0:8123` で待ち受けさせます。通常構成と
+同時に起動しないでください。
+
 Project、参照データの使用中の版、気象キャッシュは Docker の named volume
 `autonavlog-data` に保存されます。`docker compose down -v` は保存データも削除するため、
 更新や通常の停止には使わないでください。

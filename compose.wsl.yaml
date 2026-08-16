@@ -1,0 +1,23 @@
+services:
+  autonavlog:
+    network_mode: host
+    ports: !reset []
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8123"
+      - --data-root
+      - /opt/autonavlog/data
+      - --storage-root
+      - /var/lib/autonavlog
+      - --weather
+      - msm-metar-trend
+      - --maximum-sessions
+      - "256"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8123/healthz', timeout=3).read()
