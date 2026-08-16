@@ -97,7 +97,7 @@ function App() {
 
   const applyState = (
     next: WebState,
-    options: { syncCalculationInputs?: boolean } = {},
+    options: { syncCalculationInputs?: boolean; freshImport?: boolean } = {},
   ) => {
     const nextProjectId = next.project?.id ?? null;
     const initialState = projectIdRef.current === undefined;
@@ -136,10 +136,31 @@ function App() {
       const selectedExists = next.import.candidates.some(
         (candidate) => `${candidate.kind}:${candidate.index}` === updated.candidateKey,
       );
-      if (!selectedExists && next.import.candidates[0]) {
+      if (options.freshImport) {
+        const onlyCandidate = next.import.candidates.length === 1
+          ? next.import.candidates[0]
+          : undefined;
         updated = {
           ...updated,
-          candidateKey: `${next.import.candidates[0].kind}:${next.import.candidates[0].index}`,
+          candidateKey: onlyCandidate
+            ? `${onlyCandidate.kind}:${onlyCandidate.index}`
+            : "",
+          departureAirportId: "",
+          destinationAirportId: "",
+          destinationPatternAltitudeFtMsl: "",
+          routeUseConfirmed: false,
+          polygonRouteConfirmed: false,
+          manualQnhConfirmed: false,
+        };
+      } else if (!selectedExists) {
+        const onlyCandidate = next.import.candidates.length === 1
+          ? next.import.candidates[0]
+          : undefined;
+        updated = {
+          ...updated,
+          candidateKey: onlyCandidate
+            ? `${onlyCandidate.kind}:${onlyCandidate.index}`
+            : "",
         };
       }
       return updated;
@@ -267,6 +288,7 @@ function App() {
     options: {
       syncCalculationInputs?: boolean;
       operation?: Exclude<ActiveOperation, null>;
+      freshImport?: boolean;
     } = {},
   ) => runTask(action, {
     apply: (next) => applyState(next, options),
@@ -293,12 +315,7 @@ function App() {
           kmz_kml_filename: kmzDocument ?? null,
         },
       });
-      applyState(next);
-      setForm((current) => ({
-        ...current,
-        routeUseConfirmed: false,
-        polygonRouteConfirmed: false,
-      }));
+      applyState(next, { freshImport: true });
       setNotice("経路候補を読み込みました。地図と記載順を確認してください。");
       setPendingKmz(null);
       setSelectedKmzDocument("");
@@ -327,6 +344,7 @@ function App() {
           body: { filename: "pasted.kml", kml_text: pastedKml },
         }),
       "貼付KMLから経路候補を読み込みました。",
+      { freshImport: true },
     );
     if (!imported) return;
     setPasteOpen(false);
@@ -341,7 +359,7 @@ function App() {
     }
     const candidate = candidateFromKey(state.import.candidates, form.candidateKey);
     if (!candidate) {
-      setError("飛行経路にする形状を選択してください。");
+      setError("飛行経路候補を選択してください。");
       return;
     }
     if (!form.destinationAirportId) {

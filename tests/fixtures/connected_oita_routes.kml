@@ -1,0 +1,71 @@
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>大分経路</name><Folder><name>RJFO</name>
+<Folder><name>RJFM→RJFO①</name>
+<Placemark><name>RJFM</name><Point><coordinates>131.4484517490447,31.87712141761355,0</coordinates></Point></Placemark>
+<Placemark><name>RJFM→UMK(TC352,DIST6.5)</name><LineString><coordinates>131.4484514728637,31.8771201986468,5.272208614732478 131.4316794899034,31.98217183119092,71.83199553939741</coordinates></LineString></Placemark>
+<Placemark><name>変針点 UMK(MZE 004/6.2,NHT6.0)</name><Point><coordinates>131.43167572377,31.98216888185107,0</coordinates></Point></Placemark>
+<Placemark><name>UMK→OMARU(TC011,DIST11.0)</name><LineString><coordinates>131.4316810549876,31.98217227373957,71.82976955714841 131.4734890287096,32.1627899795556,8.448881035507958</coordinates></LineString></Placemark>
+<Placemark><name>変針点 OMARU(MZE 013/17.1,NHT5.0)</name><Point><coordinates>131.4734913373495,32.16278688217977,0</coordinates></Point></Placemark>
+<Placemark><name>OMARU→鶴御岬(TC034,DIST55.5)</name><LineString><coordinates>131.4734894662424,32.16279407860262,8.45121044227124 132.0827589126777,32.93247941227275,82.12629917053424</coordinates></LineString></Placemark>
+<Placemark><name>麦バエ(MZE 029/38.4,NHT27.1)</name><Point><coordinates>131.718254366272,32.47366767200563,0</coordinates></Point></Placemark>
+<Placemark><name>深島(MZE 033/56.4,NHT45.9)</name><Point><coordinates>131.9194910012956,32.72775629050499,0</coordinates></Point></Placemark>
+<Placemark><name>鶴見崎(TFE 159/37.8)</name><Point><coordinates>132.0827590783298,32.93247440159898,0</coordinates></Point></Placemark>
+<Placemark><name>鶴御崎→佐賀の関(TC332,DIST22.0)</name><LineString><coordinates>132.0827611589584,32.93247763877933,82.00583603685652 131.877093005931,33.25832354678531,125.7943046182379</coordinates></LineString></Placemark>
+<Placemark><name>V-REP 佐賀の関 3500ft(TFE 159/15.7 精錬所煙突)</name><Point><coordinates>131.8770902631814,33.25831187187715,0</coordinates></Point></Placemark>
+<Placemark><name>佐賀の関→大分City(TC267,DIST13.0)</name><LineString><coordinates>131.8770985139913,33.25831443618005,125.7858412248756 131.6198686634622,33.24699149277906,1.274607860657362e-07</coordinates></LineString></Placemark>
+<Placemark><name>大分City(TFE 208/15.5)</name><Point><coordinates>131.6198688117677,33.24698997737781,0</coordinates></Point></Placemark>
+<Placemark><name>大分City→杵築(TC002,DIST10.0)</name><LineString><coordinates>131.6198702125332,33.24699061733561,1.274607860657362e-07 131.6276133189947,33.41310859324941,1.814191855002312e-06</coordinates></LineString></Placemark>
+<Placemark><name>V-REP 杵築 1900ft(TFE 235/6.8 八坂川河口)</name><Point><coordinates>131.6276111694859,33.41310613936039,0</coordinates></Point></Placemark>
+<Placemark><name>杵築→RJFO(TC054,DIST6.5)</name><LineString><coordinates>131.62761747926,33.41310900178882,0 131.7371185504506,33.47949177254927,-7.081154781429787e-10</coordinates></LineString></Placemark>
+<Placemark><name>RJFO</name><Point><coordinates>131.7371201529664,33.47949406702627,0</coordinates></Point></Placemark>
+</Folder>
+<Folder><name>RJFM→RJFO②</name>
+<Placemark><name>RJFM</name><Point><coordinates>131.4484517490447,31.87712141761355,0</coordinates></Point></Placemark>
+<Placemark><name>RJFM→UMK(TC352,DIST6.5)</name><LineString><coordinates>131.4484514728637,31.8771201986468,5.272208614732478 131.4316794899034,31.98217183119092,71.83199553939741</coordinates></LineString></Placemark>
+<Placemark><name>変針点 UMK(MZE 004/6.2,NHT6.0)</name><Point><coordinates>131.43167572377,31.98216888185107,0</coordinates></Point></Placemark>
+<Placemark><name>UMK→OMARU(TC011,DIST11.0)</name><LineString><coordinates>131.4316810549876,31.98217227373957,71.82976955714841 131.4734890287096,32.1627899795556,8.448881035507958</coordinates></LineString></Placemark>
+<Placemark><name>変針点 OMARU(MZE 013/17.1,NHT5.0)</name><Point><coordinates>131.4734913373495,32.16278688217977,0</coordinates></Point></Placemark>
+<Placemark><name>OMARU→鶴御岬(TC034,DIST55.5)</name><LineString><coordinates>131.4734894662424,32.16279407860262,8.45121044227124 132.0827589126777,32.93247941227275,82.12629917053424</coordinates></LineString></Placemark>
+<Placemark><name>麦バエ(MZE 029/38.4,NHT27.1)</name><Point><coordinates>131.718254366272,32.47366767200563,0</coordinates></Point></Placemark>
+<Placemark><name>深島(MZE 033/56.4,NHT45.9)</name><Point><coordinates>131.9194910012956,32.72775629050499,0</coordinates></Point></Placemark>
+<Placemark><name>鶴見崎(TFE 159/37.8)</name><Point><coordinates>132.0827590783298,32.93247440159898,0</coordinates></Point></Placemark>
+<Placemark><name>鶴御崎→祝島(TC355,DIST51)</name><LineString><coordinates>132.0827513944598,32.9324407053014,0 131.992745564008,33.78043434310149,0</coordinates></LineString></Placemark>
+<Placemark><name>C'K 佐田岬(TFE 125/17.6)</name><Point><coordinates>132.0384824275067,33.35154966958044,0</coordinates></Point></Placemark>
+<Placemark><name>変針点 祝島(TFE 044/21.9)</name><Point><coordinates>131.9927442967895,33.78037891104157,0</coordinates></Point></Placemark>
+<Placemark><name>祝島→ゴルフコース(TC240,DIST18)</name><LineString><coordinates>131.9926630650487,33.78024505362542,0 131.6789347426377,33.62994284769762,0</coordinates></LineString></Placemark>
+<Placemark><name>V-REP ゴルフコース 2400ft(TFE 351/8.8 ゴルフ場)</name><Point><coordinates>131.6789378245261,33.6299482427053,0</coordinates></Point></Placemark>
+<Placemark><name>ゴルフコース→RJFO(TC162,DIST9.5)</name><LineString><coordinates>131.6789371411804,33.62994803791938,0 131.7371201702322,33.47949347092593,0</coordinates></LineString></Placemark>
+<Placemark><name>RJFO</name><Point><coordinates>131.7371201529664,33.47949406702627,0</coordinates></Point></Placemark>
+</Folder>
+<Folder><name>RJFO→RJFM①</name>
+<Placemark><name>RJFO</name><Point><coordinates>131.7371201529664,33.47949406702627,0</coordinates></Point></Placemark>
+<Placemark><name>C'K 佐賀の関(TFE 161/15.9)</name><Point><coordinates>131.8669417995245,33.25017075639376,0</coordinates></Point></Placemark>
+<Placemark><name>RJFO→鶴御崎(TC155,DIST35.0)</name><LineString><coordinates>131.7371186143304,33.47949858252776,4.280751512609319 132.0333608770562,32.95364120409089,2.769032836837306</coordinates></LineString></Placemark>
+<Placemark><name>変針点 鶴御崎(TFE 162/35.6)</name><Point><coordinates>132.0333581581308,32.95363837860089,0</coordinates></Point></Placemark>
+<Placemark><name>鶴御崎→OMARU(TC211,DIST55.0)</name><LineString><coordinates>132.0333624265828,32.95364720016151,2.755853790935239 131.4734943497416,32.16279016961973,8.444837856161858</coordinates></LineString></Placemark>
+<Placemark><name>C'K 宇土崎(MZE 030/55.9,NHT44.6)</name><Point><coordinates>131.8765670315358,32.73380316764226,0</coordinates></Point></Placemark>
+<Placemark><name>C'M 麦バエ(MZE 027/39.8,NHT28.4)</name><Point><coordinates>131.7117933207292,32.5014233866588,0</coordinates></Point></Placemark>
+<Placemark><name>変針点 OMARU(MZE 013/17.1,NHT5.0)</name><Point><coordinates>131.4734913373495,32.16278688217977,0</coordinates></Point></Placemark>
+<Placemark><name>OMARU→UMK(TC191,DIST11.0)</name><LineString><coordinates>131.4734932876435,32.16279662936722,8.449880893146863 131.431680261089,31.98217321187764,71.83141948603971</coordinates></LineString></Placemark>
+<Placemark><name>変針点 UMK(MZE 004/6.2,NHT6.0)</name><Point><coordinates>131.43167572377,31.98216888185107,0</coordinates></Point></Placemark>
+<Placemark><name>UMK→有田(TC244,DIST4.5)</name><LineString><coordinates>131.4316831981489,31.98218151003349,71.83065395939106 131.3535168595244,31.94991790787941,2.002237493091993</coordinates></LineString></Placemark>
+<Placemark><name>V-REP 有田 1500ft(MZE 322/6.0)</name><Point><coordinates>131.3535165268158,31.94977931375621,0</coordinates></Point></Placemark>
+<Placemark><name>有田→RJFM(TC132,DIST6.5)</name><LineString><coordinates>131.3535199586587,31.94978184669663,-7.081154781429787e-10 131.4484490995463,31.87711702672388,0</coordinates></LineString></Placemark>
+<Placemark><name>RJFM</name><Point><coordinates>131.4484517490447,31.87712141761355,0</coordinates></Point></Placemark>
+</Folder>
+<Folder><name>RJFO→RJFM②</name>
+<Placemark><name>RJFO</name><Point><coordinates>131.7371201529664,33.47949406702627,0</coordinates></Point></Placemark>
+<Placemark><name>RJFO→日振島(TC123,DIST33.5)</name><LineString><coordinates>131.7371251469954,33.47949106297568,0 132.2948745222888,33.18009287718078,0</coordinates></LineString></Placemark>
+<Placemark><name>C'K 佐田岬(TFE 131/16.7)</name><Point><coordinates>132.0066252711876,33.33532090433059,0</coordinates></Point></Placemark>
+<Placemark><name>変針点 日振島(TFE 130/34.0)</name><Point><coordinates>132.294873128838,33.18007053600702,0</coordinates></Point></Placemark>
+<Placemark><name>日振島→小丸(TC214,DIST74.0)</name><LineString><coordinates>132.2948619802149,33.18005153035512,0 131.4734912189335,32.16279406528605,-7.081154781429787e-10</coordinates></LineString></Placemark>
+<Placemark><name>C'K 深島(MZE 033/56.6,NHT 45.6)</name><Point><coordinates>131.9262063545224,32.72707696585114,0</coordinates></Point></Placemark>
+<Placemark><name>C'K 細島(MZE 028/35.1,NHT 23.8)</name><Point><coordinates>131.6843560373559,32.42661910873573,0</coordinates></Point></Placemark>
+<Placemark><name>変針点 OMARU(MZE 013/17.1,NHT5.0)</name><Point><coordinates>131.4734913373495,32.16278688217977,0</coordinates></Point></Placemark>
+<Placemark><name>OMARU→UMK(TC191,DIST11.0)</name><LineString><coordinates>131.4734932876435,32.16279662936722,8.449880893146863 131.431680261089,31.98217321187764,71.83141948603971</coordinates></LineString></Placemark>
+<Placemark><name>変針点 UMK(MZE 004/6.2,NHT6.0)</name><Point><coordinates>131.43167572377,31.98216888185107,0</coordinates></Point></Placemark>
+<Placemark><name>UMK→有田(TC244,DIST4.5)</name><LineString><coordinates>131.4316831981489,31.98218151003349,71.83065395939106 131.3535168595244,31.94991790787941,2.002237493091993</coordinates></LineString></Placemark>
+<Placemark><name>V-REP 有田 1500ft(MZE 322/6.0)</name><Point><coordinates>131.3535165268158,31.94977931375621,0</coordinates></Point></Placemark>
+<Placemark><name>有田→RJFM(TC132,DIST6.5)</name><LineString><coordinates>131.3535199586587,31.94978184669663,-7.081154781429787e-10 131.4484490995463,31.87711702672388,0</coordinates></LineString></Placemark>
+<Placemark><name>RJFM</name><Point><coordinates>131.4484517490447,31.87712141761355,0</coordinates></Point></Placemark>
+</Folder>
+</Folder></Document></kml>

@@ -31,6 +31,70 @@ const kmlFromRjfk = `<?xml version="1.0" encoding="UTF-8"?>
   </coordinates></LineString></Placemark></Document>
 </kml>`;
 
+const twoConnectedRouteCandidatesKml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Grouped routes</name>
+    <Folder>
+      <name>RJFM→RJFO①</name>
+      <Placemark><name>Outbound 1</name><LineString><coordinates>
+        131.4486111111,31.8772222222,0
+        131.5100000000,32.2000000000,0
+        131.5800000000,32.6500000000,0
+      </coordinates></LineString></Placemark>
+      <Placemark><name>OUT TURN</name><Point><coordinates>
+        131.5800000000,32.6500000000,0
+      </coordinates></Point></Placemark>
+      <Placemark><name>Outbound 2</name><LineString><coordinates>
+        131.5800000000,32.6500000000,0
+        131.7372222222,33.4794444444,0
+      </coordinates></LineString></Placemark>
+    </Folder>
+    <Folder>
+      <name>RJFO→RJFM①</name>
+      <Placemark><name>Inbound 1</name><LineString><coordinates>
+        131.7372222222,33.4794444444,0
+        131.5200000000,32.7000000000,0
+      </coordinates></LineString></Placemark>
+      <Placemark><name>HOME TURN</name><Point><coordinates>
+        131.5200000000,32.7000000000,0
+      </coordinates></Point></Placemark>
+      <Placemark><name>Inbound 2</name><LineString><coordinates>
+        131.5200000000,32.7000000000,0
+        131.4486111111,31.8772222222,0
+      </coordinates></LineString></Placemark>
+    </Folder>
+  </Document>
+</kml>`;
+
+const sameNamedConnectedRouteCandidatesKml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Duplicate routes</name>
+    <Folder><name>Outbound</name><Folder><name>Route</name>
+      <Placemark><name>Outbound 1</name><LineString><coordinates>
+        131.4486111111,31.8772222222,0 131.5800000000,32.6500000000,0
+      </coordinates></LineString></Placemark>
+      <Placemark><name>Outbound 2</name><LineString><coordinates>
+        131.5800000000,32.6500000000,0 131.7372222222,33.4794444444,0
+      </coordinates></LineString></Placemark>
+    </Folder></Folder>
+    <Folder><name>Inbound</name><Folder><name>Route</name>
+      <Placemark><name>Inbound 1</name><LineString><coordinates>
+        131.7372222222,33.4794444444,0 131.5200000000,32.7000000000,0
+      </coordinates></LineString></Placemark>
+      <Placemark><name>Inbound 2</name><LineString><coordinates>
+        131.5200000000,32.7000000000,0 131.4486111111,31.8772222222,0
+      </coordinates></LineString></Placemark>
+    </Folder></Folder>
+  </Document>
+</kml>`;
+
+const twoConnectedRouteCandidatesKmz = Buffer.from(
+  "UEsDBBQAAAAIAKqxEF1jGYFVZQEAAEMFAAAHAAAAZG9jLmttbKWUXXKCMBSF311FhmdL+FNoJ+JLa3+mFsfqAihkLKMkDoTaFfS9XUHX5kp6NaC0DgPY+5K58E1yzuUQMnyPV+iNJmnE2UDRVU1BlAU8jNhioMxnowtHGbodsgQKSJYOlFch1lcYbzYbla8pW0SpyqjAQGBDNRS3gxC55kEWUyZ2DbTMj6l7m/BsTUMEi6ApwfuH8v2Ir0KayKbApw+j8fbjCxZv+/ldxoGYrPyAxn6ydCXsZeKFZyxEeg6Sx4jRZ5GADZcEnCdgyIdjix0Q0k1dtSynr++rC51j24asrvYL6+laXl0TLGqH7g/mlLF+7wQjuKyE4LJGfLRUaXI+Q7P59KmwOOERTLjaXWs9+YZNpBTzNlrNu1aRxGzz8CFMU7XsS0vWWYMkuJyuqqh5Mmrj+qjds3OSVmspH5BRHpB9mrR/RujOG9+0y1BbQc0zVAyyZYTqBDX8s8+NEMHHu43sLj33B1BLAQIUAxQAAAAIAKqxEF1jGYFVZQEAAEMFAAAHAAAAAAAAAAAAAACAAQAAAABkb2Mua21sUEsFBgAAAAABAAEANQAAAIoBAAAAAA==",
+  "base64",
+);
+
 const multiDocumentKmz = Buffer.from(
   "UEsDBBQAAAAIAG0kCl36V3yWdAAAAJwAAAAJAAAAZmlyc3Qua21sTY1BCgMhDEWvMsx6MKi7kuYEXRR6ApmmU1HjoAF7/NKu3H14vPcxlbx8SpZ+Xd+q5wVgjGHqyXLEboQVUsngjFsJ7znsXEJLhBIK0yu2rgj/jbco/NAW5SDca23PKEG5k/V283ax3m3eIcwIYZZgyv9O6QtQSwMEFAAAAAgAbSQKXeGCuSN0AAAAnQAAAAoAAABzZWNvbmQua21sTY1BCsMgEEWvErIODuouTOcEXRR6AjFDIuoYVLDHL+3K5efx3seY0/LJSdpjvXq/d4Axhio3yxmaEu4QcwKjzEr4Ss5zdjUSistMjX2RA+E/8BmE370GOQl9KfUI4jo30lZvVi/ams0ahBkhzBJM/d8rfQFQSwECFAMUAAAACABtJApd+ld8lnQAAACcAAAACQAAAAAAAAAAAAAAgAEAAAAAZmlyc3Qua21sUEsBAhQDFAAAAAgAbSQKXeGCuSN0AAAAnQAAAAoAAAAAAAAAAAAAAIABmwAAAHNlY29uZC5rbWxQSwUGAAAAAAIAAgBvAAAANwEAAAAA",
   "base64",
@@ -98,7 +162,7 @@ async function calculateNavLog(page: Page): Promise<void> {
   await textbox.fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
 
-  await expect(page.getByLabel("飛行経路にする形状")).toHaveValue("line:0");
+  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
@@ -211,7 +275,7 @@ async function importKmlCandidate(page: Page): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
-  await expect(page.getByLabel("飛行経路にする形状")).toHaveValue("line:0");
+  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
 }
 
 test("desktop workflow renders and stays fail-closed", async ({ page }) => {
@@ -721,6 +785,151 @@ test("KMZ document selection modal moves and traps focus", async ({ page }) => {
   await expect(dialog).toBeHidden();
 });
 
+test("grouped LineStrings require an explicit route candidate selection", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+
+  await importKmlCandidate(page);
+  const candidateSelect = page.getByLabel("飛行経路候補");
+  const departureSelect = page.getByLabel("FROM", { exact: true });
+  await expect(candidateSelect).toHaveValue("line:0");
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+
+  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await dialog.getByRole("textbox").fill(twoConnectedRouteCandidatesKml);
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+
+  await expect(candidateSelect).toHaveValue("");
+  await expect(candidateSelect.locator("option")).toHaveCount(3);
+  await expect(candidateSelect.locator("option").nth(0)).toHaveText("経路を選択");
+  await expect(candidateSelect.locator("option").nth(1)).toHaveText(
+    /^RJFM→RJFO① · 3 Leg · \d+(?:\.\d+)? NM$/,
+  );
+  await expect(candidateSelect.locator("option").nth(2)).toHaveText(
+    /^RJFO→RJFM① · 2 Leg · \d+(?:\.\d+)? NM$/,
+  );
+  await expect(departureSelect).toHaveValue("");
+  await expect(page.getByLabel("TO")).toHaveValue("");
+  await expect(page.getByText("飛行経路候補を選択すると地図へ表示します")).toBeVisible();
+  await expect(page.locator(".leaflet-overlay-pane path.leaflet-interactive")).toHaveCount(0);
+  await expect(page.getByLabel("経路確認")).toHaveCount(0);
+
+  await candidateSelect.selectOption("connected_lines:0");
+  await expect(departureSelect).toHaveValue("RJFM");
+  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
+  const routeWorkspace = page.getByLabel("経路地図とLeg設定");
+  await expect(routeWorkspace.getByText("RJFM→RJFO①", { exact: true })).toBeVisible();
+  await expect(routeWorkspace.getByText("4点の形状を確認中", { exact: true })).toBeVisible();
+  await expect(page.locator(".leaflet-overlay-pane path.leaflet-interactive")).toHaveCount(1);
+
+  const routeConfirmation = page.getByLabel("経路確認");
+  const routeUseConfirmed = routeConfirmation.getByLabel("地図とKML記載順を確認しました");
+  await routeUseConfirmed.check();
+  await expect(routeUseConfirmed).toBeChecked();
+
+  await page.getByLabel("QNH値").fill("1013");
+  const manualQnhConfirmed = page.getByLabel(
+    "このDATE・ETD・FROMのQNHとして確認しました",
+  );
+  await manualQnhConfirmed.check();
+  await candidateSelect.selectOption("");
+  await expect(departureSelect).toHaveValue("");
+  await expect(page.getByLabel("TO")).toHaveValue("");
+  await expect(page.getByText("飛行経路候補を選択すると地図へ表示します")).toBeVisible();
+  await expect(page.getByLabel("経路確認")).toHaveCount(0);
+  await expect(manualQnhConfirmed).not.toBeChecked();
+
+  await candidateSelect.selectOption("connected_lines:1");
+  await expect(routeUseConfirmed).not.toBeChecked();
+  await expect(departureSelect).toHaveValue("RJFO");
+  await expect(page.getByLabel("TO")).toHaveValue(/RJFM/);
+  await expect(routeWorkspace.getByText("RJFO→RJFM①", { exact: true })).toBeVisible();
+
+  await routeUseConfirmed.check();
+  const confirmRequest = page.waitForRequest(
+    (request) => request.url().endsWith("/api/route/confirm") && request.method() === "POST",
+  );
+  await routeConfirmation.getByRole("button", { name: "経路を確定" }).click();
+  const confirmPayload = (await confirmRequest).postDataJSON() as Record<string, unknown>;
+  expect(confirmPayload).toMatchObject({
+    candidate_kind: "connected_lines",
+    candidate_index: 1,
+    route_use_confirmed: true,
+    polygon_route_confirmed: false,
+  });
+  await expect(routeWorkspace.getByText("RJFO → RJFM", { exact: true })).toBeVisible();
+});
+
+test("same-named grouped routes remain distinguishable in the selector", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+
+  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await dialog.getByRole("textbox").fill(sameNamedConnectedRouteCandidatesKml);
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+
+  const candidateSelect = page.getByLabel("飛行経路候補");
+  await expect(candidateSelect).toHaveValue("");
+  const options = candidateSelect.locator("option");
+  await expect(options).toHaveCount(3);
+  await expect(options.nth(1)).toContainText(
+    "Duplicate routes / Outbound / Route（候補1） · 2 Leg",
+  );
+  await expect(options.nth(2)).toContainText(
+    "Duplicate routes / Inbound / Route（候補2） · 2 Leg",
+  );
+  expect(await options.nth(1).textContent()).not.toBe(await options.nth(2).textContent());
+});
+
+test("file picker, drop, and KMZ use the same grouped-route candidate flow", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+
+  const candidateSelect = page.getByLabel("飛行経路候補");
+  const groupedRouteFile = {
+    name: "grouped-routes.kml",
+    mimeType: "application/vnd.google-earth.kml+xml",
+    buffer: Buffer.from(twoConnectedRouteCandidatesKml),
+  };
+  await page.locator("#route-file").setInputFiles(groupedRouteFile);
+  await expect(candidateSelect).toHaveValue("");
+  await expect(candidateSelect.locator("option")).toHaveCount(3);
+
+  await candidateSelect.selectOption("connected_lines:0");
+  await expect(page.getByLabel("FROM")).toHaveValue("RJFM");
+  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
+
+  const dataTransfer = await page.evaluateHandle((kmlText) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(
+      [kmlText],
+      "dropped-grouped-routes.kml",
+      { type: "application/vnd.google-earth.kml+xml" },
+    ));
+    return transfer;
+  }, twoConnectedRouteCandidatesKml);
+  await page.locator(".drop-zone").dispatchEvent("drop", { dataTransfer });
+  await dataTransfer.dispose();
+
+  await expect(candidateSelect).toHaveValue("");
+  await expect(candidateSelect.locator("option")).toHaveCount(3);
+  await expect(page.getByLabel("FROM")).toHaveValue("");
+  await expect(page.getByLabel("TO")).toHaveValue("");
+
+  await page.locator("#route-file").setInputFiles({
+    name: "grouped-routes.kmz",
+    mimeType: "application/vnd.google-earth.kmz",
+    buffer: twoConnectedRouteCandidatesKmz,
+  });
+  await expect(candidateSelect).toHaveValue("");
+  await expect(candidateSelect.locator("option")).toHaveCount(3);
+  await expect(candidateSelect.locator("option").nth(1)).toContainText(
+    "RJFM→RJFO① · 3 Leg",
+  );
+});
+
 test("KML start automatically selects FROM and keeps manual override", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
@@ -731,7 +940,7 @@ test("KML start automatically selects FROM and keeps manual override", async ({ 
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
 
   const departure = page.getByLabel("FROM");
-  await expect(page.getByLabel("飛行経路にする形状")).toHaveValue("line:0");
+  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await expect(departure).toHaveValue("RJFK");
   await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
 

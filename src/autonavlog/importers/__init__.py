@@ -1,4 +1,5 @@
 from .kml import (
+    ImportedConnectedLine,
     ImportedLine,
     ImportedPoint,
     ImportedPolygon,
@@ -6,14 +7,18 @@ from .kml import (
     KmlDocumentSelectionRequired,
     KmlImportError,
     KmlImportResult,
+    KmlRouteCoordinateLimitExceeded,
+    connected_line_route_shape,
     import_kml_or_kmz,
     import_kml_text,
     imported_line_length_nm,
+    select_imported_connected_line,
     select_imported_line,
     select_imported_polygon_outer,
 )
 
 __all__ = [
+    "ImportedConnectedLine",
     "ImportedLine",
     "ImportedPoint",
     "ImportedPolygon",
@@ -21,9 +26,12 @@ __all__ = [
     "KmlDocumentSelectionRequired",
     "KmlImportError",
     "KmlImportResult",
+    "KmlRouteCoordinateLimitExceeded",
+    "connected_line_route_shape",
     "import_kml_or_kmz",
     "import_kml_text",
     "imported_line_length_nm",
+    "select_imported_connected_line",
     "select_imported_line",
     "select_imported_polygon_outer",
 ]
