@@ -1,4 +1,9 @@
-import type { AirportOption, Project, RouteCandidate } from "./types";
+import type {
+  AirportOption,
+  FtdWeatherSettings,
+  Project,
+  RouteCandidate,
+} from "./types";
 
 export type QnhUnit = "hPa" | "inHg";
 
@@ -19,6 +24,11 @@ export interface PlanningForm {
   polygonRouteConfirmed: boolean;
   manualQnhConfirmed: boolean;
   usePenultimateAsVrep: boolean;
+  weatherMode: "FORECAST" | "FTD";
+  ftdSurfaceWindDirection: string;
+  ftdSurfaceWindSpeed: string;
+  ftdWind5000Direction: string;
+  ftdWind5000Speed: string;
 }
 
 const HPA_PER_INHG = 33.8638866667;
@@ -106,6 +116,47 @@ export function usableFuelGal(form: PlanningForm): number | null {
   return entered;
 }
 
+export function ftdWeatherSettings(form: PlanningForm): FtdWeatherSettings | null {
+  if (
+    !form.ftdSurfaceWindDirection.trim() ||
+    !form.ftdSurfaceWindSpeed.trim() ||
+    !form.ftdWind5000Direction.trim() ||
+    !form.ftdWind5000Speed.trim()
+  ) {
+    return null;
+  }
+  const surfaceDirection = Number(form.ftdSurfaceWindDirection);
+  const surfaceSpeed = Number(form.ftdSurfaceWindSpeed);
+  const upperDirection = Number(form.ftdWind5000Direction);
+  const upperSpeed = Number(form.ftdWind5000Speed);
+  if (
+    !Number.isFinite(surfaceDirection) ||
+    surfaceDirection < 0 ||
+    surfaceDirection >= 360 ||
+    !Number.isFinite(upperDirection) ||
+    upperDirection < 0 ||
+    upperDirection >= 360 ||
+    !Number.isFinite(surfaceSpeed) ||
+    surfaceSpeed < 0 ||
+    surfaceSpeed > 200 ||
+    !Number.isFinite(upperSpeed) ||
+    upperSpeed < 0 ||
+    upperSpeed > 200
+  ) {
+    return null;
+  }
+  return {
+    surface_wind: {
+      direction_deg_from: surfaceDirection,
+      speed_kt: surfaceSpeed,
+    },
+    wind_at_5000_ft: {
+      direction_deg_from: upperDirection,
+      speed_kt: upperSpeed,
+    },
+  };
+}
+
 export function patternAltitudeFtMsl(value: string): number | null {
   const trimmed = value.trim();
   if (!/^\d+$/.test(trimmed)) return null;
@@ -154,6 +205,11 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     polygonRouteConfirmed: false,
     manualQnhConfirmed: false,
     usePenultimateAsVrep: true,
+    weatherMode: "FORECAST",
+    ftdSurfaceWindDirection: "0",
+    ftdSurfaceWindSpeed: "0",
+    ftdWind5000Direction: "0",
+    ftdWind5000Speed: "0",
   };
 }
 
@@ -185,6 +241,21 @@ export function formFromProject(
         : convertQnhValue(project.manual_qnh_hpa.toString(), "hPa", previous.qnhUnit),
     qnhUnit: previous.qnhUnit,
     tglCount: project.tgl_count,
+    weatherMode: project.weather_mode,
+    ftdSurfaceWindDirection: String(
+      project.ftd_weather?.surface_wind.direction_deg_from ??
+        previous.ftdSurfaceWindDirection,
+    ),
+    ftdSurfaceWindSpeed: String(
+      project.ftd_weather?.surface_wind.speed_kt ?? previous.ftdSurfaceWindSpeed,
+    ),
+    ftdWind5000Direction: String(
+      project.ftd_weather?.wind_at_5000_ft.direction_deg_from ??
+        previous.ftdWind5000Direction,
+    ),
+    ftdWind5000Speed: String(
+      project.ftd_weather?.wind_at_5000_ft.speed_kt ?? previous.ftdWind5000Speed,
+    ),
   };
 }
 

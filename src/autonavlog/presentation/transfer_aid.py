@@ -116,6 +116,7 @@ def _project_summary(project: Project, outcome: CalculationOutcome) -> str:
         ("TAKE OFF", project.planned_departure_time_jst.strftime("%H:%M")),
         ("LANDING", ""),
         ("PILOT", project.pilot_name or ""),
+        ("WX", "FTD FIXED / ISA" if project.weather_mode == "FTD" else "FORECAST"),
     ]
     headings = "".join(f"<th>{escape(label)}</th>" for label, _ in values)
     cells = "".join(f"<td>{escape(value)}</td>" for _, value in values)
@@ -268,8 +269,7 @@ def _fuel_table(outcome: CalculationOutcome) -> str:
     bof_html = "".join(
         "<tr>"
         + (
-            "<td rowspan='6' class='fuel-gray'></td>"
-            "<td rowspan='5' class='fuel-bof'>BOF</td>"
+            "<td rowspan='6' class='fuel-gray'></td><td rowspan='5' class='fuel-bof'>BOF</td>"
             if index == 0
             else ""
         )

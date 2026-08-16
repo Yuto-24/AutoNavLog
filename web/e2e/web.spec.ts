@@ -163,7 +163,7 @@ async function calculateNavLog(page: Page): Promise<void> {
   const calculateButton = page.locator(".status-actions .primary-button");
   await expect(calculateButton).toHaveText("NAV LOGを作る");
   await calculateButton.click();
-  const calculationProgress = page.getByRole("progressbar", { name: "NAV LOGを計算中" });
+  const calculationProgress = page.getByRole("status", { name: "NAV LOGを計算中" });
   await expect(calculationProgress).toBeVisible();
   await expect(calculateButton).toHaveText("NAV LOGを計算中…");
   releaseCalculationRequest();
@@ -204,6 +204,14 @@ async function calculateNavLog(page: Page): Promise<void> {
     await expect(page.locator(".qnh-warning").filter({ hasText: warning })).toHaveCount(0);
   }
   await expectDisplayProjectionToMatchWebTable(page);
+}
+
+async function importKmlCandidate(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await dialog.getByRole("textbox").fill(kml);
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(page.getByLabel("飛行経路にする形状")).toHaveValue("line:0");
 }
 
 test("desktop workflow renders and stays fail-closed", async ({ page }) => {
@@ -313,6 +321,94 @@ test("mobile fuel input allows a temporary blank value", async ({ page }) => {
   await expect(fuel).toHaveValue("");
   await fuel.fill("77.5");
   await expect(fuel).toHaveValue("77.5");
+});
+
+test("mobile route confirmation follows the map without scrolling back", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await importKmlCandidate(page);
+
+  const map = page.locator("#route-map-frame");
+  const confirmation = page.getByRole("region", { name: "経路確認" });
+  const checkbox = page.getByLabel("地図とKML記載順を確認しました");
+  const confirm = page.getByRole("button", { name: "経路を確定" });
+  const mapBox = await map.boundingBox();
+  const confirmationBox = await confirmation.boundingBox();
+  const checkboxBox = await checkbox.boundingBox();
+  const confirmBox = await confirm.boundingBox();
+  if (!mapBox || !confirmationBox || !checkboxBox || !confirmBox) {
+    throw new Error("Map confirmation layout is missing");
+  }
+  expect(confirmationBox.y).toBeGreaterThanOrEqual(mapBox.y + mapBox.height - 1);
+  expect(checkboxBox.y).toBeLessThan(confirmBox.y);
+  await expect(page.getByRole("separator", { name: "地図の高さを調整" })).toBeHidden();
+
+  await checkbox.check();
+  await confirm.click();
+  await expect(confirmation).toBeHidden();
+  await expect(page.getByRole("heading", { name: "チェックポイント" })).toBeVisible();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test("desktop map height is keyboard adjustable and fixed below breakpoint", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+
+  const map = page.locator("#route-map-frame");
+  const separator = page.getByRole("separator", { name: "地図の高さを調整" });
+  await expect(separator).toBeVisible();
+  await expect(separator).toHaveAttribute("aria-valuenow", "425");
+  expect((await map.boundingBox())?.height).toBeCloseTo(425, 0);
+
+  await separator.focus();
+  await separator.press("ArrowDown");
+  await expect(separator).toHaveAttribute("aria-valuenow", "450");
+  expect((await map.boundingBox())?.height).toBeCloseTo(450, 0);
+
+  await page.setViewportSize({ width: 1240, height: 1000 });
+  await expect(separator).toBeHidden();
+  expect((await map.boundingBox())?.height).toBeCloseTo(500, 0);
+});
+
+test("FTD route settings and checkpoint CRUD are available from the web UI", async ({ page }) => {
+  await page.goto("/");
+  await importKmlCandidate(page);
+
+  await page.getByLabel("気象モード").selectOption("FTD");
+  await page.getByLabel("地上風向 ° FROM").fill("350");
+  await page.getByLabel("地上風速 kt").fill("10");
+  await page.getByLabel("5,000 ft風向 ° FROM").fill("10");
+  await page.getByLabel("5,000 ft風速 kt").fill("20");
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const stateAfterConfirm = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    return await response.json() as WebState;
+  });
+  expect(stateAfterConfirm.project?.weather_mode).toBe("FTD");
+  expect(stateAfterConfirm.project?.ftd_weather?.wind_at_5000_ft.speed_kt).toBe(20);
+
+  const editor = page.getByRole("region", { name: "チェックポイント設定" });
+  await editor.getByRole("button", { name: "追加" }).click();
+  await editor.getByLabel("名称").fill("訓練CP");
+  await editor.getByLabel("緯度").fill("32.700000");
+  await editor.getByLabel("経度").fill("131.550000");
+  await editor.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(editor.getByText("訓練CP", { exact: true })).toBeVisible();
+  await expect(editor.getByText(/Leg内 .* NM \/ 累積 .* NM \/ 横ずれ .* NM/)).toBeVisible();
+
+  await editor.getByRole("button", { name: "訓練CPを編集" }).click();
+  await editor.getByLabel("名称").fill("訓練CP改");
+  await editor.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(editor.getByText("訓練CP改", { exact: true })).toBeVisible();
+
+  page.once("dialog", (dialog) => void dialog.accept());
+  await editor.getByRole("button", { name: "訓練CP改を削除" }).click();
+  await expect(editor.getByText("まだチェックポイントはありません。")).toBeVisible();
 });
 
 test("changed ALT appears in PA with lesson display precision", async ({ page }) => {

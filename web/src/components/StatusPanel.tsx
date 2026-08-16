@@ -13,6 +13,7 @@ interface StatusPanelProps {
   runtime: RuntimeState;
   readiness: ReadinessState;
   projectExists: boolean;
+  weatherMode: "FORECAST" | "FTD";
   canCalculate: boolean;
   destinationConfirmed: boolean;
   destinationReady: boolean;
@@ -29,6 +30,7 @@ export function StatusPanel({
   runtime,
   readiness,
   projectExists,
+  weatherMode,
   canCalculate,
   destinationConfirmed,
   destinationReady,
@@ -62,11 +64,11 @@ export function StatusPanel({
         </div>
         <div>
           <dt><CloudSun aria-hidden="true" size={16} />気象</dt>
-          <dd>{runtime.weatherLabel}</dd>
+          <dd>{weatherMode === "FTD" ? "FTD固定気象（ISA）" : runtime.weatherLabel}</dd>
         </div>
       </dl>
 
-      {runtime.developmentWeather && (
+      {runtime.developmentWeather && weatherMode !== "FTD" && (
         <div className="demo-weather-warning">
           <AlertTriangle aria-hidden="true" size={18} />
           <p>

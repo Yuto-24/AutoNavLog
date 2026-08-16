@@ -11,6 +11,7 @@ from autonavlog.domain.planning import (
 from autonavlog.domain.project import Project
 from autonavlog.nav.variation import VARIATION_RULE_VERSION
 from autonavlog.performance.repository import PerformanceRepository
+from autonavlog.weather.ftd_provider import FTD_WEATHER_POLICY_VERSION
 
 from .fingerprints import make_fingerprint
 
@@ -110,6 +111,15 @@ def current_calculation_input_fingerprint(
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
             "selected_forecast_run_id": project.selected_forecast_run_id,
+            "weather_mode": project.weather_mode,
+            "ftd_weather": (
+                None
+                if project.ftd_weather is None
+                else project.ftd_weather.model_dump(mode="python")
+            ),
+            "ftd_weather_policy_version": (
+                FTD_WEATHER_POLICY_VERSION if project.weather_mode == "FTD" else None
+            ),
             "route_nodes": route_nodes,
             "sections": sections,
             "arrival_plan": (
@@ -133,7 +143,7 @@ def current_calculation_input_fingerprint(
             "variation_rule_version": VARIATION_RULE_VERSION,
             "performance_table_version": performance_table_version,
             "autonavlog_version": autonavlog_version,
-            "msm_package_version": msm_package_version,
+            "msm_package_version": (None if project.weather_mode == "FTD" else msm_package_version),
         },
     )
 

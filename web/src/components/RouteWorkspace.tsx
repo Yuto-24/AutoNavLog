@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   CircleMarker,
   MapContainer,
@@ -6,6 +7,7 @@ import {
   TileLayer,
   Tooltip,
   useMap,
+  useMapEvents,
 } from "react-leaflet";
 import type { LatLngBoundsExpression } from "leaflet";
 import { patternAltitudeFtMsl } from "../forms";
@@ -13,11 +15,16 @@ import type {
   AltitudeGuidance,
   AirportOption,
   CalculationOutcome,
+  CheckPointInput,
+  CheckPointPlanning,
   FlightPhase,
   NavSection,
   Project,
   RouteCandidate,
 } from "../types";
+import { CheckPointEditor } from "./CheckPointEditor";
+import { MapResizeHandle } from "./MapResizeHandle";
+import { RouteConfirmation } from "./RouteConfirmation";
 
 interface RouteWorkspaceProps {
   candidate: RouteCandidate | null;
@@ -27,9 +34,18 @@ interface RouteWorkspaceProps {
   altitudeInputs: Record<string, string>;
   destinationAirport: AirportOption | null;
   destinationPatternAltitudeFtMsl: string;
+  checkPointPlanning: CheckPointPlanning;
+  busy: boolean;
+  routeUseConfirmed: boolean;
+  polygonRouteConfirmed: boolean;
+  canConfirmRoute: boolean;
   onAltitudeInputChange: (sectionId: string, value: string) => void;
   onDestinationPatternAltitudeChange: (value: string) => void;
   onSectionChange: (sectionId: string, changes: Partial<NavSection>) => void;
+  onRouteUseConfirmedChange: (checked: boolean) => void;
+  onPolygonRouteConfirmedChange: (checked: boolean) => void;
+  onConfirmRoute: () => void;
+  onReplaceCheckPoints: (checkPoints: CheckPointInput[]) => Promise<boolean>;
 }
 
 const phaseLabels: Record<FlightPhase, string> = {
@@ -56,18 +72,39 @@ const roleLabels: Record<string, string> = {
 function FitBounds({
   coordinates,
   signature,
+  viewportRevision,
 }: {
   coordinates: [number, number][];
   signature: string;
+  viewportRevision: number;
 }) {
   const map = useMap();
   useEffect(() => {
-    if (coordinates.length >= 2) {
-      map.fitBounds(coordinates as LatLngBoundsExpression, { padding: [28, 28] });
-    } else if (coordinates.length === 1 && coordinates[0]) {
-      map.setView(coordinates[0], 10);
-    }
-  }, [map, signature]);
+    const frame = window.requestAnimationFrame(() => {
+      map.invalidateSize({ animate: false });
+      if (coordinates.length >= 2) {
+        map.fitBounds(coordinates as LatLngBoundsExpression, { padding: [28, 28] });
+      } else if (coordinates.length === 1 && coordinates[0]) {
+        map.setView(coordinates[0], 10);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [map, signature, viewportRevision]);
+  return null;
+}
+
+function CheckPointMapPicker({
+  active,
+  onPick,
+}: {
+  active: boolean;
+  onPick: (latitude: number, longitude: number) => void;
+}) {
+  useMapEvents({
+    click(event) {
+      if (active) onPick(event.latlng.lat, event.latlng.lng);
+    },
+  });
   return null;
 }
 
@@ -79,10 +116,26 @@ export function RouteWorkspace({
   altitudeInputs,
   destinationAirport,
   destinationPatternAltitudeFtMsl,
+  checkPointPlanning,
+  busy,
+  routeUseConfirmed,
+  polygonRouteConfirmed,
+  canConfirmRoute,
   onAltitudeInputChange,
   onDestinationPatternAltitudeChange,
   onSectionChange,
+  onRouteUseConfirmedChange,
+  onPolygonRouteConfirmedChange,
+  onConfirmRoute,
+  onReplaceCheckPoints,
 }: RouteWorkspaceProps) {
+  const [mapHeight, setMapHeight] = useState(425);
+  const [pickingCheckPoint, setPickingCheckPoint] = useState(false);
+  const [pickedCoordinate, setPickedCoordinate] = useState<{
+    latitude: number;
+    longitude: number;
+    revision: number;
+  } | null>(null);
   const validPatternAltitude = patternAltitudeFtMsl(
     destinationPatternAltitudeFtMsl,
   );
@@ -105,6 +158,10 @@ export function RouteWorkspace({
       ),
     [altitudeGuidance.sections],
   );
+  const checkPoints = useMemo(
+    () => (project?.visual_references ?? []).filter((item) => item.role === "CHECK_POINT"),
+    [project],
+  );
 
   const coordinates = useMemo<[number, number][]>(
     () =>
@@ -114,9 +171,45 @@ export function RouteWorkspace({
     [candidate, nodes],
   );
   const coordinateSignature = useMemo(
-    () => coordinates.map(([latitude, longitude]) => `${latitude},${longitude}`).join(";"),
-    [coordinates],
+    () =>
+      [
+        ...coordinates,
+        ...checkPoints.map<[number, number]>((item) => [item.latitude_deg, item.longitude_deg]),
+        ...checkPointPlanning.projections.map<[number, number]>((item) => [
+          item.abeam_latitude_deg,
+          item.abeam_longitude_deg,
+        ]),
+      ].map(([latitude, longitude]) => `${latitude},${longitude}`).join(";"),
+    [checkPointPlanning.projections, checkPoints, coordinates],
   );
+  const fitCoordinates = useMemo<[number, number][]>(
+    () => [
+      ...coordinates,
+      ...checkPoints.map<[number, number]>((item) => [item.latitude_deg, item.longitude_deg]),
+      ...checkPointPlanning.projections.map<[number, number]>((item) => [
+        item.abeam_latitude_deg,
+        item.abeam_longitude_deg,
+      ]),
+    ],
+    [checkPointPlanning.projections, checkPoints, coordinates],
+  );
+  const projectionById = useMemo(
+    () => new Map(checkPointPlanning.projections.map((item) => [item.checkpoint_id, item])),
+    [checkPointPlanning.projections],
+  );
+  const handleMapPick = useCallback((latitude: number, longitude: number) => {
+    setPickedCoordinate((current) => ({
+      latitude,
+      longitude,
+      revision: (current?.revision ?? 0) + 1,
+    }));
+  }, []);
+  const handlePickingChange = useCallback((active: boolean) => {
+    setPickingCheckPoint(active);
+  }, []);
+  const mapFrameStyle = {
+    "--route-map-height": `${mapHeight}px`,
+  } as CSSProperties;
 
   return (
     <section className="route-workspace" aria-label="経路地図とLeg設定">
@@ -131,7 +224,11 @@ export function RouteWorkspace({
         </div>
         {project && <span className="route-count">{nodes.length}点 / {sections.length} Leg</span>}
       </div>
-      <div className="map-frame">
+      <div
+        id="route-map-frame"
+        className={`map-frame${pickingCheckPoint ? " is-picking-checkpoint" : ""}`}
+        style={mapFrameStyle}
+      >
         <MapContainer
           center={[32.6, 131.3]}
           zoom={7}
@@ -184,7 +281,56 @@ export function RouteWorkspace({
               </Tooltip>
             </CircleMarker>
           ))}
-          <FitBounds coordinates={coordinates} signature={coordinateSignature} />
+          {checkPoints.map((checkPoint) => {
+            const projection = projectionById.get(checkPoint.id);
+            return (
+              <Fragment key={checkPoint.id}>
+                {projection && (
+                  <Polyline
+                    positions={[
+                      [checkPoint.latitude_deg, checkPoint.longitude_deg],
+                      [projection.abeam_latitude_deg, projection.abeam_longitude_deg],
+                    ]}
+                    pathOptions={{ color: "#9b5b13", weight: 2, dashArray: "5 5" }}
+                  />
+                )}
+                <CircleMarker
+                  center={[checkPoint.latitude_deg, checkPoint.longitude_deg]}
+                  radius={7}
+                  pathOptions={{
+                    color: "#9b5b13",
+                    fillColor: "#fff7e8",
+                    fillOpacity: 1,
+                    weight: 3,
+                  }}
+                >
+                  <Tooltip permanent direction="right" offset={[8, 0]}>
+                    CP {checkPoint.name}
+                  </Tooltip>
+                </CircleMarker>
+                {projection && (
+                  <CircleMarker
+                    center={[projection.abeam_latitude_deg, projection.abeam_longitude_deg]}
+                    radius={4}
+                    pathOptions={{
+                      color: "#9b5b13",
+                      fillColor: "#9b5b13",
+                      fillOpacity: 1,
+                      weight: 2,
+                    }}
+                  >
+                    <Tooltip direction="bottom">abeam {checkPoint.name}</Tooltip>
+                  </CircleMarker>
+                )}
+              </Fragment>
+            );
+          })}
+          <CheckPointMapPicker active={pickingCheckPoint} onPick={handleMapPick} />
+          <FitBounds
+            coordinates={fitCoordinates}
+            signature={coordinateSignature}
+            viewportRevision={mapHeight}
+          />
         </MapContainer>
         {!coordinates.length && (
           <div className="map-empty">
@@ -193,6 +339,19 @@ export function RouteWorkspace({
           </div>
         )}
       </div>
+      <MapResizeHandle value={mapHeight} min={320} max={900} onChange={setMapHeight} />
+
+      <RouteConfirmation
+        visible={Boolean(candidate && !project)}
+        polygon={candidate?.kind === "polygon"}
+        routeUseConfirmed={routeUseConfirmed}
+        polygonRouteConfirmed={polygonRouteConfirmed}
+        canConfirm={canConfirmRoute}
+        busy={busy}
+        onRouteUseConfirmedChange={onRouteUseConfirmedChange}
+        onPolygonRouteConfirmedChange={onPolygonRouteConfirmedChange}
+        onConfirm={onConfirmRoute}
+      />
 
       <div className="table-scroll route-table-scroll">
         <table className="route-table">
@@ -396,6 +555,19 @@ export function RouteWorkspace({
           <br />
           {altitudeGuidance.terrainLimitationNote}
         </p>
+      )}
+      {project && (
+        <CheckPointEditor
+          nodes={nodes}
+          sections={sections}
+          checkPoints={checkPoints}
+          planning={checkPointPlanning}
+          busy={busy}
+          pickedCoordinate={pickedCoordinate}
+          pickingFromMap={pickingCheckPoint}
+          onPickingFromMapChange={handlePickingChange}
+          onReplace={onReplaceCheckPoints}
+        />
       )}
     </section>
   );

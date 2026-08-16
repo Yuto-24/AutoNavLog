@@ -531,6 +531,24 @@
       "title": "FlightPhase",
       "type": "string"
     },
+    "FtdWeatherSettings": {
+      "additionalProperties": false,
+      "description": "Deterministic weather inputs used for flight-training-device runs.",
+      "properties": {
+        "surface_wind": {
+          "$ref": "#/$defs/ManualWind"
+        },
+        "wind_at_5000_ft": {
+          "$ref": "#/$defs/ManualWind"
+        }
+      },
+      "required": [
+        "surface_wind",
+        "wind_at_5000_ft"
+      ],
+      "title": "FtdWeatherSettings",
+      "type": "object"
+    },
     "FuelPlan": {
       "additionalProperties": false,
       "properties": {
@@ -1237,6 +1255,17 @@
           "title": "Flight Date",
           "type": "string"
         },
+        "ftd_weather": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FtdWeatherSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "id": {
           "format": "uuid",
           "title": "Id",
@@ -1345,6 +1374,15 @@
           },
           "title": "Visual References",
           "type": "array"
+        },
+        "weather_mode": {
+          "default": "FORECAST",
+          "enum": [
+            "FORECAST",
+            "FTD"
+          ],
+          "title": "Weather Mode",
+          "type": "string"
         }
       },
       "required": [

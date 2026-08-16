@@ -38,6 +38,7 @@ from .models import (
     ConfirmRouteRequest,
     ImportRouteRequest,
     LoadProjectRequest,
+    ReplaceCheckPointsRequest,
     SaveProjectRequest,
     UpdateProjectRequest,
 )
@@ -336,6 +337,13 @@ def create_app(
         session: SessionDependency,
     ) -> dict[str, Any]:
         return web.update_project(session, payload)
+
+    @app.put("/api/project/check-points")
+    def replace_check_points(
+        payload: ReplaceCheckPointsRequest,
+        session: SessionDependency,
+    ) -> dict[str, Any]:
+        return web.replace_check_points(session, payload)
 
     @app.post("/api/project/recalculate")
     def update_and_calculate_project(

@@ -6,6 +6,7 @@ import {
   departureAirportForCandidate,
   destinationAirportForCandidate,
   formFromProject,
+  ftdWeatherSettings,
   initialPlanningForm,
   patternAltitudeFtMsl,
   qnhHpa,
@@ -30,7 +31,7 @@ import { ProgressRail } from "./components/ProgressRail";
 import { RouteWorkspace } from "./components/RouteWorkspace";
 import { StatusPanel } from "./components/StatusPanel";
 import { CalculationProgressOverlay } from "./components/CalculationProgressOverlay";
-import type { FlightPhase, NavSection, WebState } from "./types";
+import type { CheckPointInput, FlightPhase, NavSection, WebState } from "./types";
 import { useModalFocusTrap } from "./useModalFocusTrap";
 
 interface PendingKmz {
@@ -351,6 +352,11 @@ function App() {
       setError("KML始点から5 NM以内に出発空港が見つかりません。経路始点を確認してください。");
       return;
     }
+    const ftdWeather = ftdWeatherSettings(form);
+    if (form.weatherMode === "FTD" && ftdWeather === null) {
+      setError("FTD固定気象は、地上と5,000 ftの風向・風速を範囲内で入力してください。");
+      return;
+    }
     cancelPendingRecalculation();
     const confirmed = await run(
       () =>
@@ -369,6 +375,8 @@ function App() {
             total_usable_fuel_gal: fuelGal,
             default_variation_deg_east: form.variationDegEast,
             manual_qnh_hpa: qnhHpa(form),
+            weather_mode: form.weatherMode,
+            ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
             tgl_count: form.tglCount,
             all_leg_altitude_ft_msl: form.allLegAltitudeFtMsl,
             use_penultimate_as_vrep: form.usePenultimateAsVrep,
@@ -502,6 +510,12 @@ function App() {
       }),
     );
     const arrival = state.project.metadata.ui_state?.arrival_plan ?? null;
+    const ftdWeather = ftdWeatherSettings(form);
+    if (form.weatherMode === "FTD" && ftdWeather === null) {
+      throw new Error(
+        "FTD固定気象は、地上と5,000 ftの風向・風速を範囲内で入力してください。",
+      );
+    }
     const orderedNodes = [...state.project.route_nodes].sort((a, b) => a.sequence - b.sequence);
     const fallbackVrep = orderedNodes.length >= 3 ? orderedNodes.at(-2)?.id ?? null : null;
     return {
@@ -510,6 +524,8 @@ function App() {
       total_usable_fuel_gal: fuelGal,
       default_variation_deg_east: form.variationDegEast,
       manual_qnh_hpa: qnhHpa(form),
+      weather_mode: form.weatherMode,
+      ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
       tgl_count: form.tglCount,
       sections: payloadSections.map((section) => ({
         section_id: section.id,
@@ -662,6 +678,18 @@ function App() {
     if (saved?.project) setProjectName(saved.project.name);
   };
 
+  const handleReplaceCheckPoints = async (checkPoints: CheckPointInput[]) => {
+    const updated = await run(
+      () =>
+        api.request<WebState>("/api/project/check-points", {
+          method: "PUT",
+          body: { check_points: checkPoints },
+        }),
+      "Check Pointを更新しました。NAV LOGを再計算してください。",
+    );
+    return updated !== undefined;
+  };
+
   const handleLoad = async () => {
     if (!selectedProjectId) return;
     cancelPendingRecalculation();
@@ -755,6 +783,9 @@ function App() {
   const selectedDestinationAirport = state.airports.find(
     (airport) => airport.id === form.destinationAirportId,
   ) ?? null;
+  const selectedDepartureAirport = state.airports.find(
+    (airport) => airport.id === form.departureAirportId,
+  ) ?? null;
   const selectedArrival = state.project?.metadata.ui_state?.arrival_plan ?? null;
   const destinationConfirmed = Boolean(
     state.project &&
@@ -765,6 +796,16 @@ function App() {
       state.project.departure_airport_id === form.departureAirportId &&
       selectedArrival.selected_pattern_altitude_ft_msl ===
         patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl),
+  );
+  const validFtdWeather = ftdWeatherSettings(form);
+  const canConfirmRoute = Boolean(
+    selectedCandidate &&
+      form.routeUseConfirmed &&
+      (selectedCandidate.kind !== "polygon" || form.polygonRouteConfirmed) &&
+      selectedDepartureAirport &&
+      selectedDestinationAirport &&
+      usableFuelGal(form) !== null &&
+      (form.weatherMode !== "FTD" || validFtdWeather !== null),
   );
 
   return (
@@ -814,7 +855,6 @@ function App() {
           busy={busy}
           onFile={handleFile}
           onPaste={() => setPasteOpen(true)}
-          onConfirmRoute={handleConfirmRoute}
         />
         <RouteWorkspace
           candidate={selectedCandidate}
@@ -824,6 +864,11 @@ function App() {
           altitudeInputs={altitudeInputs}
           destinationAirport={selectedDestinationAirport}
           destinationPatternAltitudeFtMsl={form.destinationPatternAltitudeFtMsl}
+          checkPointPlanning={state.checkPointPlanning}
+          busy={busy}
+          routeUseConfirmed={form.routeUseConfirmed}
+          polygonRouteConfirmed={form.polygonRouteConfirmed}
+          canConfirmRoute={canConfirmRoute}
           onAltitudeInputChange={handleAltitudeInputChange}
           onDestinationPatternAltitudeChange={(value) =>
             setTrackedForm((current) => ({
@@ -832,11 +877,23 @@ function App() {
             }))
           }
           onSectionChange={handleSectionChange}
+          onRouteUseConfirmedChange={(checked) =>
+            setTrackedForm((current) => ({ ...current, routeUseConfirmed: checked }))
+          }
+          onPolygonRouteConfirmedChange={(checked) =>
+            setTrackedForm((current) => ({
+              ...current,
+              polygonRouteConfirmed: checked,
+            }))
+          }
+          onConfirmRoute={handleConfirmRoute}
+          onReplaceCheckPoints={handleReplaceCheckPoints}
         />
         <StatusPanel
           runtime={state.runtime}
           readiness={state.readiness}
           projectExists={Boolean(state.project)}
+          weatherMode={state.project?.weather_mode ?? form.weatherMode}
           canCalculate={destinationConfirmed}
           destinationConfirmed={destinationConfirmed}
           destinationReady={patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl) !== null}

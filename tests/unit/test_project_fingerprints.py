@@ -12,7 +12,7 @@ from autonavlog.application.project_fingerprints import (
 )
 from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.planning import PersistedUiState
-from autonavlog.domain.project import Project
+from autonavlog.domain.project import FtdWeatherSettings, ManualWind, Project
 
 
 def _calculation_fingerprint(
@@ -101,6 +101,45 @@ def test_variation_rule_version_changes_calculation_key(
         "DEPARTURE_LATITUDE_32N_V2",
     )
     assert _calculation_fingerprint(project, performance_repository) != baseline
+
+
+def test_ftd_weather_and_policy_change_calculation_key_without_msm_dependency(
+    project: Project,
+    performance_repository: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ftd_project = project.model_copy(
+        update={
+            "weather_mode": "FTD",
+            "ftd_weather": FtdWeatherSettings(
+                surface_wind=ManualWind(direction_deg_from=350, speed_kt=10),
+                wind_at_5000_ft=ManualWind(direction_deg_from=10, speed_kt=20),
+            ),
+        }
+    )
+    baseline = _calculation_fingerprint(ftd_project, performance_repository)
+    without_msm_version = current_calculation_input_fingerprint(
+        ftd_project,
+        ui_state=PersistedUiState(),
+        performance=performance_repository,
+        calculation_policy_version="nav2-v2",
+        performance_table_version="fixture-v1",
+        autonavlog_version="0.2.0",
+        msm_package_version=None,
+    )
+    assert without_msm_version == baseline
+
+    changed_wind = ftd_project.model_copy(deep=True)
+    assert changed_wind.ftd_weather is not None
+    changed_wind.ftd_weather.wind_at_5000_ft.speed_kt = 21
+    assert _calculation_fingerprint(changed_wind, performance_repository) != baseline
+
+    monkeypatch.setattr(
+        project_fingerprints,
+        "FTD_WEATHER_POLICY_VERSION",
+        "FTD_VECTOR_ISA_V2",
+    )
+    assert _calculation_fingerprint(ftd_project, performance_repository) != baseline
 
 
 def test_defaults_review_includes_phase_and_ignores_legacy_loss(

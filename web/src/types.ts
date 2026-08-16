@@ -59,6 +59,23 @@ export interface ManualWind {
   speed_kt: number;
 }
 
+export interface FtdWeatherSettings {
+  surface_wind: ManualWind;
+  wind_at_5000_ft: ManualWind;
+}
+
+export interface VisualReference {
+  id: string;
+  project_id: string | null;
+  name: string;
+  latitude_deg: number;
+  longitude_deg: number;
+  role: string;
+  linked_section_id: string | null;
+  along_track_fraction: number | null;
+  source: string;
+}
+
 export interface NavSection {
   id: string;
   sequence: number;
@@ -99,8 +116,11 @@ export interface Project {
   total_usable_fuel_gal: number;
   default_variation_deg_east: number;
   manual_qnh_hpa: number | null;
+  weather_mode: "FORECAST" | "FTD";
+  ftd_weather: FtdWeatherSettings | null;
   tgl_count: number;
   route_nodes: RouteNode[];
+  visual_references: VisualReference[];
   sections: NavSection[];
   acknowledged_warning_codes: string[];
   metadata: {
@@ -213,6 +233,38 @@ export interface DerivedPoint {
   along_route_distance_nm: number;
 }
 
+export interface CheckPointProjection {
+  checkpoint_id: string;
+  section_id: string;
+  abeam_latitude_deg: number;
+  abeam_longitude_deg: number;
+  along_track_fraction: number;
+  along_section_distance_nm: number;
+  cumulative_distance_nm: number;
+  cross_track_distance_nm: number;
+  policy_version: string;
+}
+
+export interface CheckPointPlanningIssue {
+  code: string;
+  message: string;
+  sectionId: string | null;
+  checkPointId: string | null;
+}
+
+export interface CheckPointPlanning {
+  projections: CheckPointProjection[];
+  issues: CheckPointPlanningIssue[];
+}
+
+export interface CheckPointInput {
+  id?: string | null;
+  name: string;
+  latitude_deg: number;
+  longitude_deg: number;
+  linked_section_id: string;
+}
+
 export interface FuelPlan {
   total_usable_gal: number;
   taxi_runup_gal: number;
@@ -233,6 +285,7 @@ export interface CalculationOutcome {
   sections: SectionResult[];
   display_rows: NavLogDisplayRow[];
   derived_points: DerivedPoint[];
+  check_point_projections: CheckPointProjection[];
   fuel_plan: FuelPlan;
   status: string;
 }
@@ -305,6 +358,7 @@ export interface WebState {
   savedProjects: SavedProject[];
   import: ImportState;
   altitudeGuidance: AltitudeGuidance;
+  checkPointPlanning: CheckPointPlanning;
   project: Project | null;
   outcome: CalculationOutcome | null;
   destinationWind: DestinationWindForecast | null;

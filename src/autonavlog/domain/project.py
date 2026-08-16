@@ -63,6 +63,13 @@ class ManualWind(DomainModel):
     speed_kt: float = Field(ge=0, le=200)
 
 
+class FtdWeatherSettings(DomainModel):
+    """Deterministic weather inputs used for flight-training-device runs."""
+
+    surface_wind: ManualWind
+    wind_at_5000_ft: ManualWind
+
+
 class NavSection(DomainModel):
     id: UUID = Field(default_factory=uuid4)
     project_id: UUID | None = None
@@ -106,6 +113,8 @@ class Project(DomainModel):
     total_usable_fuel_gal: float = Field(gt=0)
     default_variation_deg_east: float
     manual_qnh_hpa: float | None = Field(default=None, gt=800, lt=1100)
+    weather_mode: Literal["FORECAST", "FTD"] = "FORECAST"
+    ftd_weather: FtdWeatherSettings | None = None
     tgl_count: int = Field(default=0, ge=0)
     selected_forecast_run_id: str | None = None
     revision: int = Field(default=0, ge=0)
@@ -134,6 +143,8 @@ class Project(DomainModel):
 
     @model_validator(mode="after")
     def validate_route_graph(self) -> Project:
+        if self.weather_mode == "FTD" and self.ftd_weather is None:
+            raise ValueError("FTD weather settings are required in FTD mode")
         node_ids = {node.id for node in self.route_nodes}
         if len(node_ids) != len(self.route_nodes):
             raise ValueError("route node ids must be unique")
