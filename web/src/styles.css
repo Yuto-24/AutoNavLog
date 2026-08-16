@@ -455,17 +455,73 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
 .form-grid .span-two { grid-column: 1 / -1; }
 .flight-plan-section .primary-button { margin-top: 14px; }
 
+.ftd-weather-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #d6b46c;
+  border-radius: var(--radius-sm);
+  background: #fffaf0;
+}
+.ftd-weather-fields > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #6e4b16;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.ftd-weather-fields label { display: grid; gap: 5px; }
+.ftd-weather-fields label > span { color: #58451f; font-size: 10px; font-weight: 700; }
+
 .workspace-heading { margin-bottom: 12px; }
 .workspace-heading p, .nav-log-heading p { margin: 4px 0 0; color: var(--slate-500); font-size: 11px; }
 
 .map-frame {
   position: relative;
-  height: 425px;
+  height: var(--route-map-height, 425px);
   overflow: hidden;
   border: 1px solid var(--slate-200);
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: #eaf0f4;
 }
+
+.map-frame.is-picking-checkpoint,
+.map-frame.is-picking-checkpoint .leaflet-container { cursor: crosshair; }
+
+.map-resize-handle {
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--slate-500);
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-top: 0;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.map-resize-handle > span {
+  width: 52px;
+  height: 4px;
+  border-radius: 99px;
+  background: #9dadbb;
+}
+.map-resize-handle:focus-visible {
+  outline: 3px solid rgba(12, 124, 120, 0.3);
+  outline-offset: -3px;
+}
+
+.route-confirmation {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--slate-200);
+  border-top: 0;
+  background: #f8fbfd;
+}
+.route-confirmation .confirmation-box { margin: 0; }
+.route-confirmation .primary-button { margin: 0; }
 
 .route-map { width: 100%; height: 100%; z-index: 1; }
 .leaflet-container { font-family: inherit; background: #e7eef3; }
@@ -516,6 +572,69 @@ tbody tr:last-child td { border-bottom: 0; }
   border-color: var(--red-700);
 }
 .altitude-guidance-note { margin: 8px 0 0; color: var(--slate-500); font-size: 9px; line-height: 1.5; }
+
+.checkpoint-editor {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  background: var(--slate-50);
+}
+.checkpoint-editor h3 { margin: 0; color: var(--navy-950); font-size: 15px; }
+.checkpoint-editor .section-heading-row p {
+  margin: 4px 0 0;
+  color: var(--slate-500);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.checkpoint-add-button { min-height: 34px; padding: 0 12px; }
+.checkpoint-form {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #c9d5df;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+}
+.checkpoint-form-heading {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.checkpoint-form label { display: grid; gap: 5px; }
+.checkpoint-form label > span { color: #304960; font-size: 10px; font-weight: 700; }
+.checkpoint-map-pick { grid-column: 1 / -1; }
+.checkpoint-map-pick.is-active { color: #ffffff; background: var(--teal-700); border-color: var(--teal-700); }
+.checkpoint-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.checkpoint-form-actions button { min-width: 100px; }
+.checkpoint-empty { margin: 12px 0 0; color: var(--slate-500); font-size: 11px; }
+.checkpoint-list { margin-top: 12px; display: grid; gap: 8px; }
+.checkpoint-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--slate-200);
+  border-left: 3px solid #9b5b13;
+  background: #ffffff;
+}
+.checkpoint-item.has-error { border-color: var(--red-700); background: var(--red-50); }
+.checkpoint-item strong, .checkpoint-item span, .checkpoint-item em { display: block; }
+.checkpoint-item strong { color: var(--navy-950); font-size: 12px; }
+.checkpoint-item span { margin-top: 3px; color: var(--slate-500); font-size: 10px; }
+.checkpoint-item em { margin-top: 5px; color: var(--red-700); font-size: 10px; font-style: normal; font-weight: 700; }
+.checkpoint-item-actions { display: flex; gap: 4px; }
+.danger-icon-button { color: var(--red-700); }
+.checkpoint-guidance { display: block; margin-top: 10px; color: var(--slate-500); font-size: 9px; line-height: 1.5; }
 
 .destination-row { background: #f1f7fc; }
 .arrival-altitude-control { display: grid; gap: 8px; padding: 3px 0; }
@@ -848,6 +967,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .status-rail { border-left: 0; }
   .route-workspace { border-top: 1px solid var(--slate-200); }
   .map-frame { height: 500px; }
+  .map-resize-handle { display: none; }
 }
 
 @media (max-width: 820px) {
@@ -879,7 +999,17 @@ tbody tr:last-child td { border-bottom: 0; }
   .rail-section, .status-rail { padding: 16px; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .span-two { grid-column: auto; }
+  .ftd-weather-fields { grid-template-columns: 1fr; }
+  .ftd-weather-fields > p { grid-column: auto; }
   .map-frame { height: 320px; }
+  .checkpoint-form { grid-template-columns: 1fr; }
+  .checkpoint-form-heading,
+  .checkpoint-map-pick,
+  .checkpoint-form-actions { grid-column: auto; }
+  .checkpoint-form-actions { flex-direction: column-reverse; }
+  .checkpoint-form-actions button { width: 100%; }
+  .checkpoint-item { flex-direction: column; }
+  .checkpoint-item-actions { align-self: flex-end; }
   .modal-backdrop { padding: 8px; }
   .modal-panel { padding: 16px; }
   .modal-actions { flex-direction: column-reverse; }

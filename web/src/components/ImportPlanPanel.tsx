@@ -13,7 +13,6 @@ interface ImportPlanPanelProps {
   busy: boolean;
   onFile: (file: File) => void;
   onPaste: () => void;
-  onConfirmRoute: () => void;
 }
 
 function destinationAirportLabel(airport: AirportOption): string {
@@ -33,12 +32,10 @@ export function ImportPlanPanel({
   busy,
   onFile,
   onPaste,
-  onConfirmRoute,
 }: ImportPlanPanelProps) {
   const update = <Key extends keyof PlanningForm>(key: Key, value: PlanningForm[Key]) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
-  const selectedKind = form.candidateKey.split(":", 1)[0] ?? "";
   const selectedDeparture = airports.find(
     (airport) => airport.id === form.departureAirportId,
   );
@@ -139,30 +136,6 @@ export function ImportPlanPanel({
             {warning}
           </p>
         ))}
-        {!projectExists && form.candidateKey && (
-          <div className="confirmation-box">
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={form.routeUseConfirmed}
-                onChange={(event) => update("routeUseConfirmed", event.target.checked)}
-              />
-              <span>地図とKML記載順を確認しました</span>
-            </label>
-            {selectedKind === "polygon" && (
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={form.polygonRouteConfirmed}
-                  onChange={(event) =>
-                    update("polygonRouteConfirmed", event.target.checked)
-                  }
-                />
-                <span>Polygon境界の開始点・進行方向を記載順で使います</span>
-              </label>
-            )}
-          </div>
-        )}
       </section>
 
       <section className="rail-section flight-plan-section">
@@ -297,6 +270,73 @@ export function ImportPlanPanel({
               }}
             />
           </label>
+          <label className="span-two">
+            <span>気象モード</span>
+            <select
+              aria-label="気象モード"
+              value={form.weatherMode}
+              onChange={(event) =>
+                update("weatherMode", event.target.value as "FORECAST" | "FTD")
+              }
+            >
+              <option value="FORECAST">予報気象</option>
+              <option value="FTD">FTD固定気象</option>
+            </select>
+          </label>
+          {form.weatherMode === "FTD" && (
+            <div className="ftd-weather-fields span-two" aria-label="FTD固定気象入力">
+              <p>
+                地上から5,000 ftまでは風ベクトルを線形補間し、それ以上は
+                5,000 ftの風を使用します。気温は各高度の標準大気です。
+              </p>
+              <label>
+                <span>地上風向 ° FROM</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="359.9"
+                  step="1"
+                  value={form.ftdSurfaceWindDirection}
+                  onChange={(event) =>
+                    update("ftdSurfaceWindDirection", event.target.value)
+                  }
+                />
+              </label>
+              <label>
+                <span>地上風速 kt</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="200"
+                  step="1"
+                  value={form.ftdSurfaceWindSpeed}
+                  onChange={(event) => update("ftdSurfaceWindSpeed", event.target.value)}
+                />
+              </label>
+              <label>
+                <span>5,000 ft風向 ° FROM</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="359.9"
+                  step="1"
+                  value={form.ftdWind5000Direction}
+                  onChange={(event) => update("ftdWind5000Direction", event.target.value)}
+                />
+              </label>
+              <label>
+                <span>5,000 ft風速 kt</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="200"
+                  step="1"
+                  value={form.ftdWind5000Speed}
+                  onChange={(event) => update("ftdWind5000Speed", event.target.value)}
+                />
+              </label>
+            </div>
+          )}
         </div>
         {form.manualQnhValue && (
           <div className="confirmation-box confirmation-box-plan">
@@ -309,22 +349,6 @@ export function ImportPlanPanel({
               <span>このDATE・ETD・FROMのQNHとして確認しました</span>
             </label>
           </div>
-        )}
-        {!projectExists && (
-          <button
-            className="primary-button full-width"
-            type="button"
-            onClick={onConfirmRoute}
-            disabled={
-              !form.candidateKey ||
-              !form.routeUseConfirmed ||
-              !selectedDeparture ||
-              !selectedDestination ||
-              busy
-            }
-          >
-            経路を確定
-          </button>
         )}
       </section>
     </aside>

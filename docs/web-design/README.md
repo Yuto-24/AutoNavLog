@@ -45,10 +45,12 @@ decorative cards. Shadows are reserved for temporary overlays.
 - App header with app version, project identity, storage state, Save, and New actions.
 - Three-step progress rail: Route, Flight plan, Review/output.
 - KML/KMZ drop zone and paste dialog.
-- Shape candidate list with a required route-use confirmation.
+- Shape candidate list with a required route-use confirmation placed directly below the map.
 - Flight-plan fields: DATE, ETD JST, FROM, TO, FUEL (default 90 gal), VAR,
   QNH with hPa/inHg conversion, and TGL.
 - Route map with airport, waypoint, VREP, RCA, EOC, and CP markers.
+- Check Point creation from a map click or coordinates, with abeam projection and CRUD controls.
+- Desktop map-height separator with pointer and keyboard operation.
 - Editable route/leg table with ALT and PHASE controls.
 - Readiness rail showing the next action, data provenance, blockers, confirmation
   items, and acknowledgement controls.
@@ -59,11 +61,13 @@ decorative cards. Shadows are reserved for temporary overlays.
 
 ## Container and responsive rules
 
-- At 1100 px and above, use input / route workspace / readiness columns.
-- Between 760 px and 1099 px, place input and readiness side by side above the
+- Above 1240 px, use input / route workspace / readiness columns and allow the
+  route map height to be adjusted from 320 to 900 px.
+- Between 821 px and 1240 px, place input and readiness side by side above the
   map and tables.
-- Below 760 px, stack every region, keep actions full-width, and make data
-  tables horizontally scrollable.
+- At 820 px and below, stack every region, keep actions full-width, and make data
+  tables horizontally scrollable. Route input and flight-plan fields come first;
+  the map, map confirmation, and route-confirm action then continue in one downward flow.
 - Do not hide blockers, confirmation controls, provenance, or action reasons
   at any viewport width. Keep linked OpenStreetMap attribution visible even in
   the empty-map overlay.

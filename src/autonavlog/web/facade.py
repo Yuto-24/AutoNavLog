@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from autonavlog.application.arrival import standard_vrep_altitude_ft_msl
 from autonavlog.application.calculation_service import CalculationService
+from autonavlog.application.checkpoints import project_check_points
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.readiness import ReadinessEvaluation
 from autonavlog.application.readiness_service import ReadinessService
@@ -21,6 +22,7 @@ from autonavlog.domain.enums import (
     FlightPhase,
     IssueSeverity,
     RouteNodeRole,
+    VisualReferenceRole,
 )
 from autonavlog.domain.planning import (
     ArrivalAltitudeMode,
@@ -29,7 +31,7 @@ from autonavlog.domain.planning import (
     PersistedUiState,
     ReferenceDataSnapshot,
 )
-from autonavlog.domain.project import NavSection, Project, RouteNode
+from autonavlog.domain.project import NavSection, Project, RouteNode, VisualReference
 from autonavlog.importers.kml import (
     KmlImportError,
     KmlImportResult,
@@ -54,6 +56,7 @@ from autonavlog.weather.destination_taf import (
     DestinationWindProvider,
     unavailable_destination_wind,
 )
+from autonavlog.weather.ftd_provider import FtdWeatherProvider
 from autonavlog.weather.prewarm import WeatherPrewarmer
 from autonavlog.weather.provider import WeatherProvider
 
@@ -68,6 +71,7 @@ from .cruising_altitude import (
 from .models import (
     ConfirmDestinationRequest,
     ConfirmRouteRequest,
+    ReplaceCheckPointsRequest,
     SaveProjectRequest,
     UpdateProjectRequest,
 )
@@ -98,6 +102,8 @@ ISSUE_ACTIONS: dict[str, str] = {
     "PILOT_REQUIRED": "PILOTを入力してください。",
     "SHIP_REQUIRED": "SHIPを入力してください。",
     "DEVELOPMENT_WEATHER_PROVIDER": "実気象providerで再計算してください。",
+    "CP_LINK_REQUIRED": "Check Pointの関連Legを選択してください。",
+    "CP_NOT_ABEAM_LINKED_SECTION": "Check Pointの座標または関連Legを修正してください。",
 }
 
 
@@ -280,6 +286,12 @@ class AutoNavLogWebApplication:
                 default_variation_deg_east=request.default_variation_deg_east,
             )
             project.manual_qnh_hpa = request.manual_qnh_hpa
+            project = project.model_copy(
+                update={
+                    "weather_mode": request.weather_mode,
+                    "ftd_weather": request.ftd_weather,
+                }
+            )
             project.tgl_count = request.tgl_count
             project.metadata.update(
                 {
@@ -526,6 +538,69 @@ class AutoNavLogWebApplication:
             session.readiness = materialized.evaluation
             return self.present(session)
 
+    def replace_check_points(
+        self,
+        session: WebSession,
+        request: ReplaceCheckPointsRequest,
+    ) -> dict[str, Any]:
+        with session.lock:
+            if session.project is None:
+                raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
+            working = session.project.model_copy(deep=True)
+            existing = {
+                reference.id: reference
+                for reference in working.visual_references
+                if reference.role == VisualReferenceRole.CHECK_POINT
+            }
+            supplied_ids = [item.id for item in request.check_points if item.id is not None]
+            if len(supplied_ids) != len(set(supplied_ids)):
+                raise WebApplicationError(
+                    "CHECK_POINT_ID_DUPLICATED",
+                    "同じCheck Point IDが複数回指定されています。",
+                )
+            replacements: list[VisualReference] = []
+            for item in request.check_points:
+                previous = None if item.id is None else existing.get(item.id)
+                if item.id is not None and previous is None:
+                    raise WebApplicationError(
+                        "CHECK_POINT_NOT_FOUND",
+                        "更新対象のCheck Pointが現在のProjectにありません。",
+                        status_code=404,
+                    )
+                replacements.append(
+                    VisualReference(
+                        id=item.id if item.id is not None else None,
+                        project_id=working.id,
+                        name=item.name,
+                        latitude_deg=item.latitude_deg,
+                        longitude_deg=item.longitude_deg,
+                        role=VisualReferenceRole.CHECK_POINT,
+                        linked_section_id=item.linked_section_id,
+                        source=(previous.source if previous is not None else "WEB_MANUAL"),
+                    )
+                    if item.id is not None
+                    else VisualReference(
+                        project_id=working.id,
+                        name=item.name,
+                        latitude_deg=item.latitude_deg,
+                        longitude_deg=item.longitude_deg,
+                        role=VisualReferenceRole.CHECK_POINT,
+                        linked_section_id=item.linked_section_id,
+                        source="WEB_MANUAL",
+                    )
+                )
+            preserved = [
+                reference
+                for reference in working.visual_references
+                if reference.role != VisualReferenceRole.CHECK_POINT
+            ]
+            working = working.model_copy(update={"visual_references": [*preserved, *replacements]})
+            materialized = session.readiness_service.evaluate(working, session.outcome)
+            session.project = materialized.project
+            session.outcome = materialized.outcome
+            session.readiness = materialized.evaluation
+            return self.present(session)
+
     def update_and_calculate(
         self,
         session: WebSession,
@@ -636,6 +711,19 @@ class AutoNavLogWebApplication:
         working.total_usable_fuel_gal = request.total_usable_fuel_gal
         working.default_variation_deg_east = request.default_variation_deg_east
         working.manual_qnh_hpa = request.manual_qnh_hpa
+        weather_changed = (
+            working.weather_mode != request.weather_mode
+            or working.ftd_weather != request.ftd_weather
+        )
+        working = working.model_copy(
+            update={
+                "weather_mode": request.weather_mode,
+                "ftd_weather": request.ftd_weather,
+                "selected_forecast_run_id": (
+                    None if weather_changed else working.selected_forecast_run_id
+                ),
+            }
+        )
         working.tgl_count = request.tgl_count
         sections = {section.id: section for section in working.sections}
         for update in request.sections:
@@ -687,6 +775,25 @@ class AutoNavLogWebApplication:
                 "目的空港と今回採用する場周経路高度を先に確定してください。",
                 status_code=409,
             )
+        if project.weather_mode == "FTD":
+            if project.ftd_weather is None:
+                raise WebApplicationError(
+                    "FTD_WEATHER_REQUIRED",
+                    "FTDモードの地上風と5,000 ft風を入力してください。",
+                )
+            outcome = session.calculation_service.calculate(
+                project,
+                FtdWeatherProvider(project.ftd_weather),
+                progress=progress,
+            )
+            destination_icao = self.airports.get(project.destination_airport_id).icao
+            ftd_destination_wind = unavailable_destination_wind(
+                destination_icao,
+                None,
+                "FTD_MODE_NO_TAF",
+            ).model_copy(update={"source_label": "FTD固定気象"})
+            return outcome, ftd_destination_wind
+
         destination_wind: DestinationWindForecast | None = None
         outcome = session.calculation_service.calculate(
             project,
@@ -915,6 +1022,7 @@ class AutoNavLogWebApplication:
         )
         candidates = self._candidate_payload(session.import_result)
         summaries = self._owned_project_summaries(session)
+        check_point_planning = self._check_point_planning(session.project)
         return {
             "runtime": {
                 "appVersion": __version__,
@@ -964,6 +1072,7 @@ class AutoNavLogWebApplication:
                 "terrainLimitationNote": TERRAIN_LIMITATION_NOTE_JA,
                 "sections": self._section_guidance(session.project),
             },
+            "checkPointPlanning": check_point_planning,
             "project": project_payload,
             "outcome": outcome_payload,
             "destinationWind": destination_wind_payload,
@@ -979,6 +1088,26 @@ class AutoNavLogWebApplication:
                 "nextAction": self._next_action(session, issues),
                 "issues": issues,
             },
+        }
+
+    @staticmethod
+    def _check_point_planning(project: Project | None) -> dict[str, Any]:
+        if project is None:
+            return {"projections": [], "issues": []}
+        computation = project_check_points(project)
+        return {
+            "projections": [
+                projection.model_dump(mode="json") for projection in computation.projections
+            ],
+            "issues": [
+                {
+                    "code": issue.code,
+                    "message": issue.message,
+                    "sectionId": (None if issue.section_id is None else str(issue.section_id)),
+                    "checkPointId": issue.metadata.get("checkpoint_id"),
+                }
+                for issue in computation.issues
+            ],
         }
 
     def _evaluate(self, session: WebSession) -> ReadinessEvaluation:

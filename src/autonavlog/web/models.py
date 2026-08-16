@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.planning import ArrivalAltitudeMode
-from autonavlog.domain.project import ManualWind
+from autonavlog.domain.project import FtdWeatherSettings, ManualWind
 
 
 class WebRequestModel(BaseModel):
@@ -50,11 +50,19 @@ class ConfirmRouteRequest(WebRequestModel):
     total_usable_fuel_gal: float = Field(default=90.0, gt=0, le=200)
     default_variation_deg_east: float = Field(default=8.0, ge=-30, le=30)
     manual_qnh_hpa: float | None = Field(default=None, gt=800, lt=1100)
+    weather_mode: Literal["FORECAST", "FTD"] = "FORECAST"
+    ftd_weather: FtdWeatherSettings | None = None
     tgl_count: int = Field(default=0, ge=0, le=20)
     all_leg_altitude_ft_msl: float = Field(default=3000, gt=0, le=25_000)
     use_penultimate_as_vrep: bool = True
     defaults_confirmed: bool = False
     manual_qnh_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def validate_ftd_weather(self) -> ConfirmRouteRequest:
+        if self.weather_mode == "FTD" and self.ftd_weather is None:
+            raise ValueError("ftd_weather is required in FTD mode")
+        return self
 
 
 class ConfirmDestinationRequest(WebRequestModel):
@@ -99,6 +107,8 @@ class UpdateProjectRequest(WebRequestModel):
     total_usable_fuel_gal: float = Field(gt=0, le=200)
     default_variation_deg_east: float = Field(ge=-30, le=30)
     manual_qnh_hpa: float | None = Field(default=None, gt=800, lt=1100)
+    weather_mode: Literal["FORECAST", "FTD"] = "FORECAST"
+    ftd_weather: FtdWeatherSettings | None = None
     tgl_count: int = Field(default=0, ge=0, le=20)
     sections: list[SectionUpdate] = Field(default_factory=list, max_length=500)
     visual_reporting_point_node_id: UUID | None = None
@@ -112,6 +122,24 @@ class UpdateProjectRequest(WebRequestModel):
     manual_vrep_reason: str | None = Field(default=None, max_length=500)
     defaults_confirmed: bool = False
     manual_qnh_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def validate_ftd_weather(self) -> UpdateProjectRequest:
+        if self.weather_mode == "FTD" and self.ftd_weather is None:
+            raise ValueError("ftd_weather is required in FTD mode")
+        return self
+
+
+class CheckPointInput(WebRequestModel):
+    id: UUID | None = None
+    name: str = Field(min_length=1, max_length=100)
+    latitude_deg: float = Field(ge=-90, le=90)
+    longitude_deg: float = Field(ge=-180, le=180)
+    linked_section_id: UUID
+
+
+class ReplaceCheckPointsRequest(WebRequestModel):
+    check_points: list[CheckPointInput] = Field(default_factory=list, max_length=500)
 
 
 class AcknowledgeRequest(WebRequestModel):

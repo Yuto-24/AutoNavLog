@@ -365,6 +365,146 @@ async def test_web_route_calculation_save_and_fail_closed_output(
 
 
 @pytest.mark.anyio
+async def test_ftd_mode_calculates_with_fixed_wind_and_isa_without_fake_weather_blocker(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        assert (
+            await client.post(
+                "/api/import",
+                json={"filename": "route.kml", "kml_text": KML},
+            )
+        ).status_code == 200
+        confirmed = await client.post(
+            "/api/route/confirm",
+            json=_route_payload()
+            | {
+                "weather_mode": "FTD",
+                "ftd_weather": {
+                    "surface_wind": {"direction_deg_from": 180, "speed_kt": 5},
+                    "wind_at_5000_ft": {"direction_deg_from": 270, "speed_kt": 20},
+                },
+            },
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        state = confirmed.json()
+        assert state["project"]["weather_mode"] == "FTD"
+        assert state["project"]["ftd_weather"]["wind_at_5000_ft"]["speed_kt"] == 20
+
+        destination = await client.post(
+            "/api/destination/confirm",
+            json={
+                "destination_airport_id": "RJFO",
+                "selected_pattern_altitude_ft_msl": 1000,
+            },
+        )
+        assert destination.status_code == 200, destination.text
+        calculated = await client.post("/api/calculate")
+        assert calculated.status_code == 200, calculated.text
+        calculated_state = calculated.json()
+        assert calculated_state["project"]["selected_forecast_run_id"] == "ftd-fixed-v1"
+        assert calculated_state["destinationWind"]["reason_code"] == "FTD_MODE_NO_TAF"
+        assert calculated_state["destinationWind"]["source_label"] == "FTD固定気象"
+        assert all(
+            issue["code"] != "DEVELOPMENT_WEATHER_PROVIDER"
+            for issue in calculated_state["readiness"]["issues"]
+        )
+        automatic_metadata = [
+            section["temperature_c"]["automatic_metadata"]
+            for section in calculated_state["outcome"]["sections"]
+            if section["temperature_c"]["automatic_value"] is not None
+        ]
+        assert automatic_metadata
+        assert any(item.get("provider") == "ftd_fixed" for item in automatic_metadata)
+
+
+@pytest.mark.anyio
+async def test_checkpoint_crud_previews_projection_and_persists_on_saved_project(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        assert (
+            await client.post(
+                "/api/import",
+                json={"filename": "route.kml", "kml_text": KML},
+            )
+        ).status_code == 200
+        confirmed = await client.post("/api/route/confirm", json=_route_payload())
+        assert confirmed.status_code == 200, confirmed.text
+        project = confirmed.json()["project"]
+        section = project["sections"][0]
+        assert section["phase"] == "CLIMB"
+        start = next(
+            node for node in project["route_nodes"] if node["id"] == section["from_node_id"]
+        )
+        end = next(node for node in project["route_nodes"] if node["id"] == section["to_node_id"])
+        check_point = {
+            "name": "訓練CP",
+            "latitude_deg": (start["latitude_deg"] + end["latitude_deg"]) / 2 + 0.02,
+            "longitude_deg": (start["longitude_deg"] + end["longitude_deg"]) / 2,
+            "linked_section_id": section["id"],
+        }
+
+        created = await client.put(
+            "/api/project/check-points",
+            json={"check_points": [check_point]},
+        )
+        assert created.status_code == 200, created.text
+        created_state = created.json()
+        references = created_state["project"]["visual_references"]
+        assert len(references) == 1
+        assert references[0]["source"] == "WEB_MANUAL"
+        assert len(created_state["checkPointPlanning"]["projections"]) == 1
+        assert created_state["checkPointPlanning"]["issues"] == []
+        check_point_id = references[0]["id"]
+
+        renamed = await client.put(
+            "/api/project/check-points",
+            json={"check_points": [check_point | {"id": check_point_id, "name": "訓練CP改"}]},
+        )
+        assert renamed.status_code == 200, renamed.text
+        assert renamed.json()["project"]["visual_references"][0]["name"] == "訓練CP改"
+
+        saved = await client.post("/api/projects/save", json={"name": "cp-route"})
+        assert saved.status_code == 200, saved.text
+        project_id = saved.json()["project"]["id"]
+        removed = await client.put(
+            "/api/project/check-points",
+            json={"check_points": []},
+        )
+        assert removed.status_code == 200
+        assert removed.json()["project"]["visual_references"] == []
+
+        loaded = await client.post(
+            "/api/projects/load",
+            json={"project_id": project_id},
+        )
+        assert loaded.status_code == 200, loaded.text
+        assert loaded.json()["project"]["visual_references"][0]["name"] == "訓練CP改"
+        assert len(loaded.json()["checkPointPlanning"]["projections"]) == 1
+
+
+@pytest.mark.anyio
 async def test_departure_override_uses_original_kml_start_and_keeps_old_payload_compatible(
     tmp_path: Path,
 ) -> None:

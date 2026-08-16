@@ -24,12 +24,14 @@ def _blocker(
     message: str,
     *,
     section_id: UUID | None = None,
+    checkpoint_id: UUID | None = None,
 ) -> Issue:
     return Issue(
         code=code,
         severity=IssueSeverity.BLOCKER,
         message=message,
         section_id=section_id,
+        metadata=({} if checkpoint_id is None else {"checkpoint_id": str(checkpoint_id)}),
     )
 
 
@@ -147,6 +149,7 @@ def project_check_points(project: Project) -> CheckPointProjectionComputation:
                 _blocker(
                     "CP_LINK_REQUIRED",
                     f"Check Point「{check_point.name}」の関連Legを確認してください。",
+                    checkpoint_id=check_point.id,
                 )
             )
             continue
@@ -156,6 +159,7 @@ def project_check_points(project: Project) -> CheckPointProjectionComputation:
                 _blocker(
                     "CP_LINK_REQUIRED",
                     f"Check Point「{check_point.name}」の関連Legが存在しません。",
+                    checkpoint_id=check_point.id,
                 )
             )
             continue
@@ -167,11 +171,9 @@ def project_check_points(project: Project) -> CheckPointProjectionComputation:
             issues.append(
                 _blocker(
                     "CP_LINK_REQUIRED",
-                    (
-                        f"Check Point「{check_point.name}」の関連Legの"
-                        "Route Nodeを解決できません。"
-                    ),
+                    (f"Check Point「{check_point.name}」の関連LegのRoute Nodeを解決できません。"),
                     section_id=section.id,
+                    checkpoint_id=check_point.id,
                 )
             )
             continue
@@ -185,6 +187,7 @@ def project_check_points(project: Project) -> CheckPointProjectionComputation:
                     "CP_NOT_ABEAM_LINKED_SECTION",
                     str(error),
                     section_id=section.id,
+                    checkpoint_id=check_point.id,
                 )
             )
             continue
@@ -206,6 +209,7 @@ def project_check_points(project: Project) -> CheckPointProjectionComputation:
                         "別の関連Legを選択してください。"
                     ),
                     section_id=section.id,
+                    checkpoint_id=check_point.id,
                 )
             )
             continue
@@ -216,6 +220,7 @@ def project_check_points(project: Project) -> CheckPointProjectionComputation:
                     "CP_NOT_ABEAM_LINKED_SECTION",
                     "同じLeg上に1 m以内で重複するCheck Pointがあります。",
                     section_id=section.id,
+                    checkpoint_id=check_point.id,
                 )
             )
             continue

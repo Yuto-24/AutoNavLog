@@ -14,6 +14,7 @@ from autonavlog.version import __version__
 
 from .arrival import calculate_arrival_altitude
 from .calculation_service import CalculationService
+from .checkpoints import project_check_points
 from .project_fingerprints import (
     current_calculation_input_fingerprint,
     defaults_review_fingerprint,
@@ -255,6 +256,7 @@ class ReadinessService:
                     message="Snapshot専用状態を編集Projectとして開くことはできません。",
                 )
             )
+        project_issues.extend(project_check_points(project).issues)
         if not project.route_nodes or not project.sections:
             project_issues.append(
                 Issue(
@@ -287,9 +289,7 @@ class ReadinessService:
             fingerprints = self.fingerprints(project, outcome, state)
             current_calculation = fingerprints.calculation_input
             current_defaults = (
-                fingerprints.defaults_review
-                if self.require_defaults_review
-                else None
+                fingerprints.defaults_review if self.require_defaults_review else None
             )
             current_manual = fingerprints.manual_qnh
         evaluation = evaluate_readiness(

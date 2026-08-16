@@ -14,9 +14,9 @@ Project / AdoptedValue / CalculationOutcome / Snapshot
         |
 nav + performance policies
         |
-WeatherProvider      ProjectRepository
-   |                        |
-Msm/Fake adapter     Drive/Local adapter
+WeatherProvider           ProjectRepository
+   |                             |
+Msm/Fake/FTD adapter       Drive/Local adapter
 ```
 
 `CalculationService.calculate()`はProjectをdeep copyし、同じ入力、性能データversion、
@@ -26,11 +26,16 @@ Policy version、Forecast Runから同じ結果を生成します。気象問い
 MSMのGRIB2、RISH URL、NetCDF、気圧面配列は`jma-msm-wind`だけが扱います。AutoNavLogの
 MSM adapterは単位、時刻、型、request ID、表示ラベルを変換するだけです。
 
+ProjectがFTDモードの場合、Web facadeは実気象adapterの代わりにProject内の地上風・
+5,000 ft風から`FtdWeatherProvider`を組み立てます。計算コアは通常の`WeatherProvider`契約だけを
+参照するため、気象要求、反復、手動override、Snapshotの経路を分岐させません。
+
 `DestinationTafProvider`は、計算完了後に目的空港と到着予定時刻を受け取り、
 AviationWeather.govのTAFから卓越風を選びます。結果はWeb sessionへ保持するとともに、
 NAV LOGの独立した`DESTINATION_INFO`行へ表示します。到着区間のWCA、MH、GS、ETE、
 燃料には反映せず、同区間はTAF取得成否にかかわらずCALMで計算します。通信やTAF時刻範囲の
 不一致はNAV LOGのBlockerにせず、目的空港情報行の風を`UNAVAILABLE`として表示します。
+FTDモードではTAFを取得せず、同欄へ`FTD_MODE_NO_TAF`を明示します。
 
 `CalculationOutcome.sections`は重複しないCalculation Zoneであり、距離・時間・燃料の
 唯一の集計元です。`display_rows`は`sections`から作る表示専用投影で、Physical Leg小計、

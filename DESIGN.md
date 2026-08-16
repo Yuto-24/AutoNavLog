@@ -137,7 +137,9 @@
 
 - 3段階の進行表示（経路／飛行計画／確認・出力）、入力rail、地図・Leg表、
   準備状況rail、NAV LOG結果を1画面に配置する。
-- desktopは3列、tabletは2列、760 px未満は1列とし、表は領域内横scrollを許可する。
+- desktopは1240 px超で3列、tabletは821〜1240 pxで2列、820 px以下は1列とし、
+  表は領域内横scrollを許可する。3列表示の地図は320〜900 pxで高さを変更でき、
+  pointerとkeyboardの双方で操作できる。tablet/mobileは固定高を維持する。
 - KML/KMZのdrop・file選択・XML貼付、複数形状選択、Polygon確認、
   FROM/TO、DATE/ETD、FUEL（既定90 gal）/VAR/QNH（hPa・inHg自動変換）/TGL、
   Leg計画高度/Phase、確認事項、保存・読込、計算、転記補助HTMLをcode-nativeなcontrolで提供する。
@@ -154,6 +156,8 @@
   利用者向けには「確認事項」と表示する。
 - 日本語fontはWeb assetへ同梱し、実行OSのfont有無に依存しない。
 - OpenStreetMap tileは地図背景だけに用い、tile取得失敗でも入力・Issue・表を隠さない。
+- 地図確認、Polygon確認、経路確定は地図直下へまとめる。mobileでは飛行計画入力、地図、
+  確認、確定の順に下方向だけで完了できるDOM順を維持する。
 
 ### D-34 気象・出力の安全ゲート
 
@@ -161,6 +165,9 @@
   `DEVELOPMENT_WEATHER_PROVIDER`（BLOCKER）を必ず追加して転記出力を止める。
 - 標準の実運用modeは `--weather msm-metar-trend` とし、
   既存の欠損フォールバック禁止とForecast固定契約を維持する。
+- 利用者がProject単位でFTDモードを選んだ場合だけ、地上風・5,000 ft風のベクトル補間と
+  ISA気温を返す専用WeatherProviderへ切り替える。FTDは開発用fakeと区別し、画面と
+  転記補助表へFTD固定気象であることを明示する。
 - RJFM/RJFOのmaster場周経路高度はいずれも **1,000 ft MSL** とする。VREPの
   標準高度はProjectで確定した採用場周高度を基準にし、5 NMでは+500 ftとする。
   大分東側1,000 ftなら1,500 ft、西側1,300 ftなら1,800 ftであり、東西を
@@ -858,6 +865,8 @@ Loss Timeは機上で事前計算結果を修正する値とし、地上計画�
 ### FR-41 経路外Check Pointのabeam処理 【必須】
 
 CPはRouteNodeではなく `VisualReference(role=CHECK_POINT)` として保持する。経路外CPは関連付けた有限Leg上のabeam点で距離・時間区間を分け、CP自身への斜距離をZONE/CUM DISTへ加えない。詳細は第6.7節。
+Webでは地図clickまたは緯度・経度入力から作成し、名称・座標・関連Legの編集と削除を
+提供する。計算前にもabeam点、Leg内・累積・cross-track距離と投影Blockerを表示する。
 
 ### FR-42 差し替え可能な参照データ 【必須】
 
@@ -1248,6 +1257,10 @@ class CheckPointProjection(CalculationModel):
 同一Sectionに複数CPがある場合は `along_track_fraction` 昇順に並べる。同値または1 m以内の重複stationはBlocker。CP境界を既存phase segmentationへ渡し、各zoneのETE・燃料を元のphase規則で再計算する。Loss Timeは第6.5節により地上計画へ含めない。分割前後でDIST・ETE・燃料の合計が表示丸め前に一致することを要求する。
 
 `VisualReference.along_track_fraction` を入力値として信頼・永続化してはならない。計算のたびに座標とlinked Sectionから導出し、結果としてのみ保存する。CP座標・名称・role・linked Section・stationing policyは計算入力fingerprintへ含める。経路変更でlinked Sectionが消えた場合、CP自体は削除せずリンクを `None` にして再確認を要求する。
+
+Webから追加したCPは`source=WEB_MANUAL`とし、Project保存・再読込で同じUUID、座標、関連Legを
+保持する。親SectionのPhaseだけを見てCRUISE以外を拒否しない。1つの物理Leg内でRCA/EOC後に
+Phaseが変わるため、全物理Legを選択可能にし、15〜20 NM間隔は案内に留める。
 
 ### 6.8 差し替え可能な参照データ
 
