@@ -64,7 +64,7 @@ jobs:
           python -m venv "$RUNNER_TEMP/release-validation-venv"
           "$RUNNER_TEMP/release-validation-venv/bin/python" -m pip install \
             release/wheels/jma_msm_wind-0.2.1-py3-none-any.whl \
-            release/wheels/autonavlog-1.2.0-py3-none-any.whl
+            release/wheels/autonavlog-1.2.1-py3-none-any.whl
           "$RUNNER_TEMP/release-validation-venv/bin/python" -c \
             'from pathlib import Path; import autonavlog.web; static = Path(autonavlog.web.__file__).with_name("static"); assert (static / "index.html").is_file()'
       - name: Validate release runtime data
@@ -108,11 +108,11 @@ jobs:
             exit 1
           fi
       - name: Build release manifest
-        run: python scripts/build_release_manifest.py release --version 1.2.0
+        run: python scripts/build_release_manifest.py release --version 1.2.1
       - name: Upload versioned release to Drive
         env:
           GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
         run: >-
           python scripts/drive_release.py upload release
           --parent-id "${{ secrets.GDRIVE_RELEASE_FOLDER_ID }}"
-          --folder-name "1.2.0"
+          --folder-name "1.2.1"
