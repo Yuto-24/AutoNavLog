@@ -4,6 +4,8 @@ AutoNavLog の利用者に影響する変更を記録します。
 
 ## Unreleased
 
+## 1.1.0 - 2026-08-17
+
 ### 変更
 
 - RJFMから大分方面への北行き例外で、NAV LOG上の `RJFM → OMARU` を1つの親Legとし、

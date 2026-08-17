@@ -27,7 +27,7 @@ build_release_manifest = cast(
     SCRIPT_NAMESPACE["build_release_manifest"],
 )
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 SOURCE_COMMIT = "a" * 40
 
 
@@ -323,7 +323,7 @@ def test_manifest_accepts_complete_release_and_preserves_bootstrap_shape(
     paths = {item["path"] for item in manifest["files"]}
     assert {
         "AutoNavLog.ipynb",
-        "wheels/autonavlog-1.0.0-py3-none-any.whl",
+        "wheels/autonavlog-1.1.0-py3-none-any.whl",
         "wheels/jma_msm_wind-0.2.1-py3-none-any.whl",
         "data/autonavlog/reference/default/reference-manifest.json",
         "data/msm/terrain.npz",
