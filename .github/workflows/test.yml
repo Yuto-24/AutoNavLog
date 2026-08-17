@@ -4,9 +4,6 @@ on:
   push:
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
   pytest:
     runs-on: ubuntu-latest
@@ -44,21 +41,3 @@ jobs:
       - run: npm --prefix web ci
       - run: npm --prefix web run typecheck
       - run: npm --prefix web run build
-
-  prepare_release_1_2_1:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/release/1.2.1'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: release/1.2.1
-          fetch-depth: 0
-          persist-credentials: true
-      - run: python scripts/prepare_release_1_2_1.py
-      - name: Commit release metadata
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml web/package.json web/package-lock.json README.md CHANGELOG.md
-          git commit -m "chore: prepare v1.2.1 release"
-          git push origin HEAD:release/1.2.1
