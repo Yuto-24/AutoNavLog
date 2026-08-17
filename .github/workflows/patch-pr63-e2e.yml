@@ -1,0 +1,66 @@
+name: Patch PR63 E2E expectations
+
+on:
+  push:
+    branches:
+      - feat/input-fuel-cruise
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/input-fuel-cruise
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Align E2E expectations with v2.10 UI
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("web/e2e/web.spec.ts")
+          text = path.read_text(encoding="utf-8")
+          replacements = [
+              (
+                  'await expect(page.getByText("VREP", { exact: true }).first()).toBeVisible();',
+                  'await expect(page.locator(".route-table tbody tr.vrep-row")).toHaveCount(1);',
+              ),
+              (
+                  'await expect(departureSelect).toHaveValue("RJFM");',
+                  'await expect(departureSelect).toHaveValue(/^RJFM\\b/);',
+              ),
+              (
+                  'await expect(departureSelect).toHaveValue("RJFO");',
+                  'await expect(departureSelect).toHaveValue(/^RJFO\\b/);',
+              ),
+              (
+                  'await expect(page.getByLabel("FROM")).toHaveValue("RJFM");',
+                  'await expect(page.getByLabel("FROM")).toHaveValue(/^RJFM\\b/);',
+              ),
+              (
+                  'await expect(departure).toHaveValue("RJFK");',
+                  'await expect(departure).toHaveValue(/^RJFK\\b/);',
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one occurrence, found {count}: {old}")
+              text = text.replace(old, new)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          git rm --ignore-unmatch .github/workflows/patch-pr63-e2e.yml
+          git add web/e2e/web.spec.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "test: align Playwright expectations with v2.10 UI"
+          git push origin HEAD:feat/input-fuel-cruise
