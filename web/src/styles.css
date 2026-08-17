@@ -703,6 +703,26 @@ tbody tr:last-child td { border-bottom: 0; }
 .table-number-input, .table-select, .arrival-pattern-input { width: 100%; min-height: 31px; padding: 0 6px; font-size: 11px; }
 .altitude-controls { display: grid; grid-template-columns: 1fr 0.78fr; gap: 5px; }
 .altitude-course { grid-column: 1 / -1; color: var(--slate-500); font-size: 9px; }
+.fixed-altitude-control {
+  display: grid;
+  gap: 3px;
+  padding: 7px 8px;
+  color: var(--navy-950);
+  background: #eef8f4;
+  border-left: 3px solid var(--teal-700);
+}
+.fixed-altitude-control strong { font-size: 11px; }
+.fixed-altitude-control small { color: #42665f; font-size: 9px; line-height: 1.4; }
+.fixed-phase {
+  display: block;
+  padding: 7px 8px;
+  color: var(--teal-700);
+  background: var(--teal-50);
+  border-left: 3px solid var(--teal-700);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.4;
+}
 .altitude-review-cell { background: var(--red-50); }
 .altitude-review-row .altitude-course { color: var(--red-700); font-weight: 700; }
 .altitude-review-row .table-number-input {
@@ -1098,11 +1118,11 @@ tbody tr:last-child td { border-bottom: 0; }
   .app-header { flex-wrap: wrap; }
   .header-project { order: 3; flex-basis: 100%; }
   .app-workspace {
-    grid-template-columns: minmax(300px, 0.9fr) minmax(320px, 1.1fr);
-    grid-template-areas: "input status" "route route";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "input" "route" "status";
   }
-  .input-rail { border-right: 1px solid var(--slate-200); }
-  .status-rail { border-left: 0; }
+  .input-rail { border-right: 0; }
+  .status-rail { border-top: 1px solid var(--slate-200); border-left: 0; }
   .route-workspace { border-top: 1px solid var(--slate-200); }
   .map-frame { height: 500px; }
   .map-resize-handle { display: none; }

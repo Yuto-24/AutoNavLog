@@ -7,7 +7,7 @@ from autonavlog.application.rjfm_departure_plan import (
     RjfmPlanReferences,
     apply_rjfm_departure_exception,
 )
-from autonavlog.domain.enums import FlightPhase
+from autonavlog.domain.enums import DisplayCellState, FlightPhase
 from autonavlog.domain.planning import RjfmCoordinate, load_persisted_ui_state
 from autonavlog.nav.geodesy import geodesic_leg
 from autonavlog.weather.fake_provider import FakeWeatherProvider
@@ -100,6 +100,87 @@ def test_umk_physical_rca_uses_poh_ete_without_changing_direct_gs(
     )
 
 
+def test_umk_physical_navlog_groups_rjfm_through_omaru_with_direct_parent_course(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    working = project.model_copy(deep=True)
+    umk = working.ordered_nodes()[1]
+    plan = apply_rjfm_departure_exception(
+        working,
+        _references(
+            umk=(umk.latitude_deg, umk.longitude_deg),
+            omaru=(32.60, 131.62),
+        ),
+    )
+    assert plan is not None
+    controlled_section_ids = tuple(
+        section.id for section in working.ordered_sections()[:2]
+    )
+
+    outcome = _calculation_service(airports, performance_repository).calculate(
+        working,
+        FakeWeatherProvider(),
+    )
+
+    separator_index = next(
+        index
+        for index, row in enumerate(outcome.display_rows)
+        if row.row_type == "LEG_SEPARATOR"
+    )
+    parent, *children = outcome.display_rows[:separator_index]
+    assert parent.row_type == "PHYSICAL_LEG_SUMMARY"
+    assert (parent.from_name, parent.to_name) == ("RJFM", "OMARU")
+    assert parent.section_id == controlled_section_ids[0]
+    assert {row.section_id for row in children} == set(controlled_section_ids)
+    assert all(row.row_type == "CALCULATION_ZONE" for row in children)
+    assert any(row.to_name == "UMK/RCA" for row in children)
+
+    expected_direct = geodesic_leg(
+        working.ordered_nodes()[0].latitude_deg,
+        working.ordered_nodes()[0].longitude_deg,
+        plan.omaru.latitude_deg,
+        plan.omaru.longitude_deg,
+    )
+    assert parent.tc.effective_value == pytest.approx(
+        expected_direct.initial_true_course_deg
+    )
+    assert parent.variation.effective_value == pytest.approx(7.0)
+    assert parent.mc.effective_value == pytest.approx(
+        (expected_direct.initial_true_course_deg + 7.0) % 360.0
+    )
+    assert parent.wind.state == DisplayCellState.BLANK
+    assert parent.wca.state == DisplayCellState.BLANK
+    assert parent.mh.state == DisplayCellState.BLANK
+    assert parent.gs.state == DisplayCellState.BLANK
+    assert parent.zone_distance_nm_exact == pytest.approx(
+        sum(row.zone_distance_nm_exact or 0.0 for row in children)
+    )
+    assert parent.zone_ete_seconds_exact == pytest.approx(
+        sum(row.zone_ete_seconds_exact or 0.0 for row in children)
+    )
+    controlled_results = [
+        result
+        for result in outcome.sections
+        if result.section_id in controlled_section_ids
+    ]
+    displayed_fuel_total = float(str(parent.fuel.effective_value).split("/", 1)[0])
+    assert displayed_fuel_total == pytest.approx(
+        sum(result.section_fuel_gal.adopted() or 0.0 for result in controlled_results),
+        abs=0.051,
+    )
+
+    results_by_sequence = {result.sequence: result for result in outcome.sections}
+    for child in children:
+        assert child.source_result_sequence is not None
+        source = results_by_sequence[child.source_result_sequence]
+        assert child.section_id == source.section_id
+        assert child.tc.effective_value == pytest.approx(
+            source.true_course_deg.adopted()
+        )
+
+
 def test_omaru_first_keeps_parent_distance_and_labels_virtual_umk(
     airports,
     performance_repository,
@@ -158,6 +239,48 @@ def test_omaru_first_keeps_parent_distance_and_labels_virtual_umk(
         abs=1e-9,
     )
     assert plan.virtual_rca_distance_nm == pytest.approx(expected_rca_distance, abs=1e-9)
+
+
+def test_omaru_first_navlog_uses_rjfm_omaru_parent_and_virtual_umk_child(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    working = project.model_copy(deep=True)
+    first = working.ordered_nodes()[1]
+    first.latitude_deg = 32.60
+    first.longitude_deg = 131.62
+    plan = apply_rjfm_departure_exception(
+        working,
+        _references(
+            umk=(32.20, 131.50),
+            omaru=(first.latitude_deg, first.longitude_deg),
+        ),
+    )
+    assert plan is not None
+
+    outcome = _calculation_service(airports, performance_repository).calculate(
+        working,
+        FakeWeatherProvider(),
+    )
+
+    separator_index = next(
+        index
+        for index, row in enumerate(outcome.display_rows)
+        if row.row_type == "LEG_SEPARATOR"
+    )
+    parent, *children = outcome.display_rows[:separator_index]
+    assert (parent.from_name, parent.to_name) == ("RJFM", "OMARU")
+    assert {row.section_id for row in children} == {
+        working.ordered_sections()[0].id
+    }
+    assert [row.to_name for row in children][:1] == ["UMK/RCA（仮定）"]
+    assert parent.zone_distance_nm_exact == pytest.approx(
+        sum(row.zone_distance_nm_exact or 0.0 for row in children)
+    )
+    assert parent.zone_ete_seconds_exact == pytest.approx(
+        sum(row.zone_ete_seconds_exact or 0.0 for row in children)
+    )
 
 
 def test_direct_calculation_rejects_stale_persisted_rjfm_plan(

@@ -5,10 +5,12 @@ import type {
   NavLogEditableField,
 } from "../navLogEditing";
 import type {
-  AdoptedValue, CalculationOutcome, DestinationWindForecast, NavSection, Project,
+  AdoptedValue, AltitudeGuidance, CalculationOutcome, DestinationWindForecast,
+  NavSection, Project, RjfmDepartureGuidance,
   FlightPhase,
   NavLogDisplayCell, NavLogDisplayRow, SectionResult,
 } from "../types";
+import { RjfmGuidancePanel } from "./RjfmGuidancePanel";
 
 function adopted<T>(value: AdoptedValue<T>): T | null {
   return value.adopted_source === "MANUAL"
@@ -385,6 +387,7 @@ function DisplayResultCells({
   row,
   source,
   inputSection,
+  altitudeFixed,
   drafts,
   editErrors,
   onEdit,
@@ -392,6 +395,7 @@ function DisplayResultCells({
   row: NavLogDisplayRow;
   source?: SectionResult;
   inputSection?: NavSection;
+  altitudeFixed: boolean;
   drafts: NavLogEditDrafts;
   editErrors: NavLogEditErrors;
   onEdit: (
@@ -408,6 +412,7 @@ function DisplayResultCells({
   const errors = inputSection === undefined ? {} : editErrors[inputSection.id] ?? {};
   const isVisualArrival = row.phase === "VISUAL_ARRIVAL";
   const altitudeEditable = editable
+    && !altitudeFixed
     && row.phase === "CRUISE"
     && row.pa_display_kind === "NUMERIC"
     && isVisibleCell(row.pa);
@@ -559,6 +564,8 @@ function DestinationWindSummary({
 export function NavLogTable({
   outcome,
   destinationWind,
+  altitudeGuidance,
+  rjfmGuidance,
   project,
   drafts,
   editErrors,
@@ -567,6 +574,8 @@ export function NavLogTable({
 }: {
   outcome: CalculationOutcome;
   destinationWind: DestinationWindForecast | null;
+  altitudeGuidance: AltitudeGuidance;
+  rjfmGuidance: RjfmDepartureGuidance | null;
   project: Project;
   drafts: NavLogEditDrafts;
   editErrors: NavLogEditErrors;
@@ -580,6 +589,9 @@ export function NavLogTable({
 }) {
   const displayRows: NavLogDisplayRow[] = outcome.display_rows;
   const inputSections = new Map(project.sections.map((section) => [section.id, section]));
+  const altitudeGuidanceBySection = new Map(
+    altitudeGuidance.sections.map((guidance) => [guidance.sectionId, guidance]),
+  );
   const sourceResults = new Map(
     outcome.sections.map((section) => [section.sequence, section]),
   );
@@ -672,6 +684,11 @@ export function NavLogTable({
                     row={row}
                     source={source}
                     inputSection={inputSection}
+                    altitudeFixed={
+                      inputSection !== undefined
+                      && altitudeGuidanceBySection.get(inputSection.id)?.inputMode !== undefined
+                      && altitudeGuidanceBySection.get(inputSection.id)?.inputMode !== "EDITABLE"
+                    }
                     drafts={drafts}
                     editErrors={editErrors}
                     onEdit={onEdit}
@@ -684,6 +701,7 @@ export function NavLogTable({
           <FuelPlanTable outcome={outcome} />
         </div>
       </div>
+      {rjfmGuidance && <RjfmGuidancePanel guidance={rjfmGuidance} />}
       <p className="nav-log-disclaimer">
         本表示は地上準備の転記補助です。運航の可否を決定する資料ではありません。
         最新の気象・NOTAM・AIPおよび適用可能な原資料を確認してください。

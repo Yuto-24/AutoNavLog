@@ -23,7 +23,7 @@ Sha256Hex = Annotated[
 
 ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"
 CP_PROJECTION_POLICY_VERSION = "CP_ABEAM_WGS84_V1"
-RJFM_DEPARTURE_RULE_VERSION = "RJFM_NORTHBOUND_R6_5_1_V1"
+RJFM_DEPARTURE_RULE_VERSION = "RJFM_NORTHBOUND_R6_5_1_V2"
 
 
 class PlanningModel(BaseModel):
@@ -69,6 +69,11 @@ class RjfmTurnMethod(StrEnum):
     NONE = "NONE"
 
 
+class RjfmTurnDirection(StrEnum):
+    LEFT = "LEFT"
+    RIGHT = "RIGHT"
+
+
 class RjfmCoordinate(PlanningModel):
     latitude_deg: FiniteFloat = Field(ge=-90, le=90)
     longitude_deg: FiniteFloat = Field(ge=-180, le=180)
@@ -77,9 +82,10 @@ class RjfmCoordinate(PlanningModel):
 
 
 class RjfmDeparturePlan(PlanningModel):
-    rule_version: Literal["RJFM_NORTHBOUND_R6_5_1_V1"] = (
-        "RJFM_NORTHBOUND_R6_5_1_V1"
-    )
+    rule_version: Literal[
+        "RJFM_NORTHBOUND_R6_5_1_V1",
+        "RJFM_NORTHBOUND_R6_5_1_V2",
+    ] = "RJFM_NORTHBOUND_R6_5_1_V2"
     trigger: RjfmDepartureTrigger
     main_route_mode: RjfmMainRouteMode
     target_altitude_ft_msl: Literal[5500] = 5500
@@ -114,8 +120,9 @@ class RjfmRunwayGuidance(PlanningModel):
     turn_method: RjfmTurnMethod = RjfmTurnMethod.NONE
     path: list[RjfmGuidancePathPoint] = Field(default_factory=list)
     constraints: list[RjfmConstraintResult] = Field(default_factory=list)
-    full_left_turns: int = Field(default=0, ge=0)
-    partial_left_turn_deg: FiniteFloat | None = Field(default=None, ge=0, lt=360)
+    turn_direction: RjfmTurnDirection
+    full_turns: int = Field(default=0, ge=0)
+    partial_turn_deg: FiniteFloat | None = Field(default=None, ge=0, lt=360)
     turn_entry_radial_deg: FiniteFloat | None = Field(default=None, ge=0, lt=360)
     turn_entry_dme_nm: FiniteFloat | None = Field(default=None, ge=0)
     turn_entry_altitude_ft_msl: FiniteFloat | None = None
@@ -126,11 +133,42 @@ class RjfmRunwayGuidance(PlanningModel):
     tangent_residual_deg: FiniteFloat | None = Field(default=None, ge=0)
     notes: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_left_turn_fields(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        migrated = dict(value)
+        has_legacy_full = "full_left_turns" in migrated
+        has_legacy_partial = "partial_left_turn_deg" in migrated
+        if not has_legacy_full and not has_legacy_partial:
+            return migrated
+
+        direction = migrated.get("turn_direction")
+        if direction not in (None, "LEFT", RjfmTurnDirection.LEFT):
+            raise ValueError("legacy left-turn fields conflict with turn_direction")
+        migrated["turn_direction"] = "LEFT"
+
+        if has_legacy_full:
+            legacy_full = migrated.pop("full_left_turns")
+            current_full = migrated.get("full_turns", legacy_full)
+            if current_full != legacy_full:
+                raise ValueError("legacy and generic full-turn fields conflict")
+            migrated["full_turns"] = legacy_full
+        if has_legacy_partial:
+            legacy_partial = migrated.pop("partial_left_turn_deg")
+            current_partial = migrated.get("partial_turn_deg", legacy_partial)
+            if current_partial != legacy_partial:
+                raise ValueError("legacy and generic partial-turn fields conflict")
+            migrated["partial_turn_deg"] = legacy_partial
+        return migrated
+
 
 class RjfmDepartureGuidance(PlanningModel):
-    rule_version: Literal["RJFM_NORTHBOUND_R6_5_1_V1"] = (
-        "RJFM_NORTHBOUND_R6_5_1_V1"
-    )
+    rule_version: Literal[
+        "RJFM_NORTHBOUND_R6_5_1_V1",
+        "RJFM_NORTHBOUND_R6_5_1_V2",
+    ] = "RJFM_NORTHBOUND_R6_5_1_V2"
     reference_revision: str = Field(min_length=1)
     reference_content_fingerprint: Sha256Hex
     source_effective_dates: dict[str, str] = Field(default_factory=dict)
@@ -143,6 +181,18 @@ class RjfmDepartureGuidance(PlanningModel):
     def validate_runways(self) -> RjfmDepartureGuidance:
         if {candidate.runway for candidate in self.candidates} != {"09", "27"}:
             raise ValueError("RJFM guidance must contain exactly RWY09 and RWY27")
+        if self.rule_version == RJFM_DEPARTURE_RULE_VERSION:
+            expected_directions = {
+                "09": RjfmTurnDirection.LEFT,
+                "27": RjfmTurnDirection.RIGHT,
+            }
+            if any(
+                candidate.turn_direction != expected_directions[candidate.runway]
+                for candidate in self.candidates
+            ):
+                raise ValueError(
+                    "current RJFM guidance requires LEFT for RWY09 and RIGHT for RWY27"
+                )
         return self
 
 

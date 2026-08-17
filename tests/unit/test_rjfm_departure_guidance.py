@@ -16,9 +16,11 @@ from autonavlog.application.rjfm_departure_guidance import (
     GeoPoint,
     GuidanceStatus,
     Navaid,
+    PathPhase,
     PcaRegion,
     PohAltitudeTimeProfile,
     RunwayProcedure,
+    TurnDirection,
     TurnModel,
     Wind,
     generate_rjfm_departure_guidance,
@@ -83,21 +85,23 @@ def _request(
 
 
 @pytest.mark.parametrize(
-    ("guidance_request", "expected_initial_course"),
+    ("guidance_request", "expected_initial_course", "expected_turn_direction"),
     [
-        (_request(), 85.0),
+        (_request(), 85.0, TurnDirection.LEFT),
         (
             _request(
                 procedure=RunwayProcedure.rwy27(),
                 target_course_deg=330,
             ),
             265.0,
+            TurnDirection.RIGHT,
         ),
     ],
 )
 def test_generates_rwy09_and_rwy27_fixed_bank_tangent_paths(
     guidance_request: DepartureGuidanceRequest,
     expected_initial_course: float,
+    expected_turn_direction: TurnDirection,
 ) -> None:
     result = generate_rjfm_departure_guidance(guidance_request)
 
@@ -105,6 +109,7 @@ def test_generates_rwy09_and_rwy27_fixed_bank_tangent_paths(
     assert result.selected_candidate is not None
     candidate = result.selected_candidate
     assert candidate.model is TurnModel.FIXED_BANK_AIR_MASS
+    assert candidate.turn_direction is expected_turn_direction
     assert candidate.position_residual_nm <= POSITION_TOLERANCE_NM
     assert candidate.altitude_residual_ft <= ALTITUDE_TOLERANCE_FT
     assert candidate.tangent_residual_deg <= TANGENT_TOLERANCE_DEG
@@ -122,6 +127,16 @@ def test_generates_rwy09_and_rwy27_fixed_bank_tangent_paths(
         guidance_request.target_umk.longitude_deg,
         abs=1e-10,
     )
+    extension_samples = [
+        sample for sample in candidate.path if sample.phase is PathPhase.EXTENSION_TURN
+    ]
+    assert len(extension_samples) >= 2
+    track_delta = (
+        extension_samples[1].ground_track_true_deg
+        - extension_samples[0].ground_track_true_deg
+        + 180
+    ) % 360 - 180
+    assert track_delta * expected_turn_direction.sign > 0
 
 
 def test_constant_wind_drifts_air_mass_turn_but_still_solves_tangent_and_time() -> None:
@@ -135,26 +150,53 @@ def test_constant_wind_drifts_air_mass_turn_but_still_solves_tangent_and_time() 
     assert candidate.model is TurnModel.FIXED_BANK_AIR_MASS
     assert candidate.position_residual_nm <= POSITION_TOLERANCE_NM
     assert candidate.tangent_residual_deg <= TANGENT_TOLERANCE_DEG
-    assert candidate.partial_left_turn_angle_deg > 0
+    assert candidate.partial_turn_angle_deg > 0
 
 
+@pytest.mark.parametrize(
+    ("guidance_request", "expected_turn_direction"),
+    [
+        (_request(wind=Wind(270, 20)), TurnDirection.LEFT),
+        (
+            _request(
+                procedure=RunwayProcedure.rwy27(),
+                target_course_deg=330,
+                wind=Wind(270, 20),
+            ),
+            TurnDirection.RIGHT,
+        ),
+    ],
+)
 def test_adjusted_ground_circle_fallback_stays_at_or_below_20_degree_bank(
     monkeypatch: pytest.MonkeyPatch,
+    guidance_request: DepartureGuidanceRequest,
+    expected_turn_direction: TurnDirection,
 ) -> None:
     monkeypatch.setattr(guidance_module, "_solve_fixed_bank", lambda *_args: ())
 
-    result = generate_rjfm_departure_guidance(_request(wind=Wind(270, 20)))
+    result = generate_rjfm_departure_guidance(guidance_request)
 
     assert result.status is GuidanceStatus.VALID
     assert result.selected_candidate is not None
     candidate = result.selected_candidate
     assert candidate.model is TurnModel.ADJUSTED_GROUND_CIRCLE
+    assert candidate.turn_direction is expected_turn_direction
     assert candidate.adjusted_ground_radius_nm is not None
     assert 0 < candidate.maximum_required_bank_deg <= 20
     assert candidate.position_residual_nm <= POSITION_TOLERANCE_NM
     assert candidate.altitude_residual_ft <= ALTITUDE_TOLERANCE_FT
     assert candidate.tangent_residual_deg <= TANGENT_TOLERANCE_DEG
     assert candidate.full_turn_exit_drift_nm == 0
+    extension_samples = [
+        sample for sample in candidate.path if sample.phase is PathPhase.EXTENSION_TURN
+    ]
+    assert len(extension_samples) >= 2
+    track_delta = (
+        extension_samples[1].ground_track_true_deg
+        - extension_samples[0].ground_track_true_deg
+        + 180
+    ) % 360 - 180
+    assert track_delta * expected_turn_direction.sign > 0
 
 
 def test_fixed_air_mass_full_turn_reports_wind_exit_drift() -> None:
@@ -176,7 +218,7 @@ def test_fixed_air_mass_full_turn_reports_wind_exit_drift() -> None:
     assert result.selected_candidate is not None
     candidate = result.selected_candidate
     assert candidate.model is TurnModel.FIXED_BANK_AIR_MASS
-    assert candidate.full_left_turns == 1
+    assert candidate.full_turns == 1
     assert candidate.full_turn_exit_drift_nm == pytest.approx(0.558, abs=0.01)
 
 
@@ -324,4 +366,8 @@ def test_result_is_json_serializable_without_pydantic() -> None:
 
     assert serialized["status"] == "VALID"
     assert serialized["selected_candidate"]["model"] == "FIXED_BANK_AIR_MASS"
+    assert serialized["selected_candidate"]["turn_direction"] == "LEFT"
+    assert "full_left_turns" not in serialized["selected_candidate"]
+    assert "partial_left_turn_angle_deg" not in serialized["selected_candidate"]
+    assert "EXTENSION_TURN" in encoded
     assert "INITIAL_STRAIGHT" in encoded

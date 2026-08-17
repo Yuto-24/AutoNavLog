@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from autonavlog.application.calculation_service import CalculationService
@@ -24,12 +25,14 @@ from autonavlog.domain.planning import (
     RjfmGuidancePathPoint,
     RjfmGuidanceStatus,
     RjfmRunwayGuidance,
+    RjfmTurnDirection,
     RjfmTurnMethod,
 )
 from autonavlog.domain.values import AdoptedValue
 from autonavlog.presentation.clearcopy import render_clearcopy_html
 from autonavlog.presentation.transfer_aid import (
     DISCLAIMER,
+    _rjfm_candidate_summary,
     render_transfer_aid_document,
     render_transfer_aid_html,
 )
@@ -192,9 +195,7 @@ def test_transfer_aid_does_not_revive_legacy_sea_or_eto_values(
     assert "SEA" not in route_table
     assert "9876" not in route_table
     assert "21:34" not in route_table
-    rendered_rows = [
-        row for row in legacy_outcome.display_rows if row.row_type != "LEG_SEPARATOR"
-    ]
+    rendered_rows = [row for row in legacy_outcome.display_rows if row.row_type != "LEG_SEPARATOR"]
     assert route_table.count("display-blank") >= len(rendered_rows) * 3
 
 
@@ -486,6 +487,7 @@ def test_transfer_aid_renders_only_usable_rjfm_path_and_invalid_reason(
                 runway="09",
                 status=RjfmGuidanceStatus.WARNING,
                 turn_method=RjfmTurnMethod.FIXED_BANK_20,
+                turn_direction=RjfmTurnDirection.LEFT,
                 path=path,
                 constraints=[
                     RjfmConstraintResult(
@@ -495,8 +497,8 @@ def test_transfer_aid_renders_only_usable_rjfm_path_and_invalid_reason(
                         message="MZE旋回開始点が4.0 DME未満",
                     )
                 ],
-                full_left_turns=1,
-                partial_left_turn_deg=42,
+                full_turns=1,
+                partial_turn_deg=42,
                 turn_entry_radial_deg=305,
                 turn_entry_dme_nm=3.9,
                 expected_time_delta_seconds=75,
@@ -504,6 +506,7 @@ def test_transfer_aid_renders_only_usable_rjfm_path_and_invalid_reason(
             RjfmRunwayGuidance(
                 runway="27",
                 status=RjfmGuidanceStatus.HARD_INVALID,
+                turn_direction=RjfmTurnDirection.RIGHT,
                 constraints=[
                     RjfmConstraintResult(
                         code="PCA",
@@ -523,9 +526,44 @@ def test_transfer_aid_renders_only_usable_rjfm_path_and_invalid_reason(
 
     assert "RJFM北行き RCA / CENTER ROUTE 案内" in html
     assert "RWY09: 成立（注意）" in html
+    assert "左20°バンク" in html
+    assert "左360°×1 + 42°" in html
     assert "成立候補の注意条件" in html
     assert "RWY09: MZE旋回開始点が4.0 DME未満" in html
     assert "RWY27: PCA高度帯へ進入" in html
     assert html.count("<polyline") == 2  # RWY09 plus CENTER ROUTE; no invalid RWY27 path.
-    assert "DIST÷GSとは一致しません" in html
+    assert "RJFM → OMARUを1つの親Leg" in html
+    assert "TC・VAR・MCはRJFM → OMARUの直行値" in html
     assert "AIP: 2025-08-07" in html
+
+
+def test_transfer_aid_labels_right_turn_and_migrates_legacy_left_fields() -> None:
+    right = RjfmRunwayGuidance(
+        runway="27",
+        status=RjfmGuidanceStatus.VALID,
+        turn_method=RjfmTurnMethod.FIXED_BANK_20,
+        turn_direction=RjfmTurnDirection.RIGHT,
+        full_turns=2,
+        partial_turn_deg=15,
+    )
+
+    assert "右20°バンク" in _rjfm_candidate_summary(right)
+    assert "右360°×2 + 15°" in _rjfm_candidate_summary(right)
+
+    legacy_left = RjfmRunwayGuidance.model_validate_json(
+        json.dumps(
+            {
+                "runway": "09",
+                "status": "VALID",
+                "turn_method": "FIXED_BANK_20",
+                "full_left_turns": 1,
+                "partial_left_turn_deg": 42,
+            }
+        )
+    )
+    dumped = legacy_left.model_dump(mode="json")
+
+    assert "左20°バンク" in _rjfm_candidate_summary(legacy_left)
+    assert "左360°×1 + 42°" in _rjfm_candidate_summary(legacy_left)
+    assert "full_left_turns" not in dumped
+    assert "partial_left_turn_deg" not in dumped

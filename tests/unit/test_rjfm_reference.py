@@ -36,7 +36,7 @@ def _rewrite_payload(root: Path, payload: dict[str, object]) -> None:
 def test_bundled_rjfm_pack_loads_source_backed_values() -> None:
     pack = RjfmReferencePack.from_directory(PACK_ROOT)
 
-    assert pack.revision == "2026-08-17-rjfm-umk-guidance-v1"
+    assert pack.revision == "2026-08-17-rjfm-umk-guidance-v2"
     assert pack.content_fingerprint == hashlib.sha256(
         (PACK_ROOT / "rjfm-reference.json").read_bytes()
     ).hexdigest()
@@ -104,6 +104,16 @@ def test_bundled_pca_and_departure_policy_keep_source_and_operational_values_sep
     assert pack.policy.minimum_turn_entry_dme_inclusive is True
     assert pack.policy.runways["09"].initial_straight_until_altitude_ft_msl == 1000.0
     assert pack.policy.runways["27"].initial_straight_distance_nm == 1.5
+    assert pack.policy.runways["09"].extension_turn_direction == "LEFT"
+    assert pack.policy.runways["27"].extension_turn_direction == "RIGHT"
+    assert pack.policy.dme_constraint_scope == "FINAL_EXTENSION_TURN_ENTRY_POINT"
+    turn_source = next(
+        source
+        for source in pack.data.sources
+        if source.id == "user-approved-rjfm-rwy-turn-policy-2026-08-17"
+    )
+    assert turn_source.distribution == "USER_DECISION"
+    assert "attached training document" in turn_source.notes
 
 
 def test_loader_rejects_payload_hash_mismatch(tmp_path: Path) -> None:
@@ -247,6 +257,16 @@ def test_loader_rejects_runway_turn_policy_mismatch(
     root = _copied_pack(tmp_path)
     payload = json.loads((root / "rjfm-reference.json").read_text(encoding="utf-8"))
     payload["policy"]["runways"]["09"][field] = value
+    _rewrite_payload(root, payload)
+
+    with pytest.raises(RjfmReferenceDataError, match="invalid RJFM JSON model"):
+        RjfmReferencePack.from_directory(root)
+
+
+def test_loader_rejects_wrong_runway_extension_turn_direction(tmp_path: Path) -> None:
+    root = _copied_pack(tmp_path)
+    payload = json.loads((root / "rjfm-reference.json").read_text(encoding="utf-8"))
+    payload["policy"]["runways"]["27"]["extension_turn_direction"] = "LEFT"
     _rewrite_payload(root, payload)
 
     with pytest.raises(RjfmReferenceDataError, match="invalid RJFM JSON model"):

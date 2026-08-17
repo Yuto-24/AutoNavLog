@@ -60,7 +60,7 @@ class PathPhase(str, Enum):
     INITIAL_STRAIGHT = "INITIAL_STRAIGHT"
     INITIAL_CUT_TURN = "INITIAL_CUT_TURN"
     OUTBOUND = "OUTBOUND"
-    LEFT_TURN = "LEFT_TURN"
+    EXTENSION_TURN = "EXTENSION_TURN"
     DIRECT_UMK = "DIRECT_UMK"
 
 
@@ -123,6 +123,7 @@ class RunwayProcedure:
     initial_ground_course_magnetic_deg: float
     post_cut_ground_course_magnetic_deg: float
     initial_turn_direction: TurnDirection
+    extension_turn_direction: TurnDirection
     initial_distance_nm: float | None = None
     initial_until_altitude_ft: float | None = None
     bank_deg: float = 20.0
@@ -134,6 +135,7 @@ class RunwayProcedure:
             initial_ground_course_magnetic_deg=272.0,
             post_cut_ground_course_magnetic_deg=317.0,
             initial_turn_direction=TurnDirection.RIGHT,
+            extension_turn_direction=TurnDirection.RIGHT,
             initial_distance_nm=1.5,
         )
 
@@ -144,6 +146,7 @@ class RunwayProcedure:
             initial_ground_course_magnetic_deg=92.0,
             post_cut_ground_course_magnetic_deg=47.0,
             initial_turn_direction=TurnDirection.LEFT,
+            extension_turn_direction=TurnDirection.LEFT,
             initial_until_altitude_ft=traffic_pattern_altitude_ft,
         )
 
@@ -189,9 +192,10 @@ class GuidanceCandidate:
     runway_id: str
     model: TurnModel
     status: GuidanceStatus
-    full_left_turns: int
-    partial_left_turn_angle_deg: float
-    total_left_turn_angle_deg: float
+    turn_direction: TurnDirection
+    full_turns: int
+    partial_turn_angle_deg: float
+    total_turn_angle_deg: float
     turn_entry: GeoPoint
     turn_exit: GeoPoint
     turn_entry_elapsed_time_s: float
@@ -417,7 +421,7 @@ def generate_rjfm_departure_guidance(
             sorted(
                 candidates,
                 key=lambda candidate: (
-                    candidate.total_left_turn_angle_deg,
+                    candidate.total_turn_angle_deg,
                     -candidate.mze_horizontal_distance_nm,
                 ),
             )
@@ -780,7 +784,7 @@ def _fixed_bank_solution_at_angle(
     total_angle = full_turns * 2 * pi + partial_angle_rad
     turn_displacement, turn_time, exit_heading = _turn_displacement(
         initial.outbound_heading_rad,
-        TurnDirection.LEFT,
+        request.runway_procedure.extension_turn_direction,
         total_angle,
         omega,
         request.tas_kt,
@@ -953,7 +957,10 @@ class _AdjustedTurnLookup:
         cumulative = [0.0]
         previous_speed = _ground_speed_for_course(start, request)
         for index in range(1, subdivisions + 1):
-            course = start - index * step
+            course = (
+                start
+                + request.runway_procedure.extension_turn_direction.sign * index * step
+            )
             speed = _ground_speed_for_course(course, request)
             cumulative.append(
                 cumulative[-1] + radius_nm * step * 2 / (previous_speed + speed)
@@ -987,8 +994,14 @@ def _adjusted_solution_at_angle(
     partial_angle_rad: float,
 ) -> tuple[_PhysicalSolution, float] | None:
     start_course = lookup.start_course_rad
-    exit_course = start_course - partial_angle_rad
-    turn_displacement = _ground_circle_displacement(start_course, partial_angle_rad, radius_nm)
+    direction = request.runway_procedure.extension_turn_direction
+    exit_course = start_course + direction.sign * partial_angle_rad
+    turn_displacement = _ground_circle_displacement(
+        start_course,
+        direction,
+        partial_angle_rad,
+        radius_nm,
+    )
     remaining = target - initial.end_position - turn_displacement
     solved = _solve_two_columns(
         _unit_for_course(start_course),
@@ -1034,13 +1047,15 @@ def _adjusted_solution_at_angle(
 
 def _ground_circle_displacement(
     start_course_rad: float,
+    direction: TurnDirection,
     partial_angle_rad: float,
     radius_nm: float,
 ) -> _Vector:
-    end_course = start_course_rad - partial_angle_rad
+    sign = direction.sign
+    end_course = start_course_rad + sign * partial_angle_rad
     return _Vector(
-        radius_nm * (cos(end_course) - cos(start_course_rad)),
-        radius_nm * (sin(start_course_rad) - sin(end_course)),
+        sign * radius_nm * (cos(start_course_rad) - cos(end_course)),
+        sign * radius_nm * (sin(end_course) - sin(start_course_rad)),
     )
 
 
@@ -1185,12 +1200,12 @@ def _materialize_candidate(
             solution.entry,
             turn_start_time,
             initial.outbound_heading_rad,
-            TurnDirection.LEFT,
+            request.runway_procedure.extension_turn_direction,
             total_turn_angle,
             _turn_rate_rad_s(request.tas_kt, request.runway_procedure.bank_deg),
             request.tas_kt,
             wind,
-            PathPhase.LEFT_TURN,
+            PathPhase.EXTENSION_TURN,
             request.sample_interval_s,
         )
     else:
@@ -1301,9 +1316,10 @@ def _materialize_candidate(
         runway_id=request.runway_procedure.runway_id,
         model=solution.model,
         status=status,
-        full_left_turns=solution.full_turns,
-        partial_left_turn_angle_deg=degrees(solution.partial_angle_rad),
-        total_left_turn_angle_deg=solution.full_turns * 360 + degrees(solution.partial_angle_rad),
+        turn_direction=request.runway_procedure.extension_turn_direction,
+        full_turns=solution.full_turns,
+        partial_turn_angle_deg=degrees(solution.partial_angle_rad),
+        total_turn_angle_deg=solution.full_turns * 360 + degrees(solution.partial_angle_rad),
         turn_entry=entry_geo,
         turn_exit=exit_geo,
         turn_entry_elapsed_time_s=turn_start_time,
@@ -1507,13 +1523,19 @@ def _sample_adjusted_turn(
     elapsed = 0.0
     previous_course = start_course_rad
     previous_speed = _ground_speed_for_course(previous_course, request)
+    direction = request.runway_procedure.extension_turn_direction
     for index in range(1, steps + 1):
         angle = total_angle_rad * index / steps
-        course = start_course_rad - angle
+        course = start_course_rad + direction.sign * angle
         speed = _ground_speed_for_course(course, request)
         delta_angle = total_angle_rad / steps
         elapsed += radius_nm * delta_angle * 2 / (previous_speed + speed)
-        position = start + _ground_circle_displacement(start_course_rad, angle, radius_nm)
+        position = start + _ground_circle_displacement(
+            start_course_rad,
+            direction,
+            angle,
+            radius_nm,
+        )
         heading, _ = _heading_for_ground_course(course, request.tas_kt, request.wind)
         samples.append(
             _sample(
@@ -1523,7 +1545,7 @@ def _sample_adjusted_turn(
                 position,
                 heading,
                 course,
-                PathPhase.LEFT_TURN,
+                PathPhase.EXTENSION_TURN,
             )
         )
         previous_course = course

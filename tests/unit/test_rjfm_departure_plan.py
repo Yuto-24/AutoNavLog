@@ -17,6 +17,7 @@ from autonavlog.domain.planning import (
     RjfmGuidanceStatus,
     RjfmMainRouteMode,
     RjfmRunwayGuidance,
+    RjfmTurnDirection,
     load_persisted_ui_state,
 )
 from autonavlog.domain.project import ManualWind, NavSection, Project, RouteNode
@@ -351,8 +352,16 @@ def test_idempotent_normalization_preserves_matching_saved_guidance_payload() ->
         reference_content_fingerprint="b" * 64,
         generated_against_fingerprint="a" * 64,
         candidates=[
-            RjfmRunwayGuidance(runway="09", status=RjfmGuidanceStatus.UNAVAILABLE),
-            RjfmRunwayGuidance(runway="27", status=RjfmGuidanceStatus.UNAVAILABLE),
+            RjfmRunwayGuidance(
+                runway="09",
+                status=RjfmGuidanceStatus.UNAVAILABLE,
+                turn_direction=RjfmTurnDirection.LEFT,
+            ),
+            RjfmRunwayGuidance(
+                runway="27",
+                status=RjfmGuidanceStatus.UNAVAILABLE,
+                turn_direction=RjfmTurnDirection.RIGHT,
+            ),
         ],
         center_route=[first_plan.umk, first_plan.over_field, first_plan.omaru],
     )
@@ -364,6 +373,61 @@ def test_idempotent_normalization_preserves_matching_saved_guidance_payload() ->
     reapplied = load_persisted_ui_state(project.metadata["ui_state"])
     assert reapplied.rjfm_departure_plan == first_plan
     assert reapplied.rjfm_departure_guidance == saved_guidance
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    ["rule_version", "reference_revision", "reference_fingerprint", "center_route"],
+)
+def test_normalization_discards_guidance_that_does_not_match_current_plan(
+    mismatch: str,
+) -> None:
+    project = _project(
+        [
+            ("RJFM", 31.877, 131.449),
+            ("UMK-ish", 32.08, 131.50),
+            ("RJFO", 33.479, 131.737),
+        ]
+    )
+    plan = apply_rjfm_departure_exception(project, _references())
+    assert plan is not None
+    guidance = RjfmDepartureGuidance(
+        reference_revision=plan.reference_revision,
+        reference_content_fingerprint=plan.reference_content_fingerprint,
+        generated_against_fingerprint="a" * 64,
+        candidates=[
+            RjfmRunwayGuidance(
+                runway="09",
+                status=RjfmGuidanceStatus.UNAVAILABLE,
+                turn_direction=RjfmTurnDirection.LEFT,
+            ),
+            RjfmRunwayGuidance(
+                runway="27",
+                status=RjfmGuidanceStatus.UNAVAILABLE,
+                turn_direction=RjfmTurnDirection.RIGHT,
+            ),
+        ],
+        center_route=[plan.umk, plan.over_field, plan.omaru],
+    )
+    mismatch_update: dict[str, object]
+    if mismatch == "rule_version":
+        mismatch_update = {"rule_version": "RJFM_NORTHBOUND_R6_5_1_V1"}
+    elif mismatch == "reference_revision":
+        mismatch_update = {"reference_revision": "fixture-old"}
+    elif mismatch == "reference_fingerprint":
+        mismatch_update = {"reference_content_fingerprint": "c" * 64}
+    else:
+        mismatch_update = {"center_route": [plan.umk, plan.over_field, plan.umk]}
+    state = load_persisted_ui_state(project.metadata["ui_state"])
+    project.metadata["ui_state"] = state.model_copy(
+        update={"rjfm_departure_guidance": guidance.model_copy(update=mismatch_update)}
+    ).model_dump(mode="json")
+
+    apply_rjfm_departure_exception(project, _references())
+
+    reapplied = load_persisted_ui_state(project.metadata["ui_state"])
+    assert reapplied.rjfm_departure_plan == plan
+    assert reapplied.rjfm_departure_guidance is None
 
 
 def test_existing_later_omaru_is_not_moved_or_duplicated() -> None:
@@ -423,3 +487,123 @@ def test_non_matching_first_point_does_not_apply() -> None:
 
     assert apply_rjfm_departure_exception(project, _references()) is None
     assert "ui_state" not in project.metadata
+
+
+def test_legacy_v1_guidance_left_turn_fields_load_into_generic_contract() -> None:
+    project = _project(
+        [
+            ("RJFM", 31.877, 131.449),
+            ("UMK-ish", 32.08, 131.50),
+            ("RJFO", 33.479, 131.737),
+        ]
+    )
+    plan = apply_rjfm_departure_exception(project, _references())
+    assert plan is not None
+    legacy_plan = plan.model_dump(mode="json")
+    legacy_plan["rule_version"] = "RJFM_NORTHBOUND_R6_5_1_V1"
+    legacy_guidance = {
+        "rule_version": "RJFM_NORTHBOUND_R6_5_1_V1",
+        "reference_revision": "fixture-r1",
+        "reference_content_fingerprint": "b" * 64,
+        "source_effective_dates": {},
+        "generated_against_fingerprint": "a" * 64,
+        "candidates": [
+            {
+                "runway": runway,
+                "status": "UNAVAILABLE",
+                "full_left_turns": 1,
+                "partial_left_turn_deg": 42.0,
+            }
+            for runway in ("09", "27")
+        ],
+        "center_route": [
+            plan.umk.model_dump(mode="json"),
+            plan.over_field.model_dump(mode="json"),
+            plan.omaru.model_dump(mode="json"),
+        ],
+        "limitations": [],
+    }
+
+    restored = load_persisted_ui_state(
+        {
+            "state_schema_version": 5,
+            "rjfm_departure_plan": legacy_plan,
+            "rjfm_departure_guidance": legacy_guidance,
+        }
+    )
+
+    assert restored.rjfm_departure_plan is not None
+    assert restored.rjfm_departure_plan.rule_version == "RJFM_NORTHBOUND_R6_5_1_V1"
+    assert restored.rjfm_departure_guidance is not None
+    assert restored.rjfm_departure_guidance.rule_version == "RJFM_NORTHBOUND_R6_5_1_V1"
+    assert all(
+        candidate.turn_direction is RjfmTurnDirection.LEFT
+        and candidate.full_turns == 1
+        and candidate.partial_turn_deg == 42.0
+        for candidate in restored.rjfm_departure_guidance.candidates
+    )
+    dumped_candidates = restored.rjfm_departure_guidance.model_dump(mode="json")[
+        "candidates"
+    ]
+    assert all("full_left_turns" not in candidate for candidate in dumped_candidates)
+    assert all("partial_left_turn_deg" not in candidate for candidate in dumped_candidates)
+
+    new_guidance = RjfmDepartureGuidance(
+        reference_revision="fixture-r1",
+        reference_content_fingerprint="b" * 64,
+        generated_against_fingerprint="a" * 64,
+        candidates=[
+            RjfmRunwayGuidance(
+                runway="09",
+                status=RjfmGuidanceStatus.UNAVAILABLE,
+                turn_direction=RjfmTurnDirection.LEFT,
+            ),
+            RjfmRunwayGuidance(
+                runway="27",
+                status=RjfmGuidanceStatus.UNAVAILABLE,
+                turn_direction=RjfmTurnDirection.RIGHT,
+            ),
+        ],
+        center_route=[plan.umk, plan.over_field, plan.omaru],
+    )
+    assert new_guidance.rule_version == "RJFM_NORTHBOUND_R6_5_1_V2"
+
+
+def test_current_guidance_requires_direction_and_runway_mapping() -> None:
+    with pytest.raises(ValueError, match="turn_direction"):
+        RjfmRunwayGuidance(
+            runway="09",
+            status=RjfmGuidanceStatus.UNAVAILABLE,
+        )
+
+    project = _project(
+        [
+            ("RJFM", 31.877, 131.449),
+            ("UMK-ish", 32.08, 131.50),
+            ("RJFO", 33.479, 131.737),
+        ]
+    )
+    plan = apply_rjfm_departure_exception(project, _references())
+    assert plan is not None
+    with pytest.raises(
+        ValueError,
+        match="current RJFM guidance requires LEFT for RWY09 and RIGHT for RWY27",
+    ):
+        RjfmDepartureGuidance(
+            reference_revision=plan.reference_revision,
+            reference_content_fingerprint=plan.reference_content_fingerprint,
+            generated_against_fingerprint="a" * 64,
+            candidates=[
+                RjfmRunwayGuidance(
+                    runway="09",
+                    status=RjfmGuidanceStatus.UNAVAILABLE,
+                    turn_direction=RjfmTurnDirection.RIGHT,
+                ),
+                RjfmRunwayGuidance(
+                    runway="27",
+                    status=RjfmGuidanceStatus.UNAVAILABLE,
+                    turn_direction=RjfmTurnDirection.LEFT,
+                ),
+            ],
+            center_route=[plan.umk, plan.over_field, plan.omaru],
+        )

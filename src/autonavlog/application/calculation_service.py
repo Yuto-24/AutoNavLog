@@ -2331,15 +2331,7 @@ class CalculationService:
             for result, value in zip(sections, remaining, strict=True)
         ]
         display_rows = build_navlog_display_rows(
-            [
-                NavLogPhysicalLeg(
-                    section_id=geometry.section.id,
-                    phase=geometry.section.phase,
-                    start_name=geometry.start.name,
-                    end_name=geometry.end.name,
-                )
-                for geometry in geometries
-            ],
+            self._navlog_physical_legs(geometries, rjfm_departure_plan),
             sections,
             departure,
             destination,
@@ -2356,6 +2348,64 @@ class CalculationService:
             section_fuels,
             derived_points,
         )
+
+    @staticmethod
+    def _navlog_physical_legs(
+        geometries: list[_Geometry],
+        rjfm_departure_plan: RjfmDeparturePlan | None,
+    ) -> list[NavLogPhysicalLeg]:
+        default = [
+            NavLogPhysicalLeg(
+                section_ids=(geometry.section.id,),
+                phase=geometry.section.phase,
+                start_name=geometry.start.name,
+                end_name=geometry.end.name,
+            )
+            for geometry in geometries
+        ]
+        if rjfm_departure_plan is None or not geometries:
+            return default
+
+        omaru_index = next(
+            (
+                index
+                for index, geometry in enumerate(geometries)
+                if geodesic_leg(
+                    geometry.end.latitude_deg,
+                    geometry.end.longitude_deg,
+                    rjfm_departure_plan.omaru.latitude_deg,
+                    rjfm_departure_plan.omaru.longitude_deg,
+                ).distance_nm
+                <= 1e-6
+            ),
+            None,
+        )
+        if omaru_index is None:
+            return default
+
+        grouped = geometries[: omaru_index + 1]
+        direct = geodesic_leg(
+            grouped[0].start.latitude_deg,
+            grouped[0].start.longitude_deg,
+            rjfm_departure_plan.omaru.latitude_deg,
+            rjfm_departure_plan.omaru.longitude_deg,
+        )
+        variation = variation_for_departure_latitude(
+            grouped[0].start.latitude_deg
+        ).degrees_east
+        parent = NavLogPhysicalLeg(
+            section_ids=tuple(geometry.section.id for geometry in grouped),
+            phase=grouped[0].section.phase,
+            start_name="RJFM",
+            end_name="OMARU",
+            summary_true_course_deg=direct.initial_true_course_deg,
+            summary_variation_deg_east=variation,
+            summary_magnetic_course_deg=(
+                direct.initial_true_course_deg + variation
+            )
+            % 360.0,
+        )
+        return [parent, *default[omaru_index + 1 :]]
 
     @staticmethod
     def _section_weather(
