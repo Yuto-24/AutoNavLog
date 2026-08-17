@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "leaflet/dist/leaflet.css";
 import "@fontsource-variable/noto-sans-jp";
 import "./styles.css";
+import "./flightPlanLayout.css";
 import App from "./App";
 
 const root = document.getElementById("root");
