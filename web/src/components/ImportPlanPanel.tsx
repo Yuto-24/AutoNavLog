@@ -228,48 +228,52 @@ export function ImportPlanPanel({
               </small>
             )}
           </div>
-          <label>
-            <span>FUEL gal</span>
-            <input
-              type="number"
-              min="0.1"
-              max="200"
-              step="0.1"
-              value={form.totalUsableFuelGal}
-              onChange={(event) => update("totalUsableFuelGal", event.target.value)}
-            />
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.runUpIncluded}
-              onChange={(event) => update("runUpIncluded", event.target.checked)}
-            />
-            <span>RUN UP あり</span>
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.airConditioningEnabled}
-              onChange={(event) => update("airConditioningEnabled", event.target.checked)}
-            />
-            <span>A/C ON</span>
-          </label>
-          <label>
-            <span>TGL</span>
-            <input
-              type="number"
-              min="0"
-              max="20"
-              step="1"
-              value={form.tglCount}
-              onChange={(event) => {
-                if (Number.isFinite(event.target.valueAsNumber)) {
-                  update("tglCount", event.target.valueAsNumber);
-                }
-              }}
-            />
-          </label>
+          <div className="fuel-input-row span-two">
+            <label>
+              <span>FUEL gal</span>
+              <input
+                type="number"
+                min="0.1"
+                max="200"
+                step="0.1"
+                value={form.totalUsableFuelGal}
+                onChange={(event) => update("totalUsableFuelGal", event.target.value)}
+              />
+            </label>
+            <label>
+              <span>TGL</span>
+              <input
+                type="number"
+                min="0"
+                max="20"
+                step="1"
+                value={form.tglCount}
+                onChange={(event) => {
+                  if (Number.isFinite(event.target.valueAsNumber)) {
+                    update("tglCount", event.target.valueAsNumber);
+                  }
+                }}
+              />
+            </label>
+          </div>
+          <div className="fuel-option-row span-two">
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={form.runUpIncluded}
+                onChange={(event) => update("runUpIncluded", event.target.checked)}
+              />
+              <span>RUN UP あり</span>
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={form.airConditioningEnabled}
+                onChange={(event) => update("airConditioningEnabled", event.target.checked)}
+              />
+              <span>A/C ON</span>
+            </label>
+          </div>
           <label className="span-two">
             <span>気象モード</span>
             <select
