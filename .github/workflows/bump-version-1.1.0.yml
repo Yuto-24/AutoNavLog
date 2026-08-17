@@ -42,7 +42,6 @@ jobs:
           for path in (
               "pyproject.toml",
               "src/autonavlog/version.py",
-              ".github/workflows/release-to-drive.yml",
               "scripts/colab_e2e_assert.py",
               "notebooks/AutoNavLog.ipynb",
               "tests/integration/test_release_workflow.py",
@@ -92,13 +91,10 @@ jobs:
           changelog = changelog.replace(marker, marker + release_header, 1)
           changelog_path.write_text(changelog, encoding="utf-8")
 
-          # Release-surface consistency checks. Historical 1.0.0 stays in CHANGELOG,
-          # and dependency versions inside package-lock are intentionally untouched.
           checks = {
               "pyproject.toml": 'version = "1.1.0"',
               "src/autonavlog/version.py": '__version__ = "1.1.0"',
               "README.md": "現在のバージョン: `1.1.0`",
-              ".github/workflows/release-to-drive.yml": "autonavlog-1.1.0-py3-none-any.whl",
               "scripts/colab_e2e_assert.py": 'EXPECTED_AUTONAVLOG_VERSION = "1.1.0"',
               "notebooks/AutoNavLog.ipynb": "1.1.0",
               "tests/integration/test_release_workflow.py": "autonavlog-1.1.0-py3-none-any.whl",
@@ -116,13 +112,12 @@ jobs:
           assert package["version"] == NEW
           assert lock["version"] == NEW
           assert lock["packages"][""]["version"] == NEW
-          print("AutoNavLog release surfaces are consistent at 1.1.0")
+          print("AutoNavLog non-workflow release surfaces are consistent at 1.1.0")
           PY
 
-      - name: Commit version bump and remove helper workflow
+      - name: Commit version bump
         shell: bash
         run: |
-          rm .github/workflows/bump-version-1.1.0.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
