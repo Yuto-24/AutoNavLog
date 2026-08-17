@@ -217,6 +217,7 @@ class MsmMetarWeatherProvider:
             valid_times_utc=requirement.valid_times_utc,
             require_aloft_wind=requirement.require_aloft_wind,
             require_aloft_temperature=requirement.require_aloft_temperature,
+            require_surface_temperature=requirement.require_surface_temperature,
             require_estimated_qnh=False,
         )
 
@@ -269,22 +270,26 @@ class MsmMetarWeatherProvider:
             raise RuntimeError("MSM/METAR forecast run must be prepared before querying")
 
         results: list[WeatherResult | None] = [None] * len(requests)
-        aloft_requests = tuple(
+        delegated_requests = tuple(
             (index, request)
             for index, request in enumerate(requests)
-            if request.kind == WeatherRequestKind.ALOFT
+            if request.kind
+            in {
+                WeatherRequestKind.ALOFT,
+                WeatherRequestKind.SURFACE_TEMPERATURE,
+            }
         )
-        if aloft_requests:
+        if delegated_requests:
             delegated_results = tuple(
                 self._delegate.query_batch(
                     forecast_run_id,
-                    tuple(request for _, request in aloft_requests),
+                    tuple(request for _, request in delegated_requests),
                 )
             )
-            if len(delegated_results) != len(aloft_requests):
+            if len(delegated_results) != len(delegated_requests):
                 raise RuntimeError("MSM delegate batch result count does not match request count")
             for (index, request), result in zip(
-                aloft_requests,
+                delegated_requests,
                 delegated_results,
                 strict=True,
             ):

@@ -358,6 +358,14 @@ def test_issue_43_golden_display_structure_inheritance_and_destination(
     assert check_point_names == ["岩瀬ダム", "えびの", "合津"]
     assert all("CP:" not in row.to_name for row in rows)
 
+    departure_parent = next(
+        row
+        for row in rows
+        if row.section_id == SECTION_IDS[0]
+        and row.row_type == "PHYSICAL_LEG_SUMMARY"
+    )
+    assert departure_parent.toat.text == "22.0"
+
     departure_details = [
         row
         for row in rows

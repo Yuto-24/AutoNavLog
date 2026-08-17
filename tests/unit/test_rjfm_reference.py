@@ -36,7 +36,7 @@ def _rewrite_payload(root: Path, payload: dict[str, object]) -> None:
 def test_bundled_rjfm_pack_loads_source_backed_values() -> None:
     pack = RjfmReferencePack.from_directory(PACK_ROOT)
 
-    assert pack.revision == "2026-08-17-rjfm-umk-guidance-v2"
+    assert pack.revision == "2026-08-17-rjfm-umk-guidance-v3"
     assert pack.content_fingerprint == hashlib.sha256(
         (PACK_ROOT / "rjfm-reference.json").read_bytes()
     ).hexdigest()
@@ -114,6 +114,97 @@ def test_bundled_pca_and_departure_policy_keep_source_and_operational_values_sep
     )
     assert turn_source.distribution == "USER_DECISION"
     assert "attached training document" in turn_source.notes
+
+
+def test_bundled_live_airspace_reference_is_display_only_and_not_fingerprinted() -> None:
+    pack = RjfmReferencePack.from_directory(PACK_ROOT)
+    reference = pack.civil_training_test_airspace
+
+    assert reference.data_use == "DISPLAY_ONLY_LIVE_REFERENCE"
+    assert (
+        reference.content_fingerprint_scope
+        == "CONFIGURATION_ONLY_LIVE_GEOJSON_EXCLUDED"
+    )
+    assert reference.source_page_url == (
+        "https://www.mlit.go.jp/koku/koku_tk10_000004.html"
+    )
+    assert reference.layer_metadata_url == (
+        "https://maps.gsi.go.jp/development/ichiran.html"
+        "#kokuarea_minkankunren"
+    )
+    assert reference.tile_url_template == (
+        "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/"
+        "{z}/{x}/{y}.geojson"
+    )
+    assert {
+        (tile.zoom, tile.x, tile.y): tile.expected_polygon_names
+        for tile in reference.tiles
+    } == {
+        (8, 221, 103): ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5"],
+        (8, 221, 104): [
+            "KS4-2",
+            "KS4-7",
+            "KS4-6",
+            "KS4-1/4",
+            "KS4-1",
+            "KS4-3",
+            "KS4-5",
+            "KS4-8",
+        ],
+    }
+    assert reference.feature_name_prefix == "KS4-"
+    assert "NAV LOG計算やPCA判定には使用しません" in reference.caution_jp
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("data_use", "CALCULATION_INPUT"),
+        (
+            "content_fingerprint_scope",
+            "LIVE_GEOJSON_INCLUDED",
+        ),
+        ("tile_url_template", "https://example.invalid/{z}/{x}/{y}.geojson"),
+        ("source_ids", ["gsi-civil-training-test-airspace-geojson-2026-08-17"]),
+        ("caution_jp", "表示できます。"),
+    ],
+)
+def test_loader_rejects_unsafe_live_airspace_contract(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    root = _copied_pack(tmp_path)
+    payload = json.loads((root / "rjfm-reference.json").read_text(encoding="utf-8"))
+    payload["civil_training_test_airspace"][field] = value
+    _rewrite_payload(root, payload)
+
+    with pytest.raises(RjfmReferenceDataError, match="invalid RJFM JSON model"):
+        RjfmReferencePack.from_directory(root)
+
+
+@pytest.mark.parametrize(
+    "expected_polygon_names",
+    [
+        ["KS4-1/4", "KS4-1", "KS4-3"],
+        ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5", "KS4-5"],
+        ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5", "KS4-8"],
+    ],
+    ids=["missing", "duplicate", "additional"],
+)
+def test_loader_rejects_drifted_expected_polygon_name_contract(
+    tmp_path: Path,
+    expected_polygon_names: list[str],
+) -> None:
+    root = _copied_pack(tmp_path)
+    payload = json.loads((root / "rjfm-reference.json").read_text(encoding="utf-8"))
+    payload["civil_training_test_airspace"]["tiles"][0][
+        "expected_polygon_names"
+    ] = expected_polygon_names
+    _rewrite_payload(root, payload)
+
+    with pytest.raises(RjfmReferenceDataError, match="invalid RJFM JSON model"):
+        RjfmReferencePack.from_directory(root)
 
 
 def test_loader_rejects_payload_hash_mismatch(tmp_path: Path) -> None:

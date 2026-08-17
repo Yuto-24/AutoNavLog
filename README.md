@@ -123,7 +123,8 @@ docker compose -p autonavlog-dev up -d --build
 docker compose -p autonavlog-dev down
 ```
 
-通常起動では `127.0.0.1:8123` に bind します。外部公開にはこの LAN 向け設定を流用せず、
+通常起動では `0.0.0.0:8123` に bind します。信頼できる開発ネットワーク内だけで使用し、
+外部公開にはこの LAN 向け設定を流用せず、
 [Cloudflare 公開手順](docs/cloudflare_tunnel.md)に従ってください。
 
 ## 気象と参照データ
@@ -131,6 +132,10 @@ docker compose -p autonavlog-dev down
 標準コンテナは `msm-metar-trend` モードで動きます。上空の風と気温には MSM を使い、QNH は
 最新 METAR と MSM MSLP の時間差から推定します。検証済み METAR を使えない場合は MSM MSLP
 だけに切り替え、MSM も取得できなければ QNH の手入力を求めます。手入力値は自動値より優先します。
+
+NAV LOGの出発地・目的地TOATには、その地点と表示時刻のMSM地上気温を使います。上空の
+気圧面気温を空港標高へ外挿しません。地上気温を取得できない場合は値を補完せず「未取得」と
+表示します。
 
 推定 QNH は公式の飛行場 QNH ではありません。必ず公式の飛行場気象と照合してください。
 
@@ -150,9 +155,17 @@ RWY09の延長旋回は左、RWY27の初期旋回と延長旋回は右です。�
 転記ではなく、2026-08-17の利用者決定として参照データに記録しています。
 
 RJFM案内カードは、現在の計算結果に限りNAV LOG主表とFUEL表の下に表示します。
+North Up上の滑走路出発方位に合わせてRWY27を左、RWY09を右へ並べ、各カードには
+旋回開始高度とNAV LOG直線Legとの差だけを表示します。この差は、例外候補のUMK到達時間から、
+NAV LOGが採用するRJFM→UMK/RCA直線距離を同じCLIMB GSで飛行した時間を引いた値です。
 MAP内の経路線と凡例は残ります。画面幅1,240 px以下では「入力 → 経路・MAP → 準備状況 →
 NAV LOG → RJFM案内」の1列順となり、上下に往復せず確認できます。適用条件と制限は
 [計算規則](docs/calculation_rules.md#rjfm大分方面のumkrca例外)を参照してください。
+
+RJFMのMAPには宮崎特別管制区（PCA）の水平境界と9 km中心除外円を同梱参照値から描画します。
+民間訓練試験空域KS4は、国土交通省が案内する国土地理院GeoJSONを表示時に取得します。
+ライブGeoJSON本文は参照パックのSHA-256対象外で、NAV LOG計算、出発経路ソルバ、PCA判定には
+使いません。境界付近ではMAPだけで判断せず、空域を管轄する機関へ確認してください。
 
 同梱している RJFM/RJFO の場周経路高度は、一次資料による出典確認が終わっていないため
 `UNVERIFIED` です。経路の取込、入力確認、下書き保存はできますが、
@@ -190,14 +203,13 @@ HTML には `Cache-Control: no-cache`、API には `Cache-Control: no-store` を
 ```bash
 git pull --ff-only
 docker compose -p autonavlog-dev build --pull --no-cache autonavlog
-HOST_IP="$(hostname -I | awk '{print $1}')"
 env \
-  AUTONAVLOG_BIND_ADDRESS="$HOST_IP" \
+  AUTONAVLOG_BIND_ADDRESS=0.0.0.0 \
   AUTONAVLOG_HOST_PORT=8124 \
   AUTONAVLOG_TRUSTED_LOCAL_IDENTITY=local-user \
   AUTONAVLOG_SESSION_COOKIE_SECURE=false \
   docker compose -p autonavlog-dev up -d --force-recreate autonavlog
-curl --fail --silent "http://$HOST_IP:8124/healthz"
+curl --fail --silent "http://127.0.0.1:8124/healthz"
 ```
 
 ## Cloudflare 公開

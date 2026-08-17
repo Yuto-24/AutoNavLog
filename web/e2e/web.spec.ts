@@ -3,9 +3,12 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { parseGsiCivilTrainingAirspaceTile } from "../src/rjfmAirspace";
 import type {
   NavLogDisplayRow,
+  RjfmCivilTrainingTestAirspaceName,
   RjfmDepartureGuidance,
+  RjfmMapReference,
   WebState,
 } from "../src/types";
 
@@ -207,7 +210,7 @@ const rjfmValidUnavailableGuidanceFixture: RjfmDepartureGuidance = {
         },
       ],
       turn_entry_dme_nm: 4.8,
-      notes: ["全制約に適合した候補です。"],
+      notes: [],
     },
     {
       runway: "27",
@@ -230,6 +233,357 @@ const rjfmValidUnavailableGuidanceFixture: RjfmDepartureGuidance = {
     },
   ],
 };
+
+const rjfmMapReferenceFixture: RjfmMapReference = {
+  revision: "2026-08-17-rjfm-umk-guidance-v3",
+  contentFingerprint: "c".repeat(64),
+  pca: {
+    name: "MIYAZAKI_SPECIAL_CONTROL_AREA",
+    polygonVertices: [
+      { latitudeDeg: 31.934444444444445, longitudeDeg: 131.52 },
+      { latitudeDeg: 31.834444444444443, longitudeDeg: 131.5327777777778 },
+      { latitudeDeg: 31.851666666666667, longitudeDeg: 131.74166666666665 },
+      { latitudeDeg: 31.951666666666664, longitudeDeg: 131.73111111111112 },
+    ],
+    exclusionCenter: {
+      latitudeDeg: 31.883333333333333,
+      longitudeDeg: 131.45,
+    },
+    exclusionRadiusKm: 9,
+    sourceAltitudeLowerM: 200,
+    sourceAltitudeUpperM: 800,
+    operationalAltitudeLowerFtMsl: 656,
+    operationalAltitudeUpperFtMsl: 2700,
+    altitudeBoundsInclusive: true,
+    operationalAltitudePolicyStatus: "USER_APPROVED_NOT_EXACT_METRIC_CONVERSION",
+    sourceIds: [
+      "mlit-special-control-area-consolidated-2024-02-08",
+      "user-approved-rjfm-guidance-policy-2026-08-16",
+    ],
+  },
+  civilTrainingTestAirspace: {
+    availability: "REMOTE_GSI_GEOJSON",
+    dataUse: "DISPLAY_ONLY_LIVE_REFERENCE",
+    contentFingerprintScope: "CONFIGURATION_ONLY_LIVE_GEOJSON_EXCLUDED",
+    sourcePageUrl: "https://www.mlit.go.jp/koku/koku_tk10_000004.html",
+    layerMetadataUrl: (
+      "https://maps.gsi.go.jp/development/ichiran.html"
+      + "#kokuarea_minkankunren"
+    ),
+    tileUrlTemplate: (
+      "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/"
+      + "{z}/{x}/{y}.geojson"
+    ),
+    tileUrls: [
+      "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/8/221/103.geojson",
+      "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/8/221/104.geojson",
+    ],
+    tiles: [
+      {
+        url: "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/8/221/103.geojson",
+        expectedPolygonNames: ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5"],
+      },
+      {
+        url: "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/8/221/104.geojson",
+        expectedPolygonNames: [
+          "KS4-2",
+          "KS4-7",
+          "KS4-6",
+          "KS4-1/4",
+          "KS4-1",
+          "KS4-3",
+          "KS4-5",
+          "KS4-8",
+        ],
+      },
+    ],
+    featureNamePrefix: "KS4-",
+    checkedAtUtc: "2026-08-17T04:16:51Z",
+    caution: (
+      "地図には誤差が含まれる場合があります。境界付近は空域を管轄する機関へ"
+      + "確認してください。この表示は参照専用で、NAV LOG計算やPCA判定には使用しません。"
+    ),
+    sourceIds: [
+      "mlit-civil-training-test-airspace-map-2026-08-17",
+      "mlit-gsi-boundary-caution-2026-08-17",
+      "gsi-civil-training-test-airspace-geojson-2026-08-17",
+    ],
+  },
+};
+
+interface GsiAirspaceFeatureFixture {
+  type: "Feature";
+  properties: Record<string, string>;
+  geometry: {
+    type: string;
+    coordinates: unknown;
+  };
+}
+
+interface GsiAirspaceCollectionFixture {
+  type: "FeatureCollection";
+  features: GsiAirspaceFeatureFixture[];
+}
+
+const gsiTile103PolygonNames: RjfmCivilTrainingTestAirspaceName[] = [
+  "KS4-1/4",
+  "KS4-1",
+  "KS4-3",
+  "KS4-5",
+];
+const gsiTile104PolygonNames: RjfmCivilTrainingTestAirspaceName[] = [
+  "KS4-2",
+  "KS4-7",
+  "KS4-6",
+  "KS4-1/4",
+  "KS4-1",
+  "KS4-3",
+  "KS4-5",
+  "KS4-8",
+];
+const gsiTile103Ring = [
+  [131.25, 32.12],
+  [131.48, 32.12],
+  [131.48, 32.28],
+  [131.25, 32.28],
+  [131.25, 32.12],
+];
+const gsiTile104Ring = [
+  [131.32, 31.8],
+  [131.55, 31.8],
+  [131.55, 31.92],
+  [131.32, 31.92],
+  [131.32, 31.8],
+];
+
+function gsiPolygonFeature(
+  name: RjfmCivilTrainingTestAirspaceName,
+  ring: number[][],
+): GsiAirspaceFeatureFixture {
+  return {
+    type: "Feature",
+    properties: {
+      "空域名称": name,
+      "下限": name === "KS4-2" ? "SFC" : "5500FT",
+      "上限": name === "KS4-2" ? "8000FT" : "7000FT",
+      "管轄機関": "航空交通管理センター",
+    },
+    geometry: {
+      type: "Polygon",
+      coordinates: [ring],
+    },
+  };
+}
+
+const gsiAirspaceTile103Fixture: GsiAirspaceCollectionFixture = {
+  type: "FeatureCollection",
+  features: [
+    ...gsiTile103PolygonNames.map((name) => gsiPolygonFeature(name, gsiTile103Ring)),
+    {
+      type: "Feature",
+      properties: {
+        "空域名称": "KS3-4",
+        "下限": "SFC",
+        "上限": "5000FT",
+        "管轄機関": "航空交通管理センター",
+      },
+      geometry: {
+        type: "Polygon",
+        coordinates: [[
+          [131.1, 32], [131.2, 32], [131.2, 32.1], [131.1, 32],
+        ]],
+      },
+    },
+    {
+      type: "Feature",
+      properties: { "空域名称": "KS4-1" },
+      geometry: {
+        type: "LineString",
+        coordinates: [[131.25, 32.12], [131.48, 32.12]],
+      },
+    },
+  ],
+};
+
+const gsiAirspaceTile104Fixture: GsiAirspaceCollectionFixture = {
+  type: "FeatureCollection",
+  features: gsiTile104PolygonNames.map((name) => (
+    gsiPolygonFeature(name, gsiTile104Ring)
+  )),
+};
+
+type GsiFixtureMode =
+  | "valid"
+  | "malformed"
+  | "oversized"
+  | "missing-polygon"
+  | "duplicate-polygon"
+  | "unexpected-polygon"
+  | "unexpected-geometry"
+  | "http-error"
+  | "http-error-with-peer-pending";
+
+interface GsiFixtureState {
+  mode: GsiFixtureMode;
+  pendingPeerAborted: boolean;
+}
+
+const gsiFixtureStateByPage = new WeakMap<Page, GsiFixtureState>();
+
+function setGsiFixtureMode(page: Page, mode: GsiFixtureMode): void {
+  const state = gsiFixtureStateByPage.get(page);
+  if (state === undefined) {
+    gsiFixtureStateByPage.set(page, { mode, pendingPeerAborted: false });
+    return;
+  }
+  state.mode = mode;
+  state.pendingPeerAborted = false;
+}
+
+function didGsiPendingPeerAbort(page: Page): boolean {
+  return gsiFixtureStateByPage.get(page)?.pendingPeerAborted ?? false;
+}
+
+function gsiPayloadForMode(
+  basePayload: GsiAirspaceCollectionFixture,
+  mode: GsiFixtureMode,
+  isTile103: boolean,
+): GsiAirspaceCollectionFixture {
+  if (mode === "malformed" && isTile103) {
+    return {
+      ...basePayload,
+      features: [{
+        ...basePayload.features[0],
+        geometry: {
+          type: "Polygon",
+          coordinates: [[
+            [0, 0],
+            [0.1, 0],
+            [0.1, 0.1],
+            [0, 0],
+          ]],
+        },
+      }],
+    };
+  }
+  if (mode === "missing-polygon" && isTile103) {
+    return {
+      ...basePayload,
+      features: basePayload.features.filter((feature) => !(
+        feature.geometry.type === "Polygon"
+        && feature.properties["空域名称"] === "KS4-5"
+      )),
+    };
+  }
+  if (mode === "duplicate-polygon" && isTile103) {
+    return {
+      ...basePayload,
+      features: [...basePayload.features, { ...basePayload.features[0] }],
+    };
+  }
+  if (mode === "unexpected-polygon" && isTile103) {
+    return {
+      ...basePayload,
+      features: [
+        ...basePayload.features,
+        gsiPolygonFeature("KS4-8", gsiTile103Ring),
+      ],
+    };
+  }
+  if (mode === "unexpected-geometry" && isTile103) {
+    return {
+      ...basePayload,
+      features: basePayload.features.map((feature) => (
+        feature.geometry.type === "Polygon"
+        && feature.properties["空域名称"] === "KS4-3"
+          ? {
+              ...feature,
+              geometry: {
+                type: "Point",
+                coordinates: [131.32, 32.18],
+              },
+            }
+          : feature
+      )),
+    };
+  }
+  return basePayload;
+}
+
+async function installGsiAirspaceRoute(page: Page): Promise<void> {
+  setGsiFixtureMode(page, "valid");
+  page.on("requestfailed", (request) => {
+    const state = gsiFixtureStateByPage.get(page);
+    if (
+      state?.mode === "http-error-with-peer-pending"
+      && request.url().endsWith("/104.geojson")
+    ) {
+      state.pendingPeerAborted = true;
+    }
+  });
+  await page.route(
+    "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/8/221/*.geojson",
+    async (route) => {
+      const mode = gsiFixtureStateByPage.get(page)?.mode ?? "valid";
+      const isTile103 = route.request().url().endsWith("/103.geojson");
+      if (mode === "http-error-with-peer-pending") {
+        if (isTile103) {
+          await route.fulfill({ status: 503, body: "unavailable" });
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        if (route.request().failure() !== null) return;
+      }
+      if (mode === "http-error") {
+        await route.fulfill({ status: 503, body: "unavailable" });
+        return;
+      }
+      if (mode === "oversized") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/geo+json",
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Content-Length": "not-a-number",
+          },
+          body: " ".repeat(256_001),
+        });
+        return;
+      }
+      const basePayload = isTile103
+        ? gsiAirspaceTile103Fixture
+        : gsiAirspaceTile104Fixture;
+      const payload = gsiPayloadForMode(basePayload, mode, isTile103);
+      try {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/geo+json",
+          headers: { "Access-Control-Allow-Origin": "*" },
+          body: JSON.stringify(payload),
+        });
+      } catch (error) {
+        if (mode === "http-error-with-peer-pending") return;
+        throw error;
+      }
+    },
+  );
+}
+
+async function reloadWithGsiFixtureMode(
+  page: Page,
+  mode: GsiFixtureMode,
+  state: WebState,
+): Promise<void> {
+  setGsiFixtureMode(page, mode);
+  await page.route("**/api/state", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(state),
+    });
+  }, { times: 1 });
+  await page.reload();
+}
 
 const twoConnectedRouteCandidatesKml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
@@ -447,10 +801,12 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(windDirectionInput).toHaveAttribute("placeholder", "DIR");
   await expect(windSpeedInput).toHaveAttribute("placeholder", "0");
   await expect.poll(() => windInputs.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
-  await expect(page.getByLabel("NAV LOG高度ポリシー")).toContainText("PA = MSL");
-  await expect(page.getByLabel("NAV LOG高度ポリシー")).toContainText(
+  await expect(page.getByLabel("NAV LOG高度ポリシー")).toHaveCount(0);
+  await expect(page.getByText("PA = MSL", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(
     "QNH補正はNAV LOG計算に使用しません。",
-  );
+    { exact: true },
+  )).toHaveCount(0);
   await expect(page.getByLabel("目的地空港の風予報")).toContainText(
     "目的地風: 200/8 kt",
   );
@@ -481,6 +837,7 @@ async function reloadWithCurrentRjfmGuidance(
   });
   if (guidanceState.outcome === null) throw new Error("calculation outcome is missing");
   guidanceState.outcome.rjfm_departure_guidance = guidance;
+  guidanceState.rjfmMapReference = rjfmMapReferenceFixture;
   guidanceState.readiness.calculationIsCurrent = true;
   await page.route("**/api/state", async (route) => {
     await route.fulfill({
@@ -500,6 +857,31 @@ async function importKmlCandidate(page: Page): Promise<void> {
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
 }
+
+test.beforeEach(async ({ page }) => {
+  await installGsiAirspaceRoute(page);
+});
+
+test("GSI live tile Polygon contract fails closed on payload drift", () => {
+  const tile = rjfmMapReferenceFixture.civilTrainingTestAirspace.tiles[0];
+  const polygons = parseGsiCivilTrainingAirspaceTile(
+    gsiAirspaceTile103Fixture,
+    tile,
+  );
+  expect(polygons.map((polygon) => polygon.name)).toEqual(gsiTile103PolygonNames);
+
+  for (const rejectedMode of [
+    "missing-polygon",
+    "duplicate-polygon",
+    "unexpected-polygon",
+    "unexpected-geometry",
+  ] as const) {
+    expect(() => parseGsiCivilTrainingAirspaceTile(
+      gsiPayloadForMode(gsiAirspaceTile103Fixture, rejectedMode, true),
+      tile,
+    )).toThrow();
+  }
+});
 
 test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   const pageErrors: string[] = [];
@@ -751,15 +1133,49 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   })).toBeVisible();
   const runway09 = guidance.getByRole("article", { name: "RWY 09 候補 成立（注意）" });
   const runway27 = guidance.getByRole("article", { name: "RWY 27 候補 不成立" });
-  await expect(runway09).toContainText("左旋回 1周 + 92.4°");
-  await expect(runway27).toContainText("右旋回 188.1°");
-  await expect(runway09).toContainText("R326° / 3.8 DME");
-  await expect(runway09).toContainText("UMK 5,500 ft MSL");
+  const orderedCards = guidance.locator(".rjfm-candidate");
+  await expect(orderedCards.nth(0)).toHaveAttribute("aria-label", /RWY 27/);
+  await expect(orderedCards.nth(1)).toHaveAttribute("aria-label", /RWY 09/);
+  const runway27WideBox = await runway27.boundingBox();
+  const runway09WideBox = await runway09.boundingBox();
+  if (!runway27WideBox || !runway09WideBox) {
+    throw new Error("Wide runway guidance cards are missing");
+  }
+  expect(runway27WideBox.x + runway27WideBox.width).toBeLessThanOrEqual(
+    runway09WideBox.x + 1,
+  );
+  await expect(runway09.locator(".rjfm-candidate-metrics dt")).toHaveText([
+    "旋回開始高度",
+    "NAV LOG直線Legとの差",
+  ]);
+  await expect(runway09).not.toContainText("92.4°");
+  await expect(runway27).not.toContainText("188.1°");
   await expect(runway09).toContainText("LOSS +1.0 min");
-  await expect(runway09).toContainText("MZE 4 DME未満");
+  await expect(runway09).toContainText("宮崎VORTAC（MZE）から4 DME未満");
   await expect(runway09).toContainText("非ブロッキング注意");
   await expect(runway27).toContainText("GAIN −0.5 min");
-  await expect(runway27).toContainText("PCA運用高度帯への進入");
+  await expect(guidance).toContainText(
+    "固定20°バンクを基本とし、必要時は最大半径調整モデルを想定します。",
+  );
+  await expect(guidance).toContainText(
+    "候補経路のUMK到達時間から、NAV LOG主経路のRJFM→UMK/RCA直線距離を",
+  );
+  await expect(guidance).toContainText(
+    "CLIMB GSで飛行した基準時間を差し引いた値です。LOSSは基準より長く、",
+  );
+  for (const removedLabel of [
+    "旋回モデル",
+    "MZE位置",
+    "到達条件",
+    "全周旋回後ドリフト",
+    "制約判定",
+    "解の残差",
+  ]) {
+    await expect(
+      guidance.locator(".rjfm-candidate").getByText(removedLabel, { exact: true }),
+    ).toHaveCount(0);
+  }
+  await expect(guidance.locator(".rjfm-constraint-list, .rjfm-residuals")).toHaveCount(0);
   await expect(guidance).toContainText("訓練飛行実施要領");
   await expect(guidance).toContainText("2024-05-01");
   await expect(guidance).toContainText("ATC指示と実機の飛行を優先");
@@ -773,6 +1189,21 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   );
 
   const legend = page.getByRole("group", { name: "RJFMガイダンス凡例" });
+  await expect(legend).toHaveCSS("pointer-events", "none");
+  await expect(legend).toContainText("PCA 200–800 m");
+  await expect(legend).toContainText("中心除外 9 km");
+  await expect(legend).toContainText("民間訓練試験空域 KS4（GSI）");
+  await expect(legend).toContainText("GSI: 12区画を表示");
+  const airspaceNote = page.getByLabel("RJFM空域データ注記");
+  await expect(airspaceNote).toContainText("NAV LOG計算やPCA判定には使用しません");
+  await expect(airspaceNote.getByRole("link", { name: "国土交通省" })).toHaveAttribute(
+    "href",
+    "https://www.mlit.go.jp/koku/koku_tk10_000004.html",
+  );
+  await expect(airspaceNote.getByRole("link", { name: "国土地理院レイヤー" })).toHaveAttribute(
+    "href",
+    /kokuarea_minkankunren$/,
+  );
   await expect(legend).toContainText("Newta CENTER");
   await expect(legend).toContainText("RWY 09 成立（注意）");
   await expect(legend).toContainText("RWY 27 不成立");
@@ -790,12 +1221,20 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     "#b42318",
   );
   await expect(page.locator(".rjfm-center-marker")).toHaveCount(3);
+  await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
+  await expect(page.locator(".rjfm-pca-boundary")).toHaveAttribute("stroke", "#a45b13");
+  await expect(page.locator(".rjfm-pca-exclusion")).toHaveCount(1);
+  await expect(page.locator(".rjfm-pca-exclusion")).toHaveAttribute(
+    "stroke-dasharray",
+    "7 6",
+  );
+  await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
 
   await page.setViewportSize({ width: 390, height: 844 });
   const runway09Box = await runway09.boundingBox();
   const runway27Box = await runway27.boundingBox();
   if (!runway09Box || !runway27Box) throw new Error("runway guidance cards are missing");
-  expect(runway27Box.y).toBeGreaterThan(runway09Box.y + runway09Box.height - 1);
+  expect(runway09Box.y).toBeGreaterThan(runway27Box.y + runway27Box.height - 1);
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
   );
@@ -804,10 +1243,17 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
 
   await page.getByLabel("FUEL gal").fill("77");
   await expect(guidance).toHaveCount(0);
-  await expect(page.getByLabel("RJFMガイダンス凡例")).toHaveCount(0);
+  await expect(legend).toBeVisible();
+  await expect(legend).toContainText("PCA 200–800 m");
+  await expect(legend).toContainText("民間訓練試験空域 KS4（GSI）");
+  await expect(legend).not.toContainText("Newta CENTER");
+  await expect(legend).not.toContainText("RWY 09");
   await expect(page.locator(".rjfm-guidance-path")).toHaveCount(0);
   await expect(page.locator(".rjfm-center-route")).toHaveCount(0);
   await expect(page.locator(".rjfm-center-marker")).toHaveCount(0);
+  await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
+  await expect(page.locator(".rjfm-pca-exclusion")).toHaveCount(1);
+  await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
 
   guidanceState.readiness.calculationIsCurrent = false;
   await page.route("**/api/state", async (route) => {
@@ -821,10 +1267,16 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(page.getByRole("region", {
     name: "RJFM北方面出発ガイダンス",
   })).toHaveCount(0);
-  await expect(page.getByLabel("RJFMガイダンス凡例")).toHaveCount(0);
+  await expect(legend).toBeVisible();
+  await expect(legend).toContainText("PCA 200–800 m");
+  await expect(legend).toContainText("民間訓練試験空域 KS4（GSI）");
+  await expect(legend).not.toContainText("Newta CENTER");
   await expect(page.locator(".rjfm-guidance-path")).toHaveCount(0);
   await expect(page.locator(".rjfm-center-route")).toHaveCount(0);
   await expect(page.locator(".rjfm-center-marker")).toHaveCount(0);
+  await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
+  await expect(page.locator(".rjfm-pca-exclusion")).toHaveCount(1);
+  await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
 
   guidanceState.readiness.calculationIsCurrent = true;
   guidanceState.outcome.rjfm_departure_guidance = rjfmValidUnavailableGuidanceFixture;
@@ -842,7 +1294,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   });
   await expect(statusCoverageGuidance.getByRole("article", {
     name: "RWY 09 候補 成立",
-  })).toContainText("全制約に適合した候補です。");
+  })).toBeVisible();
   await expect(statusCoverageGuidance.getByRole("article", {
     name: "RWY 27 候補 算出不可",
   })).toContainText("採用済みの風データがないため算出できません。");
@@ -858,6 +1310,41 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     .toHaveCSS("color", "rgb(51, 74, 96)");
   await expect(page.locator(".rjfm-guidance-path.is-rwy-09")).toHaveCount(1);
   await expect(page.locator(".rjfm-guidance-path.is-unavailable")).toHaveCount(0);
+
+  const rejectedAirspaceLegend = page.getByRole("group", {
+    name: "RJFMガイダンス凡例",
+  });
+  for (const rejectedMode of [
+    "malformed",
+    "oversized",
+    "missing-polygon",
+    "duplicate-polygon",
+    "unexpected-polygon",
+    "unexpected-geometry",
+    "http-error",
+  ] as const) {
+    await reloadWithGsiFixtureMode(page, rejectedMode, guidanceState);
+    await expect(rejectedAirspaceLegend).toContainText(
+      "GSI空域は取得できず非表示",
+    );
+    await expect(page.locator(".rjfm-training-airspace")).toHaveCount(0);
+    await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
+    await expect(page.locator(".rjfm-pca-exclusion")).toHaveCount(1);
+  }
+
+  await reloadWithGsiFixtureMode(
+    page,
+    "http-error-with-peer-pending",
+    guidanceState,
+  );
+  await expect(rejectedAirspaceLegend).toContainText(
+    "GSI空域は取得できず非表示",
+  );
+  await expect.poll(() => didGsiPendingPeerAbort(page), {
+    message: "the pending peer GSI request should be aborted after the first tile fails",
+  }).toBe(true);
+  await expect(page.locator(".rjfm-training-airspace")).toHaveCount(0);
+  await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
   expect(pageErrors).toEqual([]);
 });
 

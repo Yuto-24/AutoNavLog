@@ -228,6 +228,107 @@ class PcaReference(RjfmReferenceModel):
         return self
 
 
+class GsiGeoJsonTileReference(RjfmReferenceModel):
+    zoom: Literal[8]
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    expected_polygon_names: list[str] = Field(min_length=1, max_length=16)
+
+
+class CivilTrainingTestAirspaceReference(RjfmReferenceModel):
+    name: Literal["GSI_CIVIL_TRAINING_TEST_AIRSPACE"]
+    data_use: Literal["DISPLAY_ONLY_LIVE_REFERENCE"]
+    content_fingerprint_scope: Literal[
+        "CONFIGURATION_ONLY_LIVE_GEOJSON_EXCLUDED"
+    ]
+    source_page_url: str = Field(min_length=1)
+    layer_metadata_url: str = Field(min_length=1)
+    tile_url_template: str = Field(min_length=1)
+    tiles: list[GsiGeoJsonTileReference] = Field(min_length=2, max_length=2)
+    feature_name_prefix: Literal["KS4-"]
+    checked_at_utc: datetime
+    caution_jp: str = Field(min_length=1, max_length=300)
+    source_ids: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_live_display_reference(self) -> CivilTrainingTestAirspaceReference:
+        expected_urls = {
+            "source_page_url": "https://www.mlit.go.jp/koku/koku_tk10_000004.html",
+            "layer_metadata_url": (
+                "https://maps.gsi.go.jp/development/ichiran.html"
+                "#kokuarea_minkankunren"
+            ),
+            "tile_url_template": (
+                "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/"
+                "{z}/{x}/{y}.geojson"
+            ),
+        }
+        mismatched_urls = [
+            name
+            for name, expected in expected_urls.items()
+            if getattr(self, name) != expected
+        ]
+        if mismatched_urls:
+            raise ValueError(
+                "civil training airspace reference uses an unapproved URL: "
+                + ", ".join(mismatched_urls)
+            )
+        expected_polygon_names_by_tile = {
+            (8, 221, 103): ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5"],
+            (8, 221, 104): [
+                "KS4-2",
+                "KS4-7",
+                "KS4-6",
+                "KS4-1/4",
+                "KS4-1",
+                "KS4-3",
+                "KS4-5",
+                "KS4-8",
+            ],
+        }
+        tiles_by_coordinate: dict[
+            tuple[int, int, int], GsiGeoJsonTileReference
+        ] = {
+            (tile.zoom, tile.x, tile.y): tile for tile in self.tiles
+        }
+        if set(tiles_by_coordinate) != set(expected_polygon_names_by_tile):
+            raise ValueError("civil training airspace tiles must cover RJFM at GSI z8")
+        for coordinate, expected_names in expected_polygon_names_by_tile.items():
+            if tiles_by_coordinate[coordinate].expected_polygon_names != expected_names:
+                raise ValueError(
+                    "civil training airspace expected Polygon names do not match "
+                    f"the checked GSI tile: {coordinate}"
+                )
+        required_source_ids = {
+            "mlit-civil-training-test-airspace-map-2026-08-17",
+            "mlit-gsi-boundary-caution-2026-08-17",
+            "gsi-civil-training-test-airspace-geojson-2026-08-17",
+        }
+        if len(self.source_ids) != len(required_source_ids) or set(
+            self.source_ids
+        ) != required_source_ids:
+            raise ValueError(
+                "civil training airspace reference must cite the approved MLIT/GSI sources"
+            )
+        required_caution_phrases = (
+            "境界付近",
+            "空域を管轄する機関",
+            "参照専用",
+            "NAV LOG計算",
+            "PCA判定",
+        )
+        if not all(phrase in self.caution_jp for phrase in required_caution_phrases):
+            raise ValueError(
+                "civil training airspace caution must preserve display-only limitations"
+            )
+        if (
+            self.checked_at_utc.tzinfo is None
+            or self.checked_at_utc.utcoffset() != timedelta(0)
+        ):
+            raise ValueError("civil training airspace checked_at_utc must be UTC")
+        return self
+
+
 class MagneticCourseInterval(RjfmReferenceModel):
     lower_deg: float = Field(ge=0.0, le=360.0)
     upper_deg: float = Field(ge=0.0, le=360.0)
@@ -361,7 +462,7 @@ class RjfmDeparturePolicy(RjfmReferenceModel):
 
 
 class RjfmReferenceData(RjfmReferenceModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     validation_status: Literal["SOURCE_BACKED_WITH_UNVERIFIED_MAP_POINTS"]
     sources: list[SourceArtifact] = Field(min_length=1)
     airport: AirportReference
@@ -370,6 +471,7 @@ class RjfmReferenceData(RjfmReferenceModel):
     georeferencing: MapGeoreference
     points: dict[str, DigitizedRoutePoint]
     pca: PcaReference
+    civil_training_test_airspace: CivilTrainingTestAirspaceReference
     policy: RjfmDeparturePolicy
 
     @model_validator(mode="after")
@@ -386,6 +488,7 @@ class RjfmReferenceData(RjfmReferenceModel):
             *(control.coordinate_source_id for control in self.georeferencing.control_points),
             *(source for point in self.points.values() for source in point.source_ids),
             *self.pca.source_ids,
+            *self.civil_training_test_airspace.source_ids,
             *self.policy.source_ids,
         }
         unknown_sources = referenced_sources - known_sources
@@ -553,12 +656,17 @@ class RjfmReferencePack:
         return self.data.pca
 
     @property
+    def civil_training_test_airspace(self) -> CivilTrainingTestAirspaceReference:
+        return self.data.civil_training_test_airspace
+
+    @property
     def policy(self) -> RjfmDeparturePolicy:
         return self.data.policy
 
 
 __all__ = [
     "AirportReference",
+    "CivilTrainingTestAirspaceReference",
     "DigitizedRoutePoint",
     "GeoPoint",
     "MapGeoreference",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from autonavlog.application.rjfm_departure_plan import (
@@ -8,7 +10,10 @@ from autonavlog.application.rjfm_departure_plan import (
 )
 from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.planning import RjfmCoordinate
+from autonavlog.storage.rjfm_reference import RjfmReferencePack
 from autonavlog.web.facade import AutoNavLogWebApplication
+
+PACK_ROOT = Path(__file__).resolve().parents[2] / "data" / "reference" / "rjfm"
 
 
 def _coordinate(latitude: float, longitude: float, source: str) -> RjfmCoordinate:
@@ -140,3 +145,81 @@ def test_rjfm_omaru_first_parent_exposes_one_fixed_input_mode(project) -> None:
     assert guidance[0]["inputMode"] == "RJFM_PARENT_CONTAINS_UMK_FIXED"
     assert guidance[0]["fixedAltitudeFtMsl"] == 5500.0
     assert guidance[1]["inputMode"] == "EDITABLE"
+
+
+def test_rjfm_map_reference_exposes_source_geometry_and_live_display_layer(
+    project,
+) -> None:
+    pack = RjfmReferencePack.from_directory(PACK_ROOT)
+
+    reference = AutoNavLogWebApplication._rjfm_map_reference(project, pack)
+
+    assert reference is not None
+    assert reference["revision"] == pack.revision
+    assert reference["contentFingerprint"] == pack.content_fingerprint
+    assert reference["pca"]["polygonVertices"] == [
+        {
+            "latitudeDeg": point.latitude_deg,
+            "longitudeDeg": point.longitude_deg,
+        }
+        for point in pack.pca.polygon_vertices
+    ]
+    assert reference["pca"]["exclusionCenter"] == {
+        "latitudeDeg": pack.pca.exclusion_center.latitude_deg,
+        "longitudeDeg": pack.pca.exclusion_center.longitude_deg,
+    }
+    assert reference["pca"]["exclusionRadiusKm"] == 9.0
+    assert reference["pca"]["sourceAltitudeLowerM"] == 200.0
+    assert reference["pca"]["sourceAltitudeUpperM"] == 800.0
+    assert reference["pca"]["operationalAltitudeLowerFtMsl"] == 656.0
+    assert reference["pca"]["operationalAltitudeUpperFtMsl"] == 2700.0
+    assert reference["pca"]["operationalAltitudePolicyStatus"] == (
+        "USER_APPROVED_NOT_EXACT_METRIC_CONVERSION"
+    )
+    civil_airspace = reference["civilTrainingTestAirspace"]
+    assert civil_airspace["availability"] == "REMOTE_GSI_GEOJSON"
+    assert civil_airspace["dataUse"] == "DISPLAY_ONLY_LIVE_REFERENCE"
+    assert civil_airspace["contentFingerprintScope"] == (
+        "CONFIGURATION_ONLY_LIVE_GEOJSON_EXCLUDED"
+    )
+    assert civil_airspace["sourcePageUrl"] == (
+        "https://www.mlit.go.jp/koku/koku_tk10_000004.html"
+    )
+    assert civil_airspace["layerMetadataUrl"] == (
+        "https://maps.gsi.go.jp/development/ichiran.html"
+        "#kokuarea_minkankunren"
+    )
+    assert civil_airspace["tileUrls"] == [
+        "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/8/221/103.geojson",
+        "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/8/221/104.geojson",
+    ]
+    assert civil_airspace["tiles"] == [
+        {
+            "url": (
+                "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/"
+                "8/221/103.geojson"
+            ),
+            "expectedPolygonNames": ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5"],
+        },
+        {
+            "url": (
+                "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/"
+                "8/221/104.geojson"
+            ),
+            "expectedPolygonNames": [
+                "KS4-2",
+                "KS4-7",
+                "KS4-6",
+                "KS4-1/4",
+                "KS4-1",
+                "KS4-3",
+                "KS4-5",
+                "KS4-8",
+            ],
+        },
+    ]
+    assert civil_airspace["checkedAtUtc"] == "2026-08-17T04:16:51Z"
+    assert "NAV LOG計算やPCA判定には使用しません" in civil_airspace["caution"]
+
+    project.departure_airport_id = "RJFO"
+    assert AutoNavLogWebApplication._rjfm_map_reference(project, pack) is None

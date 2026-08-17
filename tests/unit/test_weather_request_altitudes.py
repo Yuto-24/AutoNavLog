@@ -110,6 +110,21 @@ def test_weather_requests_use_cac_phase_representative_altitudes(
     assert not any(
         request.kind == WeatherRequestKind.ESTIMATED_QNH for request in requests
     )
+    surface = {
+        request.request_id: request
+        for request in requests
+        if request.kind == WeatherRequestKind.SURFACE_TEMPERATURE
+    }
+    assert set(surface) == {"departure:surface", "destination:surface"}
+    assert surface["departure:surface"].altitude_ft_msl is None
+    assert surface["departure:surface"].elevation_ft_msl == 20
+    assert surface["destination:surface"].altitude_ft_msl is None
+    assert surface["destination:surface"].elevation_ft_msl == 19
+    assert all(
+        request.metadata["temperature_source_policy"]
+        == "SURFACE_TEMPERATURE_AT_AIRPORT"
+        for request in surface.values()
+    )
     aloft = {
         request.metadata["phase"]: request
         for request in requests

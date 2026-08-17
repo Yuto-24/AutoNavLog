@@ -39,6 +39,7 @@ class ForecastService:
         times.append(project.planned_departure_time_jst + timedelta(seconds=elapsed_seconds))
         return ForecastRequirement(
             valid_times_utc=tuple(times),
+            require_surface_temperature=True,
             require_estimated_qnh=False,
         )
 
@@ -46,8 +47,16 @@ class ForecastService:
         self,
         project: Project,
         representative_times: tuple[datetime, ...],
+        *,
+        arrival_time_utc: datetime | None,
     ) -> ForecastRequirement:
+        arrival_times = () if arrival_time_utc is None else (arrival_time_utc,)
         return ForecastRequirement(
-            valid_times_utc=(project.planned_departure_time_jst, *representative_times),
+            valid_times_utc=(
+                project.planned_departure_time_jst,
+                *representative_times,
+                *arrival_times,
+            ),
+            require_surface_temperature=True,
             require_estimated_qnh=False,
         )

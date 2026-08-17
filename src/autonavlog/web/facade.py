@@ -1139,6 +1139,10 @@ class AutoNavLogWebApplication:
                 "terrainLimitationNote": TERRAIN_LIMITATION_NOTE_JA,
                 "sections": self._section_guidance(session.project),
             },
+            "rjfmMapReference": self._rjfm_map_reference(
+                session.project,
+                self.rjfm_reference_pack,
+            ),
             "checkPointPlanning": check_point_planning,
             "project": project_payload,
             "outcome": outcome_payload,
@@ -1175,6 +1179,86 @@ class AutoNavLogWebApplication:
                 }
                 for issue in computation.issues
             ],
+        }
+
+    @staticmethod
+    def _rjfm_map_reference(
+        project: Project | None,
+        reference_pack: RjfmReferencePack,
+    ) -> dict[str, Any] | None:
+        if (
+            project is None
+            or project.departure_airport_id.strip().upper() != "RJFM"
+        ):
+            return None
+        pca = reference_pack.pca
+        civil_airspace = reference_pack.civil_training_test_airspace
+        return {
+            "revision": reference_pack.revision,
+            "contentFingerprint": reference_pack.content_fingerprint,
+            "pca": {
+                "name": pca.name,
+                "polygonVertices": [
+                    {
+                        "latitudeDeg": float(point.latitude_deg),
+                        "longitudeDeg": float(point.longitude_deg),
+                    }
+                    for point in pca.polygon_vertices
+                ],
+                "exclusionCenter": {
+                    "latitudeDeg": float(pca.exclusion_center.latitude_deg),
+                    "longitudeDeg": float(pca.exclusion_center.longitude_deg),
+                },
+                "exclusionRadiusKm": float(pca.exclusion_radius_km),
+                "sourceAltitudeLowerM": float(pca.source_altitude_lower_m),
+                "sourceAltitudeUpperM": float(pca.source_altitude_upper_m),
+                "operationalAltitudeLowerFtMsl": float(
+                    pca.operational_altitude_lower_ft_msl
+                ),
+                "operationalAltitudeUpperFtMsl": float(
+                    pca.operational_altitude_upper_ft_msl
+                ),
+                "altitudeBoundsInclusive": pca.altitude_bounds_inclusive,
+                "operationalAltitudePolicyStatus": (
+                    pca.operational_altitude_policy_status
+                ),
+                "sourceIds": list(pca.source_ids),
+            },
+            "civilTrainingTestAirspace": {
+                "availability": "REMOTE_GSI_GEOJSON",
+                "dataUse": civil_airspace.data_use,
+                "contentFingerprintScope": (
+                    civil_airspace.content_fingerprint_scope
+                ),
+                "sourcePageUrl": civil_airspace.source_page_url,
+                "layerMetadataUrl": civil_airspace.layer_metadata_url,
+                "tileUrlTemplate": civil_airspace.tile_url_template,
+                "tileUrls": [
+                    civil_airspace.tile_url_template.format(
+                        z=tile.zoom,
+                        x=tile.x,
+                        y=tile.y,
+                    )
+                    for tile in civil_airspace.tiles
+                ],
+                "tiles": [
+                    {
+                        "url": civil_airspace.tile_url_template.format(
+                            z=tile.zoom,
+                            x=tile.x,
+                            y=tile.y,
+                        ),
+                        "expectedPolygonNames": list(tile.expected_polygon_names),
+                    }
+                    for tile in civil_airspace.tiles
+                ],
+                "featureNamePrefix": civil_airspace.feature_name_prefix,
+                "checkedAtUtc": civil_airspace.checked_at_utc.isoformat().replace(
+                    "+00:00", "Z"
+                ),
+                "caution": civil_airspace.caution_jp,
+                "sourceIds": list(civil_airspace.source_ids),
+            },
         }
 
     def _evaluate(self, session: WebSession) -> ReadinessEvaluation:

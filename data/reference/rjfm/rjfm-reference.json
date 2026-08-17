@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "validation_status": "SOURCE_BACKED_WITH_UNVERIFIED_MAP_POINTS",
   "sources": [
     {
@@ -81,6 +81,48 @@
         "query 国富町役場, addressCode 45382, dataSource 3"
       ],
       "notes": "Six government-office symbols distributed across Appendix 9 were used as control points. API coordinates are retained verbatim in the control-point records."
+    },
+    {
+      "id": "mlit-civil-training-test-airspace-map-2026-08-17",
+      "title": "無人航空機の飛行禁止空域と民間訓練試験空域の確認案内",
+      "publisher": "国土交通省",
+      "distribution": "OFFICIAL_MLIT",
+      "url": "https://www.mlit.go.jp/koku/koku_tk10_000004.html",
+      "effective_date": null,
+      "retrieved_date": "2026-08-17",
+      "sha256": null,
+      "pages_or_sections": [
+        "民間訓練試験空域: 国土地理院の地理院地図による確認案内"
+      ],
+      "notes": "The official MLIT page directs users to the GSI map for checking civil training/test airspace. It is provenance for the display layer, not a source for RJFM departure calculation inputs."
+    },
+    {
+      "id": "mlit-gsi-boundary-caution-2026-08-17",
+      "title": "無人航空機の飛行ルール・空域図面の誤差に関する注意",
+      "publisher": "国土交通省",
+      "distribution": "OFFICIAL_MLIT",
+      "url": "https://www.mlit.go.jp/koku/koku_fr10_000041.html",
+      "effective_date": null,
+      "retrieved_date": "2026-08-17",
+      "sha256": null,
+      "pages_or_sections": [
+        "空港等の周辺の空域: 地理院地図表示と境界付近の確認注意"
+      ],
+      "notes": "MLIT warns that displayed maps can contain errors and directs users near a boundary to confirm with the aerodrome administrator or authority responsible for the airspace."
+    },
+    {
+      "id": "gsi-civil-training-test-airspace-geojson-2026-08-17",
+      "title": "地理院地図 民間訓練試験空域 GeoJSONタイル",
+      "publisher": "国土地理院",
+      "distribution": "OFFICIAL_GSI_API",
+      "url": "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/{z}/{x}/{y}.geojson",
+      "effective_date": null,
+      "retrieved_date": "2026-08-17",
+      "sha256": null,
+      "pages_or_sections": [
+        "layer kokuarea_minkankunren, z8 tiles x221/y103 and x221/y104"
+      ],
+      "notes": "The application fetches these live display-only tiles at runtime. Their changing response bodies are deliberately excluded from the versioned reference-pack fingerprint and are never used by the departure solver or PCA constraint evaluation."
     },
     {
       "id": "user-approved-rjfm-guidance-policy-2026-08-16",
@@ -324,6 +366,45 @@
     "source_ids": [
       "mlit-special-control-area-consolidated-2024-02-08",
       "user-approved-rjfm-guidance-policy-2026-08-16"
+    ]
+  },
+  "civil_training_test_airspace": {
+    "name": "GSI_CIVIL_TRAINING_TEST_AIRSPACE",
+    "data_use": "DISPLAY_ONLY_LIVE_REFERENCE",
+    "content_fingerprint_scope": "CONFIGURATION_ONLY_LIVE_GEOJSON_EXCLUDED",
+    "source_page_url": "https://www.mlit.go.jp/koku/koku_tk10_000004.html",
+    "layer_metadata_url": "https://maps.gsi.go.jp/development/ichiran.html#kokuarea_minkankunren",
+    "tile_url_template": "https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/{z}/{x}/{y}.geojson",
+    "tiles": [
+      {
+        "zoom": 8,
+        "x": 221,
+        "y": 103,
+        "expected_polygon_names": ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5"]
+      },
+      {
+        "zoom": 8,
+        "x": 221,
+        "y": 104,
+        "expected_polygon_names": [
+          "KS4-2",
+          "KS4-7",
+          "KS4-6",
+          "KS4-1/4",
+          "KS4-1",
+          "KS4-3",
+          "KS4-5",
+          "KS4-8"
+        ]
+      }
+    ],
+    "feature_name_prefix": "KS4-",
+    "checked_at_utc": "2026-08-17T04:16:51Z",
+    "caution_jp": "地図には誤差が含まれる場合があります。境界付近は空域を管轄する機関へ確認してください。この表示は参照専用で、NAV LOG計算やPCA判定には使用しません。",
+    "source_ids": [
+      "mlit-civil-training-test-airspace-map-2026-08-17",
+      "mlit-gsi-boundary-caution-2026-08-17",
+      "gsi-civil-training-test-airspace-geojson-2026-08-17"
     ]
   },
   "policy": {

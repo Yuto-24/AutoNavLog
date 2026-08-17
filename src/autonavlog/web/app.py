@@ -71,7 +71,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: https://*.tile.openstreetmap.org; "
-            "connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; "
+            "connect-src 'self' https://maps.gsi.go.jp; font-src 'self'; "
+            "object-src 'none'; base-uri 'self'; "
             "form-action 'self'; frame-ancestors 'none'"
         )
         if request.url.path in {"/", "/index.html"}:

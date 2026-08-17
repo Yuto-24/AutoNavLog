@@ -21,6 +21,9 @@ def _default_result(request: WeatherRequest) -> WeatherResult:
             "qnh_hpa": 1013.0,
         }
         warnings: tuple[str, ...] = ()
+    elif request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
+        values = {"temperature_c": 15.0}
+        warnings = ()
     else:
         values = {
             "u_ms": 0.0,

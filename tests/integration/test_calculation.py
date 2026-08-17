@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import shutil
+from datetime import timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 
 import pytest
 
-from autonavlog.application.calculation_service import CalculationService
+from autonavlog.application.calculation_service import (
+    CalculationPolicies,
+    CalculationService,
+)
 from autonavlog.application.project_service import ProjectService
 from autonavlog.domain.calculation import Issue
 from autonavlog.domain.enums import (
@@ -76,6 +80,107 @@ def test_full_calculation_iteration_and_clearcopy(
     assert "ZONE / CUM" in html
     assert "QNH" in html
     assert outcome.qnh_hpa.adopted() is None
+
+
+def test_destination_surface_temperature_uses_calculated_arrival_time(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    class RequirementRecordingProvider(FakeWeatherProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.inspected_requirements = []
+
+        def inspect_run_status(self, selected_run_id, requirement):
+            self.inspected_requirements.append(requirement)
+            return super().inspect_run_status(selected_run_id, requirement)
+
+    provider = RequirementRecordingProvider()
+    service = CalculationService(airports, performance_repository)
+
+    outcome = service.calculate(project, provider)
+
+    cumulative_ete = outcome.sections[-1].cumulative_ete_seconds.adopted()
+    assert cumulative_ete is not None
+    calculated_arrival = project.planned_departure_time_jst.astimezone(
+        timezone.utc
+    ) + timedelta(seconds=cumulative_ete)
+    destination_requests = [
+        request
+        for _, batch in provider.query_history
+        for request in batch
+        if request.request_id == "destination:surface"
+    ]
+    assert len(destination_requests) >= 2
+    assert destination_requests[1].valid_time_utc == calculated_arrival
+    assert destination_requests[-1].valid_time_utc == calculated_arrival
+    assert provider.inspected_requirements
+    assert (
+        calculated_arrival
+        in provider.inspected_requirements[-1].valid_times_utc
+    )
+
+
+def test_final_destination_surface_query_is_refreshed_to_exact_arrival(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    provider = FakeWeatherProvider()
+    service = CalculationService(
+        airports,
+        performance_repository,
+        policies=CalculationPolicies(max_iterations=1),
+    )
+
+    outcome = service.calculate(project, provider)
+
+    cumulative_ete = outcome.sections[-1].cumulative_ete_seconds.adopted()
+    assert cumulative_ete is not None
+    calculated_arrival = project.planned_departure_time_jst.astimezone(
+        timezone.utc
+    ) + timedelta(seconds=cumulative_ete)
+    destination_requests = [
+        request
+        for _, batch in provider.query_history
+        for request in batch
+        if request.request_id == "destination:surface"
+    ]
+    assert len(destination_requests) == 2
+    assert destination_requests[0].valid_time_utc != calculated_arrival
+    assert destination_requests[-1].valid_time_utc == calculated_arrival
+    assert destination_requests[-1].metadata["timing_policy"] == (
+        "FINAL_CALCULATED_ARRIVAL"
+    )
+
+
+def test_failed_exact_destination_surface_query_clears_approximate_temperature(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    visual_project = project.model_copy(deep=True)
+    visual_project.sections[-1].phase = FlightPhase.VISUAL_ARRIVAL
+
+    class ExactDestinationFailureProvider(FakeWeatherProvider):
+        def query_batch(self, forecast_run_id, requests):
+            if len(requests) == 1 and requests[0].request_id == "destination:surface":
+                raise RuntimeError("exact destination temperature unavailable")
+            return super().query_batch(forecast_run_id, requests)
+
+    outcome = CalculationService(
+        airports,
+        performance_repository,
+        policies=CalculationPolicies(max_iterations=1),
+    ).calculate(visual_project, ExactDestinationFailureProvider())
+
+    destination_row = next(
+        row for row in outcome.display_rows if row.row_type == "DESTINATION_INFO"
+    )
+    assert destination_row.toat.state == DisplayCellState.UNAVAILABLE
+    assert destination_row.toat.text == "未取得"
+    assert any(issue.code == "WEATHER_QUERY_FAILED" for issue in outcome.blockers)
 
 
 def test_variation_changes_by_physical_leg_departure_and_ignores_legacy_default(
@@ -172,7 +277,11 @@ def test_manual_qnh_uses_real_aloft_path_without_requesting_estimated_qnh(
     assert outcome.qnh_hpa.adopted_source == AdoptedSource.MANUAL
     assert provider.prepared[outcome.selected_forecast_run_id].require_estimated_qnh is False
     assert all(
-        request.kind == WeatherRequestKind.ALOFT
+        request.kind
+        in {
+            WeatherRequestKind.ALOFT,
+            WeatherRequestKind.SURFACE_TEMPERATURE,
+        }
         for _, batch in provider.query_history
         for request in batch
     )
@@ -365,7 +474,11 @@ def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides
     routed.sections[0] = source
 
     def result_for_representative_altitude(request):
-        assert request.altitude_ft_msl is not None
+        if request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
+            temperature_c = 20.0
+        else:
+            assert request.altitude_ft_msl is not None
+            temperature_c = request.altitude_ft_msl / 1000.0
         return WeatherResult(
             request_id=request.request_id,
             availability=Availability.AVAILABLE,
@@ -375,7 +488,7 @@ def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides
                 "v_ms": 0.0,
                 "wind_speed_kt": 0.0,
                 "wind_direction_deg_from": None,
-                "temperature_c": request.altitude_ft_msl / 1000.0,
+                "temperature_c": temperature_c,
             },
         )
 

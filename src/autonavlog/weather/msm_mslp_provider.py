@@ -17,6 +17,8 @@ from autonavlog.domain.weather import (
     WeatherResult,
 )
 
+from .msm_surface_temperature import msm_surface_temperature_result
+
 FT_TO_M = 0.3048
 
 
@@ -62,6 +64,9 @@ class MsmMslpWeatherProvider:
             variables.add(self._msm.WeatherVariable.ALOFT_WIND)
         if requirement.require_aloft_temperature:
             variables.add(self._msm.WeatherVariable.ALOFT_TEMPERATURE)
+        if requirement.require_surface_temperature:
+            # v0.2.1 exposes tmp_surface only as an input of ESTIMATED_QNH.
+            variables.add(self._msm.WeatherVariable.ESTIMATED_QNH)
         if requirement.require_estimated_qnh:
             public_mslp = getattr(self._msm.WeatherVariable, "FORECAST_MSLP", None)
             variables.add(public_mslp or self._msm.WeatherVariable.ESTIMATED_QNH)
@@ -117,6 +122,10 @@ class MsmMslpWeatherProvider:
             require_aloft_temperature=(
                 previous.require_aloft_temperature or current.require_aloft_temperature
             ),
+            require_surface_temperature=(
+                previous.require_surface_temperature
+                or current.require_surface_temperature
+            ),
             require_estimated_qnh=(previous.require_estimated_qnh or current.require_estimated_qnh),
         )
 
@@ -156,6 +165,9 @@ class MsmMslpWeatherProvider:
                 "package_version": self.package_version,
                 "qnh_input": "forecast_mslp",
                 "terrain_required": False,
+                "surface_temperature_required": (
+                    prepared_requirement.require_surface_temperature
+                ),
                 "prepared_valid_times_utc": [
                     item.isoformat() for item in prepared_requirement.valid_times_utc
                 ],
@@ -175,6 +187,9 @@ class MsmMslpWeatherProvider:
         return tuple(self._query(prepared, request) for request in requests)
 
     def _query(self, prepared: Any, request: WeatherRequest) -> WeatherResult:
+        if request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
+            return self._surface_temperature_result(prepared, request)
+
         if request.kind == WeatherRequestKind.ALOFT:
             if request.altitude_ft_msl is None:
                 raise ValueError("aloft weather request requires altitude")
@@ -187,6 +202,9 @@ class MsmMslpWeatherProvider:
                 )
             )
             return self._result(request, native)
+
+        if request.kind != WeatherRequestKind.ESTIMATED_QNH:
+            raise ValueError(f"unsupported weather request kind: {request.kind}")
 
         public_query = getattr(self._msm, "ForecastMslpQuery", None)
         if public_query is not None:
@@ -233,6 +251,13 @@ class MsmMslpWeatherProvider:
                 ),
             },
         )
+
+    def _surface_temperature_result(
+        self,
+        prepared: Any,
+        request: WeatherRequest,
+    ) -> WeatherResult:
+        return msm_surface_temperature_result(prepared, request)
 
     def _result(self, request: WeatherRequest, native: Any) -> WeatherResult:
         available = native.availability == self._msm.Availability.AVAILABLE

@@ -37,6 +37,7 @@ def _transport(
 def _requirement() -> ForecastRequirement:
     return ForecastRequirement(
         valid_times_utc=(OBSERVATION_TIME + timedelta(minutes=30),),
+        require_surface_temperature=True,
     )
 
 
@@ -63,6 +64,17 @@ def _aloft_request() -> WeatherRequest:
     )
 
 
+def _surface_temperature_request() -> WeatherRequest:
+    return WeatherRequest(
+        request_id="departure:surface",
+        kind=WeatherRequestKind.SURFACE_TEMPERATURE,
+        latitude_deg=31.877,
+        longitude_deg=131.448,
+        valid_time_utc=OBSERVATION_TIME + timedelta(minutes=30),
+        elevation_ft_msl=20,
+    )
+
+
 def test_hybrid_provider_implements_contract_and_never_delegates_qnh() -> None:
     delegate = FakeWeatherProvider((RUN_ID,))
     provider = MsmMetarWeatherProvider(
@@ -75,13 +87,26 @@ def test_hybrid_provider_implements_contract_and_never_delegates_qnh() -> None:
     assert isinstance(provider, WeatherProvider)
     run = provider.resolve_run(requirement)
     prepared = provider.prepare_run(run.id, requirement)
-    results = tuple(provider.query_batch(run.id, [_qnh_request(), _aloft_request()]))
+    results = tuple(
+        provider.query_batch(
+            run.id,
+            [_qnh_request(), _aloft_request(), _surface_temperature_request()],
+        )
+    )
 
     assert prepared.requirement == requirement
     assert delegate.prepared[run.id].require_estimated_qnh is False
+    assert delegate.prepared[run.id].require_surface_temperature is True
     assert len(delegate.query_history) == 1
-    assert delegate.query_history[0][1] == (_aloft_request(),)
-    assert [result.request_id for result in results] == ["qnh", "aloft"]
+    assert delegate.query_history[0][1] == (
+        _aloft_request(),
+        _surface_temperature_request(),
+    )
+    assert [result.request_id for result in results] == [
+        "qnh",
+        "aloft",
+        "departure:surface",
+    ]
     assert results[0].availability == Availability.AVAILABLE
 
 

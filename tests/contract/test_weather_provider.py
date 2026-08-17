@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from datetime import datetime, timezone
+from fractions import Fraction
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -229,3 +230,90 @@ def test_msm_adapter_allows_aloft_only_without_terrain(
     assert prepared.metadata["terrain_required"] is False
     assert prepared.metadata["terrain_loaded"] is False
     assert prepared.metadata["terrain_cache"] is None
+
+
+def test_msm_adapter_samples_lsurf_temperature_with_provenance(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    module = _stub_msm_module()
+    monkeypatch.setitem(sys.modules, "msm_wind", module)
+    captured_variables: frozenset[str] = frozenset()
+
+    class Prepared:
+        def query_many(self, queries):
+            assert queries == []
+            return ()
+
+        def _surface_scalar(self, variable, latitude, longitude, valid_time):
+            assert variable == "tmp_surface"
+            assert (latitude, longitude) == (31.877, 131.448)
+            return 298.15, [
+                {
+                    "valid_time": valid_time.isoformat(),
+                    "latitude": Fraction(255, 8),
+                }
+            ]
+
+        def _provenance(self, method, trace):
+            return {"interpolation_method": method, "trace": trace}
+
+    class Client:
+        def prepare_run(self, run_id, requirement, terrain_provider=None):
+            nonlocal captured_variables
+            captured_variables = requirement.variables
+            assert terrain_provider is None
+            return Prepared()
+
+    provider = MsmWeatherProvider(tmp_path, client=Client())
+    requirement = ForecastRequirement(
+        valid_times_utc=(datetime(2026, 7, 29, tzinfo=timezone.utc),),
+        require_surface_temperature=True,
+        require_estimated_qnh=False,
+    )
+    prepared = provider.prepare_run("20260728120000", requirement)
+    request = WeatherRequest(
+        request_id="departure:surface",
+        kind=WeatherRequestKind.SURFACE_TEMPERATURE,
+        latitude_deg=31.877,
+        longitude_deg=131.448,
+        valid_time_utc=datetime(2026, 7, 29, tzinfo=timezone.utc),
+        elevation_ft_msl=20,
+    )
+
+    (result,) = provider.query_batch("20260728120000", (request,))
+
+    assert "qnh" in captured_variables
+    assert prepared.metadata["surface_temperature_required"] is True
+    assert prepared.metadata["terrain_required"] is False
+    assert result.availability == Availability.AVAILABLE
+    assert result.kind == WeatherRequestKind.SURFACE_TEMPERATURE
+    assert result.values["temperature_k"] == 298.15
+    assert result.values["temperature_c"] == pytest.approx(25.0)
+    assert result.metadata["source_variable"] == "tmp_surface"
+    assert result.metadata["requested_elevation_ft_msl"] == 20
+    assert result.metadata["requested_valid_time_utc"] == (
+        "2026-07-29T00:00:00+00:00"
+    )
+    assert result.metadata["provenance"]["interpolation_method"] == (
+        "bilinear,time-linear"
+    )
+    assert result.metadata["provenance"]["trace"]["temperature"][0][
+        "latitude"
+    ] == 31.875
+    result.model_dump_json()
+
+    unavailable = provider._surface_temperature_result(
+        SimpleNamespace(_surface_scalar=lambda *args: None),
+        request,
+    )
+    assert unavailable.availability == Availability.UNAVAILABLE
+    assert unavailable.values == {"temperature_c": None}
+    assert unavailable.reason_code == "SURFACE_TEMPERATURE_UNAVAILABLE"
+
+    wrong_unit = provider._surface_temperature_result(
+        SimpleNamespace(_surface_scalar=lambda *args: (25.0, [])),
+        request,
+    )
+    assert wrong_unit.availability == Availability.UNAVAILABLE
+    assert wrong_unit.reason_code == "SURFACE_TEMPERATURE_INVALID"
