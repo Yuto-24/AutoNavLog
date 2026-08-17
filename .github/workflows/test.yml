@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
@@ -41,3 +44,24 @@ jobs:
       - run: npm --prefix web ci
       - run: npm --prefix web run typecheck
       - run: npm --prefix web run build
+
+  apply_display_total_fix:
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 65
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+      - run: python scripts/apply_display_total_fix.py
+      - name: Commit display total fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/autonavlog/application/navlog_display.py \
+            tests/integration/test_issue_43_golden.py \
+            docs/calculation_rules.md
+          git commit -m "fix: keep NAV LOG display totals arithmetically consistent"
+          git push origin HEAD:${{ github.head_ref }}
