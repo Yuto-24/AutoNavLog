@@ -169,8 +169,7 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
   計算結果には未丸め値を保持します。転記表示のMHだけは、同じ行へ表示する1°単位のMCと
   WCAを加算して3桁表示し、`291 + (-4) = 287`のように転記欄同士の関係を保ちます。
 - NAV LOG計算では`PA = MSL`とし、計画MSL高度をそのままPA、POH性能検索、CAS/TAS換算へ
-  使用します。QNH補正後PAや別の500 ft planning PAは作らず、QNHを必須入力またはBlockerに
-  しません。保存済みの手動QNH fieldはschema互換のため残しますが計算には使用しません。
+  使用します。気圧補正用の入力は持ちません。
 - 現行G6上昇表は原表19節点を高度方向に線形補間した500 ft刻みISA行を収録し、
   出発・巡航の累積値の差へ、中間気圧高度のISA温度に対する正の温度差1℃ごとに
   1%（10℃ごとに10%）を一度だけ加えます。標準以下
@@ -184,6 +183,14 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
   確認を必要とします。
   この順序・丸めはIssue #15添付の多次元拡張表6,419行と一致確認済みですが、規程の
   「計画に近い条件のうち不利」へのexactな適合性とGolden NAV LOGは未検証です。
+- 巡航表から自動採用したKTASには、ノーズフェアリングなしとして常時`-10 KTAS`、A/C ON時に
+  さらに`-2 KTAS`を適用します。GPHは補正しません。手入力TASは最終採用値として扱い、
+  この補正を重ねません。A/Cの数値はPOHに基づく利用者提供転記で、
+  [Cirrus公式Supplement案内](https://store.cirrusaircraft.com/sr22-supplement-13772-127%2C-air-conditioning/5637369215.p)では
+  A/C装備時に別Supplementが適用されることを確認していますが、該当Supplement本文は
+  リポジトリにないためページ番号は記録しません。
+- RUN UPありは10分・1.5 gal、なしは0分・0.0 galです。BOF Fuelは
+  `CLIMB + CRUISE + DESCENT + TGL + ADDITIONAL`で、RUN UPとRESERVEを含みません。
 - 降下は直前巡航CAS、500 fpm、12 GPHを使用します。EOC→VREP時間は
   `（巡航高度 - VREP高度）/ 500 fpm + 1分`です。降下Legで不足する時間だけを直前の
   1物理Legへ持ち越し、それより前へ出る場合は`EOC_BEFORE_SUPPORTED_LEG` Blockerとします。

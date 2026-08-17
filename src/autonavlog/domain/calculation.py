@@ -210,6 +210,7 @@ class NavLogDisplayRow(CalculationModel):
 
 class FuelPlan(CalculationModel):
     total_usable_gal: float
+    taxi_runup_minutes: int = 10
     taxi_runup_gal: float = 1.5
     climb_gal: float | None = None
     cruise_gal: float | None = None
@@ -217,6 +218,7 @@ class FuelPlan(CalculationModel):
     additional_gal: float = 2.8
     tgl_gal: float = 0.0
     reserve_gal: float = 12.4
+    bof_gal: float | None = None
     min_required_gal: float | None = None
     extra_gal: float | None = None
     extra_endurance_seconds: float | None = None
@@ -231,7 +233,6 @@ class IterationRecord(CalculationModel):
 class CalculationOutcome(CalculationModel):
     project_id: UUID
     selected_forecast_run_id: str | None
-    qnh_hpa: AdoptedValue[float]
     sections: list[SectionResult] = Field(
         default_factory=list,
         description=(

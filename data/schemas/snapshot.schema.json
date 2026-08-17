@@ -351,9 +351,6 @@
           "title": "Project Id",
           "type": "string"
         },
-        "qnh_hpa": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
         "rjfm_departure_guidance": {
           "anyOf": [
             {
@@ -391,7 +388,6 @@
       "required": [
         "project_id",
         "selected_forecast_run_id",
-        "qnh_hpa",
         "fuel_plan",
         "status",
         "policy_version"
@@ -568,6 +564,18 @@
           "title": "Additional Gal",
           "type": "number"
         },
+        "bof_gal": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bof Gal"
+        },
         "climb_gal": {
           "anyOf": [
             {
@@ -649,6 +657,11 @@
           "default": 1.5,
           "title": "Taxi Runup Gal",
           "type": "number"
+        },
+        "taxi_runup_minutes": {
+          "default": 10,
+          "title": "Taxi Runup Minutes",
+          "type": "integer"
         },
         "tgl_gal": {
           "default": 0.0,
@@ -772,10 +785,10 @@
       "additionalProperties": false,
       "properties": {
         "direction_deg_from": {
-          "exclusiveMaximum": 360,
-          "minimum": 0,
+          "maximum": 360,
+          "minimum": 1,
           "title": "Direction Deg From",
-          "type": "number"
+          "type": "integer"
         },
         "speed_kt": {
           "maximum": 200,
@@ -1133,9 +1146,9 @@
         "manual_wind_direction_deg": {
           "anyOf": [
             {
-              "exclusiveMaximum": 360,
-              "minimum": 0,
-              "type": "number"
+              "maximum": 360,
+              "minimum": 1,
+              "type": "integer"
             },
             {
               "type": "null"
@@ -1239,6 +1252,11 @@
           "type": "array",
           "uniqueItems": true
         },
+        "air_conditioning_enabled": {
+          "default": true,
+          "title": "Air Conditioning Enabled",
+          "type": "boolean"
+        },
         "aircraft_profile_id": {
           "default": "SR22_G6",
           "title": "Aircraft Profile Id",
@@ -1282,20 +1300,6 @@
           "title": "Id",
           "type": "string"
         },
-        "manual_qnh_hpa": {
-          "anyOf": [
-            {
-              "exclusiveMaximum": 1100,
-              "exclusiveMinimum": 800,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Manual Qnh Hpa"
-        },
         "metadata": {
           "additionalProperties": true,
           "title": "Metadata",
@@ -1329,9 +1333,14 @@
           "title": "Route Nodes",
           "type": "array"
         },
+        "run_up_included": {
+          "default": true,
+          "title": "Run Up Included",
+          "type": "boolean"
+        },
         "schema_version": {
-          "const": 1,
-          "default": 1,
+          "const": 2,
+          "default": 2,
           "title": "Schema Version",
           "type": "integer"
         },
@@ -2233,8 +2242,7 @@
     "WeatherRequestKind": {
       "enum": [
         "ALOFT",
-        "SURFACE_TEMPERATURE",
-        "ESTIMATED_QNH"
+        "SURFACE_TEMPERATURE"
       ],
       "title": "WeatherRequestKind",
       "type": "string"

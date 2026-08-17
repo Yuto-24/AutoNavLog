@@ -20,7 +20,6 @@ class IssueProducer(str, Enum):
     REFERENCE_DATA = "REFERENCE_DATA"
     STALE_RESULT = "STALE_RESULT"
     DEFAULTS_REVIEW = "DEFAULTS_REVIEW"
-    MANUAL_QNH = "MANUAL_QNH"
     PROJECT_VALIDATION = "PROJECT_VALIDATION"
 
 
@@ -222,7 +221,6 @@ def collect_effective_issues(
     ui_state: PersistedUiState | None,
     current_calculation_input_fingerprint: str | None,
     current_defaults_review_fingerprint: str | None = None,
-    current_manual_qnh_fingerprint: str | None = None,
     reference_data_issues: Iterable[Issue] = (),
     project_validation_issues: Iterable[Issue] = (),
 ) -> list[EffectiveIssue]:
@@ -326,7 +324,6 @@ def evaluate_readiness(
     ui_state: PersistedUiState | None,
     current_calculation_input_fingerprint: str | None,
     current_defaults_review_fingerprint: str | None = None,
-    current_manual_qnh_fingerprint: str | None = None,
     reference_data_issues: Iterable[Issue] = (),
     project_validation_issues: Iterable[Issue] = (),
     editable: bool = True,
@@ -337,7 +334,6 @@ def evaluate_readiness(
         ui_state=ui_state,
         current_calculation_input_fingerprint=(current_calculation_input_fingerprint),
         current_defaults_review_fingerprint=(current_defaults_review_fingerprint),
-        current_manual_qnh_fingerprint=current_manual_qnh_fingerprint,
         reference_data_issues=reference_data_issues,
         project_validation_issues=project_validation_issues,
     )

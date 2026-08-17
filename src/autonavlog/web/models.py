@@ -4,7 +4,7 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.planning import ArrivalAltitudeMode
@@ -43,20 +43,18 @@ class ConfirmRouteRequest(WebRequestModel):
     polygon_route_confirmed: bool = False
     flight_date: date
     departure_time_jst: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-    departure_airport_id: str = Field(min_length=1, max_length=64)
-    destination_airport_id: str = Field(min_length=1, max_length=64)
     pilot_name: str = Field(default="", max_length=100)
     ship_identifier: str = Field(default="", max_length=100)
     total_usable_fuel_gal: float = Field(default=90.0, gt=0, le=200)
     default_variation_deg_east: float = Field(default=8.0, ge=-30, le=30)
-    manual_qnh_hpa: float | None = Field(default=None, gt=800, lt=1100)
     weather_mode: Literal["FORECAST", "FTD"] = "FORECAST"
     ftd_weather: FtdWeatherSettings | None = None
+    run_up_included: bool = True
+    air_conditioning_enabled: bool = True
     tgl_count: int = Field(default=0, ge=0, le=20)
     all_leg_altitude_ft_msl: float = Field(default=3000, gt=0, le=25_000)
     use_penultimate_as_vrep: bool = True
     defaults_confirmed: bool = False
-    manual_qnh_confirmed: bool = False
 
     @model_validator(mode="after")
     def validate_ftd_weather(self) -> ConfirmRouteRequest:
@@ -66,8 +64,6 @@ class ConfirmRouteRequest(WebRequestModel):
 
 
 class ConfirmDestinationRequest(WebRequestModel):
-    departure_airport_id: str | None = Field(default=None, min_length=1, max_length=64)
-    destination_airport_id: str = Field(min_length=1, max_length=64)
     selected_pattern_altitude_ft_msl: int = Field(
         ge=100,
         le=25_000,
@@ -79,7 +75,7 @@ class SectionUpdate(WebRequestModel):
     section_id: UUID
     planned_altitude_ft_msl: float = Field(gt=0, le=25_000)
     phase: FlightPhase
-    manual_wind_direction_deg: float | None = Field(default=None, ge=0, lt=360)
+    manual_wind_direction_deg: int | None = Field(default=None, ge=1, le=360)
     manual_wind_speed_kt: float | None = Field(default=None, ge=0, le=200)
     manual_wind_by_phase: dict[FlightPhase, ManualWind] | None = None
     manual_temperature_c: float | None = Field(default=None, ge=-80, le=60)
@@ -91,6 +87,11 @@ class SectionUpdate(WebRequestModel):
         | None
     ) = None
     manual_tas_kt: float | None = Field(default=None, gt=0, le=300)
+
+    @field_validator("manual_wind_direction_deg")
+    @classmethod
+    def normalize_north(cls, value: int | None) -> int | None:
+        return None if value is None else value % 360
 
     @model_validator(mode="after")
     def validate_wind_pair(self) -> SectionUpdate:
@@ -106,9 +107,10 @@ class UpdateProjectRequest(WebRequestModel):
     ship_identifier: str | None = Field(default=None, max_length=100)
     total_usable_fuel_gal: float = Field(gt=0, le=200)
     default_variation_deg_east: float = Field(ge=-30, le=30)
-    manual_qnh_hpa: float | None = Field(default=None, gt=800, lt=1100)
     weather_mode: Literal["FORECAST", "FTD"] = "FORECAST"
     ftd_weather: FtdWeatherSettings | None = None
+    run_up_included: bool = True
+    air_conditioning_enabled: bool = True
     tgl_count: int = Field(default=0, ge=0, le=20)
     sections: list[SectionUpdate] = Field(default_factory=list, max_length=500)
     visual_reporting_point_node_id: UUID | None = None
@@ -121,7 +123,6 @@ class UpdateProjectRequest(WebRequestModel):
     )
     manual_vrep_reason: str | None = Field(default=None, max_length=500)
     defaults_confirmed: bool = False
-    manual_qnh_confirmed: bool = False
 
     @model_validator(mode="after")
     def validate_ftd_weather(self) -> UpdateProjectRequest:

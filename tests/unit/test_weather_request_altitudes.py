@@ -1,5 +1,3 @@
-import pytest
-
 from autonavlog.application.calculation_service import CalculationService
 from autonavlog.domain.enums import (
     AdoptedSource,
@@ -107,9 +105,6 @@ def test_weather_requests_use_cac_phase_representative_altitudes(
     )
 
     assert not issues
-    assert not any(
-        request.kind == WeatherRequestKind.ESTIMATED_QNH for request in requests
-    )
     surface = {
         request.request_id: request
         for request in requests
@@ -206,33 +201,12 @@ def test_qnh_is_not_requested_or_required_for_navlog_calculation(
     )
 
     assert not outcome.blockers
-    assert outcome.qnh_hpa.adopted() is None
-    assert WeatherRequestKind.ESTIMATED_QNH not in seen_kinds
+    assert set(seen_kinds) <= {
+        WeatherRequestKind.ALOFT,
+        WeatherRequestKind.SURFACE_TEMPERATURE,
+    }
     assert all(
         section.pressure_altitude_exact_ft.adopted()
         == section.pressure_altitude_planning_ft.adopted()
         for section in outcome.sections
     )
-
-
-def test_legacy_manual_qnh_does_not_change_navlog_values(
-    airports,
-    performance_repository,
-    project,
-) -> None:
-    service = CalculationService(airports, performance_repository)
-    baseline = service.calculate(project, FakeWeatherProvider())
-    with_qnh = project.model_copy(deep=True)
-    with_qnh.manual_qnh_hpa = 980.0
-    compared = service.calculate(with_qnh, FakeWeatherProvider())
-
-    assert not baseline.blockers
-    assert not compared.blockers
-    for left, right in zip(baseline.sections, compared.sections, strict=True):
-        assert left.pressure_altitude_planning_ft.adopted() == (
-            right.pressure_altitude_planning_ft.adopted()
-        )
-        assert left.tas_kt.adopted() == pytest.approx(right.tas_kt.adopted())
-        assert left.zone_ete_seconds.adopted() == pytest.approx(
-            right.zone_ete_seconds.adopted()
-        )

@@ -143,8 +143,8 @@ SessionDependency = Annotated[WebSession, Depends(require_session)]
 
 def _environment_config() -> WebRuntimeConfig:
     raw_weather_mode = os.environ.get("AUTONAVLOG_WEATHER", "fake")
-    if raw_weather_mode not in {"fake", "msm", "msm-metar", "msm-metar-trend"}:
-        raise RuntimeError("AUTONAVLOG_WEATHER must be fake, msm, msm-metar, or msm-metar-trend")
+    if raw_weather_mode not in {"fake", "msm"}:
+        raise RuntimeError("AUTONAVLOG_WEATHER must be fake or msm")
 
     return WebRuntimeConfig(
         data_root=Path(os.environ.get("AUTONAVLOG_DATA_ROOT", "data")),
@@ -154,11 +154,6 @@ def _environment_config() -> WebRuntimeConfig:
             None
             if not os.environ.get("AUTONAVLOG_MSM_CACHE")
             else Path(os.environ["AUTONAVLOG_MSM_CACHE"])
-        ),
-        terrain_cache_path=(
-            None
-            if not os.environ.get("AUTONAVLOG_TERRAIN_CACHE")
-            else Path(os.environ["AUTONAVLOG_TERRAIN_CACHE"])
         ),
         trusted_local_identity=(
             os.environ.get("AUTONAVLOG_TRUSTED_LOCAL_IDENTITY", "").strip() or None

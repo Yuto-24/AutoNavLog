@@ -20,16 +20,13 @@ from autonavlog.weather.destination_taf import (
 )
 from autonavlog.weather.fake_provider import FakeWeatherProvider
 from autonavlog.weather.msm_adapter import MsmWeatherProvider
-from autonavlog.weather.msm_metar_provider import MsmMetarWeatherProvider
-from autonavlog.weather.msm_metar_trend_provider import MsmMetarTrendQnhProvider
-from autonavlog.weather.msm_mslp_provider import MsmMslpWeatherProvider
 from autonavlog.weather.prewarm import WeatherPrewarmer
 from autonavlog.weather.provider import WeatherProvider
 
 from .cloudflare_access import CloudflareAccessVerifier
 from .facade import AutoNavLogWebApplication
 
-WeatherMode = Literal["fake", "msm", "msm-metar", "msm-metar-trend"]
+WeatherMode = Literal["fake", "msm"]
 LOGGER = logging.getLogger(__name__)
 
 
@@ -52,7 +49,6 @@ class WebRuntimeConfig:
     storage_root: Path
     weather_mode: WeatherMode = "fake"
     msm_cache_dir: Path | None = None
-    terrain_cache_path: Path | None = None
     maximum_sessions: int = 256
     trusted_local_identity: str | None = None
     session_cookie_secure: bool = True
@@ -60,7 +56,7 @@ class WebRuntimeConfig:
     cloudflare_access_audience: str | None = None
 
     def __post_init__(self) -> None:
-        if self.weather_mode not in {"fake", "msm", "msm-metar", "msm-metar-trend"}:
+        if self.weather_mode not in {"fake", "msm"}:
             raise ValueError(f"unsupported weather mode: {self.weather_mode}")
         if self.maximum_sessions < 1:
             raise ValueError("maximum_sessions must be positive")
@@ -138,41 +134,17 @@ def _weather_factory(
         return create_fake, "開発用固定気象（出力不可）", True
 
     cache_dir = config.msm_cache_dir or (config.storage_root / "msm-cache")
-    if config.weather_mode == "msm":
-
-        def create_msm() -> WeatherProvider:
-            return MsmWeatherProvider(
-                cache_dir=cache_dir,
-                terrain_cache_path=config.terrain_cache_path,
-            )
-
-        return create_msm, "MSM予報", False
-
-    if config.weather_mode == "msm-metar":
-
-        def create_msm_metar() -> WeatherProvider:
-            delegate = MsmWeatherProvider(
-                cache_dir=cache_dir,
-                terrain_cache_path=config.terrain_cache_path,
-            )
-            return MsmMetarWeatherProvider(delegate)
-
-        return create_msm_metar, "MSM予報", False
-
-    if config.weather_mode != "msm-metar-trend":
+    if config.weather_mode != "msm":
         raise ValueError(f"unsupported weather mode: {config.weather_mode}")
 
     _prune_msm_cache(cache_dir)
-    shared_provider = MsmMetarTrendQnhProvider(
-        MsmMslpWeatherProvider(cache_dir=cache_dir),
-        cache_ttl_seconds=300,
-    )
+    shared_provider = MsmWeatherProvider(cache_dir=cache_dir)
 
-    def shared_msm_metar_trend() -> WeatherProvider:
-        """Return the process-wide provider with shared runs and METAR cache."""
+    def shared_msm() -> WeatherProvider:
+        """Return the process-wide provider with shared prepared runs."""
         return shared_provider
 
-    return shared_msm_metar_trend, "MSM予報", False
+    return shared_msm, "MSM予報", False
 
 
 def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
@@ -200,7 +172,7 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
     project_service = ProjectService(LocalProjectRepository(storage_root))
     weather_factory, weather_label, development_weather = _weather_factory(config)
     weather_prewarmer = None
-    if config.weather_mode == "msm-metar-trend":
+    if config.weather_mode == "msm":
         weather_prewarmer = WeatherPrewarmer(
             weather_factory(),
             cleanup=lambda: _prune_msm_cache(

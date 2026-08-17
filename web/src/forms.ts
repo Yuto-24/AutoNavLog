@@ -5,8 +5,6 @@ import type {
   RouteCandidate,
 } from "./types";
 
-export type QnhUnit = "hPa" | "inHg";
-
 export interface PlanningForm {
   flightDate: string;
   departureTimeJst: string;
@@ -15,14 +13,13 @@ export interface PlanningForm {
   destinationPatternAltitudeFtMsl: string;
   totalUsableFuelGal: string;
   variationDegEast: number;
-  manualQnhValue: string;
-  qnhUnit: QnhUnit;
+  runUpIncluded: boolean;
+  airConditioningEnabled: boolean;
   tglCount: number;
   allLegAltitudeFtMsl: number;
   candidateKey: string;
   routeUseConfirmed: boolean;
   polygonRouteConfirmed: boolean;
-  manualQnhConfirmed: boolean;
   usePenultimateAsVrep: boolean;
   weatherMode: "FORECAST" | "FTD";
   ftdSurfaceWindDirection: string;
@@ -31,45 +28,15 @@ export interface PlanningForm {
   ftdWind5000Speed: string;
 }
 
-const HPA_PER_INHG = 33.8638866667;
-const EARTH_RADIUS_NM = 3440.065;
-const AIRPORT_MATCH_LIMIT_NM = 5;
-
-function distanceNm(
-  first: [number, number],
-  second: [number, number],
-): number {
-  const toRadians = (degrees: number) => degrees * Math.PI / 180;
-  const latitudeDelta = toRadians(second[0] - first[0]);
-  const longitudeDelta = toRadians(second[1] - first[1]);
-  const firstLatitude = toRadians(first[0]);
-  const secondLatitude = toRadians(second[0]);
-  const haversine =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(firstLatitude) * Math.cos(secondLatitude) *
-      Math.sin(longitudeDelta / 2) ** 2;
-  return 2 * EARTH_RADIUS_NM * Math.asin(Math.min(1, Math.sqrt(haversine)));
-}
-
 function airportForCandidateEndpoint(
   candidate: RouteCandidate | null,
   airports: AirportOption[],
   endpoint: "departure" | "destination",
 ): AirportOption | null {
-  const coordinate = candidate?.coordinates.at(endpoint === "departure" ? 0 : -1);
-  if (!coordinate) return null;
-  const nearest = airports.reduce<{ airport: AirportOption; distance: number } | null>(
-    (current, airport) => {
-      const distance = distanceNm(coordinate, [airport.latitudeDeg, airport.longitudeDeg]);
-      return current === null || distance < current.distance
-        ? { airport, distance }
-        : current;
-    },
-    null,
-  );
-  return nearest && nearest.distance <= AIRPORT_MATCH_LIMIT_NM
-    ? nearest.airport
-    : null;
+  const airportId = endpoint === "departure"
+    ? candidate?.departureAirportId
+    : candidate?.destinationAirportId;
+  return airports.find((airport) => airport.id === airportId) ?? null;
 }
 
 export function departureAirportForCandidate(
@@ -102,13 +69,6 @@ function tomorrowIso(): string {
   return [byType.year, byType.month, byType.day].join("-");
 }
 
-export function qnhHpa(form: PlanningForm): number | null {
-  if (!form.manualQnhValue.trim()) return null;
-  const entered = Number(form.manualQnhValue);
-  if (!Number.isFinite(entered)) return null;
-  return form.qnhUnit === "hPa" ? entered : entered * HPA_PER_INHG;
-}
-
 export function usableFuelGal(form: PlanningForm): number | null {
   if (!form.totalUsableFuelGal.trim()) return null;
   const entered = Number(form.totalUsableFuelGal);
@@ -131,11 +91,13 @@ export function ftdWeatherSettings(form: PlanningForm): FtdWeatherSettings | nul
   const upperSpeed = Number(form.ftdWind5000Speed);
   if (
     !Number.isFinite(surfaceDirection) ||
-    surfaceDirection < 0 ||
-    surfaceDirection >= 360 ||
+    !Number.isInteger(surfaceDirection) ||
+    surfaceDirection < 1 ||
+    surfaceDirection > 360 ||
     !Number.isFinite(upperDirection) ||
-    upperDirection < 0 ||
-    upperDirection >= 360 ||
+    !Number.isInteger(upperDirection) ||
+    upperDirection < 1 ||
+    upperDirection > 360 ||
     !Number.isFinite(surfaceSpeed) ||
     surfaceSpeed < 0 ||
     surfaceSpeed > 200 ||
@@ -172,20 +134,6 @@ export function patternAltitudeFtMsl(value: string): number | null {
   return altitude;
 }
 
-export function convertQnhValue(
-  value: string,
-  from: QnhUnit,
-  to: QnhUnit,
-): string {
-  if (!value.trim() || from === to) return value;
-  const entered = Number(value);
-  if (!Number.isFinite(entered)) return "";
-  const hpa = from === "hPa" ? entered : entered * HPA_PER_INHG;
-  return to === "hPa"
-    ? hpa.toFixed(1).replace(/\.0$/, "")
-    : (hpa / HPA_PER_INHG).toFixed(2);
-}
-
 export function initialPlanningForm(airports: AirportOption[] = []): PlanningForm {
   const departure = airports.find((airport) => airport.id === "RJFM") ?? airports[0];
   return {
@@ -196,19 +144,18 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     destinationPatternAltitudeFtMsl: "",
     totalUsableFuelGal: "90",
     variationDegEast: variationForDeparture(departure),
-    manualQnhValue: "",
-    qnhUnit: "hPa",
+    runUpIncluded: true,
+    airConditioningEnabled: true,
     tglCount: 0,
     allLegAltitudeFtMsl: 3000,
     candidateKey: "",
     routeUseConfirmed: false,
     polygonRouteConfirmed: false,
-    manualQnhConfirmed: false,
     usePenultimateAsVrep: true,
     weatherMode: "FORECAST",
-    ftdSurfaceWindDirection: "0",
+    ftdSurfaceWindDirection: "360",
     ftdSurfaceWindSpeed: "0",
-    ftdWind5000Direction: "0",
+    ftdWind5000Direction: "360",
     ftdWind5000Speed: "0",
   };
 }
@@ -235,22 +182,23 @@ export function formFromProject(
     ),
     totalUsableFuelGal: String(project.total_usable_fuel_gal),
     variationDegEast: project.default_variation_deg_east,
-    manualQnhValue:
-      project.manual_qnh_hpa === null
-        ? ""
-        : convertQnhValue(project.manual_qnh_hpa.toString(), "hPa", previous.qnhUnit),
-    qnhUnit: previous.qnhUnit,
+    runUpIncluded: project.run_up_included,
+    airConditioningEnabled: project.air_conditioning_enabled,
     tglCount: project.tgl_count,
     weatherMode: project.weather_mode,
     ftdSurfaceWindDirection: String(
-      project.ftd_weather?.surface_wind.direction_deg_from ??
+      (project.ftd_weather?.surface_wind.direction_deg_from === 0
+        ? 360
+        : project.ftd_weather?.surface_wind.direction_deg_from) ??
         previous.ftdSurfaceWindDirection,
     ),
     ftdSurfaceWindSpeed: String(
       project.ftd_weather?.surface_wind.speed_kt ?? previous.ftdSurfaceWindSpeed,
     ),
     ftdWind5000Direction: String(
-      project.ftd_weather?.wind_at_5000_ft.direction_deg_from ??
+      (project.ftd_weather?.wind_at_5000_ft.direction_deg_from === 0
+        ? 360
+        : project.ftd_weather?.wind_at_5000_ft.direction_deg_from) ??
         previous.ftdWind5000Direction,
     ),
     ftdWind5000Speed: String(

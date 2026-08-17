@@ -32,10 +32,10 @@
       "additionalProperties": false,
       "properties": {
         "direction_deg_from": {
-          "exclusiveMaximum": 360,
-          "minimum": 0,
+          "maximum": 360,
+          "minimum": 1,
           "title": "Direction Deg From",
-          "type": "number"
+          "type": "integer"
         },
         "speed_kt": {
           "maximum": 200,
@@ -120,9 +120,9 @@
         "manual_wind_direction_deg": {
           "anyOf": [
             {
-              "exclusiveMaximum": 360,
-              "minimum": 0,
-              "type": "number"
+              "maximum": 360,
+              "minimum": 1,
+              "type": "integer"
             },
             {
               "type": "null"
@@ -423,6 +423,11 @@
       "type": "array",
       "uniqueItems": true
     },
+    "air_conditioning_enabled": {
+      "default": true,
+      "title": "Air Conditioning Enabled",
+      "type": "boolean"
+    },
     "aircraft_profile_id": {
       "default": "SR22_G6",
       "title": "Aircraft Profile Id",
@@ -466,20 +471,6 @@
       "title": "Id",
       "type": "string"
     },
-    "manual_qnh_hpa": {
-      "anyOf": [
-        {
-          "exclusiveMaximum": 1100,
-          "exclusiveMinimum": 800,
-          "type": "number"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Manual Qnh Hpa"
-    },
     "metadata": {
       "additionalProperties": true,
       "title": "Metadata",
@@ -513,9 +504,14 @@
       "title": "Route Nodes",
       "type": "array"
     },
+    "run_up_included": {
+      "default": true,
+      "title": "Run Up Included",
+      "type": "boolean"
+    },
     "schema_version": {
-      "const": 1,
-      "default": 1,
+      "const": 2,
+      "default": 2,
       "title": "Schema Version",
       "type": "integer"
     },

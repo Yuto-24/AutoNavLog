@@ -179,19 +179,6 @@ def _write_runtime_data(root: Path) -> tuple[int, int, int]:
     return 2, 1, 1
 
 
-def _write_terrain(path: Path) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(path, "w") as archive:
-        for member in (
-            "values_m.npy",
-            "latitudes.npy",
-            "longitudes.npy",
-            "metadata.npy",
-        ):
-            archive.writestr(member, b"fixture")
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def _provenance() -> dict[str, object]:
     source_url = "http://example.invalid/msm.bin"
     return {
@@ -209,7 +196,6 @@ def _write_acceptance_reports(
     airport_rows: int,
     climb_rows: int,
     cruise_rows: int,
-    terrain_sha256: str,
 ) -> None:
     acceptance_root = root / "acceptance"
     acceptance_root.mkdir(parents=True, exist_ok=True)
@@ -235,12 +221,12 @@ def _write_acceptance_reports(
     results = [
         {
             "request_id": f"{airport}-{kind}",
-            "kind": "ALOFT" if kind == "aloft" else "ESTIMATED_QNH",
+            "kind": "ALOFT" if kind == "aloft" else "SURFACE_TEMPERATURE",
             "availability": "AVAILABLE",
             "provenance": _provenance(),
         }
         for airport in ("RJFM", "RJFO")
-        for kind in ("aloft", "qnh")
+        for kind in ("aloft", "surface-temperature")
     ]
     (acceptance_root / "real-msm-acceptance.json").write_text(
         json.dumps(
@@ -256,11 +242,6 @@ def _write_acceptance_reports(
                         "module": "0.2.1",
                         "adapter": "0.2.1",
                     },
-                },
-                "terrain": {
-                    "cache_sha256": terrain_sha256,
-                    "source_sha256": "c" * 64,
-                    "samples_m": {"RJFM": 123.0, "RJFO": 456.0},
                 },
                 "forecast": {
                     "result_count": len(results),
@@ -287,13 +268,11 @@ def _release_fixture(tmp_path: Path) -> Path:
     )
     _write_notebook(root / "AutoNavLog.ipynb")
     row_counts = _write_runtime_data(root)
-    terrain_sha256 = _write_terrain(root / "data" / "msm" / "terrain.npz")
     _write_acceptance_reports(
         root,
         airport_rows=row_counts[0],
         climb_rows=row_counts[1],
         cruise_rows=row_counts[2],
-        terrain_sha256=terrain_sha256,
     )
     return root
 
@@ -326,7 +305,6 @@ def test_manifest_accepts_complete_release_and_preserves_bootstrap_shape(
         "wheels/autonavlog-1.1.0-py3-none-any.whl",
         "wheels/jma_msm_wind-0.2.1-py3-none-any.whl",
         "data/autonavlog/reference/default/reference-manifest.json",
-        "data/msm/terrain.npz",
         "acceptance/runtime-data-acceptance.json",
         "acceptance/real-msm-acceptance.json",
     } <= paths

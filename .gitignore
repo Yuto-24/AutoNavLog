@@ -12,6 +12,7 @@ htmlcov/
 .ipynb_checkpoints/
 data/cache/
 .autonavlog-data/
+.notebook-data/
 web/node_modules/
 web/test-results/
 web/playwright-report/
@@ -19,3 +20,4 @@ web/*.tsbuildinfo
 web/dist/
 web/vite.config.js
 web/vite.config.d.ts
+.env

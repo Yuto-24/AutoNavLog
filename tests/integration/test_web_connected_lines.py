@@ -49,8 +49,6 @@ def _confirm_payload() -> dict[str, object]:
         "route_use_confirmed": True,
         "flight_date": "2099-08-10",
         "departure_time_jst": "09:00",
-        "departure_airport_id": "RJFM",
-        "destination_airport_id": "RJFO",
         "total_usable_fuel_gal": 90,
         "default_variation_deg_east": 8,
         "all_leg_altitude_ft_msl": 3500,

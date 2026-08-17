@@ -69,12 +69,10 @@ def test_preview_notebook_validates_and_safely_extracts_every_payload() -> None:
         "os.replace(staging, RUNTIME_ROOT)",
     ):
         assert marker in code
-    assert 'terrain_member = "data/msm/terrain.npz"' in code
-    assert 'weather_contract.get("qnh") == "MSM_ESTIMATED_QNH"' in code
-    assert 'weather_contract.get("pzs_terrain_included") is True' in code
-    assert 'weather_contract.get("terrain_path") == terrain_member' in code
-    assert 'weather_contract.get("terrain_sha256")' in code
-    assert 'entries_by_name[terrain_member]["sha256"]' in code
+    assert (
+        'weather_contract.get("surface_temperature") == "MSM_LSURF_TMP_SURFACE"'
+        in code
+    )
     assert 'descriptor.get("version") == expected_version' in code
     assert 'descriptor.get("size") == entries_by_name[wheel_name]["size"]' in code
     assert 'descriptor.get("sha256")==entries_by_name[wheel_name]["sha256"]' in compact_code
@@ -93,7 +91,6 @@ def test_preview_notebook_installs_pinned_wheels_and_real_runtime_components() -
     assert "PerformanceRepository.from_directory" in code
     assert "performance.require_verified()" in code
     assert "MsmWeatherProvider(" in code
-    assert 'terrain_cache_path=APP_DATA / "msm" / "terrain.npz"' in code
     assert "MsmMetarWeatherProvider" not in code
     assert 'LocalProjectRepository("/content/AutoNavLog-preview-data")' in code
     assert "app.render()" in code
@@ -125,19 +122,17 @@ def test_preview_notebook_has_no_embedded_kml_or_synthetic_runtime() -> None:
         assert fixed_assignment not in text
 
 
-def test_preview_reader_caveats_describe_msm_estimated_qnh() -> None:
+def test_preview_reader_caveats_describe_msm_weather_sources() -> None:
     markdown = _markdown()
 
     for required_text in (
         "地上準備",
         "非公式",
         "上空風・気温はMSM予報値",
-        "MSM推定QNH",
-        "公式飛行場気象の観測QNHではない",
+        "地表面気温",
         "原票と照合",
         "取得・算出できない場合",
         "手入力",
-        "Pzs地形cache",
         "SEA・障害物評価",
         "各Pointの役割",
     ):

@@ -129,15 +129,12 @@ docker compose -p autonavlog-dev down
 
 ## 気象と参照データ
 
-標準コンテナは `msm-metar-trend` モードで動きます。上空の風と気温には MSM を使い、QNH は
-最新 METAR と MSM MSLP の時間差から推定します。検証済み METAR を使えない場合は MSM MSLP
-だけに切り替え、MSM も取得できなければ QNH の手入力を求めます。手入力値は自動値より優先します。
+標準コンテナは `msm` モードで動きます。上空の風と気温、出発地・目的地の地表面気温には
+MSM予報値を使います。QNHは入力・取得・計算・帳票の対象にしません。
 
 NAV LOGの出発地・目的地TOATには、その地点と表示時刻のMSM地上気温を使います。上空の
 気圧面気温を空港標高へ外挿しません。地上気温を取得できない場合は値を補完せず「未取得」と
 表示します。
-
-推定 QNH は公式の飛行場 QNH ではありません。必ず公式の飛行場気象と照合してください。
 
 計算後は、到着予定時刻に対応する目的地 TAF の卓越風を AviationWeather.gov から取得し、
 `DESTINATION INFO` 行に参考値として表示します。NAV LOG の WCA、GS、ETE、燃料には使いません。
@@ -271,8 +268,7 @@ Preview 配布は検証済み bundle と一致する `0.3.1` のまま凍結し�
 python scripts/build_colab_preview_bundle.py \
   dist/autonavlog-0.3.1-py3-none-any.whl \
   /path/to/jma_msm_wind-0.2.1-py3-none-any.whl \
-  dist/autonavlog-colab-preview-0.3.1.zip \
-  --terrain /path/to/verified/terrain.npz
+  dist/autonavlog-colab-preview-0.3.1.zip
 ```
 
 ZIP を Colab VM の `/content` または Google Drive の `MyDrive` 直下へ置き、
@@ -286,7 +282,6 @@ size と SHA-256 を検査します。
 | `MSM_REPO_TOKEN` | `Yuto-24/jma-msm-wind-kyushu` の read 権限 |
 | `GDRIVE_SERVICE_ACCOUNT_JSON` | Drive へアップロードする Service Account JSON |
 | `GDRIVE_RELEASE_FOLDER_ID` | 共有 Drive のリリース親フォルダー |
-| `GDRIVE_TERRAIN_FILE_ID` | 検証済み Pzs `terrain.npz` |
 
 1つの Project を複数の Notebook から同時に編集しないでください。revision が競合すると、
 AutoNavLog は既存ファイルを残し、`project-conflict-*.json` を保存します。
@@ -298,7 +293,7 @@ AutoNavLog は既存ファイルを残し、`project-conflict-*.json` を保存�
 | `src/autonavlog/domain` | Project、計算結果、Snapshot、気象のデータ契約 |
 | `src/autonavlog/nav` | 測地線、PA、TAS/CAS、風、燃料、丸め |
 | `src/autonavlog/performance` | 性能 CSV の検査、上昇補間、巡航セル選択 |
-| `src/autonavlog/weather` | MSM、METAR、TAF の取得と変換 |
+| `src/autonavlog/weather` | MSM、TAF の取得と変換 |
 | `src/autonavlog/storage` | ローカル保存と Google Drive 保存 |
 | `src/autonavlog/web` | FastAPI と Web API |
 | `web` | React、TypeScript、Vite、Playwright |

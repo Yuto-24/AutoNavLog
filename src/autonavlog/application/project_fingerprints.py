@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from autonavlog.domain.enums import VisualReferenceRole
 from autonavlog.domain.planning import (
     CP_PROJECTION_POLICY_VERSION,
@@ -109,6 +107,8 @@ def current_calculation_input_fingerprint(
             "flight_date": project.flight_date,
             "planned_departure_time_jst": (project.planned_departure_time_jst),
             "total_usable_fuel_gal": project.total_usable_fuel_gal,
+            "run_up_included": project.run_up_included,
+            "air_conditioning_enabled": project.air_conditioning_enabled,
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
             "selected_forecast_run_id": project.selected_forecast_run_id,
@@ -190,20 +190,5 @@ def defaults_review_fingerprint(
             "aircraft_profile_id": project.aircraft_profile_id,
             "performance_table_version": performance_table_version,
             "policy_version": policy_version,
-        },
-    )
-
-
-def manual_qnh_fingerprint(
-    project: Project,
-    *,
-    departure_coordinate_or_airport_id: Any,
-) -> str:
-    return make_fingerprint(
-        kind="manual_qnh",
-        fields={
-            "flight_date": project.flight_date,
-            "planned_departure_time_jst": (project.planned_departure_time_jst),
-            "departure_coordinate_or_airport_id": (departure_coordinate_or_airport_id),
         },
     )

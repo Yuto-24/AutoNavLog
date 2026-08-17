@@ -14,7 +14,6 @@ class DisplayRoundingPolicy:
     time_minutes = 0.5
     wind_speed_kt = 1.0
     temperature_c = 1.0
-    qnh_hpa = 1.0
     fuel_gal = 0.1
     speed_kt = 1.0
 
@@ -32,9 +31,6 @@ class DisplayRoundingPolicy:
 
     def temperature(self, value: float) -> float:
         return round_half_up(value, self.temperature_c)
-
-    def qnh(self, value: float) -> float:
-        return round_half_up(value, self.qnh_hpa)
 
     def fuel(self, value: float) -> float:
         return round_half_up(value, self.fuel_gal)

@@ -77,13 +77,24 @@ from .rjfm_departure_plan import rjfm_plan_matches_project
 
 @dataclass(frozen=True)
 class CalculationPolicies:
-    version: str = "nav2-v7-rjfm-umk-guidance"
-    # Kept for serialized policy compatibility. NAV2-v5 uses MSL directly and
-    # does not round or QNH-correct a separate planning pressure altitude.
+    version: str = "nav2-v8-cruise-equipment-fuel"
+    # Kept for serialized policy compatibility. NAV2-v5 uses MSL directly.
     pa_500_policy: Pa500Policy = Pa500Policy.CEILING
     max_iterations: int = 5
     convergence_seconds: float = 30.0
     phase_boundary_distance_tolerance_nm: float = 0.25
+
+
+NOSE_FAIRING_KTAS_ADJUSTMENT = -10.0
+AIR_CONDITIONING_KTAS_ADJUSTMENT = -2.0
+
+
+def _adjusted_cruise_ktas(table_ktas: float, air_conditioning_enabled: bool) -> float:
+    return (
+        table_ktas
+        + NOSE_FAIRING_KTAS_ADJUSTMENT
+        + (AIR_CONDITIONING_KTAS_ADJUSTMENT if air_conditioning_enabled else 0.0)
+    )
 
 
 @dataclass(frozen=True)
@@ -464,10 +475,6 @@ class CalculationService:
         final: _IterationResult | None = None
         final_weather_requests: list[WeatherRequest] = []
         final_weather_results: list[WeatherResult] = []
-        qnh_value: AdoptedValue[float] = _manual_or_automatic(
-            None,
-            working.manual_qnh_hpa,
-        )
         converged = False
         for iteration in range(1, self.policies.max_iterations + 1):
             report(
@@ -484,7 +491,6 @@ class CalculationService:
                 previous_arrival_time_utc=previous_arrival_time_utc,
             )
             results = self._query_weather(provider, selected_run_id, requests, issues)
-            qnh_value = self._adopt_qnh(working, results)
             iteration_result = self._calculate_iteration(
                 working,
                 departure,
@@ -542,7 +548,6 @@ class CalculationService:
             return outcome.model_copy(
                 update={
                     "selected_forecast_run_id": selected_run_id,
-                    "qnh_hpa": qnh_value,
                     "iterations": iteration_records,
                 }
             )
@@ -631,6 +636,7 @@ class CalculationService:
             final.phases,
             final.section_fuels,
             working.tgl_count,
+            run_up_included=working.run_up_included,
         )
         if fuel_plan.extra_gal is not None and fuel_plan.extra_gal < 0:
             issues.append(
@@ -642,7 +648,6 @@ class CalculationService:
         return CalculationOutcome(
             project_id=working.id,
             selected_forecast_run_id=selected_run_id,
-            qnh_hpa=qnh_value,
             sections=final.sections,
             display_rows=final.display_rows,
             derived_points=derived_points,
@@ -1019,38 +1024,6 @@ class CalculationService:
         self.last_weather_results.extend(results)
         return results
 
-    @staticmethod
-    def _adopt_qnh(project: Project, results: list[WeatherResult]) -> AdoptedValue[float]:
-        result = next((item for item in results if item.request_id == "project:qnh"), None)
-        automatic = None
-        metadata: dict[str, Any] = {}
-        warnings: tuple[str, ...] = ()
-        if result is not None:
-            metadata = result.metadata | {
-                "values": result.values,
-                "availability": result.availability.value,
-                "reason_code": result.reason_code,
-            }
-            values_label = result.values.get("label")
-            metadata_label = result.metadata.get("label")
-            label = (
-                values_label
-                if isinstance(values_label, str) and values_label.strip()
-                else metadata_label
-            )
-            if isinstance(label, str) and label.strip():
-                metadata["label"] = label.strip()
-            warnings = result.warnings
-            if result.availability == Availability.AVAILABLE:
-                value = result.values.get("qnh_hpa")
-                automatic = float(value) if isinstance(value, (int, float)) else None
-        return _manual_or_automatic(
-            automatic,
-            project.manual_qnh_hpa,
-            metadata=metadata,
-            warnings=warnings,
-        )
-
     def _build_leg_environments(
         self,
         geometries: list[_Geometry],
@@ -1310,6 +1283,7 @@ class CalculationService:
         environments: list[_LegEnvironment],
         end_index: int,
         cruise_policy: CruisePerformanceSelectionPolicy,
+        air_conditioning_enabled: bool,
     ) -> float | None:
         last_cas: float | None = None
         for environment in environments[:end_index]:
@@ -1338,7 +1312,10 @@ class CalculationService:
                     )
                 except CruisePerformanceError:
                     continue
-                tas = selected.row.ktas
+                tas = _adjusted_cruise_ktas(
+                    selected.row.ktas,
+                    air_conditioning_enabled,
+                )
             last_cas = cas_from_tas(
                 tas,
                 phase_environment.pressure_altitude_exact_ft,
@@ -1354,6 +1331,7 @@ class CalculationService:
         cruise_policy: CruisePerformanceSelectionPolicy,
         issues: list[Issue],
         arrival_altitude_ft_msl: float | None,
+        air_conditioning_enabled: bool,
     ) -> _DescentPlan | None:
         descent_index = next(
             (
@@ -1377,6 +1355,7 @@ class CalculationService:
             environments,
             descent_index,
             cruise_policy,
+            air_conditioning_enabled,
         )
         if section.manual_tas_kt is None and cruise_cas is None:
             issues.append(
@@ -1787,6 +1766,7 @@ class CalculationService:
             cruise_policy,
             issues,
             arrival_altitude_ft_msl,
+            project.air_conditioning_enabled,
         )
         segmentation = self._build_phase_segmentation(
             geometries,
@@ -1989,8 +1969,13 @@ class CalculationService:
                             wind_direction,
                             wind_speed,
                         )
-                        if tas is None:
-                            tas = selected.row.ktas
+                        table_ktas = selected.row.ktas
+                        equipment_adjustments_applied = tas is None
+                        if equipment_adjustments_applied:
+                            tas = _adjusted_cruise_ktas(
+                                table_ktas,
+                                project.air_conditioning_enabled,
+                            )
                             tas_state = ValueState.PERFORMANCE_TABLE
                         gph = selected.row.gph
                         performance_metadata.update(
@@ -2033,6 +2018,25 @@ class CalculationService:
                                     }
                                 ),
                                 "selected_cell": selected.row.model_dump(),
+                                "poh_table_ktas": table_ktas,
+                                "nose_fairing_adjustment_ktas": (
+                                    NOSE_FAIRING_KTAS_ADJUSTMENT
+                                    if equipment_adjustments_applied
+                                    else 0.0
+                                ),
+                                "air_conditioning_adjustment_ktas": (
+                                    AIR_CONDITIONING_KTAS_ADJUSTMENT
+                                    if equipment_adjustments_applied
+                                    and project.air_conditioning_enabled
+                                    else 0.0
+                                ),
+                                "final_ktas": tas,
+                                "equipment_adjustments_applied": (
+                                    equipment_adjustments_applied
+                                ),
+                                "ktas_adjustment_source": (
+                                    "USER_PROVIDED_POH_TRANSCRIPTION"
+                                ),
                                 "reason": selected.reason,
                                 "interpolation": (
                                     None
@@ -2400,7 +2404,11 @@ class CalculationService:
                 )
             )
 
-        remaining = remaining_fuel(project.total_usable_fuel_gal, section_fuels)
+        remaining = remaining_fuel(
+            project.total_usable_fuel_gal,
+            section_fuels,
+            run_up_included=project.run_up_included,
+        )
         sections = [
             result.model_copy(
                 update={
@@ -2762,9 +2770,12 @@ class CalculationService:
         return CalculationOutcome(
             project_id=project.id,
             selected_forecast_run_id=project.selected_forecast_run_id,
-            qnh_hpa=_manual_or_automatic(None, project.manual_qnh_hpa),
             arrival_altitude=arrival_altitude,
-            fuel_plan=FuelPlan(total_usable_gal=project.total_usable_fuel_gal),
+            fuel_plan=FuelPlan(
+                total_usable_gal=project.total_usable_fuel_gal,
+                taxi_runup_minutes=10 if project.run_up_included else 0,
+                taxi_runup_gal=1.5 if project.run_up_included else 0.0,
+            ),
             check_point_projections=(check_point_projections or []),
             issues=self._deduplicate_issues(issues),
             status=self._status(project, issues),

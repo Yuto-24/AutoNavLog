@@ -38,7 +38,7 @@ def _write_report(report: dict[str, Any], output: Path | None) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate the pinned real-MSM package and Pzs terrain release artifacts. "
+            "Validate the pinned real-MSM package and weather queries. "
             "Network access occurs only with --live."
         )
     )
@@ -47,12 +47,6 @@ def main() -> int:
         type=Path,
         default=Path("data/msm-cache"),
         help="jma-msm-wind raw/normalized cache directory",
-    )
-    parser.add_argument(
-        "--terrain",
-        type=Path,
-        default=Path("data/static/model-terrain/v1/terrain.npz"),
-        help="Pzs-derived terrain.npz (required in both modes)",
     )
     parser.add_argument(
         "--live",
@@ -78,14 +72,10 @@ def main() -> int:
         parser.error("--valid-time is meaningful only with --live")
 
     try:
-        provider = MsmWeatherProvider(
-            cache_dir=args.cache_dir,
-            terrain_cache_path=args.terrain,
-        )
+        provider = MsmWeatherProvider(cache_dir=args.cache_dir)
         report = run_real_msm_acceptance(
             provider,
             RealMsmAcceptanceConfig(
-                terrain_cache_path=args.terrain,
                 valid_time_utc=args.valid_time,
                 altitude_ft_msl=args.altitude_ft,
                 live=args.live,

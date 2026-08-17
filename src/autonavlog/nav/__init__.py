@@ -1,7 +1,6 @@
 from .airspeed import (
     cas_from_tas,
     isa_temperature_c,
-    pressure_altitude_exact_ft,
     pressure_altitude_planning_ft,
     tas_from_cas,
 )
@@ -15,7 +14,6 @@ __all__ = [
     "geodesic_leg",
     "isa_temperature_c",
     "point_along_route",
-    "pressure_altitude_exact_ft",
     "pressure_altitude_planning_ft",
     "solve_wind_triangle",
     "tas_from_cas",

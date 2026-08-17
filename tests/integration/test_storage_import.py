@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -148,3 +149,34 @@ def test_atomic_project_save_and_revision_conflict(tmp_path, project) -> None:
     assert second.value.conflict_copy != captured.value.conflict_copy
     assert len(captured.value.conflict_copy.stem.rsplit("-", 1)[-1]) == 32
     assert repository.load(project.id) == saved.project
+
+
+def test_legacy_project_qnh_and_north_direction_migrate_without_resaving_old_fields(
+    tmp_path,
+    project,
+) -> None:
+    repository = LocalProjectRepository(tmp_path)
+    saved = repository.save(project, expected_revision=0).project
+    path = tmp_path / "projects" / str(saved.id) / "project.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["schema_version"] = 1
+    payload["manual_qnh_hpa"] = 1013.0
+    payload.pop("run_up_included")
+    payload.pop("air_conditioning_enabled")
+    payload["sections"][0]["manual_wind_direction_deg"] = 0
+    payload["sections"][0]["manual_wind_speed_kt"] = 10
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    migrated = repository.load(saved.id)
+    assert migrated.schema_version == 2
+    assert migrated.run_up_included is True
+    assert migrated.air_conditioning_enabled is True
+    assert migrated.sections[0].manual_wind_direction_deg == 0
+    assert "manual_qnh_hpa" not in migrated.model_dump(mode="json")
+
+    resaved = repository.save(migrated, expected_revision=migrated.revision).project
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert resaved.revision == migrated.revision + 1
+    assert "manual_qnh_hpa" not in stored
+    assert stored["run_up_included"] is True
+    assert stored["air_conditioning_enabled"] is True

@@ -41,7 +41,6 @@ class MsmWeatherProvider:
     def __init__(
         self,
         cache_dir: str | Path,
-        terrain_cache_path: str | Path | None = None,
         client: Any | None = None,
     ):
         try:
@@ -52,7 +51,6 @@ class MsmWeatherProvider:
             raise RuntimeError("MsmWeatherProvider requires jma-msm-wind 0.2.1 exactly")
         self._msm = msm_wind
         self.client = client or msm_wind.MsmClient(cache_dir=cache_dir)
-        self.terrain_cache_path = None if terrain_cache_path is None else Path(terrain_cache_path)
         self._prepared: dict[str, Any] = {}
 
     def _requirement(self, requirement: ForecastRequirement) -> Any:
@@ -64,8 +62,6 @@ class MsmWeatherProvider:
         if requirement.require_surface_temperature:
             # jma-msm-wind 0.2.1 has no public surface-temperature variable.
             # ESTIMATED_QNH prepares the same Lsurf product, including tmp_surface.
-            variables.add(self._msm.WeatherVariable.ESTIMATED_QNH)
-        if requirement.require_estimated_qnh:
             variables.add(self._msm.WeatherVariable.ESTIMATED_QNH)
         return self._msm.ForecastRequirements(
             valid_times=requirement.valid_times_utc,
@@ -107,11 +103,10 @@ class MsmWeatherProvider:
         forecast_run_id: str,
         requirement: ForecastRequirement,
     ) -> PreparedForecastRun:
-        terrain = self._load_terrain(requirement)
         prepared = self.client.prepare_run(
             self._run_id(forecast_run_id),
             self._requirement(requirement),
-            terrain_provider=terrain,
+            terrain_provider=None,
         )
         self._prepared[forecast_run_id] = prepared
         return PreparedForecastRun(
@@ -120,45 +115,9 @@ class MsmWeatherProvider:
             metadata={
                 "provider": "jma-msm-wind",
                 "package_version": self.package_version,
-                "terrain_cache": None
-                if self.terrain_cache_path is None
-                else str(self.terrain_cache_path),
-                "terrain_required": requirement.require_estimated_qnh,
-                "terrain_loaded": terrain is not None,
                 "surface_temperature_required": requirement.require_surface_temperature,
             },
         )
-
-    def _load_terrain(self, requirement: ForecastRequirement) -> Any | None:
-        if not requirement.require_estimated_qnh:
-            return None
-        if self.terrain_cache_path is None:
-            raise RuntimeError(
-                "MSM estimated QNH requires terrain data. Configure terrain_cache_path "
-                "with an existing jma-msm-wind GridTerrainProvider cache before "
-                "preparing the forecast run."
-            )
-        if not self.terrain_cache_path.is_file():
-            raise RuntimeError(
-                "MSM estimated QNH terrain cache is missing or is not a file: "
-                f"{self.terrain_cache_path}. Provide a valid cache via "
-                "terrain_cache_path before preparing the forecast run."
-            )
-        try:
-            terrain = self._msm.GridTerrainProvider.load(self.terrain_cache_path)
-        except Exception as error:
-            raise RuntimeError(
-                "MSM estimated QNH terrain cache could not be loaded: "
-                f"{self.terrain_cache_path}. Replace or regenerate the terrain cache "
-                "before preparing the forecast run."
-            ) from error
-        if terrain is None:
-            raise RuntimeError(
-                "MSM estimated QNH terrain cache loader returned no terrain provider: "
-                f"{self.terrain_cache_path}. Replace or regenerate the terrain cache "
-                "before preparing the forecast run."
-            )
-        return terrain
 
     def query_batch(
         self,
@@ -213,34 +172,12 @@ class MsmWeatherProvider:
                 request.valid_time_utc,
                 altitude_msl_m=request.altitude_ft_msl * FT_TO_M,
             )
-        if request.kind != WeatherRequestKind.ESTIMATED_QNH:
-            raise ValueError(f"unsupported weather request kind: {request.kind}")
-        if request.elevation_ft_msl is None:
-            raise ValueError("estimated QNH request requires airport elevation")
-        return self._msm.EstimatedQnhQuery(
-            request.latitude_deg,
-            request.longitude_deg,
-            request.valid_time_utc,
-            elevation_msl_m=request.elevation_ft_msl * FT_TO_M,
-        )
+        raise ValueError(f"unsupported weather request kind: {request.kind}")
 
     def _from_result(self, request: WeatherRequest, result: Any) -> WeatherResult:
         available = result.availability == self._msm.Availability.AVAILABLE
         values = dict(result.values)
-        if request.kind == WeatherRequestKind.ESTIMATED_QNH and available:
-            values["provider_label"] = values.get("label")
-            values["label"] = "MSM推定QNH"
         warnings = tuple(result.warnings)
-        if request.kind == WeatherRequestKind.ESTIMATED_QNH:
-            warnings = tuple(
-                warning
-                for warning in warnings
-                if warning
-                not in {
-                    "ESTIMATED_QNH_NOT_OFFICIAL",
-                    "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
-                }
-            )
         return WeatherResult(
             request_id=request.request_id,
             availability=Availability.AVAILABLE if available else Availability.UNAVAILABLE,

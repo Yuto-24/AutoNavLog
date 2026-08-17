@@ -304,7 +304,17 @@ class ArrivalPlan(PlanningModel):
 
 
 class PersistedUiState(PlanningModel):
-    state_schema_version: Literal[5] = 5
+    state_schema_version: Literal[6] = 6
+    calculated_against_fingerprint: Sha256Hex | None = None
+    defaults_review_fingerprint: Sha256Hex | None = None
+    arrival_plan: ArrivalPlan | None = None
+    reference_data_snapshot: ReferenceDataSnapshot | None = None
+    rjfm_departure_plan: RjfmDeparturePlan | None = None
+    rjfm_departure_guidance: RjfmDepartureGuidance | None = None
+
+
+class _PersistedUiStateV5(PlanningModel):
+    state_schema_version: Literal[5]
     calculated_against_fingerprint: Sha256Hex | None = None
     defaults_review_fingerprint: Sha256Hex | None = None
     manual_qnh_fingerprint: Sha256Hex | None = None
@@ -343,14 +353,23 @@ def load_persisted_ui_state(raw: Any) -> PersistedUiState:
         separators=(",", ":"),
         allow_nan=False,
     )
-    if version == 5:
+    if version == 6:
         return PersistedUiState.model_validate_json(payload)
+    if version == 5:
+        legacy_v5 = _PersistedUiStateV5.model_validate_json(payload)
+        return PersistedUiState(
+            calculated_against_fingerprint=legacy_v5.calculated_against_fingerprint,
+            defaults_review_fingerprint=legacy_v5.defaults_review_fingerprint,
+            arrival_plan=legacy_v5.arrival_plan,
+            reference_data_snapshot=legacy_v5.reference_data_snapshot,
+            rjfm_departure_plan=legacy_v5.rjfm_departure_plan,
+            rjfm_departure_guidance=legacy_v5.rjfm_departure_guidance,
+        )
     if version == 4:
         legacy_v4 = _PersistedUiStateV4.model_validate_json(payload)
         return PersistedUiState(
             calculated_against_fingerprint=legacy_v4.calculated_against_fingerprint,
             defaults_review_fingerprint=legacy_v4.defaults_review_fingerprint,
-            manual_qnh_fingerprint=legacy_v4.manual_qnh_fingerprint,
             arrival_plan=legacy_v4.arrival_plan,
             reference_data_snapshot=legacy_v4.reference_data_snapshot,
         )
@@ -359,7 +378,6 @@ def load_persisted_ui_state(raw: Any) -> PersistedUiState:
         return PersistedUiState(
             calculated_against_fingerprint=(legacy_v3.calculated_against_fingerprint),
             defaults_review_fingerprint=legacy_v3.defaults_review_fingerprint,
-            manual_qnh_fingerprint=legacy_v3.manual_qnh_fingerprint,
             arrival_plan=legacy_v3.arrival_plan,
             reference_data_snapshot=legacy_v3.reference_data_snapshot,
         )

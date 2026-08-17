@@ -5,7 +5,8 @@ from collections.abc import Sequence
 from autonavlog.domain.calculation import FuelPlan
 from autonavlog.domain.enums import FlightPhase
 
-TAXI_RUNUP_GAL = 1.5
+RUN_UP_MINUTES = 10
+RUN_UP_GAL = 1.5
 ADDITIONAL_GAL = 2.8
 TGL_GAL = 2.0
 RESERVE_GAL = 12.4
@@ -33,8 +34,10 @@ def fuel_for_section(
 def remaining_fuel(
     total_usable_gal: float,
     section_fuels: Sequence[float | None],
+    *,
+    run_up_included: bool = True,
 ) -> list[float | None]:
-    remaining = total_usable_gal - TAXI_RUNUP_GAL
+    remaining = total_usable_gal - (RUN_UP_GAL if run_up_included else 0.0)
     output: list[float | None] = []
     determined = True
     for amount in section_fuels:
@@ -52,6 +55,8 @@ def build_fuel_plan(
     phases: Sequence[FlightPhase],
     section_fuels: Sequence[float | None],
     tgl_count: int,
+    *,
+    run_up_included: bool = True,
 ) -> FuelPlan:
     phase_totals: dict[FlightPhase, float | None] = {}
     for phase in FlightPhase:
@@ -65,13 +70,18 @@ def build_fuel_plan(
             if any(value is None for value in values)
             else sum(value for value in values if value is not None)
         )
+    taxi_runup_minutes = RUN_UP_MINUTES if run_up_included else 0
+    taxi_runup_gal = RUN_UP_GAL if run_up_included else 0.0
     min_required = None
     extra = None
     endurance = None
+    bof = None
     if not any(value is None for value in section_fuels):
+        route_fuel = sum(value for value in section_fuels if value is not None)
+        bof = route_fuel + ADDITIONAL_GAL + tgl_count * TGL_GAL
         min_required = (
-            TAXI_RUNUP_GAL
-            + sum(value for value in section_fuels if value is not None)
+            taxi_runup_gal
+            + route_fuel
             + ADDITIONAL_GAL
             + tgl_count * TGL_GAL
             + RESERVE_GAL
@@ -83,13 +93,15 @@ def build_fuel_plan(
     descent_total = None if descent is None or visual_arrival is None else descent + visual_arrival
     return FuelPlan(
         total_usable_gal=total_usable_gal,
-        taxi_runup_gal=TAXI_RUNUP_GAL,
+        taxi_runup_minutes=taxi_runup_minutes,
+        taxi_runup_gal=taxi_runup_gal,
         climb_gal=phase_totals[FlightPhase.CLIMB],
         cruise_gal=phase_totals[FlightPhase.CRUISE],
         descent_gal=descent_total,
         additional_gal=ADDITIONAL_GAL,
         tgl_gal=tgl_count * TGL_GAL,
         reserve_gal=RESERVE_GAL,
+        bof_gal=bof,
         min_required_gal=min_required,
         extra_gal=extra,
         extra_endurance_seconds=endurance,

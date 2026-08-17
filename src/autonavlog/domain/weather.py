@@ -17,7 +17,6 @@ class ForecastRequirement(WeatherModel):
     require_aloft_wind: bool = True
     require_aloft_temperature: bool = True
     require_surface_temperature: bool = False
-    require_estimated_qnh: bool = True
 
     @field_validator("valid_times_utc")
     @classmethod

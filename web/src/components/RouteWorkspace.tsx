@@ -74,13 +74,6 @@ const altitudeBasisLabels: Record<FlightPhase, string> = {
   VISUAL_ARRIVAL: "場周進入の計画高度",
 };
 
-const roleLabels: Record<string, string> = {
-  AIRPORT: "出発",
-  ROUTE_POINT: "経路点",
-  VISUAL_REPORTING_POINT: "VREP",
-  DESTINATION: "到着",
-};
-
 function isFixedAltitudeMode(inputMode: AltitudeInputMode | undefined): boolean {
   return inputMode !== undefined && inputMode !== "EDITABLE";
 }
@@ -715,7 +708,6 @@ export function RouteWorkspace({
           <thead>
             <tr>
               <th>POINT</th>
-              <th>ROLE</th>
               <th>ALT ft MSL / MC候補</th>
               <th>PHASE</th>
             </tr>
@@ -723,12 +715,12 @@ export function RouteWorkspace({
           <tbody>
             {!project && candidate && (
               <tr>
-                <td colSpan={4}>{candidate.vertexCount}点の形状を確認中</td>
+                <td colSpan={3}>{candidate.vertexCount}点の形状を確認中</td>
               </tr>
             )}
             {!project && !candidate && (
               <tr>
-                <td colSpan={4} className="empty-table-cell">
+                <td colSpan={3} className="empty-table-cell">
                   経路を取り込むとRoute点が表示されます
                 </td>
               </tr>
@@ -777,7 +769,6 @@ export function RouteWorkspace({
                     <span className="point-index">{index}</span>
                     <strong>{node.name}</strong>
                   </td>
-                  <td>{roleLabels[node.role] ?? node.role}</td>
                   <td className={requiresAltitudeReview ? "altitude-review-cell" : ""}>
                     {section && fixedLabels ? (
                       <div

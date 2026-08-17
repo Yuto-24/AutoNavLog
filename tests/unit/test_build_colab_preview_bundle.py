@@ -163,18 +163,6 @@ def _write_runtime_data(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    terrain = root / "msm" / "terrain.npz"
-    terrain.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(terrain, "w") as archive:
-        for member in (
-            "values_m.npy",
-            "latitudes.npy",
-            "longitudes.npy",
-            "metadata.npy",
-        ):
-            archive.writestr(member, b"verified terrain fixture")
-
-
 def _inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
     autonavlog = tmp_path / "autonavlog-0.3.1-py3-none-any.whl"
     msm = tmp_path / "jma_msm_wind-0.2.1-py3-none-any.whl"
@@ -225,10 +213,7 @@ def test_builder_creates_deterministic_self_verifying_bundle(tmp_path: Path) -> 
         assert manifest["runtime_data_root"] == "data"
         assert manifest["weather"] == {
             "aloft_wind_temperature": "MSM",
-            "qnh": "MSM_ESTIMATED_QNH",
-            "pzs_terrain_included": True,
-            "terrain_path": "data/msm/terrain.npz",
-            "terrain_sha256": hashlib.sha256((data / "msm/terrain.npz").read_bytes()).hexdigest(),
+            "surface_temperature": "MSM_LSURF_TMP_SURFACE",
         }
         for entry in manifest["files"]:
             content = archive.read(entry["path"])
@@ -237,7 +222,6 @@ def test_builder_creates_deterministic_self_verifying_bundle(tmp_path: Path) -> 
         assert manifest["distributions"]["autonavlog"]["version"] == "0.3.1"
         assert {
             "data/reference/default/reference-manifest.json",
-            "data/msm/terrain.npz",
         } <= names
         assert manifest["distributions"]["jma-msm-wind"]["version"] == "0.2.1"
 
@@ -303,20 +287,9 @@ def test_builder_accepts_autonavlog_wheel_without_metar_provider(
         data_root=data,
     )
     assert output.is_file()
-    assert report["manifest"]["weather"]["qnh"] == "MSM_ESTIMATED_QNH"
-
-
-def test_builder_rejects_missing_terrain(tmp_path: Path) -> None:
-    autonavlog, msm, data = _inputs(tmp_path)
-    (data / "msm/terrain.npz").unlink()
-
-    with pytest.raises(PreviewBundleError, match="terrain cache is absent"):
-        build_colab_preview_bundle(
-            autonavlog,
-            msm,
-            tmp_path / "bundle.zip",
-            data_root=data,
-        )
+    assert report["manifest"]["weather"]["surface_temperature"] == (
+        "MSM_LSURF_TMP_SURFACE"
+    )
 
 
 def test_builder_rejects_unverified_pattern_altitude(

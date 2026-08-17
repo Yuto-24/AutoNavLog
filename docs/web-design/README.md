@@ -46,8 +46,8 @@ decorative cards. Shadows are reserved for temporary overlays.
 - Three-step progress rail: Route, Flight plan, Review/output.
 - KML/KMZ drop zone and paste dialog.
 - Shape candidate list with a required route-use confirmation placed directly below the map.
-- Flight-plan fields: DATE, ETD JST, FROM, TO, FUEL (default 90 gal), VAR,
-  QNH with hPa/inHg conversion, and TGL.
+- Flight-plan fields: DATE, ETD JST, read-only KML-derived FROM/TO, FUEL
+  (default 90 gal), RUN UP, A/C, VAR, and TGL.
 - Route map with airport, waypoint, VREP, RCA, EOC, and CP markers.
 - Check Point creation from a map click or coordinates, with abeam projection and CRUD controls.
 - Desktop map-height separator with pointer and keyboard operation.
@@ -63,8 +63,8 @@ decorative cards. Shadows are reserved for temporary overlays.
 
 - Above 1240 px, use input / route workspace / readiness columns and allow the
   route map height to be adjusted from 320 to 900 px.
-- Between 821 px and 1240 px, place input and readiness side by side above the
-  map and tables.
+- At 1240 px and below, keep one downward workflow: input, route and map,
+  readiness, NAV LOG, then contextual guidance.
 - At 820 px and below, stack every region, keep actions full-width, and make data
   tables horizontally scrollable. Route input and flight-plan fields come first;
   the map, map confirmation, and route-confirm action then continue in one downward flow.

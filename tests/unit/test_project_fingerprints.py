@@ -8,7 +8,6 @@ import autonavlog.application.project_fingerprints as project_fingerprints
 from autonavlog.application.project_fingerprints import (
     current_calculation_input_fingerprint,
     defaults_review_fingerprint,
-    manual_qnh_fingerprint,
 )
 from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.planning import PersistedUiState
@@ -29,7 +28,6 @@ def _calculation_fingerprint(
         msm_package_version="0.2.1",
     )
 
-
 def test_display_and_legacy_sea_loss_fields_do_not_change_calculation_key(
     project: Project,
     performance_repository: Any,
@@ -39,7 +37,6 @@ def test_display_and_legacy_sea_loss_fields_do_not_change_calculation_key(
     changed.name = "Renamed"
     changed.pilot_name = "OTHER"
     changed.ship_identifier = "JA99XX"
-    changed.manual_qnh_hpa = 980.0
     changed.sections[0].safe_enroute_altitude_ft_msl = 9999
     changed.sections[0].loss_time_seconds = 3600
     assert _calculation_fingerprint(changed, performance_repository) == baseline
@@ -50,6 +47,8 @@ def test_display_and_legacy_sea_loss_fields_do_not_change_calculation_key(
     [
         lambda project: setattr(project, "total_usable_fuel_gal", 80.0),
         lambda project: setattr(project, "tgl_count", 1),
+        lambda project: setattr(project, "run_up_included", False),
+        lambda project: setattr(project, "air_conditioning_enabled", False),
         lambda project: setattr(
             project.sections[0],
             "planned_altitude_ft_msl",
@@ -167,22 +166,6 @@ def test_defaults_review_includes_phase_and_ignores_legacy_loss(
             changed_phase,
             performance_table_version="fixture-v1",
             policy_version="nav2-v2",
-        )
-        != baseline
-    )
-
-
-def test_manual_qnh_confirmation_changes_with_date_time_or_departure(
-    project: Project,
-) -> None:
-    baseline = manual_qnh_fingerprint(
-        project,
-        departure_coordinate_or_airport_id="RJFM",
-    )
-    assert (
-        manual_qnh_fingerprint(
-            project,
-            departure_coordinate_or_airport_id="RJFK",
         )
         != baseline
     )

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib import metadata
-from pathlib import Path
 from typing import Any, NoReturn, cast
 from urllib.parse import urlparse
 
@@ -42,7 +40,6 @@ ACCEPTANCE_PROBES = (
 
 @dataclass(frozen=True)
 class RealMsmAcceptanceConfig:
-    terrain_cache_path: Path
     valid_time_utc: datetime | None = None
     altitude_ft_msl: float = 5_000.0
     live: bool = False
@@ -108,63 +105,6 @@ def _validate_pinned_package(provider: MsmWeatherProvider) -> dict[str, str]:
             f"{PINNED_MSM_VERSION} exactly; observed {mismatches}"
         )
     return cast(dict[str, str], versions)
-
-
-def _validate_terrain(
-    provider: MsmWeatherProvider,
-    terrain_cache_path: Path,
-) -> tuple[Any, dict[str, Any]]:
-    path = terrain_cache_path.expanduser().resolve()
-    if not path.is_file():
-        _fail(f"required Pzs terrain cache is absent: {path}")
-
-    configured_path = getattr(provider, "terrain_cache_path", None)
-    if configured_path is None:
-        _fail("MsmWeatherProvider is not configured with a terrain cache")
-    if Path(configured_path).expanduser().resolve() != path:
-        _fail(
-            "validated terrain cache does not match MsmWeatherProvider configuration: "
-            f"{path} != {Path(configured_path).expanduser().resolve()}"
-        )
-
-    msm_module = getattr(provider, "_msm", None)
-    loader = getattr(getattr(msm_module, "GridTerrainProvider", None), "load", None)
-    if not callable(loader):
-        _fail("pinned MSM package does not expose GridTerrainProvider.load")
-    try:
-        terrain = loader(path)
-    except Exception as error:
-        raise RealMsmAcceptanceError(
-            f"required Pzs terrain cache cannot be loaded: {path}: {error}"
-        ) from error
-    if not callable(terrain):
-        _fail("loaded Pzs terrain provider is not callable")
-
-    samples: dict[str, float] = {}
-    for probe in ACCEPTANCE_PROBES:
-        try:
-            value = terrain(probe.latitude_deg, probe.longitude_deg)
-        except Exception as error:
-            raise RealMsmAcceptanceError(
-                f"Pzs terrain lookup failed at {probe.icao}: {error}"
-            ) from error
-        samples[probe.icao] = _as_finite_number(value, f"Pzs terrain at {probe.icao}")
-
-    source = getattr(terrain, "source", None)
-    if not isinstance(source, str) or not source.strip():
-        _fail("Pzs terrain provenance is missing its source")
-    source_sha256 = _as_sha256(
-        getattr(terrain, "source_sha256", None),
-        "Pzs terrain source_sha256",
-    )
-    cache_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
-    return terrain, {
-        "path": str(path),
-        "cache_sha256": cache_sha256,
-        "source": source,
-        "source_sha256": source_sha256,
-        "samples_m": samples,
-    }
 
 
 def _validate_source_provenance(
@@ -240,7 +180,6 @@ def _validate_weather_result(
     result: WeatherResult,
     *,
     forecast_initial_time_utc: datetime,
-    terrain_source_sha256: str,
 ) -> dict[str, Any]:
     if result.request_id != request.request_id:
         _fail(
@@ -289,38 +228,10 @@ def _validate_weather_result(
             _fail(f"{request.request_id}: Kelvin/Celsius values are inconsistent")
         if result.metadata.get("source_variable") != "tmp_surface":
             _fail(f"{request.request_id}: MSM surface-temperature source is not tmp_surface")
-    else:
-        qnh_hpa = _as_finite_number(
-            result.values.get("qnh_hpa"),
-            f"{request.request_id}: qnh_hpa",
-        )
-        if not 800 <= qnh_hpa <= 1_100:
-            _fail(f"{request.request_id}: qnh_hpa is outside the accepted sanity range")
-        if result.values.get("label") != "MSM推定QNH":
-            _fail(f"{request.request_id}: QNH is not labelled as MSM推定QNH")
-        if {"ESTIMATED_QNH_NOT_OFFICIAL", "VERIFY_WITH_OFFICIAL_AERODROME_QNH"} & set(
-            result.warnings
-        ):
-            _fail(f"{request.request_id}: removed estimated-QNH warning is present")
-
     provenance = _validate_source_provenance(
         result,
         forecast_initial_time_utc=forecast_initial_time_utc,
     )
-    if request.kind == WeatherRequestKind.ESTIMATED_QNH:
-        trace = result.metadata["provenance"]["trace"]
-        if not isinstance(trace, Mapping):
-            _fail(f"{request.request_id}: QNH provenance trace is invalid")
-        actual_terrain_hash = _as_sha256(
-            trace.get("terrain_source_sha256"),
-            f"{request.request_id}: terrain_source_sha256",
-        )
-        if actual_terrain_hash != terrain_source_sha256:
-            _fail(f"{request.request_id}: QNH terrain source hash does not match preflight")
-        terrain_source = trace.get("terrain_source")
-        if not isinstance(terrain_source, str) or not terrain_source.strip():
-            _fail(f"{request.request_id}: QNH terrain source is absent")
-
     return {
         "request_id": result.request_id,
         "kind": result.kind.value,
@@ -353,14 +264,6 @@ def _weather_requests(
                     valid_time_utc=valid_time_utc,
                     elevation_ft_msl=probe.elevation_ft_msl,
                 ),
-                WeatherRequest(
-                    request_id=f"{probe.icao}-qnh",
-                    kind=WeatherRequestKind.ESTIMATED_QNH,
-                    latitude_deg=probe.latitude_deg,
-                    longitude_deg=probe.longitude_deg,
-                    valid_time_utc=valid_time_utc,
-                    elevation_ft_msl=probe.elevation_ft_msl,
-                ),
             )
         )
     return tuple(requests)
@@ -372,14 +275,13 @@ def run_real_msm_acceptance(
 ) -> dict[str, Any]:
     """Validate release artifacts and, only when requested, execute live MSM queries.
 
-    Offline preflight is the default and validates the exact installed package plus the
-    Pzs terrain artifact. It is not evidence of live MSM success. Any missing or invalid
+    Offline preflight is the default and validates the exact installed package.
+    It is not evidence of live MSM success. Any missing or invalid
     prerequisite raises RealMsmAcceptanceError; the gate never converts that into SKIP.
     """
 
     msm_provider = _provider_as_real_msm(provider)
     package_versions = _validate_pinned_package(msm_provider)
-    _, terrain_report = _validate_terrain(msm_provider, config.terrain_cache_path)
     report: dict[str, Any] = {
         "schema_version": 1,
         "status": "PASS",
@@ -390,7 +292,6 @@ def run_real_msm_acceptance(
             "required_version": PINNED_MSM_VERSION,
             "observed_versions": package_versions,
         },
-        "terrain": terrain_report,
     }
     if not config.live:
         return report
@@ -430,13 +331,11 @@ def run_real_msm_acceptance(
     if set(by_request_id) != expected_ids:
         _fail("real MSM batch response IDs do not match the requested IDs")
 
-    terrain_source_sha256 = cast(str, terrain_report["source_sha256"])
     checked_results = [
         _validate_weather_result(
             request,
             by_request_id[request.request_id],
             forecast_initial_time_utc=forecast_run.initial_time_utc,
-            terrain_source_sha256=terrain_source_sha256,
         )
         for request in requests
     ]

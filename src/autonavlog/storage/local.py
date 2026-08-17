@@ -70,6 +70,93 @@ def _migrate_v3_arrival_snapshot(payload: Any) -> tuple[Any, bool]:
     return payload, True
 
 
+def _normalize_legacy_wind_directions(project_payload: dict[str, Any]) -> bool:
+    migrated = False
+    ftd_weather = project_payload.get("ftd_weather")
+    wind_records: list[Any] = []
+    if isinstance(ftd_weather, dict):
+        wind_records.extend(
+            (ftd_weather.get("surface_wind"), ftd_weather.get("wind_at_5000_ft"))
+        )
+    sections = project_payload.get("sections")
+    if isinstance(sections, list):
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            if section.get("manual_wind_direction_deg") == 0:
+                section["manual_wind_direction_deg"] = 360
+                migrated = True
+            by_phase = section.get("manual_wind_by_phase")
+            if isinstance(by_phase, dict):
+                wind_records.extend(by_phase.values())
+    for wind in wind_records:
+        if isinstance(wind, dict) and wind.get("direction_deg_from") == 0:
+            wind["direction_deg_from"] = 360
+            migrated = True
+    return migrated
+
+
+def _migrate_project_payload(payload: Any) -> tuple[Any, bool]:
+    if not isinstance(payload, dict):
+        return payload, False
+    migrated = False
+    if payload.pop("manual_qnh_hpa", None) is not None:
+        migrated = True
+    if payload.get("schema_version") != 2:
+        payload["schema_version"] = 2
+        migrated = True
+    for field in ("run_up_included", "air_conditioning_enabled"):
+        if field not in payload:
+            payload[field] = True
+            migrated = True
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        ui_state = metadata.get("ui_state")
+        if isinstance(ui_state, dict) and "manual_qnh_fingerprint" in ui_state:
+            ui_state.pop("manual_qnh_fingerprint", None)
+            migrated = True
+    return payload, _normalize_legacy_wind_directions(payload) or migrated
+
+
+def _read_migrated_project(path: Path) -> Project:
+    try:
+        raw = path.read_bytes()
+    except OSError as error:
+        raise JsonStorageError(f"cannot read JSON file: {path}") from error
+    payload, _ = _migrate_project_payload(parse_json_bytes(raw))
+    try:
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        raise JsonStorageError("cannot migrate legacy project JSON") from error
+    return validate_json_bytes((serialized + "\n").encode("utf-8"), Project)
+
+
+def _migrate_qnh_snapshot(payload: Any) -> tuple[Any, bool]:
+    if not isinstance(payload, dict):
+        return payload, False
+    migrated = False
+    input_data = payload.get("input_data")
+    if isinstance(input_data, dict):
+        _, changed = _migrate_project_payload(input_data)
+        migrated = migrated or changed
+    calculation_results = payload.get("calculation_results")
+    if isinstance(calculation_results, dict) and "qnh_hpa" in calculation_results:
+        calculation_results.pop("qnh_hpa", None)
+        migrated = True
+    for field in ("weather_requests", "weather_results"):
+        values = payload.get(field)
+        if isinstance(values, list):
+            retained = [
+                item
+                for item in values
+                if not isinstance(item, dict) or item.get("kind") != "ESTIMATED_QNH"
+            ]
+            if len(retained) != len(values):
+                payload[field] = retained
+                migrated = True
+    return payload, migrated
+
+
 class LocalProjectRepository:
     def __init__(self, root: str | Path):
         self.root = Path(root)
@@ -110,7 +197,7 @@ class LocalProjectRepository:
             return summaries
         for path in sorted(projects_root.glob("*/project.json")):
             try:
-                project = read_json_model(path, Project)
+                project = _read_migrated_project(path)
             except JsonStorageError:
                 continue
             if path.parent.name != str(project.id):
@@ -152,9 +239,9 @@ class LocalProjectRepository:
     def load(self, project_id: UUID) -> Project:
         path = self._project_dir(project_id) / "project.json"
         try:
-            project = read_json_model(path, Project)
+            project = _read_migrated_project(path)
         except JsonStorageError:
-            project = read_json_model(path.with_name("project.json.bak"), Project)
+            project = _read_migrated_project(path.with_name("project.json.bak"))
         if project.id != project_id:
             raise JsonStorageError("project id does not match its storage path")
         return project
@@ -166,7 +253,7 @@ class LocalProjectRepository:
     def _save_locked(self, project: Project, expected_revision: int) -> SaveResult:
         path = self._project_dir(project.id) / "project.json"
         if path.exists():
-            existing = read_json_model(path, Project)
+            existing = _read_migrated_project(path)
             if existing.revision != expected_revision:
                 stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
                 while True:
@@ -227,6 +314,8 @@ class LocalProjectRepository:
             raise JsonStorageError(f"cannot read JSON file: {path}") from error
         payload = parse_json_bytes(raw)
         payload, migrated = _migrate_v3_arrival_snapshot(payload)
+        payload, qnh_migrated = _migrate_qnh_snapshot(payload)
+        migrated = migrated or qnh_migrated
         if migrated:
             try:
                 serialized = json.dumps(

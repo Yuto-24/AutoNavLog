@@ -5,7 +5,14 @@ from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from .enums import (
     FlightPhase,
@@ -59,8 +66,17 @@ class VisualReference(DomainModel):
 
 
 class ManualWind(DomainModel):
-    direction_deg_from: float = Field(ge=0, lt=360)
+    direction_deg_from: int = Field(ge=1, le=360)
     speed_kt: float = Field(ge=0, le=200)
+
+    @field_validator("direction_deg_from")
+    @classmethod
+    def normalize_north(cls, value: int) -> int:
+        return value % 360
+
+    @field_serializer("direction_deg_from")
+    def serialize_north(self, value: int) -> int:
+        return 360 if value == 0 else value
 
 
 class FtdWeatherSettings(DomainModel):
@@ -79,7 +95,7 @@ class NavSection(DomainModel):
     phase: FlightPhase
     planned_altitude_ft_msl: float
     safe_enroute_altitude_ft_msl: float | None = None
-    manual_wind_direction_deg: float | None = Field(default=None, ge=0, lt=360)
+    manual_wind_direction_deg: int | None = Field(default=None, ge=1, le=360)
     manual_wind_speed_kt: float | None = Field(default=None, ge=0)
     manual_wind_by_phase: dict[FlightPhase, ManualWind] = Field(default_factory=dict)
     manual_temperature_c: float | None = None
@@ -98,10 +114,19 @@ class NavSection(DomainModel):
             raise ValueError("manual wind direction and speed must be supplied together")
         return self
 
+    @field_validator("manual_wind_direction_deg")
+    @classmethod
+    def normalize_manual_north(cls, value: int | None) -> int | None:
+        return None if value is None else value % 360
+
+    @field_serializer("manual_wind_direction_deg")
+    def serialize_manual_north(self, value: int | None) -> int | None:
+        return 360 if value == 0 else value
+
 
 class Project(DomainModel):
     id: UUID = Field(default_factory=uuid4)
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     name: str = Field(min_length=1)
     pilot_name: str = ""
     ship_identifier: str = ""
@@ -112,9 +137,10 @@ class Project(DomainModel):
     aircraft_profile_id: str = "SR22_G6"
     total_usable_fuel_gal: float = Field(gt=0)
     default_variation_deg_east: float
-    manual_qnh_hpa: float | None = Field(default=None, gt=800, lt=1100)
     weather_mode: Literal["FORECAST", "FTD"] = "FORECAST"
     ftd_weather: FtdWeatherSettings | None = None
+    run_up_included: bool = True
+    air_conditioning_enabled: bool = True
     tgl_count: int = Field(default=0, ge=0)
     selected_forecast_run_id: str | None = None
     revision: int = Field(default=0, ge=0)

@@ -135,7 +135,8 @@ def test_ready_transfer_aid_is_dense_a4_landscape_table(
         "ATE",
         "SECT / REM",
         "INFO",
-        "QNH",
+            "RUN UP",
+            "A/C",
         "TIME",
         "FUEL",
         "MIN REQUIRED",
@@ -150,7 +151,7 @@ def test_ready_transfer_aid_is_dense_a4_landscape_table(
     assert "PWR_NOT_EXACTLY_65_PERCENT" not in html
     info_table = html.split("<table class='info-table'>", 1)[1].split("</table>", 1)[0]
     assert "rowspan" not in info_table
-    assert info_table.count("<th>") == info_table.count("<td") == 8
+    assert info_table.count("<th>") == info_table.count("<td") == 7
     assert render_clearcopy_html(ready_project, outcome) == html
 
     document = render_transfer_aid_document(ready_project, outcome)
@@ -271,7 +272,7 @@ def test_transfer_aid_groups_repeated_issues_and_preserves_segment_range(
     assert "警告・未確定項目" not in html
 
 
-def test_transfer_aid_does_not_require_qnh_value(
+def test_transfer_aid_omits_qnh(
     project,
     airports,
     performance_repository,
@@ -283,11 +284,7 @@ def test_transfer_aid_does_not_require_qnh_value(
     )
     html = render_transfer_aid_html(ready_project, outcome)
 
-    assert "QNH" in html
-    assert outcome.qnh_hpa.adopted() is None
-    assert "None hPa" not in html
-    assert "MSM推定QNH" not in html
-    assert "METAR観測QNH" not in html
+    assert "QNH" not in html
 
 
 def test_transfer_aid_distinguishes_every_value_state(
@@ -325,35 +322,6 @@ def test_transfer_aid_distinguishes_every_value_state(
     assert "TEST_RULE" not in html
     assert "COURSE_MISSING" not in html
     assert "CROSSWIND_NEAR_LIMIT" not in html
-
-
-def test_transfer_aid_manual_qnh_keeps_msm_estimate_visible(
-    project,
-    airports,
-    performance_repository,
-) -> None:
-    ready_project, outcome = _outcome_with_sections(
-        project,
-        airports,
-        performance_repository,
-    )
-    manual = outcome.model_copy(
-        update={
-            "qnh_hpa": AdoptedValue[float](
-                automatic_value=1008,
-                automatic_status=ValueState.AUTO,
-                manual_override=1010,
-                adopted_source=AdoptedSource.MANUAL,
-            )
-        }
-    )
-
-    html = render_transfer_aid_html(ready_project, manual)
-
-    assert "QNH" in html
-    assert "1010.0 hPa" in html
-    assert "1008.0 hPa" not in html
-    assert "MSM推定QNH" not in html
 
 
 def test_transfer_aid_escapes_project_text(

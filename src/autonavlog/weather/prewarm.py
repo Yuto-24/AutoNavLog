@@ -70,7 +70,6 @@ class WeatherPrewarmer:
             require_aloft_wind=True,
             require_aloft_temperature=True,
             require_surface_temperature=True,
-            require_estimated_qnh=False,
         )
         run = self._provider.resolve_run(requirement)
         self._provider.prepare_run(run.id, requirement)
