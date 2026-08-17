@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
@@ -41,3 +44,23 @@ jobs:
       - run: npm --prefix web ci
       - run: npm --prefix web run typecheck
       - run: npm --prefix web run build
+
+  release_prepare:
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+      - run: python scripts/prepare_v1_2_0_release.py
+      - name: Commit prepared release branch
+        run: |
+          git show origin/main:.github/workflows/test.yml > .github/workflows/test.yml
+          rm scripts/prepare_v1_2_0_release.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: prepare v1.2.0 release"
+          git push origin HEAD:${{ github.head_ref }}
