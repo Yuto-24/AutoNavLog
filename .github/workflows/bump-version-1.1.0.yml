@@ -1,0 +1,131 @@
+name: bump-version-1.1.0
+
+on:
+  push:
+    branches:
+      - release/1.1.0
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update AutoNavLog release version
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          OLD = "1.0.0"
+          NEW = "1.1.0"
+          RELEASE_DATE = "2026-08-17"
+
+          def replace_all(path_str: str) -> None:
+              path = Path(path_str)
+              text = path.read_text(encoding="utf-8")
+              count = text.count(OLD)
+              if count == 0:
+                  raise RuntimeError(f"{path}: expected at least one {OLD} occurrence")
+              path.write_text(text.replace(OLD, NEW), encoding="utf-8")
+              print(f"updated {path}: {count} occurrence(s)")
+
+          for path in (
+              "pyproject.toml",
+              "src/autonavlog/version.py",
+              ".github/workflows/release-to-drive.yml",
+              "scripts/colab_e2e_assert.py",
+              "notebooks/AutoNavLog.ipynb",
+              "tests/integration/test_release_workflow.py",
+              "tests/unit/test_build_release_manifest.py",
+              "DESIGN.md",
+          ):
+              replace_all(path)
+
+          readme_path = Path("README.md")
+          readme = readme_path.read_text(encoding="utf-8")
+          if OLD not in readme:
+              raise RuntimeError("README.md: current version reference not found")
+          readme = readme.replace(OLD, NEW)
+          old_search = "rg -n '0\\.3\\.1'"
+          new_search = "rg -n '1\\.0\\.0'"
+          if old_search not in readme:
+              raise RuntimeError("README.md: previous-version search instruction not found")
+          readme = readme.replace(old_search, new_search, 1)
+          readme_path.write_text(readme, encoding="utf-8")
+
+          package_path = Path("web/package.json")
+          package = json.loads(package_path.read_text(encoding="utf-8"))
+          if package.get("version") != OLD:
+              raise RuntimeError(f"web/package.json: expected version {OLD}, got {package.get('version')}")
+          package["version"] = NEW
+          package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+          lock_path = Path("web/package-lock.json")
+          lock = json.loads(lock_path.read_text(encoding="utf-8"))
+          if lock.get("version") != OLD:
+              raise RuntimeError(f"web/package-lock.json: expected top-level version {OLD}")
+          root_package = lock.get("packages", {}).get("")
+          if not isinstance(root_package, dict) or root_package.get("version") != OLD:
+              raise RuntimeError(f"web/package-lock.json: expected root package version {OLD}")
+          lock["version"] = NEW
+          root_package["version"] = NEW
+          lock_path.write_text(json.dumps(lock, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+          changelog_path = Path("CHANGELOG.md")
+          changelog = changelog_path.read_text(encoding="utf-8")
+          marker = "## Unreleased\n\n"
+          if changelog.count(marker) != 1:
+              raise RuntimeError("CHANGELOG.md: expected exactly one Unreleased section")
+          release_header = f"## {NEW} - {RELEASE_DATE}\n\n"
+          if release_header in changelog:
+              raise RuntimeError(f"CHANGELOG.md: {NEW} section already exists")
+          changelog = changelog.replace(marker, marker + release_header, 1)
+          changelog_path.write_text(changelog, encoding="utf-8")
+
+          # Release-surface consistency checks. Historical 1.0.0 stays in CHANGELOG,
+          # and dependency versions inside package-lock are intentionally untouched.
+          checks = {
+              "pyproject.toml": 'version = "1.1.0"',
+              "src/autonavlog/version.py": '__version__ = "1.1.0"',
+              "README.md": "現在のバージョン: `1.1.0`",
+              ".github/workflows/release-to-drive.yml": "autonavlog-1.1.0-py3-none-any.whl",
+              "scripts/colab_e2e_assert.py": 'EXPECTED_AUTONAVLOG_VERSION = "1.1.0"',
+              "notebooks/AutoNavLog.ipynb": '\\"VERSION = \\\"1.1.0\\\"\\n\\"',
+              "tests/integration/test_release_workflow.py": "autonavlog-1.1.0-py3-none-any.whl",
+              "tests/unit/test_build_release_manifest.py": 'VERSION = "1.1.0"',
+              "DESIGN.md": "AutoNavLog 1.1.0",
+              "CHANGELOG.md": release_header.strip(),
+          }
+          for path_str, needle in checks.items():
+              text = Path(path_str).read_text(encoding="utf-8")
+              if needle not in text:
+                  raise RuntimeError(f"{path_str}: consistency check failed for {needle!r}")
+
+          package = json.loads(package_path.read_text(encoding="utf-8"))
+          lock = json.loads(lock_path.read_text(encoding="utf-8"))
+          assert package["version"] == NEW
+          assert lock["version"] == NEW
+          assert lock["packages"][""]["version"] == NEW
+          print("AutoNavLog release surfaces are consistent at 1.1.0")
+          PY
+
+      - name: Commit version bump and remove helper workflow
+        shell: bash
+        run: |
+          rm .github/workflows/bump-version-1.1.0.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "chore: prepare AutoNavLog 1.1.0 release"
+          git push origin HEAD:release/1.1.0
