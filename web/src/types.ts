@@ -322,10 +322,11 @@ export interface RjfmRunwayGuidance {
   runway: "09" | "27";
   status: RjfmGuidanceStatus;
   turn_method: RjfmTurnMethod;
+  turn_direction: "LEFT" | "RIGHT";
   path: RjfmGuidancePathPoint[];
   constraints: RjfmConstraintResult[];
-  full_left_turns: number;
-  partial_left_turn_deg: number | null;
+  full_turns: number;
+  partial_turn_deg: number | null;
   turn_entry_radial_deg: number | null;
   turn_entry_dme_nm: number | null;
   turn_entry_altitude_ft_msl: number | null;
@@ -338,7 +339,9 @@ export interface RjfmRunwayGuidance {
 }
 
 export interface RjfmDepartureGuidance {
-  rule_version: "RJFM_NORTHBOUND_R6_5_1_V1";
+  rule_version:
+    | "RJFM_NORTHBOUND_R6_5_1_V1"
+    | "RJFM_NORTHBOUND_R6_5_1_V2";
   reference_revision: string;
   reference_content_fingerprint: string;
   source_effective_dates: Record<string, string>;
@@ -377,6 +380,12 @@ export interface DestinationWindForecast {
   reason_code: string | null;
 }
 
+export type AltitudeInputMode =
+  | "EDITABLE"
+  | "RJFM_DEPARTURE_TO_UMK_FIXED"
+  | "RJFM_UMK_TO_OMARU_FIXED"
+  | "RJFM_PARENT_CONTAINS_UMK_FIXED";
+
 export interface SectionAltitudeGuidance {
   sectionId: string;
   magneticCourseDeg: number;
@@ -385,6 +394,8 @@ export interface SectionAltitudeGuidance {
   appliesToCruise: boolean;
   appliesToCruisingAltitudeInput: boolean;
   requiresReview: boolean;
+  inputMode: AltitudeInputMode;
+  fixedAltitudeFtMsl: number | null;
 }
 
 export interface AltitudeGuidance {

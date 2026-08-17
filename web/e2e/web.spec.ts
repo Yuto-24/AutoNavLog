@@ -35,9 +35,23 @@ const kmlFromRjfk = `<?xml version="1.0" encoding="UTF-8"?>
   </coordinates></LineString></Placemark></Document>
 </kml>`;
 
+const rjfmPhysicalUmkOmaruKml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+  <Placemark><name>小丸～日振島～祝島～ゴルフコース</name>
+  <LineString><coordinates>
+    131.4488055215004,31.87716585260077,0
+    131.4317398539069,31.98214589070221,0
+    131.4734489929498,32.16275095638636,0
+    132.2948734240414,33.1802236311398,0
+    131.9894319344609,33.78695544494976,0
+    131.67890296839,33.62999835453385,0
+    131.7371811724867,33.47957070171427,0
+  </coordinates></LineString></Placemark>
+</Document></kml>`;
+
 const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
-  rule_version: "RJFM_NORTHBOUND_R6_5_1_V1",
-  reference_revision: "2026-08-17-rjfm-umk-guidance-v1",
+  rule_version: "RJFM_NORTHBOUND_R6_5_1_V2",
+  reference_revision: "2026-08-17-rjfm-umk-guidance-v2",
   reference_content_fingerprint: "b".repeat(64),
   source_effective_dates: {
     training_procedure: "2024-05-01",
@@ -70,6 +84,7 @@ const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
       runway: "09",
       status: "WARNING",
       turn_method: "FIXED_BANK_20",
+      turn_direction: "LEFT",
       path: [
         {
           latitude_deg: 31.87618,
@@ -83,7 +98,7 @@ const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
           longitude_deg: 131.39,
           altitude_ft_msl: 2400,
           elapsed_seconds: 150,
-          segment: "LEFT_TURN",
+          segment: "EXTENSION_TURN",
         },
         {
           latitude_deg: 31.9851378,
@@ -109,8 +124,8 @@ const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
           metadata: { threshold_nm: 4 },
         },
       ],
-      full_left_turns: 1,
-      partial_left_turn_deg: 92.4,
+      full_turns: 1,
+      partial_turn_deg: 92.4,
       turn_entry_radial_deg: 326.2,
       turn_entry_dme_nm: 3.8,
       turn_entry_altitude_ft_msl: 2380,
@@ -125,6 +140,7 @@ const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
       runway: "27",
       status: "HARD_INVALID",
       turn_method: "ADJUSTED_MAX_RADIUS",
+      turn_direction: "RIGHT",
       path: [
         {
           latitude_deg: 31.87807,
@@ -138,7 +154,7 @@ const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
           longitude_deg: 131.5,
           altitude_ft_msl: 2700,
           elapsed_seconds: 185,
-          segment: "LEFT_TURN",
+          segment: "EXTENSION_TURN",
         },
         {
           latitude_deg: 31.9851378,
@@ -157,8 +173,8 @@ const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
           metadata: {},
         },
       ],
-      full_left_turns: 0,
-      partial_left_turn_deg: 188.1,
+      full_turns: 0,
+      partial_turn_deg: 188.1,
       turn_entry_radial_deg: 41.6,
       turn_entry_dme_nm: 5.2,
       turn_entry_altitude_ft_msl: 2850,
@@ -197,10 +213,11 @@ const rjfmValidUnavailableGuidanceFixture: RjfmDepartureGuidance = {
       runway: "27",
       status: "UNAVAILABLE",
       turn_method: "NONE",
+      turn_direction: "RIGHT",
       path: [],
       constraints: [],
-      full_left_turns: 0,
-      partial_left_turn_deg: null,
+      full_turns: 0,
+      partial_turn_deg: null,
       turn_entry_radial_deg: null,
       turn_entry_dme_nm: null,
       turn_entry_altitude_ft_msl: null,
@@ -453,6 +470,29 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expectDisplayProjectionToMatchWebTable(page);
 }
 
+async function reloadWithCurrentRjfmGuidance(
+  page: Page,
+  guidance: RjfmDepartureGuidance = rjfmDepartureGuidanceFixture,
+): Promise<WebState> {
+  const guidanceState = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  if (guidanceState.outcome === null) throw new Error("calculation outcome is missing");
+  guidanceState.outcome.rjfm_departure_guidance = guidance;
+  guidanceState.readiness.calculationIsCurrent = true;
+  await page.route("**/api/state", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(guidanceState),
+    });
+  }, { times: 1 });
+  await page.reload();
+  return guidanceState;
+}
+
 async function importKmlCandidate(page: Page): Promise<void> {
   await page.getByRole("button", { name: "KMLを貼り付け" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
@@ -600,6 +640,82 @@ test("mobile route confirmation follows the map without scrolling back", async (
   expect(overflow).toBeLessThanOrEqual(1);
 });
 
+test("responsive workflow keeps a one-way order at intermediate width", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.goto("/");
+  await calculateNavLog(page);
+  await reloadWithCurrentRjfmGuidance(page);
+
+  const input = page.locator(".input-rail");
+  const route = page.locator(".route-workspace");
+  const status = page.locator(".status-rail");
+  const navLog = page.locator(".nav-log-scroll");
+  const guidance = page.locator(".rjfm-guidance");
+  const intermediate = await Promise.all([
+    input.boundingBox(),
+    route.boundingBox(),
+    status.boundingBox(),
+    navLog.boundingBox(),
+    guidance.boundingBox(),
+  ]);
+  if (intermediate.some((box) => box === null)) {
+    throw new Error("Intermediate workflow regions are missing");
+  }
+  expect(intermediate[1]!.y).toBeGreaterThanOrEqual(
+    intermediate[0]!.y + intermediate[0]!.height - 1,
+  );
+  expect(intermediate[2]!.y).toBeGreaterThanOrEqual(
+    intermediate[1]!.y + intermediate[1]!.height - 1,
+  );
+  expect(intermediate[3]!.y).toBeGreaterThanOrEqual(
+    intermediate[2]!.y + intermediate[2]!.height - 1,
+  );
+  expect(intermediate[4]!.y).toBeGreaterThanOrEqual(
+    intermediate[3]!.y + intermediate[3]!.height - 1,
+  );
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const wide = await Promise.all([
+    input.boundingBox(),
+    route.boundingBox(),
+    status.boundingBox(),
+  ]);
+  if (wide.some((box) => box === null)) {
+    throw new Error("Wide workflow regions are missing");
+  }
+  expect(wide[1]!.x).toBeGreaterThanOrEqual(wide[0]!.x + wide[0]!.width - 1);
+  expect(wide[2]!.x).toBeGreaterThanOrEqual(wide[1]!.x + wide[1]!.width - 1);
+  expect(Math.abs(wide[0]!.y - wide[1]!.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(wide[1]!.y - wide[2]!.y)).toBeLessThanOrEqual(1);
+});
+
+test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays editable", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await dialog.getByRole("textbox").fill(rjfmPhysicalUmkOmaruKml);
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const rows = page.locator(".route-table tbody tr");
+  const departure = rows.nth(0);
+  const umk = rows.nth(1);
+  const omaru = rows.nth(2);
+  await expect(departure.locator(".fixed-altitude-control")).toContainText(
+    "UMK 5,500 ft HIT",
+  );
+  await expect(departure.locator(".fixed-phase")).toHaveText("上昇（固定）");
+  await expect(umk.locator(".fixed-altitude-control")).toContainText(
+    "UMK→OMARUの巡航高度",
+  );
+  await expect(umk.locator(".fixed-phase")).toHaveText("巡航（固定）");
+  await expect(departure.locator(".table-number-input, .table-select")).toHaveCount(0);
+  await expect(umk.locator(".table-number-input, .table-select")).toHaveCount(0);
+  await expect(omaru.locator(".table-number-input")).toBeVisible();
+  await expect(omaru.getByLabel(/出発LegのPhase/)).toBeVisible();
+});
+
 test("desktop map height is keyboard adjustable and fixed below breakpoint", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
@@ -626,22 +742,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await calculateNavLog(page);
-
-  const guidanceState = await page.evaluate(async () => {
-    const response = await fetch("/api/state");
-    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
-    return await response.json() as WebState;
-  });
-  if (guidanceState.outcome === null) throw new Error("calculation outcome is missing");
-  guidanceState.outcome.rjfm_departure_guidance = rjfmDepartureGuidanceFixture;
-  await page.route("**/api/state", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(guidanceState),
-    });
-  }, { times: 1 });
-  await page.reload();
+  const guidanceState = await reloadWithCurrentRjfmGuidance(page);
 
   const guidance = page.getByRole("region", { name: "RJFM北方面出発ガイダンス" });
   await expect(guidance).toBeVisible();
@@ -651,6 +752,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   const runway09 = guidance.getByRole("article", { name: "RWY 09 候補 成立（注意）" });
   const runway27 = guidance.getByRole("article", { name: "RWY 27 候補 不成立" });
   await expect(runway09).toContainText("左旋回 1周 + 92.4°");
+  await expect(runway27).toContainText("右旋回 188.1°");
   await expect(runway09).toContainText("R326° / 3.8 DME");
   await expect(runway09).toContainText("UMK 5,500 ft MSL");
   await expect(runway09).toContainText("LOSS +1.0 min");
@@ -661,6 +763,14 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(guidance).toContainText("訓練飛行実施要領");
   await expect(guidance).toContainText("2024-05-01");
   await expect(guidance).toContainText("ATC指示と実機の飛行を優先");
+  const navLogScrollBox = await page.locator(".nav-log-scroll").boundingBox();
+  const guidanceBox = await guidance.boundingBox();
+  if (!navLogScrollBox || !guidanceBox) {
+    throw new Error("NAV LOG guidance placement cannot be measured");
+  }
+  expect(guidanceBox.y).toBeGreaterThanOrEqual(
+    navLogScrollBox.y + navLogScrollBox.height - 1,
+  );
 
   const legend = page.getByRole("group", { name: "RJFMガイダンス凡例" });
   await expect(legend).toContainText("Newta CENTER");

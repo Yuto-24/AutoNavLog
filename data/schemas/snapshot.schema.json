@@ -1538,8 +1538,11 @@
           "type": "string"
         },
         "rule_version": {
-          "const": "RJFM_NORTHBOUND_R6_5_1_V1",
-          "default": "RJFM_NORTHBOUND_R6_5_1_V1",
+          "default": "RJFM_NORTHBOUND_R6_5_1_V2",
+          "enum": [
+            "RJFM_NORTHBOUND_R6_5_1_V1",
+            "RJFM_NORTHBOUND_R6_5_1_V2"
+          ],
           "title": "Rule Version",
           "type": "string"
         },
@@ -1659,10 +1662,10 @@
           "default": null,
           "title": "Expected Time Delta Seconds"
         },
-        "full_left_turns": {
+        "full_turns": {
           "default": 0,
           "minimum": 0,
-          "title": "Full Left Turns",
+          "title": "Full Turns",
           "type": "integer"
         },
         "notes": {
@@ -1672,7 +1675,7 @@
           "title": "Notes",
           "type": "array"
         },
-        "partial_left_turn_deg": {
+        "partial_turn_deg": {
           "anyOf": [
             {
               "exclusiveMaximum": 360,
@@ -1684,7 +1687,7 @@
             }
           ],
           "default": null,
-          "title": "Partial Left Turn Deg"
+          "title": "Partial Turn Deg"
         },
         "path": {
           "items": {
@@ -1729,6 +1732,9 @@
           ],
           "default": null,
           "title": "Tangent Residual Deg"
+        },
+        "turn_direction": {
+          "$ref": "#/$defs/RjfmTurnDirection"
         },
         "turn_entry_altitude_ft_msl": {
           "anyOf": [
@@ -1776,10 +1782,19 @@
       },
       "required": [
         "runway",
-        "status"
+        "status",
+        "turn_direction"
       ],
       "title": "RjfmRunwayGuidance",
       "type": "object"
+    },
+    "RjfmTurnDirection": {
+      "enum": [
+        "LEFT",
+        "RIGHT"
+      ],
+      "title": "RjfmTurnDirection",
+      "type": "string"
     },
     "RjfmTurnMethod": {
       "enum": [

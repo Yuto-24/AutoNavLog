@@ -16,6 +16,11 @@ from autonavlog.application.checkpoints import project_check_points
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.readiness import ReadinessEvaluation
 from autonavlog.application.readiness_service import ReadinessService
+from autonavlog.application.rjfm_departure_plan import (
+    RJFM_INPUT_MODE_EDITABLE,
+    TARGET_ALTITUDE_FT_MSL,
+    rjfm_section_input_modes,
+)
 from autonavlog.application.rjfm_departure_service import (
     build_rjfm_departure_guidance,
     normalize_rjfm_departure_plan,
@@ -34,6 +39,7 @@ from autonavlog.domain.planning import (
     PatternAltitudeValidationStatus,
     PersistedUiState,
     ReferenceDataSnapshot,
+    load_persisted_ui_state,
 )
 from autonavlog.domain.project import NavSection, Project, RouteNode, VisualReference
 from autonavlog.importers.kml import (
@@ -1220,6 +1226,18 @@ class AutoNavLogWebApplication:
         if project is None:
             return []
         nodes = {node.id: node for node in project.route_nodes}
+        input_modes: dict[str, str] = {}
+        raw_ui_state = project.metadata.get("ui_state")
+        if isinstance(raw_ui_state, dict):
+            try:
+                ui_state = load_persisted_ui_state(raw_ui_state)
+            except (TypeError, ValueError):
+                ui_state = None
+            if ui_state is not None and ui_state.rjfm_departure_plan is not None:
+                input_modes = rjfm_section_input_modes(
+                    project,
+                    ui_state.rjfm_departure_plan,
+                )
         guidance: list[dict[str, Any]] = []
         for section in project.ordered_sections():
             start = nodes.get(section.from_node_id)
@@ -1245,6 +1263,8 @@ class AutoNavLogWebApplication:
                 FlightPhase.CRUISE,
                 FlightPhase.DESCENT,
             }
+            input_mode = input_modes.get(str(section.id), RJFM_INPUT_MODE_EDITABLE)
+            fixed_by_rjfm = input_mode != RJFM_INPUT_MODE_EDITABLE
             guidance.append(
                 {
                     "sectionId": str(section.id),
@@ -1256,8 +1276,18 @@ class AutoNavLogWebApplication:
                         vfr_cruising_altitude_candidates(magnetic_course)
                     ),
                     "appliesToCruise": section.phase == FlightPhase.CRUISE,
-                    "appliesToCruisingAltitudeInput": (applies_to_cruising_altitude_input),
-                    "requiresReview": (applies_to_cruising_altitude_input and not matches),
+                    "appliesToCruisingAltitudeInput": (
+                        applies_to_cruising_altitude_input and not fixed_by_rjfm
+                    ),
+                    "requiresReview": (
+                        applies_to_cruising_altitude_input
+                        and not fixed_by_rjfm
+                        and not matches
+                    ),
+                    "inputMode": input_mode,
+                    "fixedAltitudeFtMsl": (
+                        TARGET_ALTITUDE_FT_MSL if fixed_by_rjfm else None
+                    ),
                 }
             )
         return guidance

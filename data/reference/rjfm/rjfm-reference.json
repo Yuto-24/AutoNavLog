@@ -95,6 +95,20 @@
         "Conversation decisions finalized 2026-08-16"
       ],
       "notes": "This source supplies planning-policy values that are not asserted to be AIP or training-document facts, including the 656–2,700 ft inclusive operational PCA test, 4.0 NM warning threshold, 20° bank, coordinate trigger radius, and numeric solver tolerances."
+    },
+    {
+      "id": "user-approved-rjfm-rwy-turn-policy-2026-08-17",
+      "title": "RJFM北行き例外のRWY別延長旋回方向に関する利用者決定",
+      "publisher": "AutoNavLog user",
+      "distribution": "USER_DECISION",
+      "url": null,
+      "effective_date": "2026-08-17",
+      "retrieved_date": "2026-08-17",
+      "sha256": null,
+      "pages_or_sections": [
+        "Conversation decision finalized 2026-08-17"
+      ],
+      "notes": "This user decision, rather than the attached training document, specifies LEFT extension turns for RWY09 and RIGHT extension turns for RWY27. RWY27 therefore uses RIGHT for both its initial cut and subsequent extension turn."
     }
   ],
   "airport": {
@@ -327,7 +341,8 @@
         "initial_straight_until_altitude_ft_msl": 1000.0,
         "initial_turn_direction": "LEFT",
         "initial_turn_angle_deg": 45.0,
-        "post_cut_magnetic_course_deg": 47.0
+        "post_cut_magnetic_course_deg": 47.0,
+        "extension_turn_direction": "LEFT"
       },
       "27": {
         "runway_id": "27",
@@ -336,14 +351,14 @@
         "initial_straight_until_altitude_ft_msl": null,
         "initial_turn_direction": "RIGHT",
         "initial_turn_angle_deg": 45.0,
-        "post_cut_magnetic_course_deg": 317.0
+        "post_cut_magnetic_course_deg": 317.0,
+        "extension_turn_direction": "RIGHT"
       }
     },
     "turn_bank_angle_deg": 20.0,
-    "extension_turn_direction": "LEFT",
     "minimum_turn_entry_dme_nm": 4.0,
     "minimum_turn_entry_dme_inclusive": true,
-    "dme_constraint_scope": "FINAL_LEFT_TURN_ENTRY_POINT",
+    "dme_constraint_scope": "FINAL_EXTENSION_TURN_ENTRY_POINT",
     "dme_constraint_severity": "WARNING_ONLY",
     "post_cut_straight_allowed_magnetic_courses": [
       {
@@ -365,7 +380,8 @@
     "pca_violation_severity": "HARD_INVALID",
     "source_ids": [
       "cac-rjfm-training-r6-5-1",
-      "user-approved-rjfm-guidance-policy-2026-08-16"
+      "user-approved-rjfm-guidance-policy-2026-08-16",
+      "user-approved-rjfm-rwy-turn-policy-2026-08-17"
     ]
   }
 }

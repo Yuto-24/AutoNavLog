@@ -6,6 +6,7 @@ from hmac import compare_digest
 
 from autonavlog.domain.enums import FlightPhase, RouteNodeRole
 from autonavlog.domain.planning import (
+    RJFM_DEPARTURE_RULE_VERSION,
     PersistedUiState,
     RjfmCoordinate,
     RjfmDeparturePlan,
@@ -18,6 +19,10 @@ from autonavlog.nav.geodesy import geodesic_leg
 
 TRIGGER_TOLERANCE_NM = 1.0
 TARGET_ALTITUDE_FT_MSL = 5500.0
+RJFM_INPUT_MODE_EDITABLE = "EDITABLE"
+RJFM_INPUT_MODE_DEPARTURE_TO_UMK_FIXED = "RJFM_DEPARTURE_TO_UMK_FIXED"
+RJFM_INPUT_MODE_UMK_TO_OMARU_FIXED = "RJFM_UMK_TO_OMARU_FIXED"
+RJFM_INPUT_MODE_PARENT_CONTAINS_UMK_FIXED = "RJFM_PARENT_CONTAINS_UMK_FIXED"
 _ORIGINAL_SECTIONS_METADATA_KEY = "rjfm_departure_exception_original_sections"
 _ORIGINAL_NODE_OVERRIDE_METADATA_KEY = "rjfm_departure_exception_original_node_override"
 
@@ -588,6 +593,51 @@ def rjfm_plan_matches_project(project: Project, plan: RjfmDeparturePlan) -> bool
     return compare_digest(expected_key, plan.route_application_key)
 
 
+def rjfm_section_input_modes(
+    project: Project,
+    plan: RjfmDeparturePlan,
+) -> dict[str, str]:
+    """Return the UI input policy for sections controlled by the RJFM exception.
+
+    The route graph deliberately retains physical UMK and OMARU nodes when they
+    are present.  This mapping exposes only the sections whose altitude and
+    phase are owned by the exception, so callers do not need to infer control
+    from point names or mutable display labels.
+    """
+
+    if not rjfm_plan_matches_project(project, plan):
+        return {}
+    sections = project.ordered_sections()
+    if not sections:
+        return {}
+    if plan.trigger == RjfmDepartureTrigger.OMARU:
+        return {
+            str(sections[0].id): RJFM_INPUT_MODE_PARENT_CONTAINS_UMK_FIXED,
+        }
+
+    nodes = project.ordered_nodes()
+    omaru_index = next(
+        (
+            index
+            for index, node in enumerate(nodes[2:], start=2)
+            if _distance_to(node, plan.omaru) <= 1e-6
+        ),
+        None,
+    )
+    if omaru_index is None:
+        return {}
+    modes = {
+        str(sections[0].id): RJFM_INPUT_MODE_DEPARTURE_TO_UMK_FIXED,
+    }
+    modes.update(
+        {
+            str(section.id): RJFM_INPUT_MODE_UMK_TO_OMARU_FIXED
+            for section in sections[1:omaru_index]
+        }
+    )
+    return modes
+
+
 def _deactivate_exception(project: Project) -> None:
     _remove_synthetic_omarus(project)
     _restore_original_node_override(project)
@@ -640,15 +690,24 @@ def _ui_state(project: Project) -> PersistedUiState:
 
 def _store_plan(project: Project, plan: RjfmDeparturePlan) -> None:
     current = _ui_state(project)
+    guidance = current.rjfm_departure_guidance
+    guidance_matches_plan = bool(
+        guidance is not None
+        and guidance.rule_version == RJFM_DEPARTURE_RULE_VERSION
+        and guidance.reference_revision == plan.reference_revision
+        and guidance.reference_content_fingerprint
+        == plan.reference_content_fingerprint
+        and guidance.center_route == [plan.umk, plan.over_field, plan.omaru]
+    )
     state = current.model_copy(
         update={
             "rjfm_departure_plan": plan,
-            # Preserve a saved diagnostic result only when the normalized route
-            # and reference revision produce the exact same plan.  Any material
-            # route change invalidates it and the next calculation regenerates it.
+            # Preserve a saved diagnostic result only when both the normalized
+            # plan and the guidance's current rule/reference/route identity match.
+            # Any old pack or material route change must be recalculated.
             "rjfm_departure_guidance": (
-                current.rjfm_departure_guidance
-                if current.rjfm_departure_plan == plan
+                guidance
+                if current.rjfm_departure_plan == plan and guidance_matches_plan
                 else None
             ),
         }

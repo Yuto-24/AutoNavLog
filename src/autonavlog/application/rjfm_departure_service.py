@@ -36,6 +36,7 @@ from autonavlog.domain.planning import (
     RjfmGuidancePathPoint,
     RjfmGuidanceStatus,
     RjfmRunwayGuidance,
+    RjfmTurnDirection,
     RjfmTurnMethod,
 )
 from autonavlog.domain.project import Project
@@ -173,6 +174,7 @@ def build_rjfm_departure_guidance(
     )
     runways: list[RjfmRunwayGuidance] = []
     for runway in ("09", "27"):
+        runway_policy = reference_pack.policy.runways[runway]
         solved = generate_rjfm_departure_guidance(
             DepartureGuidanceRequest(
                 runway_origin=_geo(reference_pack.runway.center),
@@ -194,7 +196,7 @@ def build_rjfm_departure_guidance(
                 climb_profile=profile,
                 magnetic_variation_deg_east=float(variation),
                 runway_procedure=_runway_procedure(
-                    reference_pack.policy.runways[runway],
+                    runway_policy,
                     float(reference_pack.policy.turn_bank_angle_deg),
                 ),
                 pca_region=_pca_region(reference_pack),
@@ -209,6 +211,7 @@ def build_rjfm_departure_guidance(
         runways.append(
             _map_runway_guidance(
                 runway,
+                TurnDirection(runway_policy.extension_turn_direction),
                 solved.status,
                 solved.selected_candidate,
                 solved.issues,
@@ -352,6 +355,7 @@ def _runway_procedure(
         initial_ground_course_magnetic_deg=float(policy.initial_magnetic_course_deg),
         post_cut_ground_course_magnetic_deg=float(policy.post_cut_magnetic_course_deg),
         initial_turn_direction=TurnDirection(policy.initial_turn_direction),
+        extension_turn_direction=TurnDirection(policy.extension_turn_direction),
         initial_distance_nm=(
             None
             if policy.initial_straight_distance_nm is None
@@ -368,6 +372,7 @@ def _runway_procedure(
 
 def _map_runway_guidance(
     runway: Literal["09", "27"],
+    turn_direction: TurnDirection,
     result_status: GuidanceStatus,
     candidate: GuidanceCandidate | None,
     issues: tuple[str, ...],
@@ -378,6 +383,7 @@ def _map_runway_guidance(
         return RjfmRunwayGuidance(
             runway=runway,
             status=RjfmGuidanceStatus.UNAVAILABLE,
+            turn_direction=RjfmTurnDirection(turn_direction.value),
             constraints=[
                 RjfmConstraintResult(
                     code=result_status.value,
@@ -429,8 +435,9 @@ def _map_runway_guidance(
             )
             for constraint in candidate.constraints
         ],
-        full_left_turns=candidate.full_left_turns,
-        partial_left_turn_deg=candidate.partial_left_turn_angle_deg,
+        turn_direction=RjfmTurnDirection(candidate.turn_direction.value),
+        full_turns=candidate.full_turns,
+        partial_turn_deg=candidate.partial_turn_angle_deg,
         turn_entry_radial_deg=candidate.mze_radial_deg,
         turn_entry_dme_nm=candidate.mze_dme_nm,
         turn_entry_altitude_ft_msl=candidate.turn_entry_altitude_ft,
@@ -478,8 +485,8 @@ def _constraint_message(code: str, passed: bool) -> str:
         "PCA": "宮崎特別管制区の対象高度帯",
         "POSITION_RESIDUAL": "UMK位置一致",
         "ALTITUDE_RESIDUAL": "UMK 5500 ft一致",
-        "TANGENT_RESIDUAL": "左旋回からUMK直線への接線接続",
-        "MZE_ENTRY_DME": "最終左旋回開始点のMZE DME 4.0 NM以上",
+        "TANGENT_RESIDUAL": "延長旋回からUMK直線への接線接続",
+        "MZE_ENTRY_DME": "最終延長旋回開始点のMZE DME 4.0 NM以上",
     }.get(code, code)
     return f"{label}: {'適合' if passed else '不適合'}"
 
@@ -490,6 +497,7 @@ def _source_effective_dates(pack: RjfmReferencePack) -> dict[str, str]:
         "aip-rjfm-2026-03-01-public-mirror": "AIP RJFM",
         "mlit-special-control-area-consolidated-2024-02-08": "PCA告示",
         "user-approved-rjfm-guidance-policy-2026-08-16": "運用設定",
+        "user-approved-rjfm-rwy-turn-policy-2026-08-17": "RWY別旋回設定",
     }
     return {
         labels.get(source.id, source.id): source.effective_date
@@ -525,6 +533,9 @@ def _unavailable_guidance(
         RjfmRunwayGuidance(
             runway=cast(Literal["09", "27"], runway),
             status=RjfmGuidanceStatus.UNAVAILABLE,
+            turn_direction=RjfmTurnDirection(
+                pack.policy.runways[runway].extension_turn_direction
+            ),
             constraints=[
                 RjfmConstraintResult(
                     code="GUIDANCE_INPUT_UNAVAILABLE",

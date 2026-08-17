@@ -249,6 +249,7 @@ class RunwayDeparturePolicy(RjfmReferenceModel):
     initial_turn_direction: Literal["LEFT", "RIGHT"]
     initial_turn_angle_deg: float = Field(gt=0.0, lt=360.0)
     post_cut_magnetic_course_deg: float = Field(ge=0.0, lt=360.0)
+    extension_turn_direction: Literal["LEFT", "RIGHT"]
 
     @model_validator(mode="after")
     def validate_initial_straight_end(self) -> RunwayDeparturePolicy:
@@ -280,10 +281,9 @@ class RjfmDeparturePolicy(RjfmReferenceModel):
     trigger_radius_nm: float = Field(gt=0.0)
     runways: dict[str, RunwayDeparturePolicy]
     turn_bank_angle_deg: float = Field(gt=0.0, lt=90.0)
-    extension_turn_direction: Literal["LEFT"]
     minimum_turn_entry_dme_nm: float = Field(gt=0.0)
     minimum_turn_entry_dme_inclusive: bool
-    dme_constraint_scope: Literal["FINAL_LEFT_TURN_ENTRY_POINT"]
+    dme_constraint_scope: Literal["FINAL_EXTENSION_TURN_ENTRY_POINT"]
     dme_constraint_severity: Literal["WARNING_ONLY"]
     post_cut_straight_allowed_magnetic_courses: list[MagneticCourseInterval] = Field(
         min_length=2,
@@ -305,6 +305,14 @@ class RjfmDeparturePolicy(RjfmReferenceModel):
             raise ValueError("departure policies must contain exactly runway 09 and 27")
         if any(key != policy.runway_id for key, policy in self.runways.items()):
             raise ValueError("departure policy keys must match runway IDs")
+        extension_directions = {
+            runway: policy.extension_turn_direction
+            for runway, policy in self.runways.items()
+        }
+        if extension_directions != {"09": "LEFT", "27": "RIGHT"}:
+            raise ValueError(
+                "extension-turn directions must be LEFT for RWY09 and RIGHT for RWY27"
+            )
         fixed_values = {
             "target_altitude_ft_msl": (self.target_altitude_ft_msl, 5500.0),
             "trigger_radius_nm": (self.trigger_radius_nm, 1.0),

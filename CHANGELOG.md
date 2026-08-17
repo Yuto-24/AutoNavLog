@@ -2,6 +2,27 @@
 
 AutoNavLog の利用者に影響する変更を記録します。
 
+## Unreleased
+
+### 変更
+
+- RJFMから大分方面への北行き例外で、NAV LOG上の `RJFM → OMARU` を1つの親Legとし、
+  `UMK/RCA 5,500 ft` をその内部境界として表示するようにしました。経路表とRoute Graphは
+  UMK・OMARUを個別に保持します。
+- RJFMからUMKのALT・Phaseを `UMK 5,500 ft HIT / CLIMB`、UMKからOMARUを
+  `5,500 ft / CRUISE`に固定しました。固定区間の入力欄は表示せず、OMARUから先は編集できます。
+- RWY09の延長旋回は左、RWY27の初期旋回と延長旋回は右にしました。旋回案内の保存形式は
+  `turn_direction`、`full_turns`、`partial_turn_deg` の方向非依存の名前に変更しました。
+- RJFM案内カードをNAV LOG主表・FUEL表の下へ移し、現在の計算結果だけで表示するように
+  しました。MAPのRJFM経路線と凡例はそのまま表示します。
+- 画面幅1,240 px以下を「入力 → 経路・MAP → 準備状況 → NAV LOG → RJFM案内」の1列順にし、
+  操作中の上下往復を減らしました。
+
+### 互換性
+
+- 旧Projectの `full_left_turns` と `partial_left_turn_deg` は読込時に左旋回として移行します。
+  旧参照パックの案内結果は現行計算とは扱わず、新しい参照パックで再計算します。
+
 ## 1.0.0 - 2026-08-16
 
 AutoNavLogの初回正式版です。従来のNAV2計算・安全ゲートに加え、FTD訓練と

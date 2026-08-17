@@ -30,10 +30,25 @@ from autonavlog.weather.destination_taf import DestinationWindForecast
 class NavLogPhysicalLeg:
     """Minimum physical-Leg data required by the display projection."""
 
-    section_id: UUID
+    section_ids: tuple[UUID, ...]
     phase: FlightPhase
     start_name: str
     end_name: str
+    summary_true_course_deg: float | None = None
+    summary_variation_deg_east: float | None = None
+    summary_magnetic_course_deg: float | None = None
+
+    def __post_init__(self) -> None:
+        if not self.section_ids:
+            raise ValueError("NavLogPhysicalLeg requires at least one source section")
+        if len(set(self.section_ids)) != len(self.section_ids):
+            raise ValueError("NavLogPhysicalLeg source sections must be unique")
+
+    @property
+    def section_id(self) -> UUID:
+        """Stable parent-row identity for existing display-row consumers."""
+
+        return self.section_ids[0]
 
 
 def _blank() -> NavLogDisplayCell:
@@ -485,10 +500,6 @@ def build_navlog_display_rows(
 ) -> list[NavLogDisplayRow]:
     """Build the Golden NAV LOG projection without changing calculation totals."""
 
-    grouped = {
-        leg.section_id: [section for section in sections if section.section_id == leg.section_id]
-        for leg in physical_legs
-    }
     estimated_altitudes = _estimated_descent_altitudes(sections)
     rows: list[NavLogDisplayRow] = []
 
@@ -496,7 +507,10 @@ def build_navlog_display_rows(
         rows.append(row.model_copy(update={"sequence": len(rows)}))
 
     for leg_index, leg in enumerate(physical_legs):
-        zones = grouped[leg.section_id]
+        source_section_ids = set(leg.section_ids)
+        zones = [
+            section for section in sections if section.section_id in source_section_ids
+        ]
         if not zones:
             continue
         first = zones[0]
@@ -546,6 +560,16 @@ def build_navlog_display_rows(
                 "mh": _blank(),
                 "gs": _blank(),
             }
+            direct_summary_values = {
+                "tc": leg.summary_true_course_deg,
+                "variation": leg.summary_variation_deg_east,
+                "mc": leg.summary_magnetic_course_deg,
+            }
+            for name, value in direct_summary_values.items():
+                if value is None:
+                    continue
+                formatter = _signed if name == "variation" else _bearing
+                parent_values[name] = _display(formatter(value), value)
         else:
             if first.phase in {FlightPhase.DESCENT, FlightPhase.VISUAL_ARRIVAL}:
                 parent_pa = _symbol("↘", "DESCENT")
@@ -672,7 +696,7 @@ def build_navlog_display_rows(
                 zone_ete = zone.zone_ete_seconds.adopted()
                 append(
                     NavLogDisplayRow(
-                        section_id=leg.section_id,
+                        section_id=zone.section_id,
                         sequence=0,
                         source_result_sequence=zone.sequence,
                         phase=zone.phase,

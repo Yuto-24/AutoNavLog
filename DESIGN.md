@@ -1,11 +1,11 @@
 # AutoNavLog UI改善 要求仕様書
 
-- 版: 2.8.0
+- 版: 2.9.0
 - 日付: 2026-08-17
 - 対象: AutoNavLog 1.0.0 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
 - 実装担当: 別エージェント
 
-## v2.8.0 RJFM北行き UMK/RCA例外（本節を最優先）
+## v2.9.0 RJFM北行き UMK/RCA例外（本節を最優先）
 
 本節は、宮崎から大分方面へ `UMK → OVER FIELD → OMARU` のNewta CENTER Routeを
 使用し、UMKを5,500 ft MSLで通過する計画だけに適用する。通常経路の距離・風三角・
@@ -30,16 +30,24 @@
 - RCA位置は風で得た直線距離ではなく、物理UMKではその物理Legの採用終端、仮想UMKでは
   RJFM→OMARU親Legの採用距離を測地線距離比で換算した主経路位置へ固定する。
 - CLIMBのETEと燃料は、採用温度を反映したPOHの5,500 ft到達値を採用する。
-- 主表のDIST、TC、VAR、MC、WIND、WCA、MH、GSはKMLの直線Legについて通常どおり
-  表示する。この例外のCLIMB行だけは、意図的に `ETE != DIST / GS` となる。
+- 子区間のDIST、TC、VAR、MC、WIND、WCA、MH、GSはKMLの直線Legについて通常どおり
+  表示する。この例外のCLIMB子行だけは、意図的に `ETE != DIST / GS` となる。
 - 旋回案内の経路長、旋回時間、風偏位を主NAVLOGのTTL DIST・TTL TIME・燃料へ加えない。
+- Route GraphではUMKとOMARUを独立点のまま保持する。NAV LOG主表では、RJFMから
+  OMARU到着までの既存Sectionを1つの`RJFM→OMARU`親Legへ集約し、UMK/RCAを子区間境界として
+  内包する。親DIST・ETE・燃料は子区間の未丸め合計、親TC・VAR・MCはRJFMからOMARUへの
+  WGS84直行測地線値とする。親WIND・WCA・MH・GSは複数の実区間を単一値で表せないため空欄とし、
+  子区間には各Sectionの実計算値を残す。
+- RJFM→UMKは`CLIMB`、UMK→OMARUは`CRUISE`、いずれも5,500 ft MSLに固定する。
+  経路表とNAV LOG編集表ではALT・Phaseを読取専用にし、OMARU出発Legから通常編集へ戻す。
 
 ### D-45 RWY別の診断案内
 
-- RWY09とRWY27を毎回同じ採用風、TAS、POH高度時間で解く。20°固定バンクの空気塊旋回を
+- RWY09とRWY27を毎回同じ採用風、TAS、POH高度時間で解く。RWY09の延長旋回は左、
+  RWY27の初期旋回と延長旋回は右とする。20°固定バンクの空気塊旋回を
   優先し、解がなければ全方位の最大地上旋回半径を満たす20°以下の調整円を試す。
 - 延長直線と最終UMK直線のMC範囲、PCA、UMK位置・5,500 ft・接線残差をhard制約とする。
-  最終左旋回開始点のMZE 4.0 DME以上はwarningのみとする。
+  最終延長旋回開始点のMZE 4.0 DME以上はwarningのみとする。
 - hard不適合経路は編集地図へ赤い診断線として残すが、転記補助へ経路を出さない。
   `NO_SOLUTION`と入力不足は算出不可理由を保存する。
 - この診断の不成立・warningは`Issue`、ProjectStatus、転記可否へ加えない。ATC指示、地形、
@@ -56,13 +64,26 @@
   保存計画が現在の経路・制御Leg・RCA距離・規則パックと一致しない場合は例外計算へ渡さず、
   Webでは旧診断線を非表示、直接計算ではBlockerとする。
 
-### v2.8.0受入基準
+### D-47 Web配置
+
+- RJFM NORTHBOUND EXCEPTIONカードは、NAV LOG主表とFUEL表を含む横スクロール領域の直下へ
+  表示する。経路線、CENTER Route、凡例は経路MAP内へ残す。計算入力がcurrentでない場合は
+  カードと診断線を表示しない。
+- 画面幅1,240 px以下は、入力、経路・MAP、準備状況、NAV LOG、RJFM案内の順に1列表示する。
+  1,240 pxを超える3列表示では入力・経路・準備状況の上端を揃え、操作のために上下往復を
+  要求する中間配置を作らない。
+
+### v2.9.0受入基準
 
 - **W-17**: 点名が誤っていても座標でUMK/OMARUを判定し、既存点の移動・重複挿入をしない。
 - **W-18**: UMK/RCAまでのCLIMB ETE/FUELがPOH値と一致し、直線GSとDISTは変わらない。
 - **W-19**: RWY09/27の成立・注意・不成立・算出不可を同じDTOで保存し、診断不成立だけでは
   ProjectStatusと転記可否が変わらない。
 - **W-20**: Web編集地図、転記補助、保存再読込、schema、出典文書で同じ規則版を扱う。
+- **W-21**: UMK物理／仮想の両経路で、NAV LOGは`RJFM→OMARU`を1親Legとして表示し、
+  UMK/RCAを子境界に保持する。固定区間のALT・Phaseは編集できず、OMARU出発Legは編集できる。
+- **W-22**: RWY09は左、RWY27は右の延長旋回を固定バンク／調整円の両モデルで生成する。
+- **W-23**: 1,100 px前後のWeb画面で入力から結果までの表示順が下方向に単調である。
 
 ## v2.7.5 Issue #43 Golden NAVLOG表示（本節を最優先）
 

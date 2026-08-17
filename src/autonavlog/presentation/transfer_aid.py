@@ -590,9 +590,16 @@ def _rjfm_candidate_summary(candidate: Any) -> str:
         RjfmGuidanceStatus.VALID: "成立",
         RjfmGuidanceStatus.WARNING: "成立（注意）",
     }.get(candidate.status, candidate.status.value)
+    turn_direction = (
+        "" if candidate.turn_direction is None else str(candidate.turn_direction.value)
+    )
+    turn_label = {
+        "LEFT": "左",
+        "RIGHT": "右",
+    }.get(turn_direction, "方向未確定")
     turn_method = {
-        "FIXED_BANK_20": "左20°バンク",
-        "ADJUSTED_MAX_RADIUS": "最大半径へ調整",
+        "FIXED_BANK_20": f"{turn_label}20°バンク",
+        "ADJUSTED_MAX_RADIUS": f"{turn_label}旋回・最大半径へ調整",
         "NONE": "旋回解なし",
     }.get(candidate.turn_method.value, candidate.turn_method.value)
     delta = candidate.expected_time_delta_seconds
@@ -612,13 +619,13 @@ def _rjfm_candidate_summary(candidate: Any) -> str:
     )
     partial = (
         "-"
-        if candidate.partial_left_turn_deg is None
-        else f"{round_half_up(float(candidate.partial_left_turn_deg), 1.0):.0f}°"
+        if candidate.partial_turn_deg is None
+        else f"{round_half_up(float(candidate.partial_turn_deg), 1.0):.0f}°"
     )
     return (
         f"RWY{candidate.runway}: {escape(status)} / "
         f"{escape(turn_method)} / "
-        f"左360°×{candidate.full_left_turns} + {partial} / "
+        f"{turn_label}360°×{candidate.full_turns} + {partial} / "
         f"進入 {radial} {dme} / UMK 5500 ft / LOSS・GAIN {delta_text}"
     )
 
@@ -638,9 +645,7 @@ def _rjfm_guidance_section(outcome: CalculationOutcome) -> str:
         for candidate in guidance.candidates
         if candidate.status in {RjfmGuidanceStatus.HARD_INVALID, RjfmGuidanceStatus.UNAVAILABLE}
     ]
-    summaries = "".join(
-        f"<li>{_rjfm_candidate_summary(candidate)}</li>" for candidate in usable
-    )
+    summaries = "".join(f"<li>{_rjfm_candidate_summary(candidate)}</li>" for candidate in usable)
     advisories = "".join(
         "<li>"
         f"RWY{candidate.runway}: "
@@ -655,8 +660,7 @@ def _rjfm_guidance_section(outcome: CalculationOutcome) -> str:
         for candidate in usable
         if candidate.status == RjfmGuidanceStatus.WARNING
         and any(
-            not constraint.hard and not constraint.passed
-            for constraint in candidate.constraints
+            not constraint.hard and not constraint.passed for constraint in candidate.constraints
         )
     )
     failures = "".join(
@@ -683,8 +687,7 @@ def _rjfm_guidance_section(outcome: CalculationOutcome) -> str:
         else ""
     )
     advisory_html = (
-        f"<p class='rjfm-advisory'><strong>成立候補の注意条件:</strong></p>"
-        f"<ul>{advisories}</ul>"
+        f"<p class='rjfm-advisory'><strong>成立候補の注意条件:</strong></p><ul>{advisories}</ul>"
         if advisories
         else ""
     )
@@ -694,10 +697,11 @@ def _rjfm_guidance_section(outcome: CalculationOutcome) -> str:
   <div class='rjfm-guidance-layout'>
     {_rjfm_guidance_svg(outcome)}
     <div>
-      <p><strong>主NAVLOG例外:</strong> 直線LegのDIST・WCA・MH・GSを表示し、
-      CLIMB ETE/FUELはPOHの5500 ft到達値を採用しています。DIST÷GSとは一致しません。</p>
+      <p><strong>主NAVLOG例外:</strong> RJFM → OMARUを1つの親Legとして表示し、
+      UMK/RCA 5500 ftをCLIMBからCRUISEへの内部境界とします。
+      DIST・ETE・FUELは子区間の合計、TC・VAR・MCはRJFM → OMARUの直行値です。</p>
       <p><strong>CENTER ROUTE:</strong> UMK → OVER FIELD → OMARU / 5500 ft</p>
-      <ul>{summaries or '<li>使用可能な案内経路なし</li>'}</ul>
+      <ul>{summaries or "<li>使用可能な案内経路なし</li>"}</ul>
       {advisory_html}
       {invalid_html}
       <p><strong>参照版:</strong> {escape(guidance.reference_revision)}<br>

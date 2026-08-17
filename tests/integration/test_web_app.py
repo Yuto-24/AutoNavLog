@@ -958,6 +958,64 @@ async def test_intermediate_line_names_preserve_every_original_coordinate(
             5500,
         ]
 
+        fixed_section_ids = {
+            item["sectionId"]: item["inputMode"]
+            for item in confirmed.json()["altitudeGuidance"]["sections"]
+        }
+        assert fixed_section_ids[confirmed.json()["project"]["sections"][0]["id"]] == (
+            "RJFM_DEPARTURE_TO_UMK_FIXED"
+        )
+        assert fixed_section_ids[confirmed.json()["project"]["sections"][1]["id"]] == (
+            "RJFM_UMK_TO_OMARU_FIXED"
+        )
+        assert fixed_section_ids[confirmed.json()["project"]["sections"][2]["id"]] == (
+            "EDITABLE"
+        )
+
+        submitted_sections = []
+        for index, section in enumerate(confirmed.json()["project"]["sections"]):
+            altitude = section["planned_altitude_ft_msl"]
+            phase = section["phase"]
+            if index == 0:
+                altitude = 4200
+                phase = "DESCENT"
+            elif index == 1:
+                altitude = 4300
+                phase = "DESCENT"
+            elif index == 2:
+                altitude = 6400
+                phase = "CRUISE"
+            submitted_sections.append(
+                {
+                    "section_id": section["id"],
+                    "planned_altitude_ft_msl": altitude,
+                    "phase": phase,
+                }
+            )
+        updated = await client.put(
+            "/api/project",
+            json={
+                "flight_date": "2099-08-10",
+                "departure_time_jst": "09:00",
+                "total_usable_fuel_gal": 90,
+                "default_variation_deg_east": 8,
+                "tgl_count": 0,
+                "sections": submitted_sections,
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        updated_sections = updated.json()["project"]["sections"]
+        assert [section["planned_altitude_ft_msl"] for section in updated_sections[:3]] == [
+            5500,
+            5500,
+            6400,
+        ]
+        assert [section["phase"] for section in updated_sections[:3]] == [
+            "CLIMB",
+            "CRUISE",
+            "CRUISE",
+        ]
+
         destination = await client.post(
             "/api/destination/confirm",
             json={

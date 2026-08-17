@@ -15,6 +15,7 @@ from autonavlog.application.rjfm_departure_service import (
 from autonavlog.domain.planning import (
     PersistedUiState,
     RjfmGuidanceStatus,
+    RjfmTurnDirection,
     load_persisted_ui_state,
 )
 from autonavlog.storage.rjfm_reference import RjfmReferencePack
@@ -81,8 +82,17 @@ def test_guidance_uses_calculated_climb_inputs_and_keeps_failures_diagnostic(
 
     assert guidance is not None
     assert guidance.generated_against_fingerprint == "a" * 64
+    assert guidance.rule_version == "RJFM_NORTHBOUND_R6_5_1_V2"
     assert guidance.reference_content_fingerprint == pack.content_fingerprint
     assert [candidate.runway for candidate in guidance.candidates] == ["09", "27"]
+    assert [candidate.turn_direction for candidate in guidance.candidates] == [
+        RjfmTurnDirection.LEFT,
+        RjfmTurnDirection.RIGHT,
+    ]
+    serialized = guidance.model_dump(mode="json")
+    assert all("full_left_turns" not in item for item in serialized["candidates"])
+    assert all("partial_left_turn_deg" not in item for item in serialized["candidates"])
+    assert guidance.source_effective_dates["RWY別旋回設定"] == "2026-08-17"
     assert [point.source for point in guidance.center_route][0] == "KML:UMK"
     assert all(
         candidate.path or candidate.constraints
@@ -93,6 +103,7 @@ def test_guidance_uses_calculated_climb_inputs_and_keeps_failures_diagnostic(
         if candidate.path:
             assert candidate.path[-1].altitude_ft_msl == pytest.approx(5500, abs=10)
             assert candidate.expected_time_delta_seconds is not None
+            assert any(point.segment == "EXTENSION_TURN" for point in candidate.path)
         if candidate.status in {RjfmGuidanceStatus.VALID, RjfmGuidanceStatus.WARNING}:
             assert all(
                 constraint.passed
@@ -168,6 +179,10 @@ def test_stale_plan_cannot_be_relabelled_with_current_pack_provenance(
         candidate.status == RjfmGuidanceStatus.UNAVAILABLE
         for candidate in guidance.candidates
     )
+    assert [candidate.turn_direction for candidate in guidance.candidates] == [
+        RjfmTurnDirection.LEFT,
+        RjfmTurnDirection.RIGHT,
+    ]
     assert all(point.source.startswith("RJFM_REFERENCE:") for point in guidance.center_route)
     assert "一致しません" in guidance.candidates[0].constraints[0].message
 

@@ -139,9 +139,20 @@ docker compose -p autonavlog-dev down
 TAF を取得できなくても計算は続きます。
 
 RJFMから大分方面へ北上する経路で、最初のWaypointがUMKまたはOMARUの参照座標から
-1.0 NM以内なら、UMK 5,500 ftのRCA例外を自動適用します。NAV LOGには直線主経路の
-DIST・GSを表示する一方、ETE・燃料はPOHの5,500 ft上昇値とし、延長旋回は別の参考案内として
-表示します。適用条件と制限は[計算規則](docs/calculation_rules.md#rjfm大分方面のumkrca例外)を参照してください。
+1.0 NM以内なら、UMK 5,500 ftのRCA例外を自動適用します。経路表と内部Route Graphは
+UMKとOMARUを保持しますが、NAV LOGでは `RJFM → OMARU` を1つの親Legとし、その中に
+`UMK/RCA 5,500 ft` の境界を表示します。親LegのDIST・ETE・燃料は子区間の合計、
+TC・VAR・MCはRJFMからOMARUへの直行測地線値です。
+
+RJFMからUMKは `UMK 5,500 ft HIT / CLIMB`、UMKからOMARUは `5,500 ft / CRUISE`に
+固定し、この区間にALT・Phaseの入力欄は表示しません。OMARUから先は通常どおり編集できます。
+RWY09の延長旋回は左、RWY27の初期旋回と延長旋回は右です。このRWY別方向は添付資料の
+転記ではなく、2026-08-17の利用者決定として参照データに記録しています。
+
+RJFM案内カードは、現在の計算結果に限りNAV LOG主表とFUEL表の下に表示します。
+MAP内の経路線と凡例は残ります。画面幅1,240 px以下では「入力 → 経路・MAP → 準備状況 →
+NAV LOG → RJFM案内」の1列順となり、上下に往復せず確認できます。適用条件と制限は
+[計算規則](docs/calculation_rules.md#rjfm大分方面のumkrca例外)を参照してください。
 
 同梱している RJFM/RJFO の場周経路高度は、一次資料による出典確認が終わっていないため
 `UNVERIFIED` です。経路の取込、入力確認、下書き保存はできますが、

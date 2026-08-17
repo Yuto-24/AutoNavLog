@@ -78,6 +78,15 @@ function App() {
   const navLogDraftsRef = useRef<NavLogEditDrafts>({});
   const projectIdRef = useRef<string | null | undefined>(undefined);
   const navLogRecalculationRef = useRef<Promise<void>>(Promise.resolve());
+  const altitudeGuidanceBySection = useMemo(
+    () => new Map(
+      (state?.altitudeGuidance.sections ?? []).map((guidance) => [
+        guidance.sectionId,
+        guidance,
+      ]),
+    ),
+    [state?.altitudeGuidance.sections],
+  );
 
   const invalidateCalculationInputs = () => {
     calculationInputGenerationRef.current += 1;
@@ -460,6 +469,8 @@ function App() {
   };
 
   const handleAltitudeInputChange = (sectionId: string, value: string) => {
+    const inputMode = altitudeGuidanceBySection.get(sectionId)?.inputMode;
+    if (inputMode !== undefined && inputMode !== "EDITABLE") return;
     invalidateCalculationInputs();
     setAltitudeInputs((current) => ({ ...current, [sectionId]: value }));
     const altitude = Number(value);
@@ -489,6 +500,16 @@ function App() {
     changes: Partial<NavSection>,
     invalidate = true,
   ) => {
+    const guidance = altitudeGuidanceBySection.get(sectionId);
+    const fixed = guidance !== undefined && guidance.inputMode !== "EDITABLE";
+    const safeChanges = fixed
+      ? Object.fromEntries(
+          Object.entries(changes).filter(
+            ([key]) => key !== "planned_altitude_ft_msl" && key !== "phase",
+          ),
+        ) as Partial<NavSection>
+      : changes;
+    if (Object.keys(safeChanges).length === 0) return;
     if (invalidate) invalidateCalculationInputs();
     setState((current) => {
       if (!current?.project) return current;
@@ -497,7 +518,7 @@ function App() {
         project: {
           ...current.project,
           sections: current.project.sections.map((section) =>
-            section.id === sectionId ? { ...section, ...changes } : section,
+            section.id === sectionId ? { ...section, ...safeChanges } : section,
           ),
         },
       };
@@ -507,14 +528,25 @@ function App() {
   const updatePayload = (sectionOverrides?: NavSection[]) => {
     const payloadSections = sectionOverrides ?? state?.project?.sections ?? [];
     if (!state?.project) throw new Error("Projectがありません。");
+    const canonicalSections = new Map(
+      state.project.sections.map((section) => [section.id, section]),
+    );
     const fuelGal = usableFuelGal(form);
     if (fuelGal === null) {
       throw new Error("FUELは0より大きく200 gal以下で入力してください。");
     }
     const plannedAltitudes = new Map(
       payloadSections.map((section) => {
+        const guidance = altitudeGuidanceBySection.get(section.id);
+        const fixed = guidance !== undefined && guidance.inputMode !== "EDITABLE";
+        const canonicalSection = canonicalSections.get(section.id) ?? section;
         const rawAltitude = (
-          sectionOverrides
+          fixed
+            ? String(
+                guidance.fixedAltitudeFtMsl
+                  ?? canonicalSection.planned_altitude_ft_msl,
+              )
+            : sectionOverrides
             ? String(section.planned_altitude_ft_msl)
             : altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)
         ).trim();
@@ -551,18 +583,23 @@ function App() {
       weather_mode: form.weatherMode,
       ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
       tgl_count: form.tglCount,
-      sections: payloadSections.map((section) => ({
-        section_id: section.id,
-        planned_altitude_ft_msl:
-          plannedAltitudes.get(section.id) ?? section.planned_altitude_ft_msl,
-        phase: section.phase,
-        manual_wind_direction_deg: section.manual_wind_direction_deg,
-        manual_wind_speed_kt: section.manual_wind_speed_kt,
-        manual_wind_by_phase: section.manual_wind_by_phase ?? {},
-        manual_temperature_c: section.manual_temperature_c,
-        manual_temperature_c_by_phase: section.manual_temperature_c_by_phase ?? {},
-        manual_tas_kt: section.manual_tas_kt,
-      })),
+      sections: payloadSections.map((section) => {
+        const guidance = altitudeGuidanceBySection.get(section.id);
+        const fixed = guidance !== undefined && guidance.inputMode !== "EDITABLE";
+        const canonicalSection = canonicalSections.get(section.id) ?? section;
+        return {
+          section_id: section.id,
+          planned_altitude_ft_msl:
+            plannedAltitudes.get(section.id) ?? canonicalSection.planned_altitude_ft_msl,
+          phase: fixed ? canonicalSection.phase : section.phase,
+          manual_wind_direction_deg: section.manual_wind_direction_deg,
+          manual_wind_speed_kt: section.manual_wind_speed_kt,
+          manual_wind_by_phase: section.manual_wind_by_phase ?? {},
+          manual_temperature_c: section.manual_temperature_c,
+          manual_temperature_c_by_phase: section.manual_temperature_c_by_phase ?? {},
+          manual_tas_kt: section.manual_tas_kt,
+        };
+      }),
       visual_reporting_point_node_id: arrival?.visual_reporting_point_node_id ?? fallbackVrep,
       arrival_altitude_mode: arrival?.altitude_mode ?? "STANDARD_DISTANCE_RULE",
       manual_vrep_altitude_ft_msl: arrival?.manual_vrep_altitude_ft_msl ?? null,
@@ -579,6 +616,10 @@ function App() {
   ) => {
     const inputSection = state?.project?.sections.find((section) => section.id === sectionId);
     if (!inputSection || !state?.project) return;
+    const inputMode = altitudeGuidanceBySection.get(sectionId)?.inputMode;
+    if (field === "plannedAltitude" && inputMode !== undefined && inputMode !== "EDITABLE") {
+      return;
+    }
     const currentDraft =
       navLogDraftsRef.current[sectionId] ?? draftFromSection(inputSection);
     const nextDraft = field === "temperature"
@@ -832,6 +873,11 @@ function App() {
       usableFuelGal(form) !== null &&
       (form.weatherMode !== "FTD" || validFtdWeather !== null),
   );
+  const calculationIsCurrent =
+    state.readiness.calculationIsCurrent && calculationInputsAreLocallyCurrent;
+  const currentRjfmGuidance = calculationIsCurrent
+    ? state.outcome?.rjfm_departure_guidance ?? null
+    : null;
 
   return (
     <div className="app-shell">
@@ -886,9 +932,7 @@ function App() {
           project={state.project}
           altitudeGuidance={state.altitudeGuidance}
           outcome={state.outcome}
-          calculationIsCurrent={
-            state.readiness.calculationIsCurrent && calculationInputsAreLocallyCurrent
-          }
+          calculationIsCurrent={calculationIsCurrent}
           altitudeInputs={altitudeInputs}
           destinationAirport={selectedDestinationAirport}
           destinationPatternAltitudeFtMsl={form.destinationPatternAltitudeFtMsl}
@@ -945,6 +989,8 @@ function App() {
           <NavLogTable
             outcome={state.outcome}
             destinationWind={state.destinationWind}
+            altitudeGuidance={state.altitudeGuidance}
+            rjfmGuidance={currentRjfmGuidance}
             project={state.project}
             drafts={navLogDrafts}
             editErrors={navLogEditErrors}
