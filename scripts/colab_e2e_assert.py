@@ -155,7 +155,6 @@ def _synthetic_fixture() -> tuple[Any, Any, Any, Any]:
         Availability,
         FlightPhase,
         RouteNodeRole,
-        WeatherRequestKind,
     )
     from autonavlog.domain.project import Airport, NavSection, Project, RouteNode
     from autonavlog.domain.weather import WeatherResult
@@ -309,14 +308,6 @@ def _synthetic_fixture() -> tuple[Any, Any, Any, Any]:
     )
 
     def weather_result(request: Any) -> Any:
-        if request.kind == WeatherRequestKind.ESTIMATED_QNH:
-            return WeatherResult(
-                request_id=request.request_id,
-                availability=Availability.AVAILABLE,
-                kind=request.kind,
-                values={"label": "MSM推定QNH", "qnh_hpa": 1013.0},
-                metadata={"provider": "COLAB_E2E_SYNTHETIC"},
-            )
         return WeatherResult(
             request_id=request.request_id,
             availability=Availability.AVAILABLE,
@@ -337,10 +328,7 @@ def _synthetic_fixture() -> tuple[Any, Any, Any, Any]:
 
 def _check_calculation() -> tuple[tuple[Any, Any], dict[str, Any]]:
     from autonavlog.application.calculation_service import CalculationService
-    from autonavlog.nav.airspeed import (
-        pressure_altitude_exact_ft,
-        tas_from_cas,
-    )
+    from autonavlog.nav.airspeed import tas_from_cas
     from autonavlog.presentation.clearcopy import render_clearcopy_html
 
     airports, performance, project, provider = _synthetic_fixture()
@@ -367,20 +355,10 @@ def _check_calculation() -> tuple[tuple[Any, Any], dict[str, Any]]:
     )
     climb_sections = [section for section in outcome.sections if section.phase.value == "CLIMB"]
     _require(bool(climb_sections), "calculation emitted no CLIMB section")
-    qnh_hpa = outcome.qnh_hpa.adopted()
-    _require(qnh_hpa is not None, "automatic QNH is unavailable")
     departure = airports.get(project.departure_airport_id)
     climb_source = project.ordered_sections()[0]
-    departure_pressure_altitude = pressure_altitude_exact_ft(
-        departure.elevation_ft_msl,
-        float(qnh_hpa),
-    )
-    cruise_pressure_altitude = pressure_altitude_exact_ft(
-        climb_source.planned_altitude_ft_msl,
-        float(qnh_hpa),
-    )
     representative_pressure_altitude = (
-        departure_pressure_altitude + cruise_pressure_altitude
+        departure.elevation_ft_msl + climb_source.planned_altitude_ft_msl
     ) / 2.0
     expected_climb_tas = tas_from_cas(
         111.0,
@@ -761,8 +739,8 @@ def run_colab_e2e(
                     "This deterministic gate intentionally uses FakeWeatherProvider. "
                     "Live aloft weather uses the separately pinned jma-msm-wind "
                     "0.2.1 wheel, ecCodes, and JMA/RISH network access. Live "
-                    "MSM-estimated QNH additionally uses the verified Pzs terrain "
-                    "cache. Those live-data paths are checked separately."
+                    "MSM surface temperature additionally uses the Lsurf product. "
+                    "Those live-data paths are checked separately."
                 ),
             }
         },

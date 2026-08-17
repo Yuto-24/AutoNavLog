@@ -143,7 +143,12 @@ async def test_web_route_calculation_save_and_fail_closed_output(
             json={"filename": "route.kml", "kml_text": KML},
         )
         assert imported.status_code == 200
-        assert imported.json()["import"]["candidates"][0]["name"] == "RJFM-RJFO"
+        candidate = imported.json()["import"]["candidates"][0]
+        assert candidate["name"] == "RJFM-RJFO"
+        assert candidate["departureAirportId"] == "RJFM"
+        assert candidate["destinationAirportId"] == "RJFO"
+        assert candidate["departureDistanceNm"] <= 5
+        assert candidate["destinationDistanceNm"] <= 5
 
         confirmed = await client.post(
             "/api/route/confirm",
@@ -153,8 +158,6 @@ async def test_web_route_calculation_save_and_fail_closed_output(
                 "route_use_confirmed": True,
                 "flight_date": "2026-08-10",
                 "departure_time_jst": "09:00",
-                "departure_airport_id": "RJFM",
-                "destination_airport_id": "RJFO",
                 "total_usable_fuel_gal": 90,
                 "default_variation_deg_east": 8,
                 "all_leg_altitude_ft_msl": 3000,
@@ -218,7 +221,6 @@ async def test_web_route_calculation_save_and_fail_closed_output(
         destination_confirmed = await client.post(
             "/api/destination/confirm",
             json={
-                "destination_airport_id": "RJFO",
                 "selected_pattern_altitude_ft_msl": 1300,
             },
         )
@@ -410,7 +412,6 @@ async def test_ftd_mode_calculates_with_fixed_wind_and_isa_without_fake_weather_
         destination = await client.post(
             "/api/destination/confirm",
             json={
-                "destination_airport_id": "RJFO",
                 "selected_pattern_altitude_ft_msl": 1000,
             },
         )
@@ -511,7 +512,7 @@ async def test_checkpoint_crud_previews_projection_and_persists_on_saved_project
 
 
 @pytest.mark.anyio
-async def test_departure_override_uses_original_kml_start_and_keeps_old_payload_compatible(
+async def test_route_endpoints_are_server_resolved_and_manual_payload_is_rejected(
     tmp_path: Path,
 ) -> None:
     app = create_app(
@@ -531,7 +532,7 @@ async def test_departure_override_uses_original_kml_start_and_keeps_old_payload_
         )
         assert imported.status_code == 200
 
-        confirmed = await client.post(
+        manual = await client.post(
             "/api/route/confirm",
             json={
                 "candidate_kind": "line",
@@ -546,6 +547,18 @@ async def test_departure_override_uses_original_kml_start_and_keeps_old_payload_
                 "all_leg_altitude_ft_msl": 3000,
             },
         )
+        assert manual.status_code == 422
+        payload = {
+            "candidate_kind": "line",
+            "candidate_index": 0,
+            "route_use_confirmed": True,
+            "flight_date": "2026-08-10",
+            "departure_time_jst": "09:00",
+            "total_usable_fuel_gal": 90,
+            "default_variation_deg_east": 7,
+            "all_leg_altitude_ft_msl": 3000,
+        }
+        confirmed = await client.post("/api/route/confirm", json=payload)
         assert confirmed.status_code == 200, confirmed.text
         project = confirmed.json()["project"]
         assert project["departure_airport_id"] == "RJFK"
@@ -563,14 +576,11 @@ async def test_departure_override_uses_original_kml_start_and_keeps_old_payload_
                 "selected_pattern_altitude_ft_msl": 1000,
             },
         )
-        assert incompatible_override.status_code == 400
-        assert incompatible_override.json()["error"]["code"] == ("ROUTE_AIRPORT_ENDPOINT_MISMATCH")
-        assert "KML始点" in incompatible_override.json()["error"]["message"]
+        assert incompatible_override.status_code == 422
 
         compatible_old_payload = await client.post(
             "/api/destination/confirm",
             json={
-                "destination_airport_id": "RJFO",
                 "selected_pattern_altitude_ft_msl": 1000,
             },
         )
@@ -613,8 +623,6 @@ def _route_payload() -> dict[str, object]:
         "route_use_confirmed": True,
         "flight_date": "2099-08-10",
         "departure_time_jst": "09:00",
-        "departure_airport_id": "RJFM",
-        "destination_airport_id": "RJFO",
         "total_usable_fuel_gal": 90,
         "default_variation_deg_east": 8,
         "all_leg_altitude_ft_msl": 3500,
@@ -1025,7 +1033,6 @@ async def test_intermediate_line_names_preserve_every_original_coordinate(
         destination = await client.post(
             "/api/destination/confirm",
             json={
-                "destination_airport_id": "RJFO",
                 "selected_pattern_altitude_ft_msl": 1000,
             },
         )

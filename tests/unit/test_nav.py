@@ -5,7 +5,6 @@ import pytest
 from autonavlog.domain.enums import Pa500Policy
 from autonavlog.nav.airspeed import (
     cas_from_tas,
-    pressure_altitude_exact_ft,
     pressure_altitude_planning_ft,
     tas_from_cas,
 )
@@ -47,8 +46,7 @@ def test_calm_and_invalid_crosswind() -> None:
         solve_wind_triangle(0, 50, 90, 50)
 
 
-def test_pressure_altitude_and_planning_policy() -> None:
-    assert pressure_altitude_exact_ft(1234, 1013.25) == pytest.approx(1234)
+def test_pressure_altitude_planning_policy() -> None:
     assert pressure_altitude_planning_ft(1234, Pa500Policy.CEILING) == 1500
     assert pressure_altitude_planning_ft(1234, Pa500Policy.NEAREST) == 1000
     assert pressure_altitude_planning_ft(1234, Pa500Policy.FLOOR) == 1000

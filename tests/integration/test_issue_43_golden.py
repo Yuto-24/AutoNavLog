@@ -394,7 +394,9 @@ def test_issue_43_golden_display_structure_inheritance_and_destination(
     eoc_row = next(row for row in cruise_group if row.to_name == "EOC")
     assert eoc_row.toat.state == DisplayCellState.INHERIT
     assert eoc_row.toat.text is None
-    after_eoc = next(row for row in cruise_group if row.to_name == "合津")
+    before_eoc = next(row for row in cruise_group if row.to_name == "合津")
+    assert before_eoc.toat.state == DisplayCellState.INHERIT
+    after_eoc = next(row for row in cruise_group if row.to_name == "玉名")
     assert after_eoc.toat.state == DisplayCellState.DISPLAY_VALUE
 
     assert any(row.pa.text == "↗" for row in rows)
@@ -564,8 +566,8 @@ def test_issue_43_golden_eoc_uses_vertical_time_plus_one_minute_and_raw_order(
     ]
     labels = [row.to_name for row in second_leg]
     assert "EOC" in labels and "合津" in labels
-    assert labels.index("EOC") < labels.index("合津")
-    assert next(row for row in second_leg if row.to_name == "合津").distance.text == "1.0"
+    assert labels.index("合津") < labels.index("EOC")
+    assert next(row for row in second_leg if row.to_name == "合津").distance.text == "24.5"
     eoc = next(point for point in golden_outcome.derived_points if point.type.value == "EOC")
     check_point = next(
         point
@@ -573,10 +575,10 @@ def test_issue_43_golden_eoc_uses_vertical_time_plus_one_minute_and_raw_order(
         if point.checkpoint_id == CHECK_POINT_IDS[2]
     )
     assert check_point.cumulative_distance_nm - eoc.along_route_distance_nm == pytest.approx(
-        0.8,
+        -1.5,
         abs=0.35,
     )
-    assert check_point.cumulative_distance_nm > eoc.along_route_distance_nm
+    assert check_point.cumulative_distance_nm < eoc.along_route_distance_nm
 
 
 def test_issue_43_eoc_does_not_snap_to_a_nearby_check_point(

@@ -9,14 +9,9 @@
 
 - インストール済みdistribution、import済みmodule、adapterがすべて
   `jma-msm-wind==0.2.1`
-- 指定したPzs由来`terrain.npz`が存在し、読込可能
-- 地形元データのSHA-256が記録済み
-- RJFM/RJFOの両地点でモデル地形が有限値
-- 検査した地形と`MsmWeatherProvider`へ設定した地形が同一
 
 ```bash
 python scripts/validate_real_msm_release.py \
-  --terrain /content/terrain.npz \
   --cache-dir /content/msm-cache
 ```
 
@@ -25,23 +20,20 @@ python scripts/validate_real_msm_release.py \
 
 ```bash
 python scripts/validate_real_msm_release.py \
-  --terrain /content/terrain.npz \
   --cache-dir /content/msm-cache \
   --live \
   --valid-time 2026-07-30T03:00:00Z \
   --output /content/real-msm-acceptance.json
 ```
 
-ライブ試験は同じ時刻について、RJFM/RJFOそれぞれの5000 ft MSL上空風・気温、
-MSM地上気温、MSM推定QNHを問い合わせます。6結果がすべて`AVAILABLE`であることに加え、
+ライブ試験は同じ時刻について、RJFM/RJFOそれぞれの5000 ft MSL上空風・気温と
+MSM地上気温を問い合わせます。4結果がすべて`AVAILABLE`であることに加え、
 次を検査します。
 
 - `resolve_run`、同一Runのcoverage確認、`prepare_run`、`query_batch`が成功
 - 元GRIB URLと、URLをキーにした64桁SHA-256の集合が一致
 - Forecast Run、補間方式、格子・気圧面等のtraceが存在
 - 地上気温が`tmp_surface`のK値から℃へ変換され、水平・時間補間のtraceを保持
-- QNHのPzs元データSHA-256が事前検査した地形と一致
-- QNHが`MSM推定QNH`と表示され、廃止した重複警告コードを含まない
 
 オフライン事前検査の`PASS`はライブ取得成功を意味しません。実MSMをリリース済みと判定
 する証拠は、`mode: LIVE`、`live_executed: true`、`status: PASS`を持つJSONだけです。

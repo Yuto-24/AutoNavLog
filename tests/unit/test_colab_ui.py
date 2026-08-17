@@ -809,7 +809,6 @@ def test_loaded_snapshot_is_fully_readonly_and_does_not_fetch_or_write(
         viewer.route,
         viewer.phase,
         viewer.altitude,
-        viewer.manual_qnh,
     ):
         assert control.disabled is True
     for action in (

@@ -414,22 +414,6 @@ def _validate_performance(performance_root: Path) -> tuple[int, int]:
     )
 
 
-def _validate_terrain(path: Path) -> str:
-    infos = _validate_zip(path, "Pzs terrain cache")
-    member_names = {info.filename for info in infos}
-    required_members = {
-        "values_m.npy",
-        "latitudes.npy",
-        "longitudes.npy",
-        "metadata.npy",
-    }
-    _require(
-        required_members <= member_names,
-        f"Pzs terrain cache is missing NPZ members: {sorted(required_members - member_names)}",
-    )
-    return _sha256(path)
-
-
 def _validate_runtime_acceptance(
     path: Path,
     *,
@@ -516,11 +500,7 @@ def _validate_provenance(value: Any, label: str) -> None:
     )
 
 
-def _validate_real_msm_acceptance(
-    path: Path,
-    *,
-    terrain_sha256: str,
-) -> Mapping[str, Any]:
+def _validate_real_msm_acceptance(path: Path) -> Mapping[str, Any]:
     report = _load_json(path, "real-MSM acceptance report")
     _require(report.get("schema_version") == 1, "real-MSM report schema mismatch")
     _require(report.get("status") == "PASS", "real-MSM acceptance did not PASS")
@@ -543,26 +523,6 @@ def _validate_real_msm_acceptance(
             versions.get(label) == MSM_PACKAGE_VERSION,
             f"real-MSM observed {label} version mismatch",
         )
-    terrain = _require_mapping(report.get("terrain"), "real-MSM terrain")
-    _require(
-        _require_sha256(terrain.get("cache_sha256"), "real-MSM terrain cache_sha256")
-        == terrain_sha256,
-        "real-MSM report terrain hash does not match packaged terrain.npz",
-    )
-    _require_sha256(terrain.get("source_sha256"), "real-MSM terrain source_sha256")
-    samples = _require_mapping(terrain.get("samples_m"), "real-MSM terrain samples")
-    _require(
-        REQUIRED_AIRPORT_IDS <= set(map(str, samples)),
-        "real-MSM terrain report does not cover RJFM and RJFO",
-    )
-    for airport_id in REQUIRED_AIRPORT_IDS:
-        value = samples[airport_id]
-        _require(
-            isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and float("-inf") < float(value) < float("inf"),
-            f"real-MSM terrain sample is not finite: {airport_id}",
-        )
     forecast = _require_mapping(report.get("forecast"), "real-MSM forecast")
     results = _require_sequence(forecast.get("results"), "real-MSM forecast results")
     _require(
@@ -570,7 +530,9 @@ def _validate_real_msm_acceptance(
         "real-MSM result_count does not match results",
     )
     expected_request_ids = {
-        f"{airport_id}-{kind}" for airport_id in REQUIRED_AIRPORT_IDS for kind in ("aloft", "qnh")
+        f"{airport_id}-{kind}"
+        for airport_id in REQUIRED_AIRPORT_IDS
+        for kind in ("aloft", "surface-temperature")
     }
     observed_request_ids: set[str] = set()
     for index, raw_result in enumerate(results):
@@ -589,7 +551,7 @@ def _validate_real_msm_acceptance(
         _validate_provenance(result.get("provenance"), request_id)
     _require(
         observed_request_ids == expected_request_ids,
-        "real-MSM report result IDs do not match RJFM/RJFO aloft and QNH probes",
+        "real-MSM report result IDs do not match RJFM/RJFO wind and temperature probes",
     )
     return report
 
@@ -642,7 +604,6 @@ def _validate_release_tree(root: Path, version: str) -> dict[str, Any]:
     data_root = root / "data" / "autonavlog"
     airport_rows = _validate_reference_pack(data_root / "reference" / "default")
     climb_rows, cruise_rows = _validate_performance(data_root / "performance")
-    terrain_sha256 = _validate_terrain(root / "data" / "msm" / "terrain.npz")
     runtime_report_path = _safe_child(
         root,
         RUNTIME_ACCEPTANCE_PATH,
@@ -659,10 +620,7 @@ def _validate_release_tree(root: Path, version: str) -> dict[str, Any]:
         climb_rows=climb_rows,
         cruise_rows=cruise_rows,
     )
-    _validate_real_msm_acceptance(
-        real_msm_report_path,
-        terrain_sha256=terrain_sha256,
-    )
+    _validate_real_msm_acceptance(real_msm_report_path)
     return {
         "runtime_data": {
             "path": str(RUNTIME_ACCEPTANCE_PATH),

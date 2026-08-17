@@ -40,6 +40,10 @@ export interface RouteCandidate {
   segmentCount?: number;
   legCount?: number;
   maxJoinGapNm?: number;
+  departureAirportId: string | null;
+  departureDistanceNm: number | null;
+  destinationAirportId: string | null;
+  destinationDistanceNm: number | null;
 }
 
 export interface ImportState {
@@ -120,7 +124,8 @@ export interface Project {
   destination_airport_id: string;
   total_usable_fuel_gal: number;
   default_variation_deg_east: number;
-  manual_qnh_hpa: number | null;
+  run_up_included: boolean;
+  air_conditioning_enabled: boolean;
   weather_mode: "FORECAST" | "FTD";
   ftd_weather: FtdWeatherSettings | null;
   tgl_count: number;
@@ -272,6 +277,7 @@ export interface CheckPointInput {
 
 export interface FuelPlan {
   total_usable_gal: number;
+  taxi_runup_minutes: number;
   taxi_runup_gal: number;
   climb_gal: number | null;
   cruise_gal: number | null;
@@ -279,6 +285,7 @@ export interface FuelPlan {
   additional_gal: number;
   tgl_gal: number;
   reserve_gal: number;
+  bof_gal: number | null;
   min_required_gal: number | null;
   extra_gal: number | null;
   extra_endurance_seconds: number | null;
@@ -409,7 +416,6 @@ export interface RjfmDepartureGuidance {
 
 export interface CalculationOutcome {
   selected_forecast_run_id: string | null;
-  qnh_hpa: AdoptedValue<number>;
   sections: SectionResult[];
   display_rows: NavLogDisplayRow[];
   derived_points: DerivedPoint[];

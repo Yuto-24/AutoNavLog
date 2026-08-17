@@ -23,20 +23,6 @@ def _standard_pressure_pa(pressure_altitude_ft: float) -> float:
     return float(P0_PA * base ** (G0 / (R_AIR * LAPSE_K_PER_M)))
 
 
-def pressure_altitude_exact_ft(elevation_ft_msl: float, qnh_hpa: float) -> float:
-    if not (800 < qnh_hpa < 1100):
-        raise ValueError("QNH must be between 800 and 1100 hPa")
-    elevation_m = elevation_ft_msl * FT_TO_M
-    qnh_pa = qnh_hpa * 100.0
-    station_pressure = qnh_pa * (1.0 - LAPSE_K_PER_M * elevation_m / T0_K) ** (
-        G0 / (R_AIR * LAPSE_K_PER_M)
-    )
-    pressure_altitude_m = (T0_K / LAPSE_K_PER_M) * (
-        1.0 - (station_pressure / P0_PA) ** (R_AIR * LAPSE_K_PER_M / G0)
-    )
-    return float(pressure_altitude_m / FT_TO_M)
-
-
 def pressure_altitude_planning_ft(
     exact_ft: float,
     policy: Pa500Policy = Pa500Policy.CEILING,

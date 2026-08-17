@@ -1,7 +1,6 @@
 import { ClipboardPaste, FileUp, Route } from "lucide-react";
 import type { Dispatch, DragEvent, SetStateAction } from "react";
-import { convertQnhValue, variationForDeparture } from "../forms";
-import type { PlanningForm, QnhUnit } from "../forms";
+import type { PlanningForm } from "../forms";
 import type { AirportOption, ImportState } from "../types";
 
 interface ImportPlanPanelProps {
@@ -147,14 +146,11 @@ export function ImportPlanPanel({
                 setForm((current) => ({
                   ...current,
                   candidateKey,
-                  departureAirportId: candidateKey ? current.departureAirportId : "",
-                  destinationAirportId: candidateKey ? current.destinationAirportId : "",
-                  destinationPatternAltitudeFtMsl: candidateKey
-                    ? current.destinationPatternAltitudeFtMsl
-                    : "",
+                  departureAirportId: "",
+                  destinationAirportId: "",
+                  destinationPatternAltitudeFtMsl: "",
                   routeUseConfirmed: false,
                   polygonRouteConfirmed: false,
-                  manualQnhConfirmed: candidateKey ? current.manualQnhConfirmed : false,
                 }));
               }}
             >
@@ -203,52 +199,35 @@ export function ImportPlanPanel({
               onChange={(event) => update("departureTimeJst", event.target.value)}
             />
           </label>
-          <label>
-            <span>FROM（経路始点から自動設定・変更可）</span>
-            <select
-              aria-label="FROM"
-              value={form.departureAirportId}
-              aria-invalid={Boolean(form.candidateKey && !selectedDeparture)}
-              onChange={(event) => {
-                const departureAirportId = event.target.value;
-                const departure = airports.find((airport) => airport.id === departureAirportId);
-                setForm((current) => ({
-                  ...current,
-                  departureAirportId,
-                  variationDegEast: variationForDeparture(departure),
-                  manualQnhConfirmed: false,
-                }));
-              }}
-            >
-              <option value="">経路を選択すると自動設定</option>
-              {airports.map((airport) => (
-                <option key={airport.id} value={airport.id}>
-                  {airport.icao} {airport.name}
-                </option>
-              ))}
-            </select>
-            {form.candidateKey && !selectedDeparture && (
-              <small className="field-help field-error">
-                KML始点から5 NM以内に出発空港が見つかりません。
+          <div className="endpoint-row span-two">
+            <label>
+              <span>FROM（自動取得）</span>
+              <input
+                aria-label="FROM"
+                type="text"
+                readOnly
+                value={selectedDeparture ? `${selectedDeparture.icao} ${selectedDeparture.name}` : ""}
+                placeholder="経路を選択すると自動設定"
+                aria-invalid={Boolean(form.candidateKey && !selectedDeparture)}
+              />
+            </label>
+            <label>
+              <span>TO（自動取得）</span>
+              <input
+                aria-label="TO"
+                type="text"
+                readOnly
+                value={selectedDestination ? destinationAirportLabel(selectedDestination) : ""}
+                placeholder="経路を選択すると自動設定"
+                aria-invalid={Boolean(form.candidateKey && !selectedDestination)}
+              />
+            </label>
+            {form.candidateKey && (!selectedDeparture || !selectedDestination) && (
+              <small className="field-help field-error span-two">
+                KML端点から5 NM以内に空港が見つかりません。
               </small>
             )}
-          </label>
-          <label className="span-two">
-            <span>TO（経路終点から自動設定）</span>
-            <input
-              aria-label="TO"
-              type="text"
-              readOnly
-              value={selectedDestination ? destinationAirportLabel(selectedDestination) : ""}
-              placeholder="経路を選択すると自動設定"
-              aria-invalid={Boolean(form.candidateKey && !selectedDestination)}
-            />
-            {form.candidateKey && !selectedDestination && (
-              <small className="field-help field-error">
-                KML終点から5 NM以内に目的空港が見つかりません。
-              </small>
-            )}
-          </label>
+          </div>
           <label>
             <span>FUEL gal</span>
             <input
@@ -260,44 +239,22 @@ export function ImportPlanPanel({
               onChange={(event) => update("totalUsableFuelGal", event.target.value)}
             />
           </label>
-          <div className="form-grid-field span-two">
-            <span>QNH（未入力は自動取得）</span>
-            <div className="qnh-input-row">
-              <input
-                aria-label="QNH値"
-                type="number"
-                min={form.qnhUnit === "hPa" ? "800" : "23.63"}
-                max={form.qnhUnit === "hPa" ? "1100" : "32.48"}
-                step={form.qnhUnit === "hPa" ? "0.1" : "0.01"}
-                value={form.manualQnhValue}
-                onChange={(event) => {
-                  update("manualQnhValue", event.target.value);
-                  update("manualQnhConfirmed", false);
-                }}
-                placeholder="自動取得"
-              />
-              <select
-                aria-label="QNH単位"
-                value={form.qnhUnit}
-                onChange={(event) => {
-                  const nextUnit = event.target.value as QnhUnit;
-                  setForm((current) => ({
-                    ...current,
-                    manualQnhValue: convertQnhValue(
-                      current.manualQnhValue,
-                      current.qnhUnit,
-                      nextUnit,
-                    ),
-                    qnhUnit: nextUnit,
-                    manualQnhConfirmed: false,
-                  }));
-                }}
-              >
-                <option value="hPa">hPa</option>
-                <option value="inHg">inHg</option>
-              </select>
-            </div>
-          </div>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.runUpIncluded}
+              onChange={(event) => update("runUpIncluded", event.target.checked)}
+            />
+            <span>RUN UP あり</span>
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.airConditioningEnabled}
+              onChange={(event) => update("airConditioningEnabled", event.target.checked)}
+            />
+            <span>A/C ON</span>
+          </label>
           <label>
             <span>TGL</span>
             <input
@@ -336,8 +293,8 @@ export function ImportPlanPanel({
                 <span>地上風向 ° FROM</span>
                 <input
                   type="number"
-                  min="0"
-                  max="359.9"
+                  min="1"
+                  max="360"
                   step="1"
                   value={form.ftdSurfaceWindDirection}
                   onChange={(event) =>
@@ -360,8 +317,8 @@ export function ImportPlanPanel({
                 <span>5,000 ft風向 ° FROM</span>
                 <input
                   type="number"
-                  min="0"
-                  max="359.9"
+                  min="1"
+                  max="360"
                   step="1"
                   value={form.ftdWind5000Direction}
                   onChange={(event) => update("ftdWind5000Direction", event.target.value)}
@@ -381,18 +338,6 @@ export function ImportPlanPanel({
             </div>
           )}
         </div>
-        {form.manualQnhValue && (
-          <div className="confirmation-box confirmation-box-plan">
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={form.manualQnhConfirmed}
-                onChange={(event) => update("manualQnhConfirmed", event.target.checked)}
-              />
-              <span>このDATE・ETD・FROMのQNHとして確認しました</span>
-            </label>
-          </div>
-        )}
       </section>
     </aside>
   );

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -59,6 +60,26 @@ def test_project_name_normalization_never_leaves_a_reserved_dot_suffix(
     expected: str,
 ) -> None:
     assert AutoNavLogWebApplication._normalize_project_name(raw_name) == expected
+
+
+def test_endpoint_airport_matching_uses_5_nm_boundary_and_deterministic_tie_break() -> None:
+    airports = {
+        "Z": SimpleNamespace(id="Z", icao="RJZZ", distance=5.0),
+        "B": SimpleNamespace(id="B", icao="RJAA", distance=5.0),
+        "A": SimpleNamespace(id="A", icao="RJAA", distance=5.0),
+    }
+    app = AutoNavLogWebApplication.__new__(AutoNavLogWebApplication)
+    app.reference_catalog = SimpleNamespace(airports=airports)
+    app._distance_to_airport = lambda coordinate, airport: airport.distance
+
+    matched = app._nearest_airport_within_5_nm((0.0, 0.0))
+    assert matched is not None
+    assert matched[0].id == "A"
+    assert matched[1] == 5.0
+
+    for airport in airports.values():
+        airport.distance = 5.000001
+    assert app._nearest_airport_within_5_nm((0.0, 0.0)) is None
 
 
 @pytest.mark.parametrize(

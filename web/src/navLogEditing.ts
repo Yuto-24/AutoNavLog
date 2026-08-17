@@ -30,12 +30,16 @@ export function draftFromSection(section: NavSection): NavLogEditDraft {
   }
   temperatureByPhase[section.phase] = section.manual_temperature_c?.toString() ?? "";
   for (const [phase, wind] of Object.entries(section.manual_wind_by_phase ?? {})) {
-    windDirectionByPhase[phase as FlightPhase] = String(wind.direction_deg_from);
+    windDirectionByPhase[phase as FlightPhase] = String(
+      wind.direction_deg_from === 0 ? 360 : wind.direction_deg_from,
+    );
     windSpeedByPhase[phase as FlightPhase] = String(wind.speed_kt);
   }
   if (windDirectionByPhase[section.phase] === undefined) {
     windDirectionByPhase[section.phase] =
-      section.manual_wind_direction_deg?.toString() ?? "";
+      section.manual_wind_direction_deg === 0
+        ? "360"
+        : section.manual_wind_direction_deg?.toString() ?? "";
   }
   if (windSpeedByPhase[section.phase] === undefined) {
     windSpeedByPhase[section.phase] = section.manual_wind_speed_kt?.toString() ?? "";
@@ -109,8 +113,13 @@ export function validateNavLogDrafts(
         } else if (hasDirection && hasSpeed) {
           const direction = finiteNumber(directionDraft);
           const speed = finiteNumber(speedDraft);
-          if (direction === null || direction < 0 || direction >= 360) {
-            sectionErrors.windDirection = "0以上360未満の度数にしてください。";
+          if (
+            direction === null ||
+            !Number.isInteger(direction) ||
+            direction < 1 ||
+            direction > 360
+          ) {
+            sectionErrors.windDirection = "001～360の整数にしてください。";
           }
           if (speed === null || speed < 0 || speed > 200) {
             sectionErrors.windSpeed = "0～200 ktの範囲にしてください。";

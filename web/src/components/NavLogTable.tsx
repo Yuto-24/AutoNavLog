@@ -223,8 +223,8 @@ function EditableWindCell({
           <input
             className="nav-log-number-input"
             type="number"
-            min="0"
-            max="359"
+            min="1"
+            max="360"
             step="1"
             aria-label={`${label} 手動風向`}
             aria-invalid={Boolean(errors.windDirection)}
@@ -291,7 +291,7 @@ function FuelPlanTable({ outcome }: { outcome: CalculationOutcome }) {
   const cruise = phaseMinutes(outcome, CRUISE_PHASES);
   const descent = phaseMinutes(outcome, DESCENT_PHASES);
   const tgl = fuel.tgl_gal / 2 * 7;
-  const required = [10, climb, cruise, descent, tgl, 10, 45];
+  const required = [fuel.taxi_runup_minutes, climb, cruise, descent, tgl, 10, 45];
   const minRequired = required.some((value) => value === null)
     ? null
     : required.reduce<number>((sum, value) => sum + (value ?? 0), 0);
@@ -313,13 +313,17 @@ function FuelPlanTable({ outcome }: { outcome: CalculationOutcome }) {
           <tr>
             <td className="fuel-gray" />
             <td colSpan={2} className="fuel-strong">TAXI・RUN UP</td>
-            <td><FuelTime minutes={10} /></td>
+            <td><FuelTime minutes={fuel.taxi_runup_minutes} /></td>
             <td><FuelAmount amount={fuel.taxi_runup_gal} /></td>
           </tr>
           {bofRows.map(([label, minutes, amount], index) => (
             <tr key={label}>
               {index === 0 && <td rowSpan={6} className="fuel-gray" />}
-              {index === 0 && <td rowSpan={5} className="fuel-bof">BOF</td>}
+              {index === 0 && (
+                <td rowSpan={5} className="fuel-bof">
+                  BOF<br /><small>{fuel.bof_gal === null ? "" : `${fuelAmount(fuel.bof_gal)} G`}</small>
+                </td>
+              )}
               <td className="fuel-phase">{label}</td>
               <td><FuelTime minutes={minutes} /></td>
               <td><FuelAmount amount={amount} /></td>

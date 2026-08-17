@@ -234,7 +234,7 @@ def test_ui_state_v3_migration_discards_sea_state() -> None:
     }
     migrated = load_persisted_ui_state(raw)
     assert isinstance(migrated, PersistedUiState)
-    assert migrated.state_schema_version == 5
+    assert migrated.state_schema_version == 6
     assert "sea" not in migrated.model_dump_json().lower()
 
 
@@ -250,7 +250,7 @@ def test_ui_state_v4_migrates_with_empty_rjfm_state() -> None:
         }
     )
 
-    assert migrated.state_schema_version == 5
+    assert migrated.state_schema_version == 6
     assert migrated.rjfm_departure_plan is None
     assert migrated.rjfm_departure_guidance is None
 

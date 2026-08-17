@@ -78,8 +78,7 @@ def test_full_calculation_iteration_and_clearcopy(
     html = render_clearcopy_html(aligned_project, outcome)
     assert "PILOT" in html
     assert "ZONE / CUM" in html
-    assert "QNH" in html
-    assert outcome.qnh_hpa.adopted() is None
+    assert "QNH" not in html
 
 
 def test_destination_surface_temperature_uses_calculated_arrival_time(
@@ -258,35 +257,6 @@ def test_saved_forecast_run_stays_pinned_until_explicitly_changed(
     assert not any(issue.code == "FORECAST_UPDATE_AVAILABLE" for issue in latest_outcome.issues)
 
 
-def test_manual_qnh_uses_real_aloft_path_without_requesting_estimated_qnh(
-    airports,
-    performance_repository,
-    project,
-) -> None:
-    manual = project.model_copy(deep=True)
-    manual.manual_qnh_hpa = 1008.5
-    provider = FakeWeatherProvider()
-
-    outcome = CalculationService(airports, performance_repository).calculate(
-        manual,
-        provider,
-    )
-
-    assert not outcome.blockers
-    assert outcome.qnh_hpa.adopted() == 1008.5
-    assert outcome.qnh_hpa.adopted_source == AdoptedSource.MANUAL
-    assert provider.prepared[outcome.selected_forecast_run_id].require_estimated_qnh is False
-    assert all(
-        request.kind
-        in {
-            WeatherRequestKind.ALOFT,
-            WeatherRequestKind.SURFACE_TEMPERATURE,
-        }
-        for _, batch in provider.query_history
-        for request in batch
-    )
-
-
 @pytest.mark.parametrize(
     "safe_value",
     [None, 2000.0, 8000.0],
@@ -457,14 +427,13 @@ def test_rca_split_uses_distinct_phase_altitude_temperature_and_manual_overrides
     project,
 ) -> None:
     routed = project.model_copy(deep=True)
-    routed.manual_qnh_hpa = 1013.0
     source = routed.sections[0]
     source.manual_temperature_c = 4.0
     source.manual_temperature_c_by_phase = {FlightPhase.CRUISE: 9.0}
     source = NavSection.model_validate(
         source.model_dump()
         | {
-            "manual_wind_direction_deg": 111.0,
+            "manual_wind_direction_deg": 111,
             "manual_wind_speed_kt": 11.0,
             "manual_wind_by_phase": {
                 FlightPhase.CRUISE: ManualWind(direction_deg_from=222, speed_kt=22)
@@ -540,7 +509,6 @@ def test_manual_low_altitude_and_hot_toat_keep_cruise_outputs_complete(
     project,
 ) -> None:
     routed = project.model_copy(deep=True)
-    routed.manual_qnh_hpa = 1013.0
     for section in routed.sections:
         section.planned_altitude_ft_msl = 1_500.0
         section.manual_temperature_c = 60.0
@@ -585,6 +553,53 @@ def test_manual_low_altitude_and_hot_toat_keep_cruise_outputs_complete(
             "power_percent": 65.0,
         }
     ]
+
+
+def test_cruise_equipment_adjustments_apply_after_poh_interpolation_only(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    service = CalculationService(airports, performance_repository)
+    ac_on = service.calculate(project, FakeWeatherProvider())
+    ac_off_project = project.model_copy(deep=True)
+    ac_off_project.air_conditioning_enabled = False
+    ac_off = service.calculate(ac_off_project, FakeWeatherProvider())
+
+    source_section_id = str(project.sections[1].id)
+
+    def source_cruise(outcome):
+        return next(
+            section
+            for section in outcome.sections
+            if section.phase == FlightPhase.CRUISE
+            and section.performance_metadata["phase_segment"]["source_section_id"]
+            == source_section_id
+        )
+
+    on_section = source_cruise(ac_on)
+    off_section = source_cruise(ac_off)
+    on_metadata = on_section.performance_metadata
+    off_metadata = off_section.performance_metadata
+    table_ktas = on_metadata["poh_table_ktas"]
+    assert on_section.tas_kt.adopted() == pytest.approx(table_ktas - 12.0)
+    assert off_section.tas_kt.adopted() == pytest.approx(table_ktas - 10.0)
+    assert on_metadata["selected_cell"]["gph"] == off_metadata["selected_cell"]["gph"]
+    assert on_metadata["nose_fairing_adjustment_ktas"] == -10.0
+    assert on_metadata["air_conditioning_adjustment_ktas"] == -2.0
+    assert off_metadata["air_conditioning_adjustment_ktas"] == 0.0
+    assert off_section.ground_speed_kt.adopted() > on_section.ground_speed_kt.adopted()
+    assert off_section.zone_ete_seconds.adopted() < on_section.zone_ete_seconds.adopted()
+    assert off_section.section_fuel_gal.adopted() < on_section.section_fuel_gal.adopted()
+
+    manual_project = project.model_copy(deep=True)
+    manual_project.sections[1].manual_tas_kt = 140.0
+    manual = service.calculate(manual_project, FakeWeatherProvider())
+    manual_section = source_cruise(manual)
+    assert manual_section.tas_kt.adopted() == 140.0
+    assert manual_section.performance_metadata["equipment_adjustments_applied"] is False
+    assert manual_section.performance_metadata["nose_fairing_adjustment_ktas"] == 0.0
+    assert manual_section.performance_metadata["air_conditioning_adjustment_ktas"] == 0.0
 
 
 def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
@@ -685,7 +700,7 @@ def test_eoc_uses_cruise_to_vrep_time_and_carries_into_previous_leg(
             to_node_id=turn.id,
             phase=FlightPhase.CRUISE,
             planned_altitude_ft_msl=cruise_altitude_ft,
-            manual_wind_direction_deg=0.0,
+                manual_wind_direction_deg=360,
             manual_wind_speed_kt=0.0,
         ),
         NavSection(
@@ -695,7 +710,7 @@ def test_eoc_uses_cruise_to_vrep_time_and_carries_into_previous_leg(
             to_node_id=vrep.id,
             phase=FlightPhase.DESCENT,
             planned_altitude_ft_msl=2_500,
-            manual_wind_direction_deg=0.0,
+                manual_wind_direction_deg=360,
             manual_wind_speed_kt=0.0,
             manual_tas_kt=120.0,
         ),
@@ -708,16 +723,10 @@ def test_eoc_uses_cruise_to_vrep_time_and_carries_into_previous_leg(
             planned_altitude_ft_msl=1_500,
         ),
     ]
-    routed = routed.__class__.model_validate(
-        routed.model_dump()
-        | {
-            "route_nodes": [
-                departure.model_dump(),
-                turn.model_dump(),
-                vrep.model_dump(),
-                destination.model_dump(),
-            ],
-            "sections": [section.model_dump() for section in sections],
+    routed = routed.model_copy(
+        update={
+            "route_nodes": [departure, turn, vrep, destination],
+            "sections": sections,
         }
     )
 
@@ -960,21 +969,18 @@ def test_visual_arrival_calculates_calm_and_displays_destination_forecast(
         visual_project.sections[0].model_dump()
         | {
             "phase": FlightPhase.CRUISE,
-            "manual_wind_direction_deg": 0.0,
+            "manual_wind_direction_deg": 360,
             "manual_wind_speed_kt": 0.0,
             "manual_wind_by_phase": {
-                FlightPhase.DESCENT: ManualWind(direction_deg_from=0, speed_kt=0),
-                FlightPhase.CLIMB: ManualWind(direction_deg_from=0, speed_kt=0),
+                FlightPhase.DESCENT: ManualWind(direction_deg_from=360, speed_kt=0),
+                FlightPhase.CLIMB: ManualWind(direction_deg_from=360, speed_kt=0),
             },
         }
     )
     visual_project.sections[1].phase = FlightPhase.VISUAL_ARRIVAL
 
     def temperature_without_wind(request):
-        if request.kind == WeatherRequestKind.ESTIMATED_QNH:
-            values = {"qnh_hpa": 1013.0}
-        else:
-            values = {"temperature_c": 15.0}
+        values = {"temperature_c": 15.0}
         return WeatherResult(
             request_id=request.request_id,
             availability=Availability.AVAILABLE,
@@ -1054,11 +1060,7 @@ def test_missing_climb_wind_is_not_misreported_as_rca_outside_route(
     project,
 ) -> None:
     def temperature_without_wind(request):
-        values = (
-            {"qnh_hpa": 1013.0}
-            if request.kind == WeatherRequestKind.ESTIMATED_QNH
-            else {"temperature_c": 15.0}
-        )
+        values = {"temperature_c": 15.0}
         return WeatherResult(
             request_id=request.request_id,
             availability=Availability.AVAILABLE,
@@ -1205,6 +1207,45 @@ def test_outcome_adoption_and_snapshot_round_trip(
     restored = repository.load_snapshot(saved.id, UUID(snapshot_path.stem))
     assert restored.calculation_results.model_dump(mode="json") == outcome.model_dump(mode="json")
     assert restored.input_data.revision == saved.revision
+
+    legacy_qnh_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    legacy_qnh_payload["input_data"]["schema_version"] = 1
+    legacy_qnh_payload["input_data"]["manual_qnh_hpa"] = 1013.0
+    legacy_qnh_payload["input_data"].pop("run_up_included")
+    legacy_qnh_payload["input_data"].pop("air_conditioning_enabled")
+    legacy_qnh_payload["calculation_results"]["qnh_hpa"] = {
+        "automatic": 1013.0,
+        "manual": None,
+        "adopted_source": "AUTOMATIC",
+        "automatic_metadata": {},
+    }
+    legacy_qnh_payload["weather_requests"].append(
+        {
+            "request_id": "project:qnh",
+            "kind": "ESTIMATED_QNH",
+            "latitude_deg": 31.877,
+            "longitude_deg": 131.449,
+            "valid_time_utc": "2026-08-17T00:00:00Z",
+        }
+    )
+    legacy_qnh_payload["weather_results"].append(
+        {
+            "request_id": "project:qnh",
+            "kind": "ESTIMATED_QNH",
+            "availability": "AVAILABLE",
+            "values": {"qnh_hpa": 1013.0},
+            "metadata": {},
+        }
+    )
+    snapshot_path.write_text(json.dumps(legacy_qnh_payload), encoding="utf-8")
+    migrated_snapshot = repository.load_snapshot(saved.id, UUID(snapshot_path.stem))
+    migrated_json = migrated_snapshot.model_dump(mode="json")
+    assert migrated_snapshot.input_data.run_up_included is True
+    assert migrated_snapshot.input_data.air_conditioning_enabled is True
+    assert "qnh_hpa" not in migrated_json["calculation_results"]
+    assert all(item["kind"] != "ESTIMATED_QNH" for item in migrated_json["weather_requests"])
+    assert all(item["kind"] != "ESTIMATED_QNH" for item in migrated_json["weather_results"])
+    snapshot_path.write_text(migrated_snapshot.model_dump_json(), encoding="utf-8")
 
     old_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
     old_payload["calculation_results"].pop("display_rows")

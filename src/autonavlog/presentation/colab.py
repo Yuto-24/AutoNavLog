@@ -143,7 +143,6 @@ ISSUE_ACTIONS = {
     "ROUTE_INCOMPLETE": "KML/KMZを読み込み、2点以上のRouteを確定してください。",
     "RECALCULATION_REQUIRED": "「NAV LOGを作る / 再計算」を実行してください。",
     "DEFAULTS_NOT_REVIEWED": "ALT・Phase・FUEL・VAR・TGLを照合し、既定値確認を記録してください。",
-    "MANUAL_QNH_RECONFIRM_REQUIRED": "DATE・ETD・FROMに対する手動QNHを再確認してください。",
     "VISUAL_REPORTING_POINT_REQUIRED": "目的空港直前のVREPを選択してください。",
     "VISUAL_REPORTING_POINT_ROUTE_INVALID": (
         "VREPの位置・高度・目的空港との順序を見直してください。"
@@ -154,7 +153,7 @@ ISSUE_ACTIONS = {
     "CP_LINK_REQUIRED": "各CPを飛行経路を曲げずに関連Legへ明示的にリンクしてください。",
     "CP_NOT_ABEAM_LINKED_SECTION": "CPがLeg端点に重ならない別の関連Legを選択してください。",
     "FORECAST_PREPARE_FAILED": (
-        "入力を保持したまま再計算し、通信・terrain・Forecast Runを確認してください。"
+        "入力を保持したまま再計算し、通信・MSMデータ・Forecast Runを確認してください。"
     ),
     "FORECAST_RUN_OUT_OF_COVERAGE": "互換Forecast Runへ切り替えて再計算してください。",
     "WEATHER_QUERY_FAILED": (
@@ -162,7 +161,6 @@ ISSUE_ACTIONS = {
     ),
     "WIND_UNAVAILABLE": "該当Legの風向・風速を両方入力するか、気象取得を再試行してください。",
     "TEMPERATURE_UNAVAILABLE": "該当Legの気温を入力するか、気象取得を再試行してください。",
-    "QNH_UNAVAILABLE": "MSM推定QNHを再取得するか、手動QNHを入力・確認してください。",
     "PILOT_REQUIRED": "PILOT欄を入力してください。",
     "SHIP_REQUIRED": "SHIP欄を入力してください。",
 }
@@ -524,15 +522,6 @@ class AutoNavLogApp:
             names="value",
         )
         self.apply_arrival_plan_button.on_click(self._apply_arrival_plan)
-        self.manual_qnh_confirmation = widgets.Checkbox(
-            description="DATE・ETD・出発地に対する手動QNHを確認した",
-            indent=False,
-        )
-        self.confirm_manual_qnh_button = widgets.Button(
-            description="手動QNH確認を記録",
-            icon="check",
-        )
-        self.confirm_manual_qnh_button.on_click(self._confirm_manual_qnh)
         self.temperature = widgets.Text(description="TEMP °C")
         self.tas = widgets.Text(description="TAS kt")
         self.all_leg_altitude = widgets.FloatText(
@@ -557,7 +546,6 @@ class AutoNavLogApp:
             icon="check",
         )
         self.apply_all_leg_altitude_button.on_click(self._apply_all_leg_altitude)
-        self.manual_qnh = widgets.Text(description="QNH hPa")
         self.tgl_count = widgets.BoundedIntText(description="TGL", min=0, value=0)
         self.apply_phase = widgets.Button(description="Legへ適用", icon="check")
         self.apply_phase.on_click(self._apply_phase)
@@ -612,7 +600,6 @@ class AutoNavLogApp:
             self.departure_time,
             self.fuel,
             self.variation,
-            self.manual_qnh,
             self.tgl_count,
         ):
             control.observe(
@@ -1644,21 +1631,6 @@ class AutoNavLogApp:
         except (TypeError, ValueError) as error:
             self._notify(str(error), error=True)
 
-    def _confirm_manual_qnh(self, _: Any) -> None:
-        if self.project is None or not self.manual_qnh_confirmation.value:
-            self._notify("手動QNHの確認欄を選択してください。", error=True)
-            return
-        try:
-            self._sync_project_inputs()
-            self.readiness_service.confirm_manual_qnh(
-                self.project,
-                self.outcome,
-            )
-            self._refresh_readiness()
-            self._notify("手動QNH確認を現在のDATE・ETD・出発地へ記録しました。")
-        except ValueError as error:
-            self._notify(str(error), error=True)
-
     def _refresh_readiness(self) -> None:
         if self.project is None:
             self.readiness_evaluation = None
@@ -1856,8 +1828,6 @@ class AutoNavLogApp:
             self.manual_vrep_altitude,
             self.manual_vrep_reason,
             self.destination_pattern_altitude,
-            self.manual_qnh,
-            self.manual_qnh_confirmation,
             self.tgl_count,
         )
         for control in editable_controls:
@@ -1906,7 +1876,6 @@ class AutoNavLogApp:
         self.apply_all_leg_altitude_button.disabled = not editable or not route_ready
         self.apply_arrival_plan_button.disabled = not editable or not route_ready
         self.destination_pattern_altitude.disabled = not editable or not route_ready
-        self.confirm_manual_qnh_button.disabled = not editable or not project_exists
         self.quick_run_confirmation.disabled = not editable or self.import_result is None
         self.select_kmz_document_button.disabled = not editable or self._pending_kmz is None
         self.add_master_reference_button.disabled = (
@@ -2129,10 +2098,7 @@ class AutoNavLogApp:
             [
                 self.fuel,
                 self.variation_rule_summary,
-                self.manual_qnh,
                 self.tgl_count,
-                self.manual_qnh_confirmation,
-                self.confirm_manual_qnh_button,
                 self.issues,
             ]
         )
@@ -2389,7 +2355,6 @@ class AutoNavLogApp:
             self.destination.value = project.destination_airport_id
             self.fuel.value = project.total_usable_fuel_gal
             self.variation.value = project.default_variation_deg_east
-            self.manual_qnh.value = self._optional_text(project.manual_qnh_hpa)
             self.tgl_count.value = project.tgl_count
             state = self.readiness_service.ui_state(project)
             if state is not None and state.reference_data_snapshot is not None:
@@ -3580,7 +3545,6 @@ class AutoNavLogApp:
         self.project.planned_departure_time_jst = departure_time
         self.project.total_usable_fuel_gal = self.fuel.value
         self.project.default_variation_deg_east = self.variation.value
-        self.project.manual_qnh_hpa = self._optional_float(self.manual_qnh.value)
         self.project.tgl_count = self.tgl_count.value
 
     def _confirm_quick_readiness_inputs(
@@ -3626,8 +3590,6 @@ class AutoNavLogApp:
             reconfirmed=True,
         )
         self._sync_project_inputs()
-        if self.project.manual_qnh_hpa is not None:
-            self.readiness_service.confirm_manual_qnh(self.project, self.outcome)
         self._refresh_route()
 
     def _calculate_from_pasted_kml(self, _: Any) -> None:

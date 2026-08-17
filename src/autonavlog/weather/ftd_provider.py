@@ -111,29 +111,21 @@ class FtdWeatherProvider:
         return tuple(self._result(request) for request in requests)
 
     def _result(self, request: WeatherRequest) -> WeatherResult:
-        if request.kind == WeatherRequestKind.ESTIMATED_QNH:
-            values: dict[str, float | str | None] = {
-                "label": "FTD標準大気",
-                "qnh_hpa": 1013.25,
-            }
-            metadata: dict[str, Any] = {
-                "provider": "ftd_fixed",
-                "qnh_policy": "ISA_STANDARD",
-            }
-            warnings: tuple[str, ...] = ()
-        elif request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
+        if request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
             altitude = float(
                 request.elevation_ft_msl
                 if request.elevation_ft_msl is not None
                 else request.altitude_ft_msl or 0.0
             )
-            values = {"temperature_c": isa_temperature_c(altitude)}
-            metadata = {
+            values: dict[str, float | str | None] = {
+                "temperature_c": isa_temperature_c(altitude)
+            }
+            metadata: dict[str, Any] = {
                 "provider": "ftd_fixed",
                 "requested_elevation_ft_msl": altitude,
                 "temperature_policy": "ISA_AT_AIRPORT_ELEVATION_MSL",
             }
-            warnings = ()
+            warnings: tuple[str, ...] = ()
         else:
             altitude = float(request.altitude_ft_msl or 0.0)
             direction, speed, u_ms, v_ms = interpolate_ftd_wind(

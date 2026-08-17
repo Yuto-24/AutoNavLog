@@ -25,7 +25,7 @@ Policy version、Forecast Runから同じ結果を生成します。気象問い
 
 MSMのGRIB2、RISH URL、NetCDF、気圧面配列は`jma-msm-wind`だけが扱います。AutoNavLogの
 MSM adapterは単位、時刻、型、request ID、表示ラベルを変換します。固定中の
-`jma-msm-wind==0.2.1`が公開queryを持たないMSLPと地上気温だけは、adapter内の隔離した
+`jma-msm-wind==0.2.1`が公開queryを持たない地上気温だけは、adapter内の隔離した
 compatibility branchから正規化済み`_surface_scalar`を呼びます。計算コアへその内部表現を
 公開せず、補間来歴を通常の`WeatherResult.metadata`へ保存します。
 

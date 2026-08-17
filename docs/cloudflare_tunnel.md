@@ -37,9 +37,8 @@ curl --fail --silent http://127.0.0.1:8123/healthz
 ```
 
 `--weather fake` はUI確認専用で、転記補助HTMLを常に止めます。標準imageは
-private `jma-msm-wind==0.2.1` wheelを組み込み、`--weather msm-metar-trend` で起動します。
-QNHはMETAR補正付きMSM推定値を優先し、目的地の参考風はAviationWeather.govのTAFから
-取得します。
+private `jma-msm-wind==0.2.1` wheelを組み込み、`--weather msm` で起動します。
+上空風・気温と地表面気温はMSM、目的地の参考風はAviationWeather.govのTAFから取得します。
 
 ## 2. 接続済みのremotely-managed tunnel
 

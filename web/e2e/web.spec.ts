@@ -803,10 +803,6 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect.poll(() => windInputs.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
   await expect(page.getByLabel("NAV LOG高度ポリシー")).toHaveCount(0);
   await expect(page.getByText("PA = MSL", { exact: true })).toHaveCount(0);
-  await expect(page.getByText(
-    "QNH補正はNAV LOG計算に使用しません。",
-    { exact: true },
-  )).toHaveCount(0);
   await expect(page.getByLabel("目的地空港の風予報")).toContainText(
     "目的地風: 200/8 kt",
   );
@@ -817,12 +813,6 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(
     page.locator(".nav-log-table").getByText("自動", { exact: true }),
   ).toHaveCount(0);
-  for (const warning of [
-    "ESTIMATED_QNH_NOT_OFFICIAL",
-    "VERIFY_WITH_OFFICIAL_AERODROME_QNH",
-  ]) {
-    await expect(page.locator(".qnh-warning").filter({ hasText: warning })).toHaveCount(0);
-  }
   await expectDisplayProjectionToMatchWebTable(page);
 }
 
@@ -911,6 +901,9 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   });
   await expect(page.getByText("開発用固定気象（出力不可）", { exact: true })).toBeVisible();
   await expect(page.getByLabel("TO")).toHaveValue("");
+  await expect(page.getByLabel("RUN UP あり")).toBeChecked();
+  await expect(page.getByLabel("A/C ON")).toBeChecked();
+  await expect(page.getByLabel("QNH値")).toHaveCount(0);
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
   ).toHaveCount(0);
@@ -1081,6 +1074,7 @@ test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays e
   await page.getByRole("button", { name: "経路を確定" }).click();
 
   const rows = page.locator(".route-table tbody tr");
+  await expect(page.locator(".route-table th", { hasText: "ROLE" })).toHaveCount(0);
   const departure = rows.nth(0);
   const umk = rows.nth(1);
   const omaru = rows.nth(2);
@@ -1353,12 +1347,19 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   await importKmlCandidate(page);
 
   await page.getByLabel("気象モード").selectOption("FTD");
+  const confirmRoute = page.getByRole("button", { name: "経路を確定" });
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByLabel("地上風向 ° FROM").fill("0");
+  await expect(confirmRoute).toBeDisabled();
+  await page.getByLabel("地上風向 ° FROM").fill("1.5");
+  await expect(confirmRoute).toBeDisabled();
   await page.getByLabel("地上風向 ° FROM").fill("350");
   await page.getByLabel("地上風速 kt").fill("10");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("10");
   await page.getByLabel("5,000 ft風速 kt").fill("20");
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await page.getByLabel("5,000 ft風向 ° FROM").fill("360");
+  await expect(confirmRoute).toBeEnabled();
+  await confirmRoute.click();
 
   const stateAfterConfirm = await page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -1366,6 +1367,7 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   });
   expect(stateAfterConfirm.project?.weather_mode).toBe("FTD");
   expect(stateAfterConfirm.project?.ftd_weather?.wind_at_5000_ft.speed_kt).toBe(20);
+  expect(stateAfterConfirm.project?.ftd_weather?.wind_at_5000_ft.direction_deg_from).toBe(360);
 
   const editor = page.getByRole("region", { name: "チェックポイント設定" });
   await editor.getByRole("button", { name: "追加" }).click();
@@ -1703,6 +1705,8 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await importKmlCandidate(page);
   const candidateSelect = page.getByLabel("飛行経路候補");
   const departureSelect = page.getByLabel("FROM", { exact: true });
+  await expect(departureSelect).toHaveAttribute("readonly", "");
+  await expect(page.getByLabel("TO", { exact: true })).toHaveAttribute("readonly", "");
   await expect(candidateSelect).toHaveValue("line:0");
   await page.getByLabel("地図とKML記載順を確認しました").check();
 
@@ -1739,18 +1743,11 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await routeUseConfirmed.check();
   await expect(routeUseConfirmed).toBeChecked();
 
-  await page.getByLabel("QNH値").fill("1013");
-  const manualQnhConfirmed = page.getByLabel(
-    "このDATE・ETD・FROMのQNHとして確認しました",
-  );
-  await manualQnhConfirmed.check();
   await candidateSelect.selectOption("");
   await expect(departureSelect).toHaveValue("");
   await expect(page.getByLabel("TO")).toHaveValue("");
   await expect(page.getByText("飛行経路候補を選択すると地図へ表示します")).toBeVisible();
   await expect(page.getByLabel("経路確認")).toHaveCount(0);
-  await expect(manualQnhConfirmed).not.toBeChecked();
-
   await candidateSelect.selectOption("connected_lines:1");
   await expect(routeUseConfirmed).not.toBeChecked();
   await expect(departureSelect).toHaveValue("RJFO");
@@ -1841,7 +1838,7 @@ test("file picker, drop, and KMZ use the same grouped-route candidate flow", asy
   );
 });
 
-test("KML start automatically selects FROM and keeps manual override", async ({ page }) => {
+test("KML endpoints automatically determine read-only FROM and TO", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
@@ -1854,10 +1851,33 @@ test("KML start automatically selects FROM and keeps manual override", async ({ 
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await expect(departure).toHaveValue("RJFK");
   await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
+  await expect(departure).toHaveAttribute("readonly", "");
+  await expect(page.getByLabel("TO")).toHaveAttribute("readonly", "");
+});
 
-  await departure.selectOption("RJFM");
-  await expect(departure).toHaveValue("RJFM");
-  await expect(
-    page.getByText("KML始点から5 NM以内に出発空港が見つかりません。"),
-  ).toHaveCount(0);
+test("RUN UP and A/C choices persist after save and reload", async ({ page }) => {
+  await page.goto("/");
+  await importKmlCandidate(page);
+
+  const runUp = page.getByLabel("RUN UP あり");
+  const airConditioning = page.getByLabel("A/C ON");
+  await expect(runUp).toBeChecked();
+  await expect(airConditioning).toBeChecked();
+  await runUp.uncheck();
+  await airConditioning.uncheck();
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const state = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    return await response.json() as WebState;
+  });
+  expect(state.project?.run_up_included).toBe(false);
+  expect(state.project?.air_conditioning_enabled).toBe(false);
+
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(runUp).not.toBeChecked();
+  await expect(airConditioning).not.toBeChecked();
 });

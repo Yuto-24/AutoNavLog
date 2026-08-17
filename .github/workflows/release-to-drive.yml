@@ -52,20 +52,13 @@ jobs:
           cp -R web/dist/. src/autonavlog/web/static/
       - name: Build pinned wheels
         run: |
-          mkdir -p release/wheels release/data/msm
+          mkdir -p release/wheels
           python -m build --wheel --outdir release/wheels
           python -m build --wheel --outdir "$GITHUB_WORKSPACE/release/wheels" vendor/jma-msm-wind
       - name: Assemble runtime data
         run: |
           cp -R data release/data/autonavlog
           cp notebooks/AutoNavLog.ipynb release/AutoNavLog.ipynb
-      - name: Download verified Pzs terrain cache
-        env:
-          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
-        run: >-
-          python scripts/drive_release.py download
-          "${{ secrets.GDRIVE_TERRAIN_FILE_ID }}"
-          release/data/msm/terrain.npz
       - name: Install release wheels in isolated environment
         run: |
           python -m venv "$RUNNER_TEMP/release-validation-venv"
@@ -92,7 +85,6 @@ jobs:
         run: >-
           "$RUNNER_TEMP/release-validation-venv/bin/python"
           scripts/validate_real_msm_release.py
-          --terrain release/data/msm/terrain.npz
           --cache-dir "$RUNNER_TEMP/real-msm-cache"
           --live
           --valid-time "$MSM_VALID_TIME_UTC"

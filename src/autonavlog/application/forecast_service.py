@@ -40,7 +40,6 @@ class ForecastService:
         return ForecastRequirement(
             valid_times_utc=tuple(times),
             require_surface_temperature=True,
-            require_estimated_qnh=False,
         )
 
     def build_final_requirement(
@@ -58,5 +57,4 @@ class ForecastService:
                 *arrival_times,
             ),
             require_surface_temperature=True,
-            require_estimated_qnh=False,
         )

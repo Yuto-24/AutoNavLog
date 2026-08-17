@@ -1,11 +1,29 @@
 # AutoNavLog UI改善 要求仕様書
 
-- 版: 2.9.0
+- 版: 2.10.0
 - 日付: 2026-08-17
 - 対象: AutoNavLog 1.0.0 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
 - 実装担当: 別エージェント
 
-## v2.9.0 RJFM北行き UMK/RCA例外（本節を最優先）
+## v2.10.0 入力・燃料・巡航性能（本節を最優先）
+
+- KML候補の端点から5 NM以内の空港をFROM/TOとして自動決定し、Webでは読取専用で横並び表示する。
+  同距離はICAO・ID順で決定し、どちらかを解決できない候補は確定しない。
+- QNHのデータモデル、API、気象要求、確認状態、画面、帳票を廃止する。旧Project/Snapshotの
+  QNH fieldは読込時に捨て、再保存しない。
+- RUN UPは既定あり（10分・1.5 gal）、A/Cは既定ONとする。BOF Fuelは
+  `CLIMB + CRUISE + DESCENT + TGL + ADDITIONAL`で、RUN UPとRESERVEを含まない。
+- POH巡航表から自動採用したKTASを、ノーズフェアリングなしで`-10 KTAS`、A/C ONで
+  さらに`-2 KTAS`補正する。手入力TASとGPHは補正しない。
+- 方位入力は整数001〜360だけを受け付け、内部では360を0へ正規化する。Web/A4表示は
+  北を360として3桁表示する。
+- 経路表のROLE列だけを削除し、内部roleと地図表現は維持する。
+- 1,240 px以下は入力、経路・MAP、準備状況、NAV LOG、ガイダンスの縦順、
+  1,240 px超は入力・経路・準備状況の3列を維持する。
+
+以下の旧版記述と矛盾する場合は本節を優先する。
+
+## v2.9.0 RJFM北行き UMK/RCA例外
 
 本節は、宮崎から大分方面へ `UMK → OVER FIELD → OMARU` のNewta CENTER Routeを
 使用し、UMKを5,500 ft MSLで通過する計画だけに適用する。通常経路の距離・風三角・

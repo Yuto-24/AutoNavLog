@@ -12,6 +12,7 @@ htmlcov/
 .ipynb_checkpoints/
 data/cache/
 .autonavlog-data/
+.notebook-data/
 web/node_modules/
 web/test-results/
 web/playwright-report/

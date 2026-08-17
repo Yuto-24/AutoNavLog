@@ -120,7 +120,7 @@ def _rounded_integer(value: float) -> str:
 
 def _bearing(value: float) -> str:
     rounded = round_half_up(value % 360.0, 1.0) % 360.0
-    return f"{rounded:03.0f}"
+    return "360" if rounded == 0 else f"{rounded:03.0f}"
 
 
 def _signed(value: float) -> str:

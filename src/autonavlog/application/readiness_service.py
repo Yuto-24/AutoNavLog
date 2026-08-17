@@ -18,7 +18,6 @@ from .checkpoints import project_check_points
 from .project_fingerprints import (
     current_calculation_input_fingerprint,
     defaults_review_fingerprint,
-    manual_qnh_fingerprint,
 )
 from .readiness import ReadinessEvaluation, evaluate_readiness
 
@@ -27,7 +26,6 @@ from .readiness import ReadinessEvaluation, evaluate_readiness
 class ReadinessFingerprints:
     calculation_input: str
     defaults_review: str
-    manual_qnh: str | None
 
 
 @dataclass(frozen=True)
@@ -104,18 +102,9 @@ class ReadinessService:
                 else outcome.policy_version
             ),
         )
-        manual = (
-            None
-            if selected.manual_qnh_hpa is None
-            else manual_qnh_fingerprint(
-                selected,
-                departure_coordinate_or_airport_id=(self._departure_identity(selected, state)),
-            )
-        )
         return ReadinessFingerprints(
             calculation_input=calculation,
             defaults_review=defaults,
-            manual_qnh=manual,
         )
 
     @staticmethod
@@ -281,24 +270,21 @@ class ReadinessService:
             editable=editable,
         )
         if state is None:
-            fingerprints = ReadinessFingerprints("", "", None)
+            fingerprints = ReadinessFingerprints("", "")
             current_calculation = None
             current_defaults = None
-            current_manual = None
         else:
             fingerprints = self.fingerprints(project, outcome, state)
             current_calculation = fingerprints.calculation_input
             current_defaults = (
                 fingerprints.defaults_review if self.require_defaults_review else None
             )
-            current_manual = fingerprints.manual_qnh
         evaluation = evaluate_readiness(
             project,
             outcome,
             ui_state=state,
             current_calculation_input_fingerprint=current_calculation,
             current_defaults_review_fingerprint=current_defaults,
-            current_manual_qnh_fingerprint=current_manual,
             reference_data_issues=reference_issues,
             project_validation_issues=project_issues,
             editable=editable,
@@ -351,14 +337,4 @@ class ReadinessService:
         self._store_ui_state(
             project,
             state.model_copy(update={"defaults_review_fingerprint": fingerprints.defaults_review}),
-        )
-
-    def confirm_manual_qnh(self, project: Project, outcome: CalculationOutcome | None) -> None:
-        state = self.ui_state(project)
-        if state is None:
-            raise ValueError("Project状態を先に確認してください。")
-        fingerprints = self.fingerprints(project, outcome, state)
-        self._store_ui_state(
-            project,
-            state.model_copy(update={"manual_qnh_fingerprint": fingerprints.manual_qnh}),
         )

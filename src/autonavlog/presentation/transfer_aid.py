@@ -16,7 +16,6 @@ from autonavlog.domain.calculation import (
     NavLogDisplayRow,
 )
 from autonavlog.domain.enums import (
-    AdoptedSource,
     DisplayCellState,
     ProjectStatus,
 )
@@ -118,6 +117,8 @@ def _project_summary(project: Project, outcome: CalculationOutcome) -> str:
         ("LANDING", ""),
         ("PILOT", project.pilot_name or ""),
         ("WX", "FTD FIXED / ISA" if project.weather_mode == "FTD" else "FORECAST"),
+        ("RUN UP", "あり" if project.run_up_included else "なし"),
+        ("A/C", "ON" if project.air_conditioning_enabled else "OFF"),
     ]
     headings = "".join(f"<th>{escape(label)}</th>" for label, _ in values)
     cells = "".join(f"<td>{escape(value)}</td>" for _, value in values)
@@ -157,20 +158,6 @@ def _derived_points_table(outcome: CalculationOutcome) -> str:
 
 
 def _info_table(outcome: CalculationOutcome) -> str:
-    qnh = outcome.qnh_hpa.adopted()
-    qnh_metadata = outcome.qnh_hpa.automatic_metadata
-    raw_values = qnh_metadata.get("values")
-    qnh_values = raw_values if isinstance(raw_values, dict) else {}
-    qnh_method = (
-        "MANUAL"
-        if outcome.qnh_hpa.adopted_source == AdoptedSource.MANUAL
-        else str(qnh_values.get("qnh_method") or qnh_metadata.get("qnh_method") or "")
-    )
-    qnh_warnings = ", ".join(outcome.qnh_hpa.warnings)
-    qnh_text = "" if qnh is None else f"{_raw(qnh)} hPa"
-    qnh_details = " / ".join(item for item in (qnh_method, qnh_warnings) if item)
-    if qnh_details:
-        qnh_text = f"{qnh_text} / {qnh_details}" if qnh_text else qnh_details
     values = [
         ("CODE", "MSM" if outcome.selected_forecast_run_id else ""),
         ("TIME", outcome.selected_forecast_run_id or ""),
@@ -178,7 +165,6 @@ def _info_table(outcome: CalculationOutcome) -> str:
         ("VIS", ""),
         ("CLD", ""),
         ("TEMP", ""),
-        ("QNH", qnh_text),
     ]
     headings = "".join(f"<th>{escape(label)}</th>" for label, _ in values)
     cells = "".join(f"<td>{escape(value)}</td>" for _, value in values)
@@ -239,7 +225,7 @@ def _fuel_table(outcome: CalculationOutcome) -> str:
     descent_minutes = _phase_minutes(outcome, {"DESCENT", "VISUAL_ARRIVAL"})
     tgl_minutes = fuel.tgl_gal / 2.0 * 7.0
     required_parts = [
-        10.0,
+        float(fuel.taxi_runup_minutes),
         climb_minutes,
         cruise_minutes,
         descent_minutes,
@@ -270,7 +256,9 @@ def _fuel_table(outcome: CalculationOutcome) -> str:
     bof_html = "".join(
         "<tr>"
         + (
-            "<td rowspan='6' class='fuel-gray'></td><td rowspan='5' class='fuel-bof'>BOF</td>"
+            "<td rowspan='6' class='fuel-gray'></td>"
+            "<td rowspan='5' class='fuel-bof'>BOF<br><small>"
+            f"{_fuel_amount(fuel.bof_gal)}</small></td>"
             if index == 0
             else ""
         )
@@ -310,7 +298,7 @@ def _fuel_table(outcome: CalculationOutcome) -> str:
   <thead><tr><th colspan='3'></th><th>TIME</th><th>FUEL</th></tr></thead>
   <tbody>
     <tr><td class='fuel-gray'></td><td colspan='2' class='fuel-strong'>TAXI・RUN UP</td>
-      <td class='fuel-time-cell'>{_fuel_time(10.0)}</td>
+      <td class='fuel-time-cell'>{_fuel_time(float(fuel.taxi_runup_minutes))}</td>
       <td class='fuel-amount-cell'>{_fuel_amount(fuel.taxi_runup_gal)}</td></tr>
     {bof_html}
     {reserve}

@@ -12,7 +12,7 @@ services:
       - --storage-root
       - /var/lib/autonavlog
       - --weather
-      - msm-metar-trend
+      - msm
       - --maximum-sessions
       - "256"
     healthcheck:

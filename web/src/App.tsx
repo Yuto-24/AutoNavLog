@@ -9,7 +9,6 @@ import {
   ftdWeatherSettings,
   initialPlanningForm,
   patternAltitudeFtMsl,
-  qnhHpa,
   usableFuelGal,
   variationForDeparture,
 } from "./forms";
@@ -165,7 +164,6 @@ function App() {
           destinationPatternAltitudeFtMsl: "",
           routeUseConfirmed: false,
           polygonRouteConfirmed: false,
-          manualQnhConfirmed: false,
         };
       } else if (!selectedExists) {
         const onlyCandidate = next.import.candidates.length === 1
@@ -245,10 +243,6 @@ function App() {
         variationDegEast: departure
           ? variationForDeparture(departure)
           : current.variationDegEast,
-        manualQnhConfirmed:
-          current.departureAirportId === departureAirportId
-            ? current.manualQnhConfirmed
-            : false,
       };
     });
   }, [form.candidateKey, state]);
@@ -403,17 +397,15 @@ function App() {
             polygon_route_confirmed: form.polygonRouteConfirmed,
             flight_date: form.flightDate,
             departure_time_jst: form.departureTimeJst,
-            departure_airport_id: form.departureAirportId,
-            destination_airport_id: form.destinationAirportId,
             total_usable_fuel_gal: fuelGal,
             default_variation_deg_east: form.variationDegEast,
-            manual_qnh_hpa: qnhHpa(form),
             weather_mode: form.weatherMode,
             ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
+            run_up_included: form.runUpIncluded,
+            air_conditioning_enabled: form.airConditioningEnabled,
             tgl_count: form.tglCount,
             all_leg_altitude_ft_msl: form.allLegAltitudeFtMsl,
             use_penultimate_as_vrep: form.usePenultimateAsVrep,
-            manual_qnh_confirmed: form.manualQnhConfirmed,
           },
         }),
       "経路を確定しました。目的空港と場周経路高度を確認してください。",
@@ -448,8 +440,6 @@ function App() {
         api.request<WebState>("/api/destination/confirm", {
           method: "POST",
           body: {
-            departure_airport_id: form.departureAirportId || undefined,
-            destination_airport_id: form.destinationAirportId,
             selected_pattern_altitude_ft_msl: selectedPatternAltitude,
           },
         }),
@@ -579,9 +569,10 @@ function App() {
       departure_time_jst: form.departureTimeJst,
       total_usable_fuel_gal: fuelGal,
       default_variation_deg_east: form.variationDegEast,
-      manual_qnh_hpa: qnhHpa(form),
       weather_mode: form.weatherMode,
       ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
+      run_up_included: form.runUpIncluded,
+      air_conditioning_enabled: form.airConditioningEnabled,
       tgl_count: form.tglCount,
       sections: payloadSections.map((section) => {
         const guidance = altitudeGuidanceBySection.get(section.id);
@@ -604,7 +595,6 @@ function App() {
       arrival_altitude_mode: arrival?.altitude_mode ?? "STANDARD_DISTANCE_RULE",
       manual_vrep_altitude_ft_msl: arrival?.manual_vrep_altitude_ft_msl ?? null,
       manual_vrep_reason: arrival?.manual_override_reason ?? null,
-      manual_qnh_confirmed: form.manualQnhConfirmed,
     };
   };
 

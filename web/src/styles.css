@@ -436,6 +436,8 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
 
 .flight-plan-section > h2 { margin-bottom: 12px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.endpoint-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.endpoint-row label { min-width: 0; display: grid; gap: 5px; }
 .form-grid label { min-width: 0; display: grid; gap: 5px; }
 .form-grid-field { min-width: 0; display: grid; gap: 5px; }
 .form-grid-field > span {
@@ -443,7 +445,6 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
   font-size: 11px;
   font-weight: 700;
 }
-.qnh-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 82px; gap: 6px; }
 .field-help { color: var(--slate-500); font-size: 10px; line-height: 1.45; }
 .field-error { color: var(--red-700); font-weight: 700; }
 .drop-zone.is-disabled {
@@ -1227,6 +1228,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .progress-line { margin-right: 4px; }
   .rail-section, .status-rail { padding: 16px; }
   .form-grid { grid-template-columns: 1fr; }
+  .endpoint-row { grid-template-columns: 1fr; }
   .form-grid .span-two { grid-column: auto; }
   .ftd-weather-fields { grid-template-columns: 1fr; }
   .ftd-weather-fields > p { grid-column: auto; }
@@ -1255,7 +1257,6 @@ tbody tr:last-child td { border-bottom: 0; }
   button, input, select, .issue-item { transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease; }
 }
 
-.qnh-warning { color: #8a4b08; font-weight: 700; }
 
 .destination-wind-summary {
   display: flex;

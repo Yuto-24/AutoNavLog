@@ -281,26 +281,7 @@ def _validate_performance_data(root: Path) -> None:
     )
 
 
-def _validate_terrain(path: Path) -> str:
-    infos = _validate_zip_members(path, "Pzs terrain cache")
-    member_names = {info.filename for info in infos}
-    required_members = {
-        "values_m.npy",
-        "latitudes.npy",
-        "longitudes.npy",
-        "metadata.npy",
-    }
-    _require(
-        required_members <= member_names,
-        f"Pzs terrain cache is missing NPZ members: {sorted(required_members - member_names)}",
-    )
-    return _sha256_file(path)
-
-
-def _collect_data_payloads(
-    data_root: Path,
-    terrain_path: Path,
-) -> dict[PurePosixPath, bytes]:
+def _collect_data_payloads(data_root: Path) -> dict[PurePosixPath, bytes]:
     _require(data_root.is_dir(), f"data root is absent: {data_root}")
     _require(not data_root.is_symlink(), f"data root must not be a symbolic link: {data_root}")
     performance_root = data_root / "performance"
@@ -314,7 +295,6 @@ def _collect_data_payloads(
         f"reference data directory is absent or unsafe: {reference_root}",
     )
     _validate_performance_data(performance_root)
-    _validate_terrain(terrain_path)
     _validate_airport_data(reference_root / "airports.csv")
     try:
         ReferenceDataCatalogRepository(data_root / "reference-data-validation").open_pack(
@@ -340,12 +320,6 @@ def _collect_data_payloads(
                 f"runtime data contains a duplicate path: {relative}",
             )
             payloads[relative] = path.read_bytes()
-    terrain_member = PurePosixPath("data/msm/terrain.npz")
-    _require(
-        terrain_member not in payloads,
-        f"runtime data contains a duplicate path: {terrain_member}",
-    )
-    payloads[terrain_member] = terrain_path.read_bytes()
     return payloads
 
 
@@ -393,10 +367,7 @@ def _bundle_manifest(
         "runtime_data_root": "data",
         "weather": {
             "aloft_wind_temperature": "MSM",
-            "qnh": "MSM_ESTIMATED_QNH",
-            "pzs_terrain_included": True,
-            "terrain_path": "data/msm/terrain.npz",
-            "terrain_sha256": _sha256_bytes(payloads[PurePosixPath("data/msm/terrain.npz")]),
+            "surface_temperature": "MSM_LSURF_TMP_SURFACE",
         },
     }
 
@@ -472,7 +443,6 @@ def build_colab_preview_bundle(
     output: str | Path,
     *,
     data_root: str | Path = DEFAULT_DATA_ROOT,
-    terrain_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build and atomically publish one self-verifying Colab preview ZIP."""
 
@@ -498,7 +468,6 @@ def build_colab_preview_bundle(
             "msm_wind/core.py",
         ),
     )
-    terrain = data_path / "msm" / "terrain.npz" if terrain_path is None else Path(terrain_path)
     _require(
         autonavlog_path.name != msm_path.name,
         "wheel filenames must be distinct",
@@ -506,7 +475,7 @@ def build_colab_preview_bundle(
     _safe_member_path(autonavlog_path.name, "AutoNavLog wheel filename")
     _safe_member_path(msm_path.name, "MSM wheel filename")
 
-    payloads = _collect_data_payloads(data_path, terrain)
+    payloads = _collect_data_payloads(data_path)
     bundled_autonavlog_path = PurePosixPath("wheels") / autonavlog_path.name
     bundled_msm_path = PurePosixPath("wheels") / msm_path.name
     payloads[bundled_autonavlog_path] = autonavlog_path.read_bytes()
@@ -579,19 +548,12 @@ def main() -> int:
         default=DEFAULT_DATA_ROOT,
         help="source-backed data directory (default: repository data/)",
     )
-    parser.add_argument(
-        "--terrain",
-        type=Path,
-        default=None,
-        help="verified Pzs terrain.npz (default: <data-root>/msm/terrain.npz)",
-    )
     args = parser.parse_args()
     report = build_colab_preview_bundle(
         args.autonavlog_wheel,
         args.msm_wheel,
         args.output,
         data_root=args.data_root,
-        terrain_path=args.terrain,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

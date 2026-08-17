@@ -11,8 +11,7 @@
     "WeatherRequestKind": {
       "enum": [
         "ALOFT",
-        "SURFACE_TEMPERATURE",
-        "ESTIMATED_QNH"
+        "SURFACE_TEMPERATURE"
       ],
       "title": "WeatherRequestKind",
       "type": "string"

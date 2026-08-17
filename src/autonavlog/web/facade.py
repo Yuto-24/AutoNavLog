@@ -103,7 +103,6 @@ ISSUE_ACTIONS: dict[str, str] = {
     "PERFORMANCE_DATA_UNVERIFIED": "性能データの版とSHA-256を確認してください。",
     "ROUTE_INCOMPLETE": "KML/KMZから2点以上の経路を確定してください。",
     "RECALCULATION_REQUIRED": "現在の入力でNAV LOGを再計算してください。",
-    "MANUAL_QNH_RECONFIRM_REQUIRED": "DATE・ETD・FROMに対するQNHを再確認してください。",
     "VISUAL_REPORTING_POINT_REQUIRED": "目的空港直前のVREPを選択してください。",
     "VISUAL_REPORTING_POINT_ROUTE_INVALID": "VREPの位置と到着順序を確認してください。",
     "ARRIVAL_ALTITUDE_OVERRIDE_REASON_REQUIRED": "変則Entryの高度と理由を入力してください。",
@@ -112,7 +111,6 @@ ISSUE_ACTIONS: dict[str, str] = {
     "WEATHER_QUERY_FAILED": "通信と気象providerを確認して再計算してください。",
     "WIND_UNAVAILABLE": "風を取得するか、風向・風速を手入力してください。",
     "TEMPERATURE_UNAVAILABLE": "気温を取得するか手入力してください。",
-    "QNH_UNAVAILABLE": "観測QNHを取得するか、確認済みQNHを手入力してください。",
     "PILOT_REQUIRED": "PILOTを入力してください。",
     "SHIP_REQUIRED": "SHIPを入力してください。",
     "DEVELOPMENT_WEATHER_PROVIDER": "実気象providerで再計算してください。",
@@ -285,9 +283,9 @@ class AutoNavLogWebApplication:
             entries = self._entries_from_candidate(result, request)
             original_departure_coordinate = [entries[0][1], entries[0][2]]
             original_destination_coordinate = [entries[-1][1], entries[-1][2]]
-            departure, destination = self._selected_airports(
-                request.departure_airport_id,
-                request.destination_airport_id,
+            departure, destination = self._airports_for_route_endpoints(
+                (entries[0][1], entries[0][2]),
+                (entries[-1][1], entries[-1][2]),
             )
             entries = self._align_route_endpoints(entries, departure.id, destination.id)
             departure_time = self._departure_datetime(
@@ -308,11 +306,12 @@ class AutoNavLogWebApplication:
                 total_usable_fuel_gal=request.total_usable_fuel_gal,
                 default_variation_deg_east=request.default_variation_deg_east,
             )
-            project.manual_qnh_hpa = request.manual_qnh_hpa
             project = project.model_copy(
                 update={
                     "weather_mode": request.weather_mode,
                     "ftd_weather": request.ftd_weather,
+                    "run_up_included": request.run_up_included,
+                    "air_conditioning_enabled": request.air_conditioning_enabled,
                 }
             )
             project.tgl_count = request.tgl_count
@@ -358,8 +357,6 @@ class AutoNavLogWebApplication:
             self._normalize_rjfm_departure(project)
             if request.defaults_confirmed:
                 session.readiness_service.confirm_defaults(project, None)
-            if request.manual_qnh_hpa is not None and request.manual_qnh_confirmed:
-                session.readiness_service.confirm_manual_qnh(project, None)
             materialized = session.readiness_service.evaluate(project, None)
             session.project = materialized.project
             session.outcome = materialized.outcome
@@ -379,9 +376,11 @@ class AutoNavLogWebApplication:
                 )
             try:
                 departure = self.reference_catalog.airports[
-                    request.departure_airport_id or session.project.departure_airport_id
+                    session.project.departure_airport_id
                 ]
-                destination = self.reference_catalog.airports[request.destination_airport_id]
+                destination = self.reference_catalog.airports[
+                    session.project.destination_airport_id
+                ]
             except KeyError as error:
                 raise WebApplicationError(
                     "AIRPORT_NOT_FOUND",
@@ -402,7 +401,6 @@ class AutoNavLogWebApplication:
                     "採用場周経路高度は目的空港標高より高くしてください。",
                 )
             working = session.project.model_copy(deep=True)
-            destination_changed = working.destination_airport_id != destination.id
             ordered = working.ordered_nodes()
             if len(ordered) < 3:
                 raise WebApplicationError(
@@ -481,10 +479,8 @@ class AutoNavLogWebApplication:
             endpoint.longitude_deg = destination.longitude_deg
             endpoint.role = RouteNodeRole.DESTINATION
             endpoint.source = f"REFERENCE:{destination.source_revision}"
-            working.destination_airport_id = destination.id
-            current_plan = None if destination_changed else state.arrival_plan
+            current_plan = state.arrival_plan
             vrep = ordered[-2]
-            working.departure_airport_id = departure.id
             vrep.role = RouteNodeRole.VISUAL_REPORTING_POINT
             selected_source = (
                 AdoptedSource.AUTOMATIC
@@ -743,7 +739,8 @@ class AutoNavLogWebApplication:
             working.ship_identifier = request.ship_identifier
         working.total_usable_fuel_gal = request.total_usable_fuel_gal
         working.default_variation_deg_east = request.default_variation_deg_east
-        working.manual_qnh_hpa = request.manual_qnh_hpa
+        working.run_up_included = request.run_up_included
+        working.air_conditioning_enabled = request.air_conditioning_enabled
         weather_changed = (
             working.weather_mode != request.weather_mode
             or working.ftd_weather != request.ftd_weather
@@ -787,8 +784,6 @@ class AutoNavLogWebApplication:
         self._normalize_rjfm_departure(working)
         if request.defaults_confirmed:
             session.readiness_service.confirm_defaults(working, session.outcome)
-        if request.manual_qnh_hpa is not None and request.manual_qnh_confirmed:
-            session.readiness_service.confirm_manual_qnh(working, session.outcome)
         return working
 
     def _calculate_outcome(
@@ -1387,6 +1382,46 @@ class AutoNavLogWebApplication:
             ) from error
         return departure, destination
 
+    def _nearest_airport_within_5_nm(
+        self,
+        coordinate: tuple[float, float],
+    ) -> tuple[Any, float] | None:
+        ranked = sorted(
+            (
+                (
+                    self._distance_to_airport(coordinate, airport),
+                    airport.icao,
+                    airport.id,
+                    airport,
+                )
+                for airport in self.reference_catalog.airports.values()
+            ),
+            key=lambda item: (item[0], item[1], item[2]),
+        )
+        if not ranked or ranked[0][0] > 5.0:
+            return None
+        distance, _, _, airport = ranked[0]
+        return airport, distance
+
+    def _airports_for_route_endpoints(
+        self,
+        departure_coordinate: tuple[float, float],
+        destination_coordinate: tuple[float, float],
+    ) -> tuple[Any, Any]:
+        departure_match = self._nearest_airport_within_5_nm(departure_coordinate)
+        destination_match = self._nearest_airport_within_5_nm(destination_coordinate)
+        if departure_match is None or destination_match is None:
+            missing = []
+            if departure_match is None:
+                missing.append("始点")
+            if destination_match is None:
+                missing.append("終点")
+            raise WebApplicationError(
+                "ROUTE_AIRPORT_ENDPOINT_NOT_FOUND",
+                f"KMLの{'・'.join(missing)}から5 NM以内に空港が見つかりません。",
+            )
+        return departure_match[0], destination_match[0]
+
     def _entries_from_candidate(
         self,
         result: KmlImportResult,
@@ -1783,6 +1818,33 @@ class AutoNavLogWebApplication:
                     "coordinates": [
                         [point.latitude_deg, point.longitude_deg] for point in result.points
                     ],
+                }
+            )
+        for candidate in candidates:
+            coordinates = candidate.get("coordinates")
+            departure_match = None
+            destination_match = None
+            if isinstance(coordinates, list) and coordinates:
+                departure_match = self._nearest_airport_within_5_nm(
+                    (float(coordinates[0][0]), float(coordinates[0][1]))
+                )
+                destination_match = self._nearest_airport_within_5_nm(
+                    (float(coordinates[-1][0]), float(coordinates[-1][1]))
+                )
+            candidate.update(
+                {
+                    "departureAirportId": (
+                        None if departure_match is None else departure_match[0].id
+                    ),
+                    "departureDistanceNm": (
+                        None if departure_match is None else round(departure_match[1], 3)
+                    ),
+                    "destinationAirportId": (
+                        None if destination_match is None else destination_match[0].id
+                    ),
+                    "destinationDistanceNm": (
+                        None if destination_match is None else round(destination_match[1], 3)
+                    ),
                 }
             )
         return {

@@ -69,13 +69,15 @@ hash対象外で、計算入力にはしません。
 現行性、公式承認、飛行可否を保証しません。また、地形、障害物、参照パックで定義していない
 他空域、ATC指示は参照パックと出発経路ソルバの対象外です。
 
-MSMの上空風・気温にはForecast Run、元URL、source hash、補間方法、格子・気圧面traceを
-保存します。自動QNHは最新2時間以内の検証済みMETARを基準に、同一Forecast Runの
-MSM MSLP変化量を加えた `METAR_TREND_CORRECTED` として保存します。基準METAR時刻、
-対象時刻、両時刻のMSLP、変化量、API response hashと補間traceを保持します。METARが
-欠測・不整合・古い場合は `MSM_MSLP_ONLY`、MSMも取得不能なら `MANUAL` へ切り替えます。
-Pzs・外部DEMは使用しません。これは公式飛行場予報QNHではなく、その確認を代替しません。
-手動上書き後も自動値、方式、根拠を削除しません。
+MSMの上空風・気温と地表面気温にはForecast Run、元URL、source hash、補間方法、格子・
+気圧面traceを保存します。地表面気温はLsurfの`tmp_surface`を使い、気圧面気温を空港標高へ
+外挿しません。QNH、MSLP、METARによる補正は取得・保存・計算の対象外です。
+
+巡航性能metadataにはPOH表のKTAS、ノーズフェアリング補正、A/C補正、最終KTASを分けて
+保存します。ノーズフェアリング`-10 KTAS`とA/C ON時`-2 KTAS`は利用者提供転記です。
+A/C装備時に別POH Supplementが適用されることは
+[Cirrus公式Supplement案内](https://store.cirrusaircraft.com/sr22-supplement-13772-127%2C-air-conditioning/5637369215.p)で確認していますが、
+Supplement本文を収録していないため未確認のページ番号は付けません。
 
 各計算行のVariationは`DEPARTURE_LATITUDE_32N_V1`規則で決定し、
 `variation_deg_east.automatic_metadata`へ元の物理Legの出発緯度、32.0°Nの閾値、

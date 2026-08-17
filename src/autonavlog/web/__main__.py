@@ -24,12 +24,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--weather",
-        choices=("fake", "msm", "msm-metar", "msm-metar-trend"),
+        choices=("fake", "msm"),
         default="fake",
         help="fake is deterministic development weather and blocks transfer output",
     )
     parser.add_argument("--msm-cache", type=Path)
-    parser.add_argument("--terrain-cache", type=Path)
     parser.add_argument("--maximum-sessions", type=int, default=256)
     parser.add_argument(
         "--trusted-local-identity",
@@ -67,7 +66,6 @@ def main() -> None:
         storage_root=args.storage_root,
         weather_mode=args.weather,
         msm_cache_dir=args.msm_cache,
-        terrain_cache_path=args.terrain_cache,
         maximum_sessions=args.maximum_sessions,
         trusted_local_identity=args.trusted_local_identity,
         cloudflare_team_domain=args.cloudflare_team_domain,
