@@ -1,10 +1,23 @@
+import re
 from pathlib import Path
 
-WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "release-to-drive.yml"
+ROOT = Path(__file__).parents[2]
+WORKFLOW = ROOT / ".github" / "workflows" / "release-to-drive.yml"
+PYPROJECT = ROOT / "pyproject.toml"
 
 
 def _workflow_text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
+
+
+def _project_version() -> str:
+    match = re.search(
+        r'^version = "([^"]+)"$',
+        PYPROJECT.read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    assert match is not None
+    return match.group(1)
 
 
 def test_release_workflow_requires_a_fixed_utc_live_msm_time() -> None:
@@ -20,6 +33,7 @@ def test_release_workflow_requires_a_fixed_utc_live_msm_time() -> None:
 
 def test_release_workflow_validates_isolated_wheels_before_manifest_and_upload() -> None:
     text = _workflow_text()
+    version = _project_version()
 
     assemble = text.index("- name: Assemble runtime data")
     isolated_install = text.index("- name: Install release wheels in isolated environment")
@@ -30,7 +44,9 @@ def test_release_workflow_validates_isolated_wheels_before_manifest_and_upload()
     upload = text.index("- name: Upload versioned release to Drive")
 
     assert assemble < isolated_install < runtime_data < real_msm < enforce < manifest < upload
-    assert "release/wheels/autonavlog-1.1.0-py3-none-any.whl" in text
+    assert f"release/wheels/autonavlog-{version}-py3-none-any.whl" in text
+    assert f"--version {version}" in text
+    assert f'--folder-name "{version}"' in text
     assert "actions/setup-node@v4" in text
     assert "npm --prefix web run build" in text
     assert "cp -R web/dist/. src/autonavlog/web/static/" in text
