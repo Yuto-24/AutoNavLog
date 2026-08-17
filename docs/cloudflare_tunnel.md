@@ -13,20 +13,23 @@ originをInternetへ直接listenさせません。
 export AUTONAVLOG_CLOUDFLARE_TEAM_DOMAIN='https://<team>.cloudflareaccess.com'
 export AUTONAVLOG_CLOUDFLARE_ACCESS_AUDIENCE='<Access application AUD tag>'
 unset AUTONAVLOG_TRUSTED_LOCAL_IDENTITY
-docker compose up -d --build
+AUTONAVLOG_BIND_ADDRESS=127.0.0.1 docker compose up -d --build
 docker compose ps
 ```
 
 Tunnelを使わずloopbackでUI操作まで試す場合だけ、固定identityを明示します。
 
 ```bash
-AUTONAVLOG_TRUSTED_LOCAL_IDENTITY=local-user docker compose up -d --build
+AUTONAVLOG_BIND_ADDRESS=127.0.0.1 \
+AUTONAVLOG_TRUSTED_LOCAL_IDENTITY=local-user \
+docker compose up -d --build
 ```
 
 このoverrideはCloudflare Access headerを使わないローカル試験専用です。設定したまま
 Tunnelへ公開すると全利用者が同じ所有者になるため、公開serviceでは必ず未設定にします。
 
-Composeはcontainer内の `0.0.0.0:8000` をhostの `127.0.0.1:8123` だけへpublishし、
+Cloudflare用コマンドは、通常の開発用default（`0.0.0.0`）を明示的に上書きし、container内の
+`0.0.0.0:8000` をhostの `127.0.0.1:8123` だけへpublishします。
 Projectと参照データをnamed volume `autonavlog-data` に保存します。別terminalで確認します。
 
 ```bash

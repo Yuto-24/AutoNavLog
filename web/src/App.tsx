@@ -931,6 +931,7 @@ function App() {
           candidate={selectedCandidate}
           project={state.project}
           altitudeGuidance={state.altitudeGuidance}
+          rjfmMapReference={state.rjfmMapReference}
           outcome={state.outcome}
           calculationIsCurrent={calculationIsCurrent}
           altitudeInputs={altitudeInputs}

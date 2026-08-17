@@ -155,6 +155,7 @@ class _IterationResult:
     display_rows: list[NavLogDisplayRow]
     issues: list[Issue]
     representative_times: dict[str, datetime]
+    arrival_time_utc: datetime | None
     phases: list[FlightPhase]
     section_fuels: list[float | None]
     derived_points: list[DerivedRoutePoint]
@@ -458,8 +459,11 @@ class CalculationService:
             return self._empty_outcome(working, issues, check_point_projections, arrival_altitude)
 
         previous_times: dict[str, datetime] = {}
+        previous_arrival_time_utc: datetime | None = None
         iteration_records: list[IterationRecord] = []
         final: _IterationResult | None = None
+        final_weather_requests: list[WeatherRequest] = []
+        final_weather_results: list[WeatherResult] = []
         qnh_value: AdoptedValue[float] = _manual_or_automatic(
             None,
             working.manual_qnh_hpa,
@@ -477,6 +481,7 @@ class CalculationService:
                 geometries,
                 previous_times,
                 arrival_altitude_ft_msl,
+                previous_arrival_time_utc=previous_arrival_time_utc,
             )
             results = self._query_weather(provider, selected_run_id, requests, issues)
             qnh_value = self._adopt_qnh(working, results)
@@ -492,7 +497,28 @@ class CalculationService:
                 rjfm_departure_plan,
             )
             final = iteration_result
-            delta = self._maximum_time_delta(previous_times, iteration_result.representative_times)
+            final_weather_requests = requests
+            final_weather_results = results
+            representative_delta = self._maximum_time_delta(
+                previous_times,
+                iteration_result.representative_times,
+            )
+            arrival_delta = (
+                None
+                if previous_arrival_time_utc is None
+                or iteration_result.arrival_time_utc is None
+                else abs(
+                    (
+                        iteration_result.arrival_time_utc - previous_arrival_time_utc
+                    ).total_seconds()
+                )
+            )
+            deltas = [
+                value
+                for value in (representative_delta, arrival_delta)
+                if value is not None
+            ]
+            delta = max(deltas) if deltas else None
             iteration_records.append(
                 IterationRecord(
                     iteration=iteration,
@@ -504,6 +530,7 @@ class CalculationService:
                 converged = True
                 break
             previous_times = iteration_result.representative_times
+            previous_arrival_time_utc = iteration_result.arrival_time_utc
 
         if final is None:
             outcome = self._empty_outcome(
@@ -519,6 +546,50 @@ class CalculationService:
                     "iterations": iteration_records,
                 }
             )
+
+        if final.arrival_time_utc is not None:
+            destination_request = next(
+                (
+                    request
+                    for request in final_weather_requests
+                    if request.request_id == "destination:surface"
+                ),
+                None,
+            )
+            if (
+                destination_request is not None
+                and destination_request.valid_time_utc != final.arrival_time_utc
+            ):
+                exact_destination_request = destination_request.model_copy(
+                    update={
+                        "valid_time_utc": final.arrival_time_utc,
+                        "metadata": destination_request.metadata
+                        | {"timing_policy": "FINAL_CALCULATED_ARRIVAL"},
+                    }
+                )
+                exact_destination_results = self._query_weather(
+                    provider,
+                    selected_run_id,
+                    [exact_destination_request],
+                    issues,
+                )
+                departure_surface = next(
+                    (
+                        result
+                        for result in final_weather_results
+                        if result.request_id == "departure:surface"
+                    ),
+                    None,
+                )
+                final.display_rows = build_navlog_display_rows(
+                    self._navlog_physical_legs(geometries, rjfm_departure_plan),
+                    final.sections,
+                    departure,
+                    destination,
+                    departure_surface,
+                    exact_destination_results[0] if exact_destination_results else None,
+                    destination_wind,
+                )
         report(80, "計算結果を検証しています。")
         issues.extend(final.issues)
         if not converged:
@@ -544,6 +615,7 @@ class CalculationService:
             final_requirement = self.forecast_service.build_final_requirement(
                 working,
                 tuple(final.representative_times.values()),
+                arrival_time_utc=final.arrival_time_utc,
             )
             run_status = provider.inspect_run_status(selected_run_id, final_requirement)
             if not run_status.selected_run_covers_requirement:
@@ -750,6 +822,8 @@ class CalculationService:
         geometries: list[_Geometry],
         previous_times: dict[str, datetime],
         arrival_altitude_ft_msl: float | None = None,
+        *,
+        previous_arrival_time_utc: datetime | None = None,
     ) -> list[WeatherRequest]:
         requests: list[WeatherRequest] = []
         elapsed = 0.0
@@ -792,24 +866,25 @@ class CalculationService:
             * 3600.0
         )
         last_midpoint_time = previous_times.get(str(last_geometry.section.id))
-        arrival_time = (
-            project.planned_departure_time_jst + timedelta(seconds=elapsed)
-            if last_midpoint_time is None
-            else last_midpoint_time + timedelta(seconds=last_default_seconds / 2.0)
-        )
+        arrival_time = previous_arrival_time_utc
+        if arrival_time is None:
+            arrival_time = (
+                project.planned_departure_time_jst + timedelta(seconds=elapsed)
+                if last_midpoint_time is None
+                else last_midpoint_time + timedelta(seconds=last_default_seconds / 2.0)
+            )
         requests.append(
             WeatherRequest(
                 request_id="departure:surface",
-                kind=WeatherRequestKind.ALOFT,
+                kind=WeatherRequestKind.SURFACE_TEMPERATURE,
                 latitude_deg=departure.latitude_deg,
                 longitude_deg=departure.longitude_deg,
                 valid_time_utc=project.planned_departure_time_jst,
-                altitude_ft_msl=float(departure.elevation_ft_msl),
+                elevation_ft_msl=float(departure.elevation_ft_msl),
                 metadata={
                     "source_rule": "NAV2_V6_DEPARTURE_PARENT_ROW",
                     "phase": "DEPARTURE",
-                    "representative_altitude_policy": "AIRPORT_ELEVATION_MSL",
-                    "representative_altitude_ft_msl": float(departure.elevation_ft_msl),
+                    "temperature_source_policy": "SURFACE_TEMPERATURE_AT_AIRPORT",
                     "airport_id": departure.id,
                 },
             )
@@ -817,16 +892,15 @@ class CalculationService:
         requests.append(
             WeatherRequest(
                 request_id="destination:surface",
-                kind=WeatherRequestKind.ALOFT,
+                kind=WeatherRequestKind.SURFACE_TEMPERATURE,
                 latitude_deg=destination.latitude_deg,
                 longitude_deg=destination.longitude_deg,
                 valid_time_utc=arrival_time,
-                altitude_ft_msl=float(destination.elevation_ft_msl),
+                elevation_ft_msl=float(destination.elevation_ft_msl),
                 metadata={
                     "source_rule": "NAV2_V5_DESTINATION_FINAL_ROW",
                     "phase": "DESTINATION",
-                    "representative_altitude_policy": "AIRPORT_ELEVATION_MSL",
-                    "representative_altitude_ft_msl": float(destination.elevation_ft_msl),
+                    "temperature_source_policy": "SURFACE_TEMPERATURE_AT_AIRPORT",
                     "airport_id": destination.id,
                 },
             )
@@ -2302,6 +2376,11 @@ class CalculationService:
             section_id: departure_utc + timedelta(seconds=(bounds[0] + bounds[1]) / 2.0)
             for section_id, bounds in source_time_bounds.items()
         }
+        arrival_time_utc = (
+            None
+            if cumulative_seconds is None
+            else departure_utc + timedelta(seconds=cumulative_seconds)
+        )
         derived_points = self._derived_points_from_segmentation(
             segmentation,
             boundary_times,
@@ -2344,6 +2423,7 @@ class CalculationService:
             display_rows,
             self._deduplicate_issues(issues),
             representative_times,
+            arrival_time_utc,
             phases,
             section_fuels,
             derived_points,

@@ -267,6 +267,28 @@ def _validate_weather_result(
             result.values.get("temperature_c"),
             f"{request.request_id}: temperature_c",
         )
+    elif request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
+        temperature_k = _as_finite_number(
+            result.values.get("temperature_k"),
+            f"{request.request_id}: temperature_k",
+        )
+        temperature_c = _as_finite_number(
+            result.values.get("temperature_c"),
+            f"{request.request_id}: temperature_c",
+        )
+        if not 150 <= temperature_k <= 350:
+            _fail(
+                f"{request.request_id}: temperature_k is outside the accepted sanity range"
+            )
+        if not math.isclose(
+            temperature_c,
+            temperature_k - 273.15,
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        ):
+            _fail(f"{request.request_id}: Kelvin/Celsius values are inconsistent")
+        if result.metadata.get("source_variable") != "tmp_surface":
+            _fail(f"{request.request_id}: MSM surface-temperature source is not tmp_surface")
     else:
         qnh_hpa = _as_finite_number(
             result.values.get("qnh_hpa"),
@@ -324,6 +346,14 @@ def _weather_requests(
                     altitude_ft_msl=altitude_ft_msl,
                 ),
                 WeatherRequest(
+                    request_id=f"{probe.icao}-surface-temperature",
+                    kind=WeatherRequestKind.SURFACE_TEMPERATURE,
+                    latitude_deg=probe.latitude_deg,
+                    longitude_deg=probe.longitude_deg,
+                    valid_time_utc=valid_time_utc,
+                    elevation_ft_msl=probe.elevation_ft_msl,
+                ),
+                WeatherRequest(
                     request_id=f"{probe.icao}-qnh",
                     kind=WeatherRequestKind.ESTIMATED_QNH,
                     latitude_deg=probe.latitude_deg,
@@ -369,7 +399,10 @@ def run_real_msm_acceptance(
     if valid_time is None:  # Guard for callers bypassing dataclass validation.
         _fail("live MSM acceptance requires valid_time_utc")
     valid_time = valid_time.astimezone(timezone.utc)
-    requirement = ForecastRequirement(valid_times_utc=(valid_time,))
+    requirement = ForecastRequirement(
+        valid_times_utc=(valid_time,),
+        require_surface_temperature=True,
+    )
 
     forecast_run = msm_provider.resolve_run(requirement)
     status = msm_provider.inspect_run_status(forecast_run.id, requirement)

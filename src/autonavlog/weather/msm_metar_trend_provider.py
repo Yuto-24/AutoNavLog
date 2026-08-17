@@ -70,6 +70,7 @@ class MsmMetarTrendQnhProvider:
                 valid_times_utc=(*requirement.valid_times_utc, *metar_times),
                 require_aloft_wind=requirement.require_aloft_wind,
                 require_aloft_temperature=requirement.require_aloft_temperature,
+                require_surface_temperature=requirement.require_surface_temperature,
                 require_estimated_qnh=True,
             ),
             lookups,
@@ -125,21 +126,29 @@ class MsmMetarTrendQnhProvider:
             raise RuntimeError("MSM/METAR trend run must be prepared before querying")
 
         results: list[WeatherResult | None] = [None] * len(requests)
-        aloft = tuple(
+        delegated_requests = tuple(
             (index, request)
             for index, request in enumerate(requests)
-            if request.kind == WeatherRequestKind.ALOFT
+            if request.kind
+            in {
+                WeatherRequestKind.ALOFT,
+                WeatherRequestKind.SURFACE_TEMPERATURE,
+            }
         )
-        if aloft:
+        if delegated_requests:
             delegated = tuple(
                 self._delegate.query_batch(
                     forecast_run_id,
-                    tuple(request for _, request in aloft),
+                    tuple(request for _, request in delegated_requests),
                 )
             )
-            if len(delegated) != len(aloft):
+            if len(delegated) != len(delegated_requests):
                 raise RuntimeError("MSM delegate batch result count does not match request count")
-            for (index, request), result in zip(aloft, delegated, strict=True):
+            for (index, request), result in zip(
+                delegated_requests,
+                delegated,
+                strict=True,
+            ):
                 if result.request_id != request.request_id or result.kind != request.kind:
                     raise RuntimeError("MSM delegate changed weather request identity or order")
                 results[index] = result

@@ -100,3 +100,22 @@ def test_ftd_provider_requires_preparation_and_preserves_request_order() -> None
     results = prepared.query_batch(FTD_FORECAST_RUN_ID, requests)
     assert [result.request_id for result in results] == ["second", "first"]
     assert all(result.metadata["provider"] == "ftd_fixed" for result in results)
+
+
+def test_ftd_surface_temperature_uses_isa_at_airport_elevation() -> None:
+    provider = _prepared_provider()
+    request = WeatherRequest(
+        request_id="departure:surface",
+        kind=WeatherRequestKind.SURFACE_TEMPERATURE,
+        latitude_deg=31.877,
+        longitude_deg=131.448,
+        valid_time_utc=datetime(2026, 8, 16, tzinfo=timezone.utc),
+        elevation_ft_msl=123.0,
+    )
+
+    (result,) = provider.query_batch(FTD_FORECAST_RUN_ID, (request,))
+
+    assert result.values == {"temperature_c": pytest.approx(isa_temperature_c(123.0))}
+    assert result.metadata["temperature_policy"] == "ISA_AT_AIRPORT_ELEVATION_MSL"
+    assert result.metadata["requested_elevation_ft_msl"] == 123.0
+    assert result.warnings == ()

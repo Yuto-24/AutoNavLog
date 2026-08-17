@@ -69,6 +69,7 @@ class WeatherPrewarmer:
             valid_times_utc=tuple(now + timedelta(hours=offset) for offset in range(hours + 1)),
             require_aloft_wind=True,
             require_aloft_temperature=True,
+            require_surface_temperature=True,
             require_estimated_qnh=False,
         )
         run = self._provider.resolve_run(requirement)

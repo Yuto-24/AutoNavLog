@@ -604,10 +604,6 @@ export function NavLogTable({
         </div>
         <span>Forecast Run: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
-      <section className="qnh-summary" aria-label="NAV LOG高度ポリシー">
-        <strong>PA = MSL</strong>
-        <span>QNH補正はNAV LOG計算に使用しません。</span>
-      </section>
       <DestinationWindSummary forecast={destinationWind} />
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
         <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>

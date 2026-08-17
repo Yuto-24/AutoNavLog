@@ -1986,11 +1986,11 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | 項目 | 内容 |
 | --- | --- |
 | 要求生成 | `ForecastService.build_initial_requirement()`。推定速度100 ktの初期要求、収束後はいずれもLossを含まない `planned_elapsed_seconds` による各Sectionの中間・終了時刻を要求する。予報coverage末尾だけは飛行timelineと分離して、最終到着計画時刻へ10分＋`tgl_count`×7分を加算する |
-| 最終要求 | `build_final_requirement()`（出発時刻＋代表時刻） |
+| 最終要求 | `build_final_requirement()`（出発時刻＋代表時刻＋計算済み最終累積ETEによる到着時刻）。出発・到着地上気温も同一Forecast Runのcoverage対象とする |
 | 選択 | `WeatherProvider.resolve_run(requirement)` |
 | 状態 | `inspect_run_status()` → `RunSelectionStatus`（`selected_run_id` / `latest_compatible_run_id` / `selected_run_covers_requirement` / `update_available` / `warnings`） |
 | 保存 | `Project.selected_forecast_run_id` |
-| 反復 | 最大5回、代表時刻差 30秒未満で収束（`CalculationPolicies`） |
+| 反復 | 最大5回、代表時刻と計算済み到着時刻の最大差が30秒未満で収束（`CalculationPolicies`）。最終問い合わせ時刻と実到着時刻が異なる場合は、到着地上気温を実到着時刻で再取得する |
 | 更新通知 | `FORECAST_UPDATE_AVAILABLE`（自動切替しない） |
 | 失敗 | `FORECAST_PREPARE_FAILED` / `FORECAST_RUN_OUT_OF_COVERAGE`（BLOCKER） |
 
@@ -2003,6 +2003,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | 欠損時 | `QNH_UNAVAILABLE`（BLOCKER）。手動入力必須 |
 | 手動QNH | `Project.manual_qnh_hpa: float \| None`、`gt=800, lt=1100` |
 | 上空風・気温 | `WeatherRequestKind.ALOFT`。欠損は `WIND_UNAVAILABLE` / `TEMPERATURE_UNAVAILABLE` |
+| 出発・到着TOAT | `WeatherRequestKind.SURFACE_TEMPERATURE`。MSM `tmp_surface`を水平・時間補間し、出発はETD、到着は計算済み最終累積ETEの時刻を使う。空港標高へ気圧面気温を外挿しない |
 | フォールバック | **禁止**（0・1013.25 hPa・最近傍気象） |
 | 固定規則値 | 降下 500 fpm・12 GPH、到着 CAS 121 kt・原則無風・12 GPH（`ValueState.FIXED_RULE`） |
 | バッチ | `query_batch(forecast_run_id, requests)`。件数不一致は `WEATHER_BATCH_MISMATCH` |

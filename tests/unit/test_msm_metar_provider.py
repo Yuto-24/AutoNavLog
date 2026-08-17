@@ -98,7 +98,14 @@ class _RecordingDelegate:
     ) -> Sequence[WeatherResult]:
         batch = tuple(requests)
         self.query_batches.append(batch)
-        assert all(request.kind == WeatherRequestKind.ALOFT for request in batch)
+        assert all(
+            request.kind
+            in {
+                WeatherRequestKind.ALOFT,
+                WeatherRequestKind.SURFACE_TEMPERATURE,
+            }
+            for request in batch
+        )
         self.last_results = tuple(
             WeatherResult(
                 request_id=request.request_id,
@@ -150,6 +157,7 @@ def _requirement() -> ForecastRequirement:
         valid_times_utc=(OBSERVATION_TIME + timedelta(minutes=30),),
         require_aloft_wind=True,
         require_aloft_temperature=False,
+        require_surface_temperature=True,
         require_estimated_qnh=True,
     )
 
@@ -180,6 +188,19 @@ def _aloft_request(request_id: str = "aloft") -> WeatherRequest:
         longitude_deg=131.4,
         valid_time_utc=OBSERVATION_TIME + timedelta(minutes=30),
         altitude_ft_msl=5000,
+    )
+
+
+def _surface_temperature_request(
+    request_id: str = "departure:surface",
+) -> WeatherRequest:
+    return WeatherRequest(
+        request_id=request_id,
+        kind=WeatherRequestKind.SURFACE_TEMPERATURE,
+        latitude_deg=31.877,
+        longitude_deg=131.448,
+        valid_time_utc=OBSERVATION_TIME + timedelta(minutes=30),
+        elevation_ft_msl=20,
     )
 
 
@@ -221,6 +242,7 @@ def test_lifecycle_removes_qnh_only_from_delegated_requirement() -> None:
     assert all(not item.require_estimated_qnh for item in delegated_requirements)
     assert all(item.require_aloft_wind for item in delegated_requirements)
     assert all(not item.require_aloft_temperature for item in delegated_requirements)
+    assert all(item.require_surface_temperature for item in delegated_requirements)
     assert prepared.requirement == requirement
     assert prepared.metadata["qnh_label"] == METAR_QNH_LABEL
     assert prepared.metadata["delegate"] == {"provider": "recording-msm"}
@@ -233,6 +255,7 @@ def test_mixed_batch_preserves_order_and_delegate_aloft_result() -> None:
     requests = (
         _qnh_request("qnh-1"),
         _aloft_request(),
+        _surface_temperature_request(),
         _qnh_request(
             "qnh-2",
             valid_time=OBSERVATION_TIME + timedelta(hours=1),
@@ -241,9 +264,15 @@ def test_mixed_batch_preserves_order_and_delegate_aloft_result() -> None:
 
     results = tuple(provider.query_batch(RUN_ID, requests))
 
-    assert [result.request_id for result in results] == ["qnh-1", "aloft", "qnh-2"]
-    assert delegate.query_batches == [(requests[1],)]
+    assert [result.request_id for result in results] == [
+        "qnh-1",
+        "aloft",
+        "departure:surface",
+        "qnh-2",
+    ]
+    assert delegate.query_batches == [(requests[1], requests[2])]
     assert results[1] is delegate.last_results[0]
+    assert results[2] is delegate.last_results[1]
     assert len(transport.calls) == 1
     url, headers, timeout_seconds = transport.calls[0]
     assert url == "https://aviationweather.gov/api/data/metar?ids=RJFM&format=json"

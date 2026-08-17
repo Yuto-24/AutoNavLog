@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "dataset_id": "autonavlog-rjfm-departure-guidance",
-  "revision": "2026-08-17-rjfm-umk-guidance-v2",
-  "created_at_utc": "2026-08-17T02:55:05Z",
+  "revision": "2026-08-17-rjfm-umk-guidance-v3",
+  "created_at_utc": "2026-08-17T04:16:51Z",
   "payload": {
     "path": "rjfm-reference.json",
-    "sha256": "158fdf21d299199dcbce7e93801655b314dd1f083dfb3be2ffa90bb41779ab37"
+    "sha256": "81e384a6336f207dd58ec6571482828f93bea5b98f5b2d3d9bbb6a1a1a25995a"
   }
 }

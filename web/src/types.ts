@@ -302,6 +302,62 @@ export interface RjfmCoordinate {
   estimated_error_nm: number;
 }
 
+export interface RjfmMapPoint {
+  latitudeDeg: number;
+  longitudeDeg: number;
+}
+
+export interface RjfmPcaMapReference {
+  name: "MIYAZAKI_SPECIAL_CONTROL_AREA";
+  polygonVertices: RjfmMapPoint[];
+  exclusionCenter: RjfmMapPoint;
+  exclusionRadiusKm: number;
+  sourceAltitudeLowerM: number;
+  sourceAltitudeUpperM: number;
+  operationalAltitudeLowerFtMsl: number;
+  operationalAltitudeUpperFtMsl: number;
+  altitudeBoundsInclusive: boolean;
+  operationalAltitudePolicyStatus: "USER_APPROVED_NOT_EXACT_METRIC_CONVERSION";
+  sourceIds: string[];
+}
+
+export type RjfmCivilTrainingTestAirspaceName =
+  | "KS4-1/4"
+  | "KS4-1"
+  | "KS4-2"
+  | "KS4-3"
+  | "KS4-5"
+  | "KS4-6"
+  | "KS4-7"
+  | "KS4-8";
+
+export interface RjfmCivilTrainingTestAirspaceTileReference {
+  url: string;
+  expectedPolygonNames: RjfmCivilTrainingTestAirspaceName[];
+}
+
+export interface RjfmCivilTrainingTestAirspaceReference {
+  availability: "REMOTE_GSI_GEOJSON";
+  dataUse: "DISPLAY_ONLY_LIVE_REFERENCE";
+  contentFingerprintScope: "CONFIGURATION_ONLY_LIVE_GEOJSON_EXCLUDED";
+  sourcePageUrl: string;
+  layerMetadataUrl: string;
+  tileUrlTemplate: string;
+  tileUrls: string[];
+  tiles: RjfmCivilTrainingTestAirspaceTileReference[];
+  featureNamePrefix: "KS4-";
+  checkedAtUtc: string;
+  caution: string;
+  sourceIds: string[];
+}
+
+export interface RjfmMapReference {
+  revision: string;
+  contentFingerprint: string;
+  pca: RjfmPcaMapReference;
+  civilTrainingTestAirspace: RjfmCivilTrainingTestAirspaceReference;
+}
+
 export interface RjfmGuidancePathPoint {
   latitude_deg: number;
   longitude_deg: number;
@@ -439,6 +495,7 @@ export interface WebState {
   savedProjects: SavedProject[];
   import: ImportState;
   altitudeGuidance: AltitudeGuidance;
+  rjfmMapReference: RjfmMapReference | null;
   checkPointPlanning: CheckPointPlanning;
   project: Project | null;
   outcome: CalculationOutcome | null;

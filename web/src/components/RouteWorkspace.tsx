@@ -1,8 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import {
+  Circle,
   CircleMarker,
   MapContainer,
+  Polygon,
   Polyline,
   TileLayer,
   Tooltip,
@@ -11,6 +13,11 @@ import {
 } from "react-leaflet";
 import type { LatLngBoundsExpression } from "leaflet";
 import { patternAltitudeFtMsl } from "../forms";
+import {
+  fetchRjfmTrainingAirspace,
+  isApprovedRjfmAirspaceReference,
+  type RjfmTrainingAirspacePolygon,
+} from "../rjfmAirspace";
 import type {
   AltitudeGuidance,
   AltitudeInputMode,
@@ -21,6 +28,7 @@ import type {
   FlightPhase,
   NavSection,
   Project,
+  RjfmMapReference,
   RouteCandidate,
 } from "../types";
 import { CheckPointEditor } from "./CheckPointEditor";
@@ -34,6 +42,7 @@ interface RouteWorkspaceProps {
   outcome: CalculationOutcome | null;
   calculationIsCurrent: boolean;
   altitudeGuidance: AltitudeGuidance;
+  rjfmMapReference: RjfmMapReference | null;
   altitudeInputs: Record<string, string>;
   destinationAirport: AirportOption | null;
   destinationPatternAltitudeFtMsl: string;
@@ -104,6 +113,10 @@ function fixedAltitudeLabels(
 
 const centerRoutePointLabels = ["UMK", "OVER FIELD", "OMARU"] as const;
 
+type TrainingAirspaceState =
+  | { status: "idle" | "loading" | "unavailable"; polygons: [] }
+  | { status: "ready"; polygons: RjfmTrainingAirspacePolygon[] };
+
 function FitBounds({
   coordinates,
   signature,
@@ -149,6 +162,7 @@ export function RouteWorkspace({
   outcome,
   calculationIsCurrent,
   altitudeGuidance,
+  rjfmMapReference,
   altitudeInputs,
   destinationAirport,
   destinationPatternAltitudeFtMsl,
@@ -172,6 +186,10 @@ export function RouteWorkspace({
     longitude: number;
     revision: number;
   } | null>(null);
+  const [trainingAirspace, setTrainingAirspace] = useState<TrainingAirspaceState>({
+    status: "idle",
+    polygons: [],
+  });
   const validPatternAltitude = patternAltitudeFtMsl(
     destinationPatternAltitudeFtMsl,
   );
@@ -207,6 +225,65 @@ export function RouteWorkspace({
     ),
     [rjfmGuidance],
   );
+  const civilAirspaceReference = rjfmMapReference?.civilTrainingTestAirspace ?? null;
+  const civilAirspaceReferenceIsApproved = civilAirspaceReference !== null
+    && isApprovedRjfmAirspaceReference(civilAirspaceReference);
+  const civilAirspaceRequestKey = civilAirspaceReference === null
+    ? ""
+    : JSON.stringify({
+        availability: civilAirspaceReference.availability,
+        dataUse: civilAirspaceReference.dataUse,
+        contentFingerprintScope: civilAirspaceReference.contentFingerprintScope,
+        sourcePageUrl: civilAirspaceReference.sourcePageUrl,
+        layerMetadataUrl: civilAirspaceReference.layerMetadataUrl,
+        tileUrlTemplate: civilAirspaceReference.tileUrlTemplate,
+        tiles: civilAirspaceReference.tiles,
+        tileUrls: civilAirspaceReference.tileUrls,
+        featureNamePrefix: civilAirspaceReference.featureNamePrefix,
+      });
+  useEffect(() => {
+    if (civilAirspaceReference === null) {
+      setTrainingAirspace({ status: "idle", polygons: [] });
+      return undefined;
+    }
+    let active = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8_000);
+    setTrainingAirspace({ status: "loading", polygons: [] });
+    void fetchRjfmTrainingAirspace(civilAirspaceReference, controller.signal)
+      .then((polygons) => {
+        if (active) setTrainingAirspace({ status: "ready", polygons });
+      })
+      .catch(() => {
+        controller.abort();
+        if (active) setTrainingAirspace({ status: "unavailable", polygons: [] });
+      })
+      .finally(() => window.clearTimeout(timeout));
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [civilAirspaceRequestKey]);
+  const pcaCoordinates = useMemo<[number, number][]>(
+    () => (rjfmMapReference?.pca.polygonVertices ?? []).map((point) => [
+      point.latitudeDeg,
+      point.longitudeDeg,
+    ]),
+    [rjfmMapReference],
+  );
+  const pcaFitCoordinates = useMemo<[number, number][]>(
+    () => rjfmMapReference === null
+      ? []
+      : [
+          ...pcaCoordinates,
+          [
+            rjfmMapReference.pca.exclusionCenter.latitudeDeg,
+            rjfmMapReference.pca.exclusionCenter.longitudeDeg,
+          ],
+        ],
+    [pcaCoordinates, rjfmMapReference],
+  );
 
   const coordinates = useMemo<[number, number][]>(
     () =>
@@ -234,11 +311,13 @@ export function RouteWorkspace({
             point.longitude_deg,
           ]),
         ),
+        ...pcaFitCoordinates,
       ].map(([latitude, longitude]) => `${latitude},${longitude}`).join(";"),
     [
       checkPointPlanning.projections,
       checkPoints,
       coordinates,
+      pcaFitCoordinates,
       rjfmGuidance,
       visibleRjfmCandidates,
     ],
@@ -261,11 +340,13 @@ export function RouteWorkspace({
           point.longitude_deg,
         ]),
       ),
+      ...pcaFitCoordinates,
     ],
     [
       checkPointPlanning.projections,
       checkPoints,
       coordinates,
+      pcaFitCoordinates,
       rjfmGuidance,
       visibleRjfmCandidates,
     ],
@@ -317,6 +398,80 @@ export function RouteWorkspace({
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
+          {rjfmMapReference && pcaCoordinates.length >= 3 && (
+            <>
+              <Polygon
+                className="rjfm-pca-boundary"
+                positions={pcaCoordinates}
+                pathOptions={{
+                  color: "#a45b13",
+                  fillColor: "#f2a43a",
+                  fillOpacity: 0.12,
+                  opacity: 0.95,
+                  weight: 3,
+                }}
+              >
+                <Tooltip sticky>
+                  <span>
+                    宮崎特別管制区（PCA）水平境界 / 原告示高度
+                    {" "}{rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
+                    –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m
+                    <br />
+                    運用判定 {rjfmMapReference.pca.operationalAltitudeLowerFtMsl.toLocaleString("ja-JP")}
+                    –{rjfmMapReference.pca.operationalAltitudeUpperFtMsl.toLocaleString("ja-JP")} ft MSL
+                    （利用者承認値）
+                  </span>
+                </Tooltip>
+              </Polygon>
+              <Circle
+                className="rjfm-pca-exclusion"
+                center={[
+                  rjfmMapReference.pca.exclusionCenter.latitudeDeg,
+                  rjfmMapReference.pca.exclusionCenter.longitudeDeg,
+                ]}
+                radius={rjfmMapReference.pca.exclusionRadiusKm * 1000}
+                pathOptions={{
+                  color: "#087b78",
+                  dashArray: "7 6",
+                  fillColor: "#ffffff",
+                  fillOpacity: 0.68,
+                  opacity: 0.95,
+                  weight: 3,
+                }}
+              >
+                <Tooltip sticky>
+                  PCA中心除外 {rjfmMapReference.pca.exclusionRadiusKm.toLocaleString("ja-JP")} km
+                  （国交省告示）
+                </Tooltip>
+              </Circle>
+            </>
+          )}
+          {trainingAirspace.polygons.map((airspace) => (
+            <Polygon
+              key={airspace.id}
+              className="rjfm-training-airspace"
+              positions={airspace.positions}
+              pathOptions={{
+                color: "#315caa",
+                fillColor: "#5b83cf",
+                fillOpacity: 0.1,
+                opacity: 0.82,
+                weight: 2,
+              }}
+            >
+              <Tooltip sticky>
+                <span>
+                  <strong>{airspace.name}</strong>
+                  <br />
+                  {airspace.lowerLimit} – {airspace.upperLimit}
+                  <br />
+                  {airspace.authority}
+                  <br />
+                  出典: 国土地理院（表示専用）
+                </span>
+              </Tooltip>
+            </Polygon>
+          ))}
           {coordinates.length >= 2 && (
             <Polyline positions={coordinates} pathOptions={{ color: "#173b5e", weight: 4 }} />
           )}
@@ -460,20 +615,54 @@ export function RouteWorkspace({
             viewportRevision={mapHeight}
           />
         </MapContainer>
-        {rjfmGuidance && (
+        {(rjfmMapReference || rjfmGuidance) && (
           <div
             className="rjfm-map-legend"
             role="group"
             aria-label="RJFMガイダンス凡例"
           >
-            <strong>RJFM出発</strong>
-            <span><i className="is-center" aria-hidden="true" />Newta CENTER</span>
-            {visibleRjfmCandidates.map((item) => (
-              <span key={`legend-${item.runway}`}>
-                <i className={rjfmCandidateClass(item)} aria-hidden="true" />
-                RWY {item.runway} {rjfmStatusLabels[item.status]}
+            <strong>RJFM空域・出発</strong>
+            {rjfmMapReference && (
+              <>
+                <span>
+                  <i className="is-pca" aria-hidden="true" />
+                  PCA {rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
+                  –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m
+                </span>
+                <span>
+                  <i className="is-pca-exclusion" aria-hidden="true" />
+                  中心除外 {rjfmMapReference.pca.exclusionRadiusKm.toLocaleString("ja-JP")} km
+                </span>
+                {trainingAirspace.status === "ready" && (
+                  <span>
+                    <i className="is-training-airspace" aria-hidden="true" />
+                    民間訓練試験空域 KS4（GSI）
+                  </span>
+                )}
+              </>
+            )}
+            {rjfmGuidance && (
+              <>
+                <span><i className="is-center" aria-hidden="true" />Newta CENTER</span>
+                {visibleRjfmCandidates.map((item) => (
+                  <span key={`legend-${item.runway}`}>
+                    <i className={rjfmCandidateClass(item)} aria-hidden="true" />
+                    RWY {item.runway} {rjfmStatusLabels[item.status]}
+                  </span>
+                ))}
+              </>
+            )}
+            {rjfmMapReference && (
+              <span className="rjfm-airspace-status" aria-live="polite">
+                {trainingAirspace.status === "loading"
+                  ? "GSI空域を取得中…"
+                  : trainingAirspace.status === "unavailable"
+                    ? "GSI空域は取得できず非表示"
+                    : trainingAirspace.status === "ready"
+                      ? `GSI: ${trainingAirspace.polygons.length}区画を表示`
+                      : ""}
               </span>
-            ))}
+            )}
           </div>
         )}
         {!coordinates.length && (
@@ -484,6 +673,30 @@ export function RouteWorkspace({
         )}
       </div>
       <MapResizeHandle value={mapHeight} min={320} max={900} onChange={setMapHeight} />
+      {rjfmMapReference && (
+        <aside className="rjfm-airspace-note" aria-label="RJFM空域データ注記">
+          <span>{rjfmMapReference.civilTrainingTestAirspace.caution}</span>
+          {civilAirspaceReferenceIsApproved && (
+            <span>
+              出典: <a
+                href={rjfmMapReference.civilTrainingTestAirspace.sourcePageUrl}
+                target="_blank"
+                rel="noreferrer"
+              >国土交通省</a>
+              ・<a
+                href={rjfmMapReference.civilTrainingTestAirspace.layerMetadataUrl}
+                target="_blank"
+                rel="noreferrer"
+              >国土地理院レイヤー</a>
+            </span>
+          )}
+          <span>
+            レイヤー設定確認: <time
+              dateTime={rjfmMapReference.civilTrainingTestAirspace.checkedAtUtc}
+            >{rjfmMapReference.civilTrainingTestAirspace.checkedAtUtc}</time>
+          </span>
+        </aside>
+      )}
 
       <RouteConfirmation
         visible={Boolean(candidate && !project)}

@@ -70,6 +70,7 @@ class IssueSeverity(StrEnum):
 
 class WeatherRequestKind(StrEnum):
     ALOFT = "ALOFT"
+    SURFACE_TEMPERATURE = "SURFACE_TEMPERATURE"
     ESTIMATED_QNH = "ESTIMATED_QNH"
 
 

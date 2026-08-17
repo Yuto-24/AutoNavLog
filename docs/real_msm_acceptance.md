@@ -32,12 +32,14 @@ python scripts/validate_real_msm_release.py \
   --output /content/real-msm-acceptance.json
 ```
 
-ライブ試験は同じ時刻・5000 ft MSLについてRJFM/RJFOそれぞれの上空風・気温と
-MSM推定QNHを問い合わせます。4結果がすべて`AVAILABLE`であることに加え、次を検査します。
+ライブ試験は同じ時刻について、RJFM/RJFOそれぞれの5000 ft MSL上空風・気温、
+MSM地上気温、MSM推定QNHを問い合わせます。6結果がすべて`AVAILABLE`であることに加え、
+次を検査します。
 
 - `resolve_run`、同一Runのcoverage確認、`prepare_run`、`query_batch`が成功
 - 元GRIB URLと、URLをキーにした64桁SHA-256の集合が一致
 - Forecast Run、補間方式、格子・気圧面等のtraceが存在
+- 地上気温が`tmp_surface`のK値から℃へ変換され、水平・時間補間のtraceを保持
 - QNHのPzs元データSHA-256が事前検査した地形と一致
 - QNHが`MSM推定QNH`と表示され、廃止した重複警告コードを含まない
 

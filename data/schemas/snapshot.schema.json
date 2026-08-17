@@ -2233,6 +2233,7 @@
     "WeatherRequestKind": {
       "enum": [
         "ALOFT",
+        "SURFACE_TEMPERATURE",
         "ESTIMATED_QNH"
       ],
       "title": "WeatherRequestKind",

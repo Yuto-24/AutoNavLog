@@ -54,13 +54,15 @@ class StubTerrainType:
         return StubTerrain()
 
 
-def _provenance(*, qnh: bool) -> dict[str, Any]:
+def _provenance(*, qnh: bool, surface: bool = False) -> dict[str, Any]:
     trace: dict[str, Any]
     if qnh:
         trace = {
             "terrain_source": "JMA MSM model terrain (Pzs)",
             "terrain_source_sha256": TERRAIN_SHA,
         }
+    elif surface:
+        trace = {"temperature": [{"grid": "fixture"}]}
     else:
         trace = {"u": [{"grid": "fixture"}], "v": [{"grid": "fixture"}]}
     return {
@@ -70,6 +72,8 @@ def _provenance(*, qnh: bool) -> dict[str, Any]:
         "interpolation_method": (
             "bilinear,time-linear,hypsometric-isa-v1"
             if qnh
+            else "bilinear,time-linear"
+            if surface
             else "vertical-linear,bilinear,time-linear"
         ),
         "trace": trace,
@@ -85,6 +89,17 @@ def _weather_result(request: WeatherRequest) -> WeatherResult:
             values={"label": "MSM推定QNH", "qnh_hpa": 1009.4},
             warnings=("NOT_FOR_OPERATIONAL_USE",),
             metadata={"provenance": _provenance(qnh=True)},
+        )
+    if request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
+        return WeatherResult(
+            request_id=request.request_id,
+            availability=Availability.AVAILABLE,
+            kind=request.kind,
+            values={"temperature_k": 297.15, "temperature_c": 24.0},
+            metadata={
+                "source_variable": "tmp_surface",
+                "provenance": _provenance(qnh=False, surface=True),
+            },
         )
     return WeatherResult(
         request_id=request.request_id,
@@ -256,9 +271,10 @@ def test_live_gate_resolves_prepares_queries_and_validates_provenance(
     assert report["status"] == "PASS"
     assert report["mode"] == "LIVE"
     assert report["live_executed"] is True
-    assert report["forecast"]["result_count"] == 4
+    assert report["forecast"]["result_count"] == 6
     assert {result["kind"] for result in report["forecast"]["results"]} == {
         "ALOFT",
+        "SURFACE_TEMPERATURE",
         "ESTIMATED_QNH",
     }
     assert calls == {"resolve": 1, "inspect": 1, "prepare": 1, "query": 1}
@@ -311,6 +327,40 @@ def test_live_gate_fails_when_source_provenance_is_missing(terrain_path: Path) -
 
     provider.query_batch = MethodType(missing_provenance, provider)
     with pytest.raises(RealMsmAcceptanceError, match="source_urls"):
+        run_real_msm_acceptance(
+            provider,
+            RealMsmAcceptanceConfig(
+                terrain_cache_path=terrain_path,
+                valid_time_utc=VALID_TIME,
+                live=True,
+            ),
+        )
+
+
+def test_live_gate_fails_when_surface_temperature_units_are_inconsistent(
+    terrain_path: Path,
+) -> None:
+    provider, _ = _real_provider_stub(terrain_path)
+
+    def inconsistent_surface_temperature(
+        self: MsmWeatherProvider,
+        forecast_run_id: str,
+        requests: Any,
+    ) -> tuple[WeatherResult, ...]:
+        results = [_weather_result(request) for request in requests]
+        surface_index = next(
+            index
+            for index, request in enumerate(requests)
+            if request.kind == WeatherRequestKind.SURFACE_TEMPERATURE
+        )
+        surface = results[surface_index]
+        results[surface_index] = surface.model_copy(
+            update={"values": {"temperature_k": 297.15, "temperature_c": 20.0}}
+        )
+        return tuple(results)
+
+    provider.query_batch = MethodType(inconsistent_surface_temperature, provider)
+    with pytest.raises(RealMsmAcceptanceError, match="Kelvin/Celsius values are inconsistent"):
         run_real_msm_acceptance(
             provider,
             RealMsmAcceptanceConfig(

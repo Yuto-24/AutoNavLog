@@ -159,7 +159,10 @@ def provider(
 
 
 def requirement() -> ForecastRequirement:
-    return ForecastRequirement(valid_times_utc=(TARGET,))
+    return ForecastRequirement(
+        valid_times_utc=(TARGET,),
+        require_surface_temperature=True,
+    )
 
 
 def test_metar_corrected_msm_formula_and_run_covers_both_times() -> None:
@@ -173,6 +176,8 @@ def test_metar_corrected_msm_formula_and_run_covers_both_times() -> None:
 
     assert OBSERVED in delegate.resolved.valid_times_utc
     assert OBSERVED in delegate.prepared[0].valid_times_utc
+    assert delegate.resolved.require_surface_temperature is True
+    assert delegate.prepared[0].require_surface_temperature is True
     assert result.values["qnh_hpa"] == 1011.5
     assert result.values["qnh_method"] == "METAR_TREND_CORRECTED"
     assert result.values["msm_tendency_hpa"] == 3.5
@@ -286,12 +291,12 @@ def test_unsupported_or_missing_station_skips_baseline_and_uses_msm_only() -> No
         assert len(delegate.batches[-1]) == 1
 
 
-def test_aloft_delegation_preserves_request_identity_order_and_native_values() -> None:
+def test_weather_delegation_preserves_request_identity_order_and_native_values() -> None:
     delegate = MslpDelegate({TARGET: 995.0})
     weather = provider(delegate, Transport(payload()), Clock(OBSERVED + timedelta(hours=3)))
     run = weather.resolve_run(requirement())
     weather.prepare_run(run.id, requirement())
-    aloft = tuple(
+    delegated_requests = tuple(
         request().model_copy(
             update={
                 "request_id": f"aloft-{index}",
@@ -300,12 +305,23 @@ def test_aloft_delegation_preserves_request_identity_order_and_native_values() -
             }
         )
         for index in range(3)
+    ) + (
+        request().model_copy(
+            update={
+                "request_id": "destination:surface",
+                "kind": WeatherRequestKind.SURFACE_TEMPERATURE,
+            }
+        ),
     )
 
-    results = weather.query_batch(run.id, aloft)
+    results = weather.query_batch(run.id, delegated_requests)
 
-    assert [result.request_id for result in results] == [item.request_id for item in aloft]
-    assert all(result.kind == WeatherRequestKind.ALOFT for result in results)
+    assert [result.request_id for result in results] == [
+        item.request_id for item in delegated_requests
+    ]
+    assert [result.kind for result in results] == [
+        item.kind for item in delegated_requests
+    ]
     assert all("label" not in result.values for result in results)
 
 
@@ -333,6 +349,50 @@ def test_msm_mslp_native_aloft_result_does_not_gain_qnh_labels_or_warnings() -> 
     assert "label" not in result.values
     assert "qnh_method" not in result.values
     assert result.warnings == ("NATIVE_WARNING",)
+
+
+def test_msm_mslp_surface_temperature_uses_normalized_lsurf_with_provenance() -> None:
+    weather = MsmMslpWeatherProvider.__new__(MsmMslpWeatherProvider)
+
+    class Prepared:
+        def _surface_scalar(self, variable, latitude, longitude, valid_time):
+            assert variable == "tmp_surface"
+            assert (latitude, longitude) == (31.877, 131.448)
+            return 295.15, [{"valid_time": valid_time.isoformat()}]
+
+        def _provenance(self, method, trace):
+            return {"interpolation_method": method, "trace": trace}
+
+    surface_request = request().model_copy(
+        update={
+            "request_id": "departure:surface",
+            "kind": WeatherRequestKind.SURFACE_TEMPERATURE,
+        }
+    )
+
+    result = weather._query(Prepared(), surface_request)
+
+    assert result.availability == Availability.AVAILABLE
+    assert result.values["temperature_k"] == 295.15
+    assert result.values["temperature_c"] == 22.0
+    assert result.metadata["source_variable"] == "tmp_surface"
+    assert result.metadata["provenance"]["interpolation_method"] == (
+        "bilinear,time-linear"
+    )
+
+
+def test_msm_mslp_surface_temperature_preserves_unavailable_reason() -> None:
+    weather = MsmMslpWeatherProvider.__new__(MsmMslpWeatherProvider)
+    surface_request = request().model_copy(
+        update={"kind": WeatherRequestKind.SURFACE_TEMPERATURE}
+    )
+    prepared = SimpleNamespace(_surface_scalar=lambda *args: None)
+
+    result = weather._surface_temperature_result(prepared, surface_request)
+
+    assert result.availability == Availability.UNAVAILABLE
+    assert result.values == {"temperature_c": None}
+    assert result.reason_code == "SURFACE_TEMPERATURE_UNAVAILABLE"
 
 
 def test_msm_mslp_query_batch_allows_fifty_concurrent_calculations() -> None:
@@ -372,8 +432,59 @@ def test_msm_requirement_combination_is_sorted_and_deduplicated() -> None:
     middle = OBSERVED + timedelta(hours=1)
     later = OBSERVED + timedelta(hours=2)
     previous = ForecastRequirement(valid_times_utc=(OBSERVED, middle))
-    current = ForecastRequirement(valid_times_utc=(middle, later))
+    current = ForecastRequirement(
+        valid_times_utc=(middle, later),
+        require_surface_temperature=True,
+    )
 
     combined = MsmMslpWeatherProvider._combine(previous, current)
 
     assert combined.valid_times_utc == (OBSERVED, middle, later)
+    assert combined.require_surface_temperature is True
+
+
+def test_msm_mslp_surface_requirement_prepares_lsurf_without_terrain() -> None:
+    captured: dict[str, object] = {}
+
+    class ForecastRequirements:
+        def __init__(self, valid_times, variables) -> None:
+            self.valid_times = valid_times
+            self.variables = variables
+
+    class Client:
+        def prepare_run(self, run_id, native_requirement, terrain_provider=None):
+            captured["variables"] = native_requirement.variables
+            captured["terrain_provider"] = terrain_provider
+            return object()
+
+    weather = MsmMslpWeatherProvider.__new__(MsmMslpWeatherProvider)
+    weather._msm = SimpleNamespace(  # type: ignore[attr-defined]
+        WeatherVariable=SimpleNamespace(
+            ALOFT_WIND="aloft-wind",
+            ALOFT_TEMPERATURE="aloft-temperature",
+            ESTIMATED_QNH="lsurf-product",
+        ),
+        ForecastRequirements=ForecastRequirements,
+        RunId=lambda initial_time_utc: SimpleNamespace(
+            initial_time_utc=initial_time_utc
+        ),
+    )
+    weather.client = Client()  # type: ignore[attr-defined]
+    weather._lock = RLock()  # type: ignore[attr-defined]
+    weather._run_locks = {}  # type: ignore[attr-defined]
+    weather._prepared = {}  # type: ignore[attr-defined]
+    weather._requirements = {}  # type: ignore[attr-defined]
+    surface_only = ForecastRequirement(
+        valid_times_utc=(TARGET,),
+        require_aloft_wind=False,
+        require_aloft_temperature=False,
+        require_surface_temperature=True,
+        require_estimated_qnh=False,
+    )
+
+    prepared = weather.prepare_run(RUN_ID, surface_only)
+
+    assert captured["variables"] == frozenset({"lsurf-product"})
+    assert captured["terrain_provider"] is None
+    assert prepared.metadata["terrain_required"] is False
+    assert prepared.metadata["surface_temperature_required"] is True

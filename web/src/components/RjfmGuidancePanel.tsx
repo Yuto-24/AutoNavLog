@@ -11,17 +11,6 @@ export const rjfmStatusLabels: Record<RjfmGuidanceStatus, string> = {
   UNAVAILABLE: "算出不可",
 };
 
-const turnDirectionLabels: Record<RjfmRunwayGuidance["turn_direction"], string> = {
-  LEFT: "左",
-  RIGHT: "右",
-};
-
-const centerRouteTurnMethodLabels: Record<RjfmRunwayGuidance["turn_method"], string> = {
-  FIXED_BANK_20: "20°バンク",
-  ADJUSTED_MAX_RADIUS: "最大半径へ調整",
-  NONE: "旋回解なし",
-};
-
 export function rjfmCandidateClass(candidate: RjfmRunwayGuidance): string {
   if (candidate.status === "HARD_INVALID") return "is-invalid";
   if (candidate.status === "UNAVAILABLE") return "is-unavailable";
@@ -29,24 +18,22 @@ export function rjfmCandidateClass(candidate: RjfmRunwayGuidance): string {
   return `is-rwy-${candidate.runway}`;
 }
 
-function formatRjfmTurns(candidate: RjfmRunwayGuidance): string {
-  const partial = candidate.partial_turn_deg;
-  if (candidate.full_turns === 0 && partial === null) return "旋回なし";
-  const direction = `${turnDirectionLabels[candidate.turn_direction]}旋回`;
-  if (candidate.full_turns === 0 && partial !== null) {
-    return `${direction} ${partial.toFixed(1)}°`;
-  }
-  return partial === null
-    ? `${direction} ${candidate.full_turns}周`
-    : `${direction} ${candidate.full_turns}周 + ${partial.toFixed(1)}°`;
+function northUpHorizontalPosition(runway: RjfmRunwayGuidance["runway"]): number {
+  const runwayNumber = Number.parseInt(runway.slice(0, 2), 10);
+  if (!Number.isFinite(runwayNumber)) return 0;
+  const departureHeadingDeg = (runwayNumber * 10) % 360;
+  return Math.sin(departureHeadingDeg * Math.PI / 180);
 }
 
-function formatMzePosition(candidate: RjfmRunwayGuidance): string {
-  if (candidate.turn_entry_radial_deg === null || candidate.turn_entry_dme_nm === null) {
-    return "—";
-  }
-  const radial = String(Math.round(candidate.turn_entry_radial_deg) % 360).padStart(3, "0");
-  return `R${radial}° / ${candidate.turn_entry_dme_nm.toFixed(1)} DME`;
+export function compareRjfmCandidatesForNorthUp(
+  left: RjfmRunwayGuidance,
+  right: RjfmRunwayGuidance,
+): number {
+  const horizontalDifference =
+    northUpHorizontalPosition(left.runway) - northUpHorizontalPosition(right.runway);
+  return Math.abs(horizontalDifference) > 1e-9
+    ? horizontalDifference
+    : left.runway.localeCompare(right.runway);
 }
 
 function formatRjfmTimeDelta(seconds: number | null): string {
@@ -55,21 +42,6 @@ function formatRjfmTimeDelta(seconds: number | null): string {
   if (halfMinuteValue === 0) return "±0.0 min";
   const value = halfMinuteValue.toFixed(1);
   return seconds > 0 ? `LOSS +${value} min` : `GAIN −${value} min`;
-}
-
-function formatRjfmResiduals(candidate: RjfmRunwayGuidance): string {
-  const values = [
-    candidate.position_residual_nm === null
-      ? null
-      : `位置 ${candidate.position_residual_nm.toFixed(3)} NM`,
-    candidate.altitude_residual_ft === null
-      ? null
-      : `高度 ${Math.round(candidate.altitude_residual_ft)} ft`,
-    candidate.tangent_residual_deg === null
-      ? null
-      : `接線 ${candidate.tangent_residual_deg.toFixed(1)}°`,
-  ].filter((value): value is string => value !== null);
-  return values.length ? values.join(" / ") : "—";
 }
 
 function rjfmSourceLabel(key: string): string {
@@ -86,6 +58,7 @@ function rjfmSourceLabel(key: string): string {
 export function RjfmGuidancePanel({ guidance }: { guidance: RjfmDepartureGuidance }) {
   const sourceDates = Object.entries(guidance.source_effective_dates)
     .sort(([left], [right]) => left.localeCompare(right));
+  const orderedCandidates = [...guidance.candidates].sort(compareRjfmCandidatesForNorthUp);
   return (
     <section className="rjfm-guidance" aria-label="RJFM北方面出発ガイダンス">
       <div className="rjfm-guidance-heading">
@@ -96,14 +69,25 @@ export function RjfmGuidancePanel({ guidance }: { guidance: RjfmDepartureGuidanc
         <span className="rjfm-reference-revision">参照 {guidance.reference_revision}</span>
       </div>
       <p className="rjfm-guidance-intro">
-        UMKを5,500 ft MSLで通過するPOH上昇時間を基準に、RWY09は左旋回、RWY27は右旋回の候補を表示しています。
+        UMKを5,500 ft MSLで通過するPOH上昇時間を基準にしたRWY別候補です。
+        カードはNorth Up上の滑走路出発方位に合わせ、左から右へ配置しています。
       </p>
+      <div className="rjfm-guidance-explainer">
+        <p>
+          <strong>旋回モデル</strong>
+          固定20°バンクを基本とし、必要時は最大半径調整モデルを想定します。
+        </p>
+        <p>
+          <strong>NAV LOG直線Legとの差</strong>
+          候補経路のUMK到達時間から、NAV LOG主経路のRJFM→UMK/RCA直線距離を
+          CLIMB GSで飛行した基準時間を差し引いた値です。LOSSは基準より長く、
+          GAINは短いことを示します。
+        </p>
+      </div>
       <div className="rjfm-candidate-grid">
-        {guidance.candidates.map((candidate) => {
-          const passedConstraints = candidate.constraints.filter((item) => item.passed).length;
+        {orderedCandidates.map((candidate) => {
           const dmeWarning = candidate.turn_entry_dme_nm !== null
             && candidate.turn_entry_dme_nm < 4;
-          const directionLabel = turnDirectionLabels[candidate.turn_direction];
           return (
             <article
               key={candidate.runway}
@@ -116,22 +100,6 @@ export function RjfmGuidancePanel({ guidance }: { guidance: RjfmDepartureGuidanc
               </div>
               <dl className="rjfm-candidate-metrics">
                 <div>
-                  <dt>{directionLabel}旋回</dt>
-                  <dd>{formatRjfmTurns(candidate)}</dd>
-                </div>
-                <div>
-                  <dt>旋回モデル</dt>
-                  <dd>
-                    {candidate.turn_method === "FIXED_BANK_20"
-                      ? `${directionLabel}${centerRouteTurnMethodLabels.FIXED_BANK_20}`
-                      : centerRouteTurnMethodLabels[candidate.turn_method]}
-                  </dd>
-                </div>
-                <div>
-                  <dt>MZE位置</dt>
-                  <dd>{formatMzePosition(candidate)}</dd>
-                </div>
-                <div>
                   <dt>旋回開始高度</dt>
                   <dd>
                     {candidate.turn_entry_altitude_ft_msl === null
@@ -140,55 +108,15 @@ export function RjfmGuidancePanel({ guidance }: { guidance: RjfmDepartureGuidanc
                   </dd>
                 </div>
                 <div>
-                  <dt>到達条件</dt>
-                  <dd>UMK 5,500 ft MSL</dd>
-                </div>
-                <div>
-                  <dt>直線Legとの差</dt>
+                  <dt>NAV LOG直線Legとの差</dt>
                   <dd>{formatRjfmTimeDelta(candidate.expected_time_delta_seconds)}</dd>
                 </div>
-                <div>
-                  <dt>全周旋回後ドリフト</dt>
-                  <dd>
-                    {candidate.exit_drift_nm === null
-                      ? "—"
-                      : `${candidate.exit_drift_nm.toFixed(2)} NM`}
-                  </dd>
-                </div>
-                <div>
-                  <dt>制約判定</dt>
-                  <dd>
-                    {candidate.constraints.length
-                      ? `${passedConstraints}/${candidate.constraints.length} 適合`
-                      : "判定なし"}
-                  </dd>
-                </div>
               </dl>
-              <p className="rjfm-residuals">
-                <strong>解の残差</strong>
-                {formatRjfmResiduals(candidate)}
-              </p>
               {dmeWarning && (
                 <p className="rjfm-dme-warning">
-                  MZE 4 DME未満です。これは非ブロッキング注意で、候補自体は表示を継続します。
+                  宮崎VORTAC（MZE）から4 DME未満で旋回開始します。
+                  これは非ブロッキング注意で、候補自体は表示を継続します。
                 </p>
-              )}
-              {candidate.constraints.length > 0 && (
-                <ul className="rjfm-constraint-list" aria-label={`RWY ${candidate.runway} 制約判定`}>
-                  {candidate.constraints.map((constraint) => (
-                    <li
-                      key={constraint.code}
-                      className={constraint.passed
-                        ? "is-passed"
-                        : constraint.hard ? "is-failed" : "is-advisory"}
-                    >
-                      <span>
-                        {constraint.passed ? "適合" : constraint.hard ? "不適合" : "注意"}
-                      </span>
-                      <p>{constraint.message}</p>
-                    </li>
-                  ))}
-                </ul>
               )}
               {candidate.notes.length > 0 && (
                 <ul className="rjfm-candidate-notes">

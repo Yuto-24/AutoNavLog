@@ -16,6 +16,8 @@ from autonavlog.domain.weather import (
     WeatherResult,
 )
 
+from .msm_surface_temperature import msm_surface_temperature_result
+
 FT_TO_M = 0.3048
 
 
@@ -59,6 +61,10 @@ class MsmWeatherProvider:
             variables.add(self._msm.WeatherVariable.ALOFT_WIND)
         if requirement.require_aloft_temperature:
             variables.add(self._msm.WeatherVariable.ALOFT_TEMPERATURE)
+        if requirement.require_surface_temperature:
+            # jma-msm-wind 0.2.1 has no public surface-temperature variable.
+            # ESTIMATED_QNH prepares the same Lsurf product, including tmp_surface.
+            variables.add(self._msm.WeatherVariable.ESTIMATED_QNH)
         if requirement.require_estimated_qnh:
             variables.add(self._msm.WeatherVariable.ESTIMATED_QNH)
         return self._msm.ForecastRequirements(
@@ -119,6 +125,7 @@ class MsmWeatherProvider:
                 else str(self.terrain_cache_path),
                 "terrain_required": requirement.require_estimated_qnh,
                 "terrain_loaded": terrain is not None,
+                "surface_temperature_required": requirement.require_surface_temperature,
             },
         )
 
@@ -160,14 +167,41 @@ class MsmWeatherProvider:
     ) -> Sequence[WeatherResult]:
         if forecast_run_id not in self._prepared:
             raise RuntimeError("MSM forecast run must be prepared before querying")
-        queries = [self._to_query(request) for request in requests]
-        results = self._prepared[forecast_run_id].query_many(queries)
-        if len(results) != len(requests):
-            raise RuntimeError("MSM batch result count does not match request count")
-        return tuple(
-            self._from_result(request, result)
-            for request, result in zip(requests, results, strict=True)
+        prepared = self._prepared[forecast_run_id]
+        projected: dict[int, WeatherResult] = {}
+        native_requests = [
+            (index, request)
+            for index, request in enumerate(requests)
+            if request.kind != WeatherRequestKind.SURFACE_TEMPERATURE
+        ]
+        native_results = (
+            prepared.query_many(
+                [self._to_query(request) for _, request in native_requests]
+            )
+            if native_requests
+            else ()
         )
+        if len(native_results) != len(native_requests):
+            raise RuntimeError("MSM batch result count does not match request count")
+        for (index, request), result in zip(
+            native_requests,
+            native_results,
+            strict=True,
+        ):
+            projected[index] = self._from_result(request, result)
+        for index, request in enumerate(requests):
+            if request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
+                projected[index] = self._surface_temperature_result(prepared, request)
+        if len(projected) != len(requests):
+            raise RuntimeError("unsupported weather request kind")
+        return tuple(projected[index] for index in range(len(requests)))
+
+    def _surface_temperature_result(
+        self,
+        prepared: Any,
+        request: WeatherRequest,
+    ) -> WeatherResult:
+        return msm_surface_temperature_result(prepared, request)
 
     def _to_query(self, request: WeatherRequest) -> Any:
         if request.kind == WeatherRequestKind.ALOFT:
@@ -179,6 +213,8 @@ class MsmWeatherProvider:
                 request.valid_time_utc,
                 altitude_msl_m=request.altitude_ft_msl * FT_TO_M,
             )
+        if request.kind != WeatherRequestKind.ESTIMATED_QNH:
+            raise ValueError(f"unsupported weather request kind: {request.kind}")
         if request.elevation_ft_msl is None:
             raise ValueError("estimated QNH request requires airport elevation")
         return self._msm.EstimatedQnhQuery(

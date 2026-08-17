@@ -121,6 +121,19 @@ class FtdWeatherProvider:
                 "qnh_policy": "ISA_STANDARD",
             }
             warnings: tuple[str, ...] = ()
+        elif request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
+            altitude = float(
+                request.elevation_ft_msl
+                if request.elevation_ft_msl is not None
+                else request.altitude_ft_msl or 0.0
+            )
+            values = {"temperature_c": isa_temperature_c(altitude)}
+            metadata = {
+                "provider": "ftd_fixed",
+                "requested_elevation_ft_msl": altitude,
+                "temperature_policy": "ISA_AT_AIRPORT_ELEVATION_MSL",
+            }
+            warnings = ()
         else:
             altitude = float(request.altitude_ft_msl or 0.0)
             direction, speed, u_ms, v_ms = interpolate_ftd_wind(

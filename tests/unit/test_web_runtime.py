@@ -10,6 +10,7 @@ import pytest
 import autonavlog.web.runtime as runtime
 from autonavlog.domain.weather import ForecastRequirement, ForecastRun
 from autonavlog.weather.prewarm import WeatherPrewarmer
+from autonavlog.web.__main__ import _parser
 from autonavlog.web.runtime import WebRuntimeConfig, environment_bool
 
 
@@ -26,6 +27,12 @@ def test_environment_bool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEST_BOOLEAN", "invalid")
     with pytest.raises(RuntimeError, match="TEST_BOOLEAN must be true or false"):
         environment_bool("TEST_BOOLEAN", default=True)
+
+
+def test_local_web_cli_binds_all_interfaces_by_default() -> None:
+    arguments = _parser().parse_args([])
+
+    assert arguments.host == "0.0.0.0"
 
 
 def test_runtime_config_rejects_invalid_weather_and_session_limit(tmp_path: Path) -> None:
@@ -105,6 +112,7 @@ def test_weather_prewarmer_runs_cleanup_and_restarts_after_shutdown() -> None:
         def __init__(self) -> None:
             self.prepared = Event()
             self.prepare_count = 0
+            self.requirements: list[ForecastRequirement] = []
 
         def resolve_run(self, requirement: ForecastRequirement) -> ForecastRun:
             return ForecastRun(
@@ -118,6 +126,7 @@ def test_weather_prewarmer_runs_cleanup_and_restarts_after_shutdown() -> None:
             requirement: ForecastRequirement,
         ) -> None:
             self.prepare_count += 1
+            self.requirements.append(requirement)
             self.prepared.set()
 
     provider = Provider()
@@ -141,6 +150,10 @@ def test_weather_prewarmer_runs_cleanup_and_restarts_after_shutdown() -> None:
 
     assert cleaned.is_set()
     assert provider.prepare_count == 2
+    assert all(
+        requirement.require_surface_temperature
+        for requirement in provider.requirements
+    )
 
 
 def test_prune_msm_cache_reports_deleted_count_and_remaining_bytes(
