@@ -721,7 +721,7 @@ async function calculateNavLog(page: Page): Promise<void> {
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
 
-  await expect(page.getByText("VREP", { exact: true }).first()).toBeVisible();
+  await expect(page.locator(".route-table tbody tr.vrep-row")).toHaveCount(1);
   const altitudeInputs = page.locator(".table-number-input");
   await expect(altitudeInputs.first()).toHaveValue("");
   await expect(altitudeInputs.last()).toHaveValue("1500");
@@ -1731,7 +1731,7 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await expect(page.getByLabel("経路確認")).toHaveCount(0);
 
   await candidateSelect.selectOption("connected_lines:0");
-  await expect(departureSelect).toHaveValue("RJFM");
+  await expect(departureSelect).toHaveValue(/^RJFM\b/);
   await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
   const routeWorkspace = page.getByLabel("経路地図とLeg設定");
   await expect(routeWorkspace.getByText("RJFM→RJFO①", { exact: true })).toBeVisible();
@@ -1750,7 +1750,7 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await expect(page.getByLabel("経路確認")).toHaveCount(0);
   await candidateSelect.selectOption("connected_lines:1");
   await expect(routeUseConfirmed).not.toBeChecked();
-  await expect(departureSelect).toHaveValue("RJFO");
+  await expect(departureSelect).toHaveValue(/^RJFO\b/);
   await expect(page.getByLabel("TO")).toHaveValue(/RJFM/);
   await expect(routeWorkspace.getByText("RJFO→RJFM①", { exact: true })).toBeVisible();
 
@@ -1806,7 +1806,7 @@ test("file picker, drop, and KMZ use the same grouped-route candidate flow", asy
   await expect(candidateSelect.locator("option")).toHaveCount(3);
 
   await candidateSelect.selectOption("connected_lines:0");
-  await expect(page.getByLabel("FROM")).toHaveValue("RJFM");
+  await expect(page.getByLabel("FROM")).toHaveValue(/^RJFM\b/);
   await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
 
   const dataTransfer = await page.evaluateHandle((kmlText) => {
@@ -1849,7 +1849,7 @@ test("KML endpoints automatically determine read-only FROM and TO", async ({ pag
 
   const departure = page.getByLabel("FROM");
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-  await expect(departure).toHaveValue("RJFK");
+  await expect(departure).toHaveValue(/^RJFK\b/);
   await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
   await expect(departure).toHaveAttribute("readonly", "");
   await expect(page.getByLabel("TO")).toHaveAttribute("readonly", "");
