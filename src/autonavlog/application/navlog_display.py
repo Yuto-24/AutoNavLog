@@ -223,6 +223,59 @@ def _summed_combined(
     )
 
 
+def _summed_transcription_combined(
+    values: list[AdoptedValue[float]],
+    cumulative: AdoptedValue[float],
+    formatter: Callable[[float], str],
+    *,
+    quantum: float,
+    unit_scale: float,
+    prior_display_cumulative: float | None,
+    fallback_reason: str,
+) -> tuple[NavLogDisplayCell, float | None, float | None, float | None]:
+    """Build a parent ZONE/CUM cell from the values visible in child rows.
+
+    Exact totals remain available separately for calculation/audit.  The rendered
+    parent uses each child value after the same transcription rounding applied to
+    the child row, so visible arithmetic remains self-consistent.
+    """
+
+    adopted = [value.adopted() for value in values]
+    cumulative_value = cumulative.adopted()
+    if any(value is None for value in adopted):
+        return _unavailable(fallback_reason), None, cumulative_value, None
+    exact_total = sum(value for value in adopted if value is not None)
+    if cumulative_value is None:
+        return (
+            _unavailable(_reason(cumulative, fallback_reason)),
+            exact_total,
+            None,
+            None,
+        )
+    if prior_display_cumulative is None:
+        return _unavailable(fallback_reason), exact_total, cumulative_value, None
+
+    display_total = sum(
+        round_half_up(value / unit_scale, quantum) * unit_scale
+        for value in adopted
+        if value is not None
+    )
+    display_cumulative = prior_display_cumulative + display_total
+    return (
+        _display(
+            f"{formatter(display_total)} / {formatter(display_cumulative)}",
+            f"{display_total}/{display_cumulative}",
+            manual=(
+                any(value.adopted_source == AdoptedSource.MANUAL for value in values)
+                or cumulative.adopted_source == AdoptedSource.MANUAL
+            ),
+        ),
+        exact_total,
+        cumulative_value,
+        display_cumulative,
+    )
+
+
 def _weather_temperature(result: WeatherResult | None, reason_code: str) -> NavLogDisplayCell:
     if result is None or result.availability != Availability.AVAILABLE:
         return _unavailable(
@@ -502,6 +555,8 @@ def build_navlog_display_rows(
 
     estimated_altitudes = _estimated_descent_altitudes(sections)
     rows: list[NavLogDisplayRow] = []
+    display_cumulative_distance_nm: float | None = 0.0
+    display_cumulative_ete_seconds: float | None = 0.0
 
     def append(row: NavLogDisplayRow) -> None:
         rows.append(row.model_copy(update={"sequence": len(rows)}))
@@ -522,16 +577,32 @@ def build_navlog_display_rows(
             and leg.phase == FlightPhase.VISUAL_ARRIVAL
         )
 
-        distance_cell, distance_total, cumulative_distance = _summed_combined(
+        (
+            distance_cell,
+            distance_total,
+            cumulative_distance,
+            display_cumulative_distance_nm,
+        ) = _summed_transcription_combined(
             [zone.zone_distance_nm for zone in zones],
             last.cumulative_distance_nm,
             _distance,
+            quantum=0.5,
+            unit_scale=1.0,
+            prior_display_cumulative=display_cumulative_distance_nm,
             fallback_reason="DISPLAY_DISTANCE_SUBTOTAL_UNAVAILABLE",
         )
-        ete_cell, ete_total, cumulative_ete = _summed_combined(
+        (
+            ete_cell,
+            ete_total,
+            cumulative_ete,
+            display_cumulative_ete_seconds,
+        ) = _summed_transcription_combined(
             [zone.zone_ete_seconds for zone in zones],
             last.cumulative_ete_seconds,
             _duration,
+            quantum=0.5,
+            unit_scale=60.0,
+            prior_display_cumulative=display_cumulative_ete_seconds,
             fallback_reason="DISPLAY_ETE_SUBTOTAL_UNAVAILABLE",
         )
         fuel_cell, _fuel_total, _remaining = _summed_combined(

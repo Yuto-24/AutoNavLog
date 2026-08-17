@@ -1,0 +1,16 @@
+.fuel-input-row,
+.fuel-option-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.fuel-option-row {
+  align-items: center;
+}
+
+.fuel-option-row .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

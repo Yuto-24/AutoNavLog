@@ -114,8 +114,11 @@ R6.5.1改正は、大分方面の北上を5,500 ftとし、Newtabaru CENTER Rout
 - 子区間では主経路の直線Legから求めた`DIST`、`TC`、`WCA`、`MH`、`GS`をそのまま表示します。
   したがってこの例外の`CLIMB`子行では、意図的に`DIST / GS != ETE`となります。
   通常Legの`DIST = GS × ETE`不変条件に対する、この例外だけのカーブアウトです。
-- `RJFM→OMARU`親行のDIST・ETE・燃料は内包する子区間の未丸め合計です。親行の
-  TC・VAR・MCはRJFMからOMARUへのWGS84直行測地線値を表示し、子行には各Sectionの
+- `RJFM→OMARU`親行のDIST・ETEは、転記時の可読性を保つため、各子区間を規程の
+  0.5 NM・0.5分単位へ丸めた表示値の合計をZONEとして表示し、CUMも表示済みZONEの
+  累計とします。計算・監査用のexact値と燃料計算は未丸め値を保持します。燃料は内包する
+  子区間の未丸め合計です。親行のTC・VAR・MCはRJFMからOMARUへのWGS84直行測地線値を
+  表示し、子行には各Sectionの
   実際のTC・VAR・MCを残します。親行のWIND・WCA・MH・GSは複数の実区間を単一値で
   表せないため空欄です。
 - 仮想RCA距離が主経路全長内に収まらない場合は警告を残し、通常のRCA計算に

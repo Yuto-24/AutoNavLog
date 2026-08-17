@@ -333,6 +333,8 @@ def test_issue_43_golden_display_structure_inheritance_and_destination(
 ) -> None:
     rows = golden_outcome.display_rows
     assert [row.row_type for row in rows].count("LEG_SEPARATOR") == 4
+    displayed_cumulative_distance = 0.0
+    displayed_cumulative_ete = 0.0
     for section in golden_project.ordered_sections()[:-1]:
         group = [row for row in rows if row.section_id == section.id]
         assert group[0].row_type == "PHYSICAL_LEG_SUMMARY"
@@ -348,6 +350,17 @@ def test_issue_43_golden_display_structure_inheritance_and_destination(
         )
         assert all(row.cumulative_distance_nm_exact is None for row in details)
         assert all(row.cumulative_ete_seconds_exact is None for row in details)
+
+        displayed_zone_distance = sum(float(row.distance.text or "nan") for row in details)
+        displayed_zone_ete = sum(float(row.ete.text or "nan") for row in details)
+        displayed_cumulative_distance += displayed_zone_distance
+        displayed_cumulative_ete += displayed_zone_ete
+        assert group[0].distance.text == (
+            f"{displayed_zone_distance:.1f} / {displayed_cumulative_distance:.1f}"
+        )
+        assert group[0].ete.text == (
+            f"{displayed_zone_ete:.1f} / {displayed_cumulative_ete:.1f}"
+        )
 
     check_point_names = [
         row.to_name
