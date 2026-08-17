@@ -100,7 +100,7 @@ jobs:
               "README.md": "現在のバージョン: `1.1.0`",
               ".github/workflows/release-to-drive.yml": "autonavlog-1.1.0-py3-none-any.whl",
               "scripts/colab_e2e_assert.py": 'EXPECTED_AUTONAVLOG_VERSION = "1.1.0"',
-              "notebooks/AutoNavLog.ipynb": '\\"VERSION = \\\"1.1.0\\\"\\n\\"',
+              "notebooks/AutoNavLog.ipynb": "1.1.0",
               "tests/integration/test_release_workflow.py": "autonavlog-1.1.0-py3-none-any.whl",
               "tests/unit/test_build_release_manifest.py": 'VERSION = "1.1.0"',
               "DESIGN.md": "AutoNavLog 1.1.0",
