@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
@@ -41,3 +44,199 @@ jobs:
       - run: npm --prefix web ci
       - run: npm --prefix web run typecheck
       - run: npm --prefix web run build
+
+  release_prepare:
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Prepare release branch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          version = "1.2.0"
+          previous = "1.1.0"
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(
+                      f"unexpected occurrence count in {path}: {old!r} -> {text.count(old)}"
+                  )
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "pyproject.toml",
+              f'version = "{previous}"',
+              f'version = "{version}"',
+          )
+          replace_once(
+              "README.md",
+              f"- 現在のバージョン: `{previous}`",
+              f"- 現在のバージョン: `{version}`",
+          )
+
+          package = Path("web/package.json")
+          payload = json.loads(package.read_text(encoding="utf-8"))
+          if payload.get("version") != previous:
+              raise SystemExit("unexpected web/package.json version")
+          payload["version"] = version
+          package.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          lock = Path("web/package-lock.json")
+          payload = json.loads(lock.read_text(encoding="utf-8"))
+          if (
+              payload.get("version") != previous
+              or payload.get("packages", {}).get("", {}).get("version") != previous
+          ):
+              raise SystemExit("unexpected web/package-lock.json root version")
+          payload["version"] = version
+          payload["packages"][""]["version"] = version
+          lock.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          workflow = Path(".github/workflows/release-to-drive.yml")
+          text = workflow.read_text(encoding="utf-8")
+          for old, new in (
+              (
+                  f"release/wheels/autonavlog-{previous}-py3-none-any.whl",
+                  f"release/wheels/autonavlog-{version}-py3-none-any.whl",
+              ),
+              (f"--version {previous}", f"--version {version}"),
+              (f'--folder-name "{previous}"', f'--folder-name "{version}"'),
+          ):
+              if text.count(old) != 1:
+                  raise SystemExit(
+                      f"unexpected release workflow occurrence: {old!r} -> {text.count(old)}"
+                  )
+              text = text.replace(old, new, 1)
+          workflow.write_text(text, encoding="utf-8")
+
+          changelog = Path("CHANGELOG.md")
+          text = changelog.read_text(encoding="utf-8")
+          anchor = "## Unreleased\n"
+          if text.count(anchor) != 1:
+              raise SystemExit("CHANGELOG Unreleased anchor is not unique")
+          entry = """## Unreleased
+
+## 1.2.0 - 2026-08-17
+
+### 追加
+
+- KML候補の始点・終点から5 NM以内の空港をFROM/TOとして自動決定し、Webでは読取専用で表示するようにしました。
+- RUN UPの有無とA/C ON/OFFを計画入力へ追加しました。RUN UPありは10分・1.5 galとして燃料計画へ反映します。
+- FUEL表へBOF Fuelを追加しました。BOFは `CLIMB + CRUISE + DESCENT + TGL + ADDITIONAL` で、RUN UPとRESERVEは含みません。
+
+### 変更
+
+- QNHの入力・取得・推定・表示・帳票出力を廃止し、標準気象モードをMSMへ統一しました。
+- POH巡航表から自動採用したKTASへ、ノーズフェアリングなしの `-10 KTAS` と、A/C ON時の追加 `-2 KTAS` を適用するようにしました。手入力TAS/GPHには補正を重ねません。
+- 風向入力を001〜360の整数に統一し、内部では北を0°へ正規化しつつ画面・帳票では360として表示します。
+- 経路表のROLE列を削除しました。内部roleと地図上の表現は維持しています。
+- 1,240 px以下の画面を「入力 → 経路・MAP → 準備状況 → NAV LOG → ガイダンス」の縦順へ統一しました。
+
+### 互換性
+
+- Project schemaをv2へ更新しました。旧Project/SnapshotのQNH fieldは読込時に破棄し、RUN UP・A/Cは既定ONとして移行します。
+- 旧データの風向0°は北360°として読み込み、再保存時は新しい入力契約へ揃えます。
+
+"""
+          changelog.write_text(
+              text.replace(anchor, entry, 1),
+              encoding="utf-8",
+          )
+          PY
+
+          cat > .github/workflows/publish-github-release.yml <<'YAML'
+          name: publish-github-release
+
+          on:
+            push:
+              branches: [main]
+
+          permissions:
+            contents: write
+
+          jobs:
+            release:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+
+                - name: Read application version
+                  id: version
+                  shell: bash
+                  run: |
+                    VERSION="$(python - <<'PY'
+                    import tomllib
+                    from pathlib import Path
+                    payload = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+                    print(payload['project']['version'])
+                    PY
+                    )"
+                    echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+                    echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+                - name: Publish release when version is new
+                  env:
+                    GH_TOKEN: ${{ github.token }}
+                    VERSION: ${{ steps.version.outputs.version }}
+                    TAG: ${{ steps.version.outputs.tag }}
+                  shell: bash
+                  run: |
+                    if gh release view "$TAG" >/dev/null 2>&1; then
+                      echo "$TAG already exists; nothing to publish."
+                      exit 0
+                    fi
+
+                    python - <<'PY' > "$RUNNER_TEMP/release-notes.md"
+                    import os
+                    from pathlib import Path
+
+                    version = os.environ['VERSION']
+                    lines = Path('CHANGELOG.md').read_text(encoding='utf-8').splitlines()
+                    start = next(
+                        i for i, line in enumerate(lines)
+                        if line.startswith(f'## {version} - ')
+                    )
+                    end = next(
+                        (i for i in range(start + 1, len(lines)) if lines[i].startswith('## ')),
+                        len(lines),
+                    )
+                    body = '\n'.join(lines[start + 1:end]).strip()
+                    if not body:
+                        raise SystemExit(f'CHANGELOG has no notes for {version}')
+                    print(body)
+                    PY
+
+                    gh release create "$TAG" \
+                      --target "$GITHUB_SHA" \
+                      --title "AutoNavLog $VERSION" \
+                      --notes-file "$RUNNER_TEMP/release-notes.md"
+          YAML
+
+          rm -f \
+            .github/workflows/release-v1.2.0-helper.yml \
+            .github/workflows/release-v1.2.0-pr.yml
+
+          git show origin/main:.github/workflows/test.yml > .github/workflows/test.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: prepare v1.2.0 release"
+          git push origin HEAD:${{ github.head_ref }}
