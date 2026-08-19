@@ -48,6 +48,8 @@ class SectionResult(CalculationModel):
     segment_label: str | None = None
     from_name: str
     to_name: str
+    from_latitude_deg: float | None = Field(default=None, ge=-90, le=90)
+    from_longitude_deg: float | None = Field(default=None, ge=-180, le=180)
     planned_altitude_ft_msl: AdoptedValue[float]
     safe_enroute_altitude_ft_msl: AdoptedValue[float]
     loss_time_seconds: float = Field(ge=0)
@@ -170,6 +172,8 @@ class NavLogDisplayRow(CalculationModel):
     )
     from_name: str = ""
     to_name: str = ""
+    from_latitude_deg: float | None = Field(default=None, ge=-90, le=90)
+    from_longitude_deg: float | None = Field(default=None, ge=-180, le=180)
     pa_display_kind: PressureAltitudeDisplayKind = PressureAltitudeDisplayKind.BLANK
     pa: NavLogDisplayCell
     toat: NavLogDisplayCell

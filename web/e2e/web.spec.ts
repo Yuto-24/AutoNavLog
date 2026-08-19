@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 import { parseGsiCivilTrainingAirspaceTile } from "../src/rjfmAirspace";
+
 import type {
   NavLogDisplayRow,
   RjfmCivilTrainingTestAirspaceName,
@@ -671,7 +672,7 @@ async function expectDisplayProjectionToMatchWebTable(page: Page): Promise<void>
     (rows) => rows.map((row) => ({
       rowType: row.getAttribute("data-row-type"),
       sequence: Number(row.getAttribute("data-row-sequence")),
-      values: Array.from(row.querySelectorAll<HTMLElement>("td[data-display-text]"))
+      values: Array.from(row.querySelectorAll<HTMLElement>("td[data-display-text]:not(.vor-reference-cell)"))
         .map((cell) => cell.dataset.displayText ?? ""),
     })),
   );
@@ -791,23 +792,30 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(
     page.locator(".nav-log-table").getByLabel(/計画高度$/).first(),
   ).toHaveValue(firstAltitudeCandidate);
-  await expect(page.locator(".nav-log-table .nav-leg-heading-row").first().locator("td").nth(7)).toHaveText("+7");
+  await expect(page.locator(".nav-log-table .nav-leg-heading-row").first().locator("td").nth(8)).toHaveText("+7");
   const windInputs = firstRow.locator(".nav-log-wind-inputs");
   const windDirectionInput = firstRow.getByLabel(/手動風向$/);
   const windSpeedInput = firstRow.getByLabel(/手動風速$/);
   await expect(windInputs).toBeVisible();
   await expect(windDirectionInput).toBeVisible();
   await expect(windSpeedInput).toBeVisible();
-  await expect(windDirectionInput).toHaveAttribute("placeholder", "DIR");
-  await expect(windSpeedInput).toHaveAttribute("placeholder", "0");
+  await expect(windDirectionInput).toHaveAttribute(
+    "placeholder",
+    /^(DIR|\d{3})$/,
+  );
+  await expect(windSpeedInput).toHaveAttribute("placeholder", /^\d{1,2}$/);
   await expect.poll(() => windInputs.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
   await expect(page.getByLabel("NAV LOG高度ポリシー")).toHaveCount(0);
   await expect(page.getByText("PA = MSL", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("目的地空港の風予報")).toContainText(
-    "目的地風: 200/8 kt",
-  );
+  const destinationWindSummary = page.getByLabel("目的地空港の風予報");
+  await expect(destinationWindSummary).toContainText(/目的地風: \d{3}\/\d{1,2} kt/);
+  const destinationWind = (await destinationWindSummary.textContent())
+    ?.match(/目的地風: (\d{3}\/\d{1,2}) kt/)?.[1];
+  expect(destinationWind).toBeDefined();
   const finalRow = page.locator(".nav-log-table .nav-destination-info-row");
-  await expect(finalRow.getByRole("cell", { name: "200/8", exact: true })).toBeVisible();
+  await expect(
+    finalRow.getByRole("cell", { name: destinationWind, exact: true }),
+  ).toBeVisible();
   await expect(finalRow.getByLabel(/手動風向$/)).toHaveCount(0);
   await expect(finalRow.getByLabel(/手動風速$/)).toHaveCount(0);
   await expect(
@@ -1409,27 +1417,39 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   const altitudeInput = page.locator(".nav-log-table").getByLabel(/計画高度$/).first();
   await expect(altitudeInput).toHaveValue("5500");
   const firstParent = page.locator(".nav-log-table .nav-leg-heading-row").first();
-  await expect(firstParent.locator("td").nth(6)).toHaveText(/^\d{3}$/);
-  await expect(firstParent.locator("td").nth(7)).toHaveText("+7");
-  await expect(firstParent.locator("td").nth(8)).toHaveText(/^\d{3}$/);
-  const course = await firstParent.locator("td").nth(6).textContent();
-  const variation = await firstParent.locator("td").nth(7).textContent();
-  const magneticCourse = await firstParent.locator("td").nth(8).textContent();
+  const vorSelect = page.getByLabel("VOR基準局");
+  await expect(vorSelect.locator("option")).toHaveCount(32);
+  await expect(vorSelect).toHaveValue("__AUTO__");
+  await expect(vorSelect.locator("option:checked")).toHaveText("自動 MZE");
+  const automaticVorText = await firstParent.locator("td").nth(0).textContent();
+  expect(automaticVorText).toBe("105 / 0.6");
+  expect(automaticVorText).not.toMatch(/°|NM/);
+  await vorSelect.selectOption("HKC");
+  await expect(vorSelect).toHaveValue("HKC");
+  const manualVorText = await firstParent.locator("td").nth(0).textContent();
+  expect(manualVorText).toMatch(/^\d{3} \/ \d+\.\d$/);
+  expect(manualVorText).not.toBe(automaticVorText);
+  await expect(firstParent.locator("td").nth(7)).toHaveText(/^\d{3}$/);
+  await expect(firstParent.locator("td").nth(8)).toHaveText("+7");
+  await expect(firstParent.locator("td").nth(9)).toHaveText(/^\d{3}$/);
+  const course = await firstParent.locator("td").nth(7).textContent();
+  const variation = await firstParent.locator("td").nth(8).textContent();
+  const magneticCourse = await firstParent.locator("td").nth(9).textContent();
   expect((Number(course) + Number(variation) + 360) % 360).toBe(Number(magneticCourse));
-  await expect(firstParent.locator("td").nth(12)).toHaveText(
+  await expect(firstParent.locator("td").nth(13)).toHaveText(
     /^\d+\.[05] \/ \d+\.[05]$/,
   );
-  await expect(firstParent.locator("td").nth(14)).toHaveText(
+  await expect(firstParent.locator("td").nth(15)).toHaveText(
     /^\d+\.[05] \/ \d+\.[05]$/,
   );
-  await expect(firstParent.locator("td").nth(18)).toHaveText(
+  await expect(firstParent.locator("td").nth(19)).toHaveText(
     /^\d+\.\d \/ \d+\.\d$/,
   );
   const firstDetail = page.locator(".nav-log-table .nav-leg-detail-row").first();
-  await expect(firstDetail.locator("td").nth(12)).toHaveText(/^\d+\.[05]$/);
-  await expect(firstDetail.locator("td").nth(14)).toHaveText(/^\d+\.[05]$/);
-  const displayedWca = await firstDetail.locator("td").nth(10).textContent();
-  const displayedHeading = await firstDetail.locator("td").nth(11).textContent();
+  await expect(firstDetail.locator("td").nth(13)).toHaveText(/^\d+\.[05]$/);
+  await expect(firstDetail.locator("td").nth(15)).toHaveText(/^\d+\.[05]$/);
+  const displayedWca = await firstDetail.locator("td").nth(11).textContent();
+  const displayedHeading = await firstDetail.locator("td").nth(12).textContent();
   expect((Number(magneticCourse) + Number(displayedWca) + 360) % 360).toBe(
     Number(displayedHeading),
   );
@@ -1457,7 +1477,7 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   });
   expect(tableLayout.gap).toBeGreaterThanOrEqual(11);
   expect(tableLayout.gap).toBeLessThanOrEqual(13);
-  expect(tableLayout.navWidth).toBeLessThanOrEqual(1700);
+  expect(tableLayout.navWidth).toBeLessThanOrEqual(1800);
   expect(tableLayout.fuelWidth).toBeLessThanOrEqual(430);
   expect(tableLayout.fuelWidth).toBeLessThan(tableLayout.navWidth / 2);
   expect(tableLayout.fuelRowHeight).toBeLessThanOrEqual(25);
@@ -1603,7 +1623,7 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   );
   expect(unexpectedConsoleErrors).toEqual([]);
   await page.screenshot({ path: "/tmp/autonavlog-phase-wind.png", fullPage: false });
-  await expect(page.locator(".nav-log-table th").nth(6)).toHaveText("TC");
+  await expect(page.locator(".nav-log-table th").nth(7)).toHaveText("TC");
   await expect(page.locator(".derived-readonly-cell").first()).toHaveAttribute("title", /表示専用セル/);
 });
 

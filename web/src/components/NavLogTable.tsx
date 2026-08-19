@@ -1,3 +1,13 @@
+import { useMemo, useState } from "react";
+
+import {
+  DEFAULT_VOR_STATION,
+  formatVorRadialDistance,
+  nearestVorStation,
+  VOR_AUTO_SELECTION,
+  VOR_DATASET_EFFECTIVE_CYCLE,
+  VOR_STATIONS,
+} from "../vorRadial";
 import { draftFromSection } from "../navLogEditing";
 import type {
   NavLogEditDrafts,
@@ -592,6 +602,21 @@ export function NavLogTable({
   ) => void;
 }) {
   const displayRows: NavLogDisplayRow[] = outcome.display_rows;
+  const [manualVorIdentifier, setManualVorIdentifier] = useState<string | null>(null);
+  const automaticVorStation = useMemo(() => {
+    const firstFromRow = displayRows.find(
+      (row) => row.from_latitude_deg != null && row.from_longitude_deg != null,
+    );
+    return firstFromRow?.from_latitude_deg != null
+      && firstFromRow.from_longitude_deg != null
+      ? nearestVorStation(firstFromRow.from_latitude_deg, firstFromRow.from_longitude_deg)
+      : DEFAULT_VOR_STATION;
+  }, [displayRows]);
+  const selectedVorStation = manualVorIdentifier === null
+    ? automaticVorStation
+    : VOR_STATIONS.find((station) => station.identifier === manualVorIdentifier)
+      ?? automaticVorStation;
+
   const inputSections = new Map(project.sections.map((section) => [section.id, section]));
   const altitudeGuidanceBySection = new Map(
     altitudeGuidance.sections.map((guidance) => [guidance.sectionId, guidance]),
@@ -621,6 +646,29 @@ export function NavLogTable({
           <table className="nav-log-table official-nav-log-table">
           <thead>
             <tr>
+              <th className="vor-reference-header">
+                <label htmlFor="nav-log-vor-station">VOR</label>
+                <select
+                  id="nav-log-vor-station"
+                  aria-label="VOR基準局"
+                  title={`AIP ${VOR_DATASET_EFFECTIVE_CYCLE} / 局からFROMへのradial・距離`}
+                  value={manualVorIdentifier ?? VOR_AUTO_SELECTION}
+                  onChange={(event) => {
+                    setManualVorIdentifier(
+                      event.target.value === VOR_AUTO_SELECTION ? null : event.target.value,
+                    );
+                  }}
+                >
+                  <option value={VOR_AUTO_SELECTION}>
+                    {`自動 ${automaticVorStation.identifier}`}
+                  </option>
+                  {VOR_STATIONS.map((station) => (
+                    <option key={station.identifier} value={station.identifier}>
+                      {`${station.identifier} — ${station.name} (${station.type})`}
+                    </option>
+                  ))}
+                </select>
+              </th>
               <th>FROM</th>
               <th>TO</th>
               <th>PA<br /><small>ft</small></th>
@@ -644,7 +692,7 @@ export function NavLogTable({
           </thead>
           <tbody>
             {displayRows.length === 0 && (
-              <tr><td colSpan={19} className="unavailable-value">表示行を再計算してください</td></tr>
+              <tr><td colSpan={20} className="unavailable-value">表示行を再計算してください</td></tr>
             )}
             {displayRows.map((row) => {
               if (row.row_type === "LEG_SEPARATOR") {
@@ -656,7 +704,7 @@ export function NavLogTable({
                     data-row-type={row.row_type}
                     data-row-sequence={row.sequence}
                   >
-                    <td colSpan={19} />
+                    <td colSpan={20} />
                   </tr>
                 );
               }
@@ -671,6 +719,11 @@ export function NavLogTable({
                 : row.row_type === "DESTINATION_INFO"
                   ? "nav-destination-info-row"
                   : "nav-leg-detail-row";
+              const vorReference = formatVorRadialDistance(
+                selectedVorStation,
+                row.from_latitude_deg,
+                row.from_longitude_deg,
+              );
               return (
                 <tr
                   className={rowClass}
@@ -678,6 +731,13 @@ export function NavLogTable({
                   data-row-type={row.row_type}
                   data-row-sequence={row.sequence}
                 >
+                  <td
+                    className="vor-reference-cell derived-readonly-cell"
+                    title={`${selectedVorStation.identifier}からFROMへのradial / 距離（表示専用セル）`}
+                    data-display-text={vorReference}
+                  >
+                    {vorReference}
+                  </td>
                   <td className="route-name-cell" data-display-text={row.from_name}>{row.from_name}</td>
                   <td className="route-name-cell" data-display-text={row.to_name}>{row.to_name}</td>
                   <DisplayResultCells
