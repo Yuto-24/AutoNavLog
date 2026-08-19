@@ -749,6 +749,34 @@
         "eto": {
           "$ref": "#/$defs/NavLogDisplayCell"
         },
+        "from_latitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": -90,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Latitude Deg"
+        },
+        "from_longitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 180,
+              "minimum": -180,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Longitude Deg"
+        },
         "from_name": {
           "default": "",
           "title": "From Name",
@@ -1329,6 +1357,34 @@
         },
         "eto_utc": {
           "$ref": "#/$defs/AdoptedValue_datetime_"
+        },
+        "from_latitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": -90,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Latitude Deg"
+        },
+        "from_longitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 180,
+              "minimum": -180,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Longitude Deg"
         },
         "from_name": {
           "title": "From Name",

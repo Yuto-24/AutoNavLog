@@ -2265,6 +2265,8 @@ class CalculationService:
                     ),
                     from_name=segment.start.label,
                     to_name=segment.end.label,
+                    from_latitude_deg=segment.start.latitude_deg,
+                    from_longitude_deg=segment.start.longitude_deg,
                     planned_altitude_ft_msl=_automatic(
                         planned_altitude,
                         ValueState.FIXED_RULE,

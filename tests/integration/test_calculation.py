@@ -67,6 +67,23 @@ def test_full_calculation_iteration_and_clearcopy(
     assert len(outcome.sections) == 3
     assert outcome.sections[0].to_name == "RCA"
     assert outcome.sections[1].from_name == "RCA"
+    first_route_node = aligned_project.ordered_nodes()[0]
+    assert outcome.sections[0].from_latitude_deg == pytest.approx(
+        first_route_node.latitude_deg
+    )
+    assert outcome.sections[0].from_longitude_deg == pytest.approx(
+        first_route_node.longitude_deg
+    )
+    positioned_rows = [
+        row
+        for row in outcome.display_rows
+        if row.row_type in {"PHYSICAL_LEG_SUMMARY", "CALCULATION_ZONE"}
+    ]
+    assert positioned_rows
+    assert all(row.from_latitude_deg is not None for row in positioned_rows)
+    assert all(row.from_longitude_deg is not None for row in positioned_rows)
+    assert positioned_rows[0].from_latitude_deg == outcome.sections[0].from_latitude_deg
+    assert positioned_rows[0].from_longitude_deg == outcome.sections[0].from_longitude_deg
     assert not outcome.blockers
     assert outcome.status == ProjectStatus.READY_FOR_COPY
     assert outcome.derived_points[0].type.value == "RCA"
