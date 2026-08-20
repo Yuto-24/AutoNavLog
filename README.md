@@ -8,7 +8,7 @@ A4 横の転記補助表を作ります。
 利用者が根拠と警告を確認し、公式様式へ手書きで転記してください。航空大学校の公式様式や
 計算規則への準拠は主張していません。
 
-- 現在のバージョン: `1.2.1`
+- 現在のバージョン: `1.3.0`
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
@@ -246,16 +246,16 @@ npm --prefix web run build
 npm --prefix web run test:e2e
 ```
 
-リリース時は `1.1.0` が次の場所で一致していることを確認します。
+リリース時は `1.3.0` が次の場所で一致していることを確認します。
 
-- `pyproject.toml` と `src/autonavlog/version.py`
+- `pyproject.toml`
 - `web/package.json` と `web/package-lock.json`
-- `scripts/colab_e2e_assert.py` と `notebooks/AutoNavLog.ipynb`
-- 配布 workflow と関連テスト
+- `README.md` と `CHANGELOG.md`
+- `.github/workflows/release-to-drive.yml`
 
-古い版の検索には `rg -n '1\.0\.0'` を使います。`jma-msm-wind==0.2.1` は別製品の版なので
-変更しません。旧 Colab Preview は検証済み ZIP と SHA-256 の組を保つため `0.3.1` に固定しており、
-検索結果から除外します。
+`src/autonavlog/version.py` は固定値を持たず、インストール済み Package Metadata から版番号を取得します。
+旧 Colab Preview は検証済み ZIP と SHA-256 の組を保つため `0.3.1` に固定しており、現行 Web 版の
+バージョン更新対象には含めません。`jma-msm-wind==0.2.1` は別製品の版なので変更しません。
 
 ## 旧 Colab 配布
 
