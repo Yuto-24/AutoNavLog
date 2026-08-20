@@ -436,8 +436,11 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
 
 .flight-plan-section > h2 { margin-bottom: 12px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.endpoint-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.flight-date-field,
+.flight-time-field { grid-column: 1 / -1; }
+.endpoint-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .endpoint-row label { min-width: 0; display: grid; gap: 5px; }
+.endpoint-row input { width: 100%; min-width: 0; }
 .form-grid label { min-width: 0; display: grid; gap: 5px; }
 .form-grid-field { min-width: 0; display: grid; gap: 5px; }
 .form-grid-field > span {
@@ -818,8 +821,9 @@ tbody tr:last-child td { border-bottom: 0; }
 .checkpoint-add-button { min-height: 34px; padding: 0 12px; }
 .checkpoint-form {
   margin-top: 12px;
+  min-width: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
   padding: 12px;
   border: 1px solid #c9d5df;
@@ -832,8 +836,10 @@ tbody tr:last-child td { border-bottom: 0; }
   align-items: center;
   justify-content: space-between;
 }
-.checkpoint-form label { display: grid; gap: 5px; }
+.checkpoint-form label { min-width: 0; display: grid; gap: 5px; }
 .checkpoint-form label > span { color: #304960; font-size: 10px; font-weight: 700; }
+.checkpoint-form input,
+.checkpoint-form select { width: 100%; min-width: 0; }
 .checkpoint-map-pick { grid-column: 1 / -1; }
 .checkpoint-map-pick.is-active { color: #ffffff; background: var(--teal-700); border-color: var(--teal-700); }
 .checkpoint-form-actions {
@@ -1215,6 +1221,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .input-rail { border-right: 0; }
   .status-rail { border-top: 1px solid var(--slate-200); border-left: 0; }
   .route-workspace { border-top: 1px solid var(--slate-200); }
+  .flight-date-field,
+  .flight-time-field { grid-column: auto; }
+  .endpoint-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .map-frame { height: 500px; }
   .map-resize-handle { display: none; }
 }

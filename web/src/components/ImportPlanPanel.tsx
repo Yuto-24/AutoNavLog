@@ -183,7 +183,7 @@ export function ImportPlanPanel({
           {projectExists && <span className="quiet-state">経路 確定済み</span>}
         </div>
         <div className="form-grid">
-          <label>
+          <label className="flight-date-field">
             <span>DATE</span>
             <input
               type="date"
@@ -191,7 +191,7 @@ export function ImportPlanPanel({
               onChange={(event) => update("flightDate", event.target.value)}
             />
           </label>
-          <label>
+          <label className="flight-time-field">
             <span>ETD JST</span>
             <input
               type="time"

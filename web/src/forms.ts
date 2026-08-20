@@ -154,9 +154,9 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     usePenultimateAsVrep: true,
     weatherMode: "FORECAST",
     ftdSurfaceWindDirection: "360",
-    ftdSurfaceWindSpeed: "0",
-    ftdWind5000Direction: "360",
-    ftdWind5000Speed: "0",
+    ftdSurfaceWindSpeed: "15",
+    ftdWind5000Direction: "270",
+    ftdWind5000Speed: "30",
   };
 }
 

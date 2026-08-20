@@ -1056,6 +1056,26 @@ test("responsive workflow keeps a one-way order at intermediate width", async ({
   expect(intermediate[4]!.y).toBeGreaterThanOrEqual(
     intermediate[3]!.y + intermediate[3]!.height - 1,
   );
+  const from = page.getByLabel("FROM");
+  const to = page.getByLabel("TO");
+  const date = page.locator('.flight-plan-section input[type="date"]');
+  const time = page.locator('.flight-plan-section input[type="time"]');
+  const intermediateSchedule = await Promise.all([date.boundingBox(), time.boundingBox()]);
+  if (intermediateSchedule.some((box) => box === null)) {
+    throw new Error("Intermediate DATE/ETD fields are missing");
+  }
+  expect(intermediateSchedule[1]!.x).toBeGreaterThanOrEqual(
+    intermediateSchedule[0]!.x + intermediateSchedule[0]!.width - 1,
+  );
+  expect(Math.abs(intermediateSchedule[0]!.y - intermediateSchedule[1]!.y)).toBeLessThanOrEqual(1);
+  const intermediateEndpoints = await Promise.all([from.boundingBox(), to.boundingBox()]);
+  if (intermediateEndpoints.some((box) => box === null)) {
+    throw new Error("Intermediate FROM/TO fields are missing");
+  }
+  expect(intermediateEndpoints[1]!.x).toBeGreaterThanOrEqual(
+    intermediateEndpoints[0]!.x + intermediateEndpoints[0]!.width - 1,
+  );
+  expect(Math.abs(intermediateEndpoints[0]!.y - intermediateEndpoints[1]!.y)).toBeLessThanOrEqual(1);
 
   await page.setViewportSize({ width: 1440, height: 900 });
   const wide = await Promise.all([
@@ -1070,6 +1090,32 @@ test("responsive workflow keeps a one-way order at intermediate width", async ({
   expect(wide[2]!.x).toBeGreaterThanOrEqual(wide[1]!.x + wide[1]!.width - 1);
   expect(Math.abs(wide[0]!.y - wide[1]!.y)).toBeLessThanOrEqual(1);
   expect(Math.abs(wide[1]!.y - wide[2]!.y)).toBeLessThanOrEqual(1);
+  const wideSchedule = await Promise.all([date.boundingBox(), time.boundingBox()]);
+  if (wideSchedule.some((box) => box === null)) {
+    throw new Error("Wide DATE/ETD fields are missing");
+  }
+  expect(wideSchedule[1]!.y).toBeGreaterThanOrEqual(
+    wideSchedule[0]!.y + wideSchedule[0]!.height - 1,
+  );
+  expect(wideSchedule[0]!.x + wideSchedule[0]!.width).toBeLessThanOrEqual(
+    wide[0]!.x + wide[0]!.width,
+  );
+  expect(wideSchedule[1]!.x + wideSchedule[1]!.width).toBeLessThanOrEqual(
+    wide[0]!.x + wide[0]!.width,
+  );
+  const wideEndpoints = await Promise.all([from.boundingBox(), to.boundingBox()]);
+  if (wideEndpoints.some((box) => box === null)) {
+    throw new Error("Wide FROM/TO fields are missing");
+  }
+  expect(wideEndpoints[1]!.y).toBeGreaterThanOrEqual(
+    wideEndpoints[0]!.y + wideEndpoints[0]!.height - 1,
+  );
+  expect(wideEndpoints[0]!.x + wideEndpoints[0]!.width).toBeLessThanOrEqual(
+    wide[0]!.x + wide[0]!.width,
+  );
+  expect(wideEndpoints[1]!.x + wideEndpoints[1]!.width).toBeLessThanOrEqual(
+    wide[0]!.x + wide[0]!.width,
+  );
 });
 
 test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays editable", async ({ page }) => {
@@ -1355,6 +1401,10 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   await importKmlCandidate(page);
 
   await page.getByLabel("気象モード").selectOption("FTD");
+  await expect(page.getByLabel("地上風向 ° FROM")).toHaveValue("360");
+  await expect(page.getByLabel("地上風速 kt")).toHaveValue("15");
+  await expect(page.getByLabel("5,000 ft風向 ° FROM")).toHaveValue("270");
+  await expect(page.getByLabel("5,000 ft風速 kt")).toHaveValue("30");
   const confirmRoute = page.getByRole("button", { name: "経路を確定" });
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByLabel("地上風向 ° FROM").fill("0");
@@ -1377,13 +1427,41 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   expect(stateAfterConfirm.project?.ftd_weather?.wind_at_5000_ft.speed_kt).toBe(20);
   expect(stateAfterConfirm.project?.ftd_weather?.wind_at_5000_ft.direction_deg_from).toBe(360);
 
-  const editor = page.getByRole("region", { name: "チェックポイント設定" });
-  await editor.getByRole("button", { name: "追加" }).click();
+  const routePanel = page.getByRole("region", { name: "経路地図とLeg設定" });
+  const editor = routePanel.getByRole("region", { name: "チェックポイント設定" });
+  await editor.getByRole("button", { name: "チェックポイントを追加" }).click();
+  await editor.locator("select option").first().evaluate((option) => {
+    option.textContent =
+      "Leg 2: 変針点 UMK(MZE 004/6.2,NHT6.0) → 変針点 OMARU(NHT 171/11.4)（CRUISE）";
+  });
+  for (const width of [1100, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const bounds = await editor.evaluate((element) => {
+      const form = element.querySelector(".checkpoint-form")?.getBoundingClientRect();
+      const select = element.querySelector(".checkpoint-form select")?.getBoundingClientRect();
+      const actions = element.querySelector(".checkpoint-form-actions")?.getBoundingClientRect();
+      return form && select && actions
+        ? {
+            formLeft: form.left,
+            formRight: form.right,
+            selectLeft: select.left,
+            selectRight: select.right,
+            actionsLeft: actions.left,
+            actionsRight: actions.right,
+          }
+        : null;
+    });
+    expect(bounds, `${width}pxでチェックポイントフォームが表示されること`).not.toBeNull();
+    expect(bounds!.selectLeft).toBeGreaterThanOrEqual(bounds!.formLeft);
+    expect(bounds!.selectRight).toBeLessThanOrEqual(bounds!.formRight);
+    expect(bounds!.actionsLeft).toBeGreaterThanOrEqual(bounds!.formLeft);
+    expect(bounds!.actionsRight).toBeLessThanOrEqual(bounds!.formRight);
+  }
   await editor.getByLabel("名称").fill("訓練CP");
   await editor.getByLabel("緯度").fill("32.700000");
   await editor.getByLabel("経度").fill("131.550000");
-  await editor.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(editor.getByText("訓練CP", { exact: true })).toBeVisible();
+  await editor.getByRole("button", { name: "追加", exact: true }).click();
+  await expect(routePanel.getByText("訓練CP", { exact: true })).toBeVisible();
   await expect(editor.getByText(/Leg内 .* NM \/ 累積 .* NM \/ 横ずれ .* NM/)).toBeVisible();
 
   await editor.getByRole("button", { name: "訓練CPを編集" }).click();
