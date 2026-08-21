@@ -1428,12 +1428,19 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   });
   for (const width of [1100, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
-    const bounds = await editor.evaluate((element) => {
+    const bounds = await routePanel.evaluate((element) => {
+      const editor = element.querySelector(".checkpoint-editor")?.getBoundingClientRect();
+      const routeHeading = element.querySelector(".workspace-heading")?.getBoundingClientRect();
+      const map = element.querySelector("#route-map-frame")?.getBoundingClientRect();
       const form = element.querySelector(".checkpoint-form")?.getBoundingClientRect();
       const select = element.querySelector(".checkpoint-form select")?.getBoundingClientRect();
       const actions = element.querySelector(".checkpoint-form-actions")?.getBoundingClientRect();
-      return form && select && actions
+      return editor && routeHeading && map && form && select && actions
         ? {
+            editorBottom: editor.bottom,
+            routeHeadingTop: routeHeading.top,
+            routeHeadingBottom: routeHeading.bottom,
+            mapTop: map.top,
             formLeft: form.left,
             formRight: form.right,
             selectLeft: select.left,
@@ -1444,6 +1451,8 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
         : null;
     });
     expect(bounds, `${width}pxでチェックポイントフォームが表示されること`).not.toBeNull();
+    expect(bounds!.editorBottom).toBeLessThanOrEqual(bounds!.routeHeadingTop);
+    expect(bounds!.routeHeadingBottom).toBeLessThanOrEqual(bounds!.mapTop);
     expect(bounds!.selectLeft).toBeGreaterThanOrEqual(bounds!.formLeft);
     expect(bounds!.selectRight).toBeLessThanOrEqual(bounds!.formRight);
     expect(bounds!.actionsLeft).toBeGreaterThanOrEqual(bounds!.formLeft);
