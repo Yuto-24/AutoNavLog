@@ -1851,6 +1851,7 @@ test("KMZ document selection modal moves and traps focus", async ({ page }) => {
 });
 
 test("grouped LineStrings require an explicit route candidate selection", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
@@ -1860,6 +1861,7 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await expect(departureSelect).toHaveAttribute("readonly", "");
   await expect(page.getByLabel("TO", { exact: true })).toHaveAttribute("readonly", "");
   await expect(candidateSelect).toHaveValue("line:0");
+  await expect(page.locator(".candidate-control")).not.toHaveClass(/is-required/);
   await page.getByLabel("地図とKML記載順を確認しました").check();
 
   await page.getByRole("button", { name: "KMLを貼り付け" }).click();
@@ -1868,6 +1870,21 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
 
   await expect(candidateSelect).toHaveValue("");
+  const candidateControl = page.locator(".candidate-control");
+  await expect(candidateControl).toHaveClass(/is-required/);
+  await expect(candidateControl.getByText("経路選択", { exact: true })).toBeVisible();
+  await expect(candidateControl.getByText("選択必須", { exact: true })).toBeVisible();
+  await expect(candidateControl).toContainText("使用する飛行経路を選択してください。");
+  await expect(candidateSelect).toHaveAttribute("required", "");
+  await expect(candidateSelect).toHaveAttribute("aria-invalid", "true");
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+  ).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(candidateControl).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+  ).toBeLessThanOrEqual(1);
   await expect(candidateSelect.locator("option")).toHaveCount(3);
   await expect(candidateSelect.locator("option").nth(0)).toHaveText("経路を選択");
   await expect(candidateSelect.locator("option").nth(1)).toHaveText(
@@ -1883,6 +1900,9 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await expect(page.getByLabel("経路確認")).toHaveCount(0);
 
   await candidateSelect.selectOption("connected_lines:0");
+  await expect(candidateControl).not.toHaveClass(/is-required/);
+  await expect(candidateControl.getByText("選択必須", { exact: true })).toHaveCount(0);
+  await expect(candidateSelect).toHaveAttribute("aria-invalid", "false");
   await expect(departureSelect).toHaveValue(/^RJFM\b/);
   await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
   const routeWorkspace = page.getByLabel("経路地図とLeg設定");
@@ -1896,6 +1916,8 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await expect(routeUseConfirmed).toBeChecked();
 
   await candidateSelect.selectOption("");
+  await expect(candidateControl).toHaveClass(/is-required/);
+  await expect(candidateControl.getByText("選択必須", { exact: true })).toBeVisible();
   await expect(departureSelect).toHaveValue("");
   await expect(page.getByLabel("TO")).toHaveValue("");
   await expect(page.getByText("飛行経路候補を選択すると地図へ表示します")).toBeVisible();

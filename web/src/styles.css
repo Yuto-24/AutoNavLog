@@ -397,6 +397,25 @@ h1, h2, h3, p { margin-top: 0; }
 
 .field-group { display: grid; gap: 6px; }
 .candidate-control { margin-top: 12px; }
+.candidate-control.is-required {
+  padding: 12px;
+  background: var(--red-50);
+  border: 2px solid var(--red-700);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 3px rgb(180 35 24 / 12%);
+}
+.candidate-control-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.candidate-control-heading label { color: #304960; font-size: 12px; font-weight: 800; }
+.required-badge {
+  padding: 3px 7px;
+  color: #ffffff;
+  background: var(--red-700);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+}
+.candidate-required-message { margin: 0; color: var(--red-700); font-size: 12px; font-weight: 700; line-height: 1.5; }
+.candidate-control.is-required select { color: var(--red-700); border-color: var(--red-700); box-shadow: 0 0 0 2px rgb(180 35 24 / 10%); }
 .field-group > label, .field-group > span, .form-grid label > span { color: #304960; font-size: 11px; font-weight: 700; }
 
 input, select, textarea {
