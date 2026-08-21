@@ -364,19 +364,6 @@ export function RouteWorkspace({
 
   return (
     <section className="route-workspace" aria-label="経路地図とLeg設定">
-      {project && (
-        <CheckPointEditor
-          nodes={nodes}
-          sections={sections}
-          checkPoints={checkPoints}
-          planning={checkPointPlanning}
-          busy={busy}
-          pickedCoordinate={pickedCoordinate}
-          pickingFromMap={pickingCheckPoint}
-          onPickingFromMapChange={handlePickingChange}
-          onReplace={onReplaceCheckPoints}
-        />
-      )}
       <div className="workspace-heading">
         <div>
           <h2>経路</h2>
@@ -715,6 +702,20 @@ export function RouteWorkspace({
         onPolygonRouteConfirmedChange={onPolygonRouteConfirmedChange}
         onConfirm={onConfirmRoute}
       />
+
+      {project && (
+        <CheckPointEditor
+          nodes={nodes}
+          sections={sections}
+          checkPoints={checkPoints}
+          planning={checkPointPlanning}
+          busy={busy}
+          pickedCoordinate={pickedCoordinate}
+          pickingFromMap={pickingCheckPoint}
+          onPickingFromMapChange={handlePickingChange}
+          onReplace={onReplaceCheckPoints}
+        />
+      )}
 
       <div className="table-scroll route-table-scroll">
         <table className="route-table">

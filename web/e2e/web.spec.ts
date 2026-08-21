@@ -1441,17 +1441,17 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
     await page.setViewportSize({ width, height: 1000 });
     const bounds = await routePanel.evaluate((element) => {
       const editor = element.querySelector(".checkpoint-editor")?.getBoundingClientRect();
-      const routeHeading = element.querySelector(".workspace-heading")?.getBoundingClientRect();
       const map = element.querySelector("#route-map-frame")?.getBoundingClientRect();
+      const routeTable = element.querySelector(".route-table-scroll")?.getBoundingClientRect();
       const form = element.querySelector(".checkpoint-form")?.getBoundingClientRect();
       const select = element.querySelector(".checkpoint-form select")?.getBoundingClientRect();
       const actions = element.querySelector(".checkpoint-form-actions")?.getBoundingClientRect();
-      return editor && routeHeading && map && form && select && actions
+      return editor && map && routeTable && form && select && actions
         ? {
+            editorTop: editor.top,
             editorBottom: editor.bottom,
-            routeHeadingTop: routeHeading.top,
-            routeHeadingBottom: routeHeading.bottom,
-            mapTop: map.top,
+            mapBottom: map.bottom,
+            routeTableTop: routeTable.top,
             formLeft: form.left,
             formRight: form.right,
             selectLeft: select.left,
@@ -1462,8 +1462,8 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
         : null;
     });
     expect(bounds, `${width}pxでチェックポイントフォームが表示されること`).not.toBeNull();
-    expect(bounds!.editorBottom).toBeLessThanOrEqual(bounds!.routeHeadingTop);
-    expect(bounds!.routeHeadingBottom).toBeLessThanOrEqual(bounds!.mapTop);
+    expect(bounds!.editorTop).toBeGreaterThanOrEqual(bounds!.mapBottom);
+    expect(bounds!.editorBottom).toBeLessThanOrEqual(bounds!.routeTableTop);
     expect(bounds!.selectLeft).toBeGreaterThanOrEqual(bounds!.formLeft);
     expect(bounds!.selectRight).toBeLessThanOrEqual(bounds!.formRight);
     expect(bounds!.actionsLeft).toBeGreaterThanOrEqual(bounds!.formLeft);

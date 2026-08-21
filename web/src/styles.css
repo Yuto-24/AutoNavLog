@@ -821,7 +821,7 @@ tbody tr:last-child td { border-bottom: 0; }
   border-radius: var(--radius-sm);
   background: var(--slate-50);
 }
-.route-workspace > .checkpoint-editor { margin: 0 0 16px; }
+.route-workspace > .checkpoint-editor { margin: 16px 0; }
 .checkpoint-editor h3 { margin: 0; color: var(--navy-950); font-size: 15px; }
 .checkpoint-editor .section-heading-row p {
   margin: 4px 0 0;
