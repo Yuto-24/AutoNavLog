@@ -140,6 +140,7 @@ class Project(DomainModel):
     weather_mode: Literal["FORECAST", "FTD"] = "FORECAST"
     ftd_weather: FtdWeatherSettings | None = None
     run_up_included: bool = True
+    nose_fairing_enabled: bool = False
     air_conditioning_enabled: bool = True
     tgl_count: int = Field(default=0, ge=0)
     selected_forecast_run_id: str | None = None

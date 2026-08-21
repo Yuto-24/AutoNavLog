@@ -50,6 +50,7 @@ class ConfirmRouteRequest(WebRequestModel):
     weather_mode: Literal["FORECAST", "FTD"] = "FORECAST"
     ftd_weather: FtdWeatherSettings | None = None
     run_up_included: bool = True
+    nose_fairing_enabled: bool = False
     air_conditioning_enabled: bool = True
     tgl_count: int = Field(default=0, ge=0, le=20)
     all_leg_altitude_ft_msl: float = Field(default=3000, gt=0, le=25_000)
@@ -110,6 +111,7 @@ class UpdateProjectRequest(WebRequestModel):
     weather_mode: Literal["FORECAST", "FTD"] = "FORECAST"
     ftd_weather: FtdWeatherSettings | None = None
     run_up_included: bool = True
+    nose_fairing_enabled: bool = False
     air_conditioning_enabled: bool = True
     tgl_count: int = Field(default=0, ge=0, le=20)
     sections: list[SectionUpdate] = Field(default_factory=list, max_length=500)

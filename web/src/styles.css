@@ -453,6 +453,9 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
 }
 
 .checkbox-row input { width: 17px; height: 17px; min-height: 0; flex: 0 0 auto; margin: 0; accent-color: var(--teal-700); }
+.fuel-option-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; }
+.form-grid .fuel-option-row .checkbox-row { display: flex; }
+.nose-fairing-option { grid-column: 1; }
 
 .flight-plan-section > h2 { margin-bottom: 12px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

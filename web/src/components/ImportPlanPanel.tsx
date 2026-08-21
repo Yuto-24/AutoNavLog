@@ -286,7 +286,15 @@ export function ImportPlanPanel({
                 checked={form.airConditioningEnabled}
                 onChange={(event) => update("airConditioningEnabled", event.target.checked)}
               />
-              <span>A/C ON</span>
+              <span>A/C ON (巡航速度 -2 kt)</span>
+            </label>
+            <label className="checkbox-row nose-fairing-option">
+              <input
+                type="checkbox"
+                checked={form.noseFairingEnabled}
+                onChange={(event) => update("noseFairingEnabled", event.target.checked)}
+              />
+              <span>ノーズフェアリングあり (巡航速度 -10 kt)</span>
             </label>
           </div>
           <label className="span-two">

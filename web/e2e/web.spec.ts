@@ -900,7 +900,8 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   await expect(page.getByText("開発用固定気象（出力不可）", { exact: true })).toBeVisible();
   await expect(page.getByLabel("TO")).toHaveValue("");
   await expect(page.getByLabel("RUN UP あり")).toBeChecked();
-  await expect(page.getByLabel("A/C ON")).toBeChecked();
+  await expect(page.getByLabel("ノーズフェアリングあり (巡航速度 -10 kt)")).not.toBeChecked();
+  await expect(page.getByLabel("A/C ON (巡航速度 -2 kt)")).toBeChecked();
   await expect(page.getByLabel("QNH値")).toHaveCount(0);
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
@@ -2086,15 +2087,34 @@ test("KML endpoints automatically determine read-only FROM and TO", async ({ pag
   await expect(page.getByLabel("TO")).toHaveAttribute("readonly", "");
 });
 
-test("RUN UP and A/C choices persist after save and reload", async ({ page }) => {
+test("RUN UP, nose fairing, and A/C choices persist after save and reload", async ({ page }) => {
   await page.goto("/");
   await importKmlCandidate(page);
 
   const runUp = page.getByLabel("RUN UP あり");
-  const airConditioning = page.getByLabel("A/C ON");
+  const noseFairing = page.getByLabel("ノーズフェアリングあり (巡航速度 -10 kt)");
+  const airConditioning = page.getByLabel("A/C ON (巡航速度 -2 kt)");
   await expect(runUp).toBeChecked();
+  await expect(noseFairing).not.toBeChecked();
   await expect(airConditioning).toBeChecked();
+
+  for (const width of [1100, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const [runUpBox, noseFairingBox, airConditioningBox] = await Promise.all([
+      runUp.boundingBox(),
+      noseFairing.boundingBox(),
+      airConditioning.boundingBox(),
+    ]);
+    if (!runUpBox || !noseFairingBox || !airConditioningBox) {
+      throw new Error(`Fuel option layout is missing at ${width}px`);
+    }
+    expect(noseFairingBox.y).toBeGreaterThanOrEqual(runUpBox.y + runUpBox.height - 1);
+    expect(airConditioningBox.x).toBeGreaterThanOrEqual(runUpBox.x + runUpBox.width - 1);
+    expect(Math.abs(airConditioningBox.y - runUpBox.y)).toBeLessThanOrEqual(1);
+  }
+
   await runUp.uncheck();
+  await noseFairing.check();
   await airConditioning.uncheck();
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
@@ -2104,11 +2124,13 @@ test("RUN UP and A/C choices persist after save and reload", async ({ page }) =>
     return await response.json() as WebState;
   });
   expect(state.project?.run_up_included).toBe(false);
+  expect(state.project?.nose_fairing_enabled).toBe(true);
   expect(state.project?.air_conditioning_enabled).toBe(false);
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
   await page.reload();
   await expect(runUp).not.toBeChecked();
+  await expect(noseFairing).toBeChecked();
   await expect(airConditioning).not.toBeChecked();
 });

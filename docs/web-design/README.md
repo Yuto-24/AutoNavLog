@@ -47,7 +47,7 @@ decorative cards. Shadows are reserved for temporary overlays.
 - KML/KMZ drop zone and paste dialog.
 - Shape candidate list with a required route-use confirmation placed directly below the map.
 - Flight-plan fields: DATE, ETD JST, read-only KML-derived FROM/TO, FUEL
-  (default 90 gal), RUN UP, A/C, VAR, and TGL.
+  (default 90 gal), RUN UP, nose fairing, A/C, VAR, and TGL.
 - Route map with airport, waypoint, VREP, RCA, EOC, and CP markers.
 - Check Point creation from a map click or coordinates, with abeam projection and CRUD controls.
 - Desktop map-height separator with pointer and keyboard operation.

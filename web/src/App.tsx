@@ -402,6 +402,7 @@ function App() {
             weather_mode: form.weatherMode,
             ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
             run_up_included: form.runUpIncluded,
+            nose_fairing_enabled: form.noseFairingEnabled,
             air_conditioning_enabled: form.airConditioningEnabled,
             tgl_count: form.tglCount,
             all_leg_altitude_ft_msl: form.allLegAltitudeFtMsl,
@@ -572,6 +573,7 @@ function App() {
       weather_mode: form.weatherMode,
       ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
       run_up_included: form.runUpIncluded,
+      nose_fairing_enabled: form.noseFairingEnabled,
       air_conditioning_enabled: form.airConditioningEnabled,
       tgl_count: form.tglCount,
       sections: payloadSections.map((section) => {

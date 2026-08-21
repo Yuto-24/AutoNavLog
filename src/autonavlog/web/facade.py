@@ -311,6 +311,7 @@ class AutoNavLogWebApplication:
                     "weather_mode": request.weather_mode,
                     "ftd_weather": request.ftd_weather,
                     "run_up_included": request.run_up_included,
+                    "nose_fairing_enabled": request.nose_fairing_enabled,
                     "air_conditioning_enabled": request.air_conditioning_enabled,
                 }
             )
@@ -740,6 +741,7 @@ class AutoNavLogWebApplication:
         working.total_usable_fuel_gal = request.total_usable_fuel_gal
         working.default_variation_deg_east = request.default_variation_deg_east
         working.run_up_included = request.run_up_included
+        working.nose_fairing_enabled = request.nose_fairing_enabled
         working.air_conditioning_enabled = request.air_conditioning_enabled
         weather_changed = (
             working.weather_mode != request.weather_mode

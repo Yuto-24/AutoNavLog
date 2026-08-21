@@ -14,6 +14,7 @@ export interface PlanningForm {
   totalUsableFuelGal: string;
   variationDegEast: number;
   runUpIncluded: boolean;
+  noseFairingEnabled: boolean;
   airConditioningEnabled: boolean;
   tglCount: number;
   allLegAltitudeFtMsl: number;
@@ -145,6 +146,7 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     totalUsableFuelGal: "90",
     variationDegEast: variationForDeparture(departure),
     runUpIncluded: true,
+    noseFairingEnabled: false,
     airConditioningEnabled: true,
     tglCount: 0,
     allLegAltitudeFtMsl: 3000,
@@ -183,6 +185,7 @@ export function formFromProject(
     totalUsableFuelGal: String(project.total_usable_fuel_gal),
     variationDegEast: project.default_variation_deg_east,
     runUpIncluded: project.run_up_included,
+    noseFairingEnabled: project.nose_fairing_enabled,
     airConditioningEnabled: project.air_conditioning_enabled,
     tglCount: project.tgl_count,
     weatherMode: project.weather_mode,

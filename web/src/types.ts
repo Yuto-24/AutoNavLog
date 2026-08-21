@@ -125,6 +125,7 @@ export interface Project {
   total_usable_fuel_gal: number;
   default_variation_deg_east: number;
   run_up_included: boolean;
+  nose_fairing_enabled: boolean;
   air_conditioning_enabled: boolean;
   weather_mode: "FORECAST" | "FTD";
   ftd_weather: FtdWeatherSettings | null;

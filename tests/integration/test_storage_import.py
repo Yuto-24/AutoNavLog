@@ -162,6 +162,7 @@ def test_legacy_project_qnh_and_north_direction_migrate_without_resaving_old_fie
     payload["schema_version"] = 1
     payload["manual_qnh_hpa"] = 1013.0
     payload.pop("run_up_included")
+    payload.pop("nose_fairing_enabled", None)
     payload.pop("air_conditioning_enabled")
     payload["sections"][0]["manual_wind_direction_deg"] = 0
     payload["sections"][0]["manual_wind_speed_kt"] = 10
@@ -170,6 +171,7 @@ def test_legacy_project_qnh_and_north_direction_migrate_without_resaving_old_fie
     migrated = repository.load(saved.id)
     assert migrated.schema_version == 2
     assert migrated.run_up_included is True
+    assert migrated.nose_fairing_enabled is False
     assert migrated.air_conditioning_enabled is True
     assert migrated.sections[0].manual_wind_direction_deg == 0
     assert "manual_qnh_hpa" not in migrated.model_dump(mode="json")
@@ -179,4 +181,5 @@ def test_legacy_project_qnh_and_north_direction_migrate_without_resaving_old_fie
     assert resaved.revision == migrated.revision + 1
     assert "manual_qnh_hpa" not in stored
     assert stored["run_up_included"] is True
+    assert stored["nose_fairing_enabled"] is False
     assert stored["air_conditioning_enabled"] is True
