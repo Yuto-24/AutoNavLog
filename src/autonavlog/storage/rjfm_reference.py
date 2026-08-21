@@ -311,8 +311,6 @@ class CivilTrainingTestAirspaceReference(RjfmReferenceModel):
                 "civil training airspace reference must cite the approved MLIT/GSI sources"
             )
         required_caution_phrases = (
-            "境界付近",
-            "空域を管轄する機関",
             "参照専用",
             "NAV LOG計算",
             "PCA判定",

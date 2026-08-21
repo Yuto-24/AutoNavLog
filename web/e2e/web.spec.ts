@@ -293,10 +293,7 @@ const rjfmMapReferenceFixture: RjfmMapReference = {
     ],
     featureNamePrefix: "KS4-",
     checkedAtUtc: "2026-08-17T04:16:51Z",
-    caution: (
-      "地図には誤差が含まれる場合があります。境界付近は空域を管轄する機関へ"
-      + "確認してください。この表示は参照専用で、NAV LOG計算やPCA判定には使用しません。"
-    ),
+    caution: "地図には誤差が含まれる場合があります。この表示は参照専用で、NAV LOG計算やPCA判定には使用しません。",
     sourceIds: [
       "mlit-civil-training-test-airspace-map-2026-08-17",
       "mlit-gsi-boundary-caution-2026-08-17",
@@ -1239,6 +1236,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(legend).toContainText("GSI: 12区画を表示");
   const airspaceNote = page.getByLabel("RJFM空域データ注記");
   await expect(airspaceNote).toContainText("NAV LOG計算やPCA判定には使用しません");
+  await expect(airspaceNote).not.toContainText("境界付近は空域を管轄する機関へ確認してください");
   await expect(airspaceNote.getByRole("link", { name: "国土交通省" })).toHaveAttribute(
     "href",
     "https://www.mlit.go.jp/koku/koku_tk10_000004.html",
