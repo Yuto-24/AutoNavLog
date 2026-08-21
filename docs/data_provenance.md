@@ -58,10 +58,11 @@ hash対象外で、計算入力にはしません。
   KML座標がある点は、この同梱値よりKMLを優先します。
 - 案内判定に使う656–2,700 ft MSLは上下端を含む利用者Policyであり、告示の
   200–800 mを厳密にフィート変換した値ではありません。適用トリガ半径1.0 NM、旋回バンク
-  20°、最終延長旋回開始点のMZE DME 4.0 NM、位置0.01 NM・高度10 ft・接線角0.1°の
+  20°、位置0.01 NM・高度10 ft・接線角0.1°の
   許容差も、AIPや訓練要領から引用した値ではなく、利用者決定の実装Policyです。RWY09の
   延長旋回を左、RWY27の初期・延長旋回を右とする指定、NAV LOG上でRJFM→OMARUを
   1親Legとして扱う指定も、2026-08-17の利用者決定であり添付資料の記載とは区別します。
+  旋回開始点のMZE DMEは計算結果の案内値であり、判定閾値や警告には使用しません。
 
 案内結果には参照パック版、payload SHA-256、計算入力fingerprint、訓練要領・AIP RJFM・PCA告示・
 利用者Policyの有効日を保存します。payloadが変われば計算入力fingerprintも変わります。これは
@@ -74,7 +75,7 @@ MSMの上空風・気温と地表面気温にはForecast Run、元URL、source h
 外挿しません。QNH、MSLP、METARによる補正は取得・保存・計算の対象外です。
 
 巡航性能metadataにはPOH表のKTAS、ノーズフェアリング補正、A/C補正、最終KTASを分けて
-保存します。ノーズフェアリング`-10 KTAS`とA/C ON時`-2 KTAS`は利用者提供転記です。
+保存します。ノーズフェアリングなしの`-10 KTAS`とA/C ON時`-2 KTAS`は利用者提供転記です。
 A/C装備時に別POH Supplementが適用されることは
 [Cirrus公式Supplement案内](https://store.cirrusaircraft.com/sr22-supplement-13772-127%2C-air-conditioning/5637369215.p)で確認していますが、
 Supplement本文を収録していないため未確認のページ番号は付けません。

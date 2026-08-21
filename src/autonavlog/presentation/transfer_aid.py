@@ -118,6 +118,7 @@ def _project_summary(project: Project, outcome: CalculationOutcome) -> str:
         ("PILOT", project.pilot_name or ""),
         ("WX", "FTD FIXED / ISA" if project.weather_mode == "FTD" else "FORECAST"),
         ("RUN UP", "あり" if project.run_up_included else "なし"),
+        ("NOSE FAIRING", "あり" if project.nose_fairing_enabled else "なし"),
         ("A/C", "ON" if project.air_conditioning_enabled else "OFF"),
     ]
     headings = "".join(f"<th>{escape(label)}</th>" for label, _ in values)

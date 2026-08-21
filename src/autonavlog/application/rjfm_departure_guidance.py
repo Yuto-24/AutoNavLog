@@ -164,7 +164,6 @@ class DepartureGuidanceRequest:
     magnetic_variation_deg_east: float
     runway_procedure: RunwayProcedure
     pca_region: PcaRegion
-    minimum_turn_entry_dme_nm: float = 4.0
     sample_interval_s: float = 0.25
 
 
@@ -465,7 +464,6 @@ def _validate_request(request: DepartureGuidanceRequest) -> _Profile:
         request.wind.speed_kt,
         request.tas_kt,
         request.magnetic_variation_deg_east,
-        request.minimum_turn_entry_dme_nm,
         request.sample_interval_s,
         request.pca_region.exclusion_radius_nm,
         request.pca_region.floor_altitude_ft,
@@ -485,8 +483,6 @@ def _validate_request(request: DepartureGuidanceRequest) -> _Profile:
         raise ValueError("TAS must be positive")
     if request.sample_interval_s <= 0 or request.sample_interval_s > 5:
         raise ValueError("sample interval must be greater than zero and no more than 5 seconds")
-    if request.minimum_turn_entry_dme_nm < 0:
-        raise ValueError("minimum turn-entry DME cannot be negative")
     procedure = request.runway_procedure
     if abs(procedure.bank_deg - 20.0) > 1e-9:
         raise ValueError("RJFM departure guidance requires a 20-degree fixed bank")
@@ -1285,21 +1281,11 @@ def _materialize_candidate(
         position_residual,
         altitude_residual,
         tangent_residual,
-        slant_dme,
     )
     hard_valid = all(
         item.passed for item in constraints if item.severity is ConstraintSeverity.HARD
     )
-    warning_valid = all(
-        item.passed for item in constraints if item.severity is ConstraintSeverity.WARNING
-    )
-    status = (
-        GuidanceStatus.INVALID
-        if not hard_valid
-        else GuidanceStatus.VALID
-        if warning_valid
-        else GuidanceStatus.WARNING
-    )
+    status = GuidanceStatus.VALID if hard_valid else GuidanceStatus.INVALID
     full_turn_exit_drift_nm = 0.0
     if solution.model is TurnModel.FIXED_BANK_AIR_MASS and solution.full_turns:
         full_turn_seconds = 2 * pi / _turn_rate_rad_s(
@@ -1349,7 +1335,6 @@ def _candidate_constraints(
     position_residual: float,
     altitude_residual: float,
     tangent_residual: float,
-    slant_dme: float,
 ) -> tuple[ConstraintResult, ...]:
     pca_sample = _first_pca_violation(path, request.pca_region)
     return (
@@ -1400,15 +1385,6 @@ def _candidate_constraints(
             passed=tangent_residual <= TANGENT_TOLERANCE_DEG,
             severity=ConstraintSeverity.HARD,
             message=f"UMK tangent residual is {tangent_residual:.6f} deg.",
-        ),
-        ConstraintResult(
-            code="MZE_ENTRY_DME",
-            passed=slant_dme >= request.minimum_turn_entry_dme_nm,
-            severity=ConstraintSeverity.WARNING,
-            message=(
-                f"Turn-entry MZE slant DME is {slant_dme:.3f} NM; "
-                f"configured minimum is {request.minimum_turn_entry_dme_nm:.3f} NM."
-            ),
         ),
     )
 

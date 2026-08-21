@@ -103,6 +103,11 @@ def test_guidance_uses_calculated_climb_inputs_and_keeps_failures_diagnostic(
         if candidate.path:
             assert candidate.path[-1].altitude_ft_msl == pytest.approx(5500, abs=10)
             assert candidate.expected_time_delta_seconds is not None
+            assert candidate.turn_entry_dme_nm is not None
+            assert all(
+                constraint.code != "MZE_ENTRY_DME"
+                for constraint in candidate.constraints
+            )
             assert any(point.segment == "EXTENSION_TURN" for point in candidate.path)
         if candidate.status in {RjfmGuidanceStatus.VALID, RjfmGuidanceStatus.WARNING}:
             assert all(

@@ -86,7 +86,7 @@ const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
   candidates: [
     {
       runway: "09",
-      status: "WARNING",
+      status: "VALID",
       turn_method: "FIXED_BANK_20",
       turn_direction: "LEFT",
       path: [
@@ -119,13 +119,6 @@ const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
           hard: true,
           message: "UMK位置・高度の許容差内です。",
           metadata: {},
-        },
-        {
-          code: "MZE_MINIMUM_DME",
-          passed: false,
-          hard: false,
-          message: "旋回開始点がMZE 4 DME未満です。",
-          metadata: { threshold_nm: 4 },
         },
       ],
       full_turns: 1,
@@ -300,10 +293,7 @@ const rjfmMapReferenceFixture: RjfmMapReference = {
     ],
     featureNamePrefix: "KS4-",
     checkedAtUtc: "2026-08-17T04:16:51Z",
-    caution: (
-      "地図には誤差が含まれる場合があります。境界付近は空域を管轄する機関へ"
-      + "確認してください。この表示は参照専用で、NAV LOG計算やPCA判定には使用しません。"
-    ),
+    caution: "地図には誤差が含まれる場合があります。この表示は参照専用で、NAV LOG計算やPCA判定には使用しません。",
     sourceIds: [
       "mlit-civil-training-test-airspace-map-2026-08-17",
       "mlit-gsi-boundary-caution-2026-08-17",
@@ -910,7 +900,8 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   await expect(page.getByText("開発用固定気象（出力不可）", { exact: true })).toBeVisible();
   await expect(page.getByLabel("TO")).toHaveValue("");
   await expect(page.getByLabel("RUN UP あり")).toBeChecked();
-  await expect(page.getByLabel("A/C ON")).toBeChecked();
+  await expect(page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)")).not.toBeChecked();
+  await expect(page.getByLabel("A/C ON (巡航速度 -2 kt)")).toBeChecked();
   await expect(page.getByLabel("QNH値")).toHaveCount(0);
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
@@ -1179,7 +1170,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(guidance.getByRole("heading", {
     name: "Newta CENTER Route 出発ガイダンス",
   })).toBeVisible();
-  const runway09 = guidance.getByRole("article", { name: "RWY 09 候補 成立（注意）" });
+  const runway09 = guidance.getByRole("article", { name: "RWY 09 候補 成立" });
   const runway27 = guidance.getByRole("article", { name: "RWY 27 候補 不成立" });
   const orderedCards = guidance.locator(".rjfm-candidate");
   await expect(orderedCards.nth(0)).toHaveAttribute("aria-label", /RWY 27/);
@@ -1194,13 +1185,15 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   );
   await expect(runway09.locator(".rjfm-candidate-metrics dt")).toHaveText([
     "旋回開始高度",
+    "旋回開始 MZE DME",
     "NAV LOG直線Legとの差",
   ]);
   await expect(runway09).not.toContainText("92.4°");
   await expect(runway27).not.toContainText("188.1°");
   await expect(runway09).toContainText("LOSS +1.0 min");
-  await expect(runway09).toContainText("宮崎VORTAC（MZE）から4 DME未満");
-  await expect(runway09).toContainText("非ブロッキング注意");
+  await expect(runway09).toContainText("3.8 DME");
+  await expect(runway09).not.toContainText("4 DME未満");
+  await expect(runway09).not.toContainText("非ブロッキング注意");
   await expect(runway27).toContainText("GAIN −0.5 min");
   await expect(guidance).toContainText(
     "固定20°バンクを基本とし、必要時は最大半径調整モデルを想定します。",
@@ -1244,6 +1237,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(legend).toContainText("GSI: 12区画を表示");
   const airspaceNote = page.getByLabel("RJFM空域データ注記");
   await expect(airspaceNote).toContainText("NAV LOG計算やPCA判定には使用しません");
+  await expect(airspaceNote).not.toContainText("境界付近は空域を管轄する機関へ確認してください");
   await expect(airspaceNote.getByRole("link", { name: "国土交通省" })).toHaveAttribute(
     "href",
     "https://www.mlit.go.jp/koku/koku_tk10_000004.html",
@@ -1253,17 +1247,14 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     /kokuarea_minkankunren$/,
   );
   await expect(legend).toContainText("Newta CENTER");
-  await expect(legend).toContainText("RWY 09 成立（注意）");
+  await expect(legend).toContainText("RWY 09 成立");
   await expect(legend).toContainText("RWY 27 不成立");
   await expect(page.locator(".rjfm-center-route")).toHaveAttribute("stroke-dasharray", "8 6");
   await expect(page.locator(".rjfm-guidance-path.is-rwy-09")).toHaveAttribute(
     "stroke",
     "#2368a2",
   );
-  await expect(page.locator(".rjfm-guidance-path.is-warning")).toHaveAttribute(
-    "stroke-dasharray",
-    "9 5",
-  );
+  await expect(page.locator(".rjfm-guidance-path.is-warning")).toHaveCount(0);
   await expect(page.locator(".rjfm-guidance-path.is-invalid")).toHaveAttribute(
     "stroke",
     "#b42318",
@@ -1397,7 +1388,14 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
 });
 
 test("FTD route settings and checkpoint CRUD are available from the web UI", async ({ page }) => {
+  const runtimeErrors: string[] = [];
+  page.on("pageerror", (error) => runtimeErrors.push(error.message));
   await page.goto("/");
+  await expect(page).toHaveTitle(/AutoNavLog/);
+  await expect(page.locator("body")).not.toBeEmpty();
+  await expect(
+    page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
+  ).toHaveCount(0);
   await importKmlCandidate(page);
 
   await page.getByLabel("気象モード").selectOption("FTD");
@@ -1430,18 +1428,47 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   const routePanel = page.getByRole("region", { name: "経路地図とLeg設定" });
   const editor = routePanel.getByRole("region", { name: "チェックポイント設定" });
   await editor.getByRole("button", { name: "チェックポイントを追加" }).click();
+  await expect(editor.getByLabel("関連Leg")).toHaveCount(0);
+  await editor.getByRole("button", { name: "地図から座標を選択" }).click();
+  await routePanel.locator(".route-map").click({ position: { x: 300, y: 200 } });
+  const draftMarker = routePanel.locator(".checkpoint-draft-marker");
+  await expect(draftMarker).toHaveCount(1);
+  await expect(routePanel.getByText("仮CP（未保存）", { exact: true })).toBeVisible();
+  await expect(editor.getByLabel("緯度")).not.toHaveValue("");
+  await expect(editor.getByLabel("経度")).not.toHaveValue("");
+  const draftMarkerStroke = await draftMarker.getAttribute("stroke");
+  expect(draftMarkerStroke).toBe("#6e4aa0");
+
+  await editor.getByLabel("緯度").fill("35.000000");
+  await expect(draftMarker).toHaveCount(0);
+  await editor.getByLabel("経度").fill("140.000000");
+  await expect(editor.getByText("経路から10 NM以内に対応するLegがありません。")).toBeVisible();
+  await expect(editor.getByRole("button", { name: "追加", exact: true })).toBeDisabled();
+
+  await editor.getByLabel("緯度").fill("32.400000");
+  await editor.getByLabel("経度").fill("131.500000");
+  const linkedSection = editor.getByLabel("関連Leg");
+  await expect(linkedSection).toBeVisible();
+  await expect(linkedSection.locator("option")).toHaveCount(3);
   await editor.locator("select option").first().evaluate((option) => {
     option.textContent =
       "Leg 2: 変針点 UMK(MZE 004/6.2,NHT6.0) → 変針点 OMARU(NHT 171/11.4)（CRUISE）";
   });
   for (const width of [1100, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
-    const bounds = await editor.evaluate((element) => {
+    const bounds = await routePanel.evaluate((element) => {
+      const editor = element.querySelector(".checkpoint-editor")?.getBoundingClientRect();
+      const map = element.querySelector("#route-map-frame")?.getBoundingClientRect();
+      const routeTable = element.querySelector(".route-table-scroll")?.getBoundingClientRect();
       const form = element.querySelector(".checkpoint-form")?.getBoundingClientRect();
       const select = element.querySelector(".checkpoint-form select")?.getBoundingClientRect();
       const actions = element.querySelector(".checkpoint-form-actions")?.getBoundingClientRect();
-      return form && select && actions
+      return editor && map && routeTable && form && select && actions
         ? {
+            editorTop: editor.top,
+            editorBottom: editor.bottom,
+            mapBottom: map.bottom,
+            routeTableTop: routeTable.top,
             formLeft: form.left,
             formRight: form.right,
             selectLeft: select.left,
@@ -1452,17 +1479,37 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
         : null;
     });
     expect(bounds, `${width}pxでチェックポイントフォームが表示されること`).not.toBeNull();
+    expect(bounds!.editorTop).toBeGreaterThanOrEqual(bounds!.mapBottom);
+    expect(bounds!.editorBottom).toBeLessThanOrEqual(bounds!.routeTableTop);
     expect(bounds!.selectLeft).toBeGreaterThanOrEqual(bounds!.formLeft);
     expect(bounds!.selectRight).toBeLessThanOrEqual(bounds!.formRight);
     expect(bounds!.actionsLeft).toBeGreaterThanOrEqual(bounds!.formLeft);
     expect(bounds!.actionsRight).toBeLessThanOrEqual(bounds!.formRight);
   }
-  await editor.getByLabel("名称").fill("訓練CP");
   await editor.getByLabel("緯度").fill("32.700000");
   await editor.getByLabel("経度").fill("131.550000");
-  await editor.getByRole("button", { name: "追加", exact: true }).click();
+  await expect(editor.getByLabel("関連Leg")).toHaveCount(0);
+  await editor.getByLabel("名称").fill("訓練CP");
+  const addCheckPoint = editor.getByRole("button", { name: "追加", exact: true });
+  await expect(addCheckPoint).toBeEnabled();
+  await addCheckPoint.click();
   await expect(routePanel.getByText("訓練CP", { exact: true })).toBeVisible();
+  const confirmedMarker = routePanel.locator(".checkpoint-confirmed-marker");
+  await expect(confirmedMarker).toHaveCount(1);
+  expect(await confirmedMarker.getAttribute("stroke")).toBe("#9b5b13");
+  expect(await confirmedMarker.getAttribute("stroke")).not.toBe(draftMarkerStroke);
   await expect(editor.getByText(/Leg内 .* NM \/ 累積 .* NM \/ 横ずれ .* NM/)).toBeVisible();
+  const checkpointState = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    return await response.json() as WebState;
+  });
+  const expectedAutomaticSection = checkpointState.project?.sections.find(
+    (section) => section.sequence === 1,
+  );
+  expect(expectedAutomaticSection).toBeDefined();
+  expect(checkpointState.project?.visual_references[0]?.linked_section_id).toBe(
+    expectedAutomaticSection!.id,
+  );
 
   await editor.getByRole("button", { name: "訓練CPを編集" }).click();
   await editor.getByLabel("名称").fill("訓練CP改");
@@ -1472,6 +1519,7 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   page.once("dialog", (dialog) => void dialog.accept());
   await editor.getByRole("button", { name: "訓練CP改を削除" }).click();
   await expect(editor.getByText("まだチェックポイントはありません。")).toBeVisible();
+  expect(runtimeErrors).toEqual([]);
 });
 
 test("changed ALT appears in PA with lesson display precision", async ({ page }) => {
@@ -1497,6 +1545,15 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   const firstParent = page.locator(".nav-log-table .nav-leg-heading-row").first();
   const vorSelect = page.getByLabel("VOR基準局");
   await expect(vorSelect.locator("option")).toHaveCount(32);
+  const orderedVorIdentifiers = await vorSelect.locator("option").evaluateAll((options) => (
+    options.slice(1).map((option) => (option as HTMLOptionElement).value)
+  ));
+  expect(orderedVorIdentifiers.slice(0, 7)).toEqual([
+    "MZE", "TFE", "KGE", "HKC", "KUE", "SWE", "UBE",
+  ]);
+  expect(orderedVorIdentifiers.slice(7)).toEqual(
+    [...orderedVorIdentifiers.slice(7)].sort((left, right) => left.localeCompare(right)),
+  );
   await expect(vorSelect).toHaveValue("__AUTO__");
   await expect(vorSelect.locator("option:checked")).toHaveText("自動 MZE");
   const automaticVorText = await firstParent.locator("td").nth(0).textContent();
@@ -1574,6 +1631,59 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
     (message) => !message.includes("401 (Unauthorized)"),
   );
   expect(unexpectedConsoleErrors).toEqual([]);
+});
+
+test("VOR/DME reference columns can be added, configured independently, and removed", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.goto("/");
+  await calculateNavLog(page);
+
+  const table = page.locator(".nav-log-table");
+  const scroll = page.locator(".nav-log-scroll");
+  const firstRow = table.locator(".nav-leg-heading-row").first();
+  const initialWidth = (await table.boundingBox())?.width ?? 0;
+
+  await expect(page.getByLabel("VOR基準局")).toHaveCount(1);
+  await expect(firstRow.locator(".vor-reference-cell")).toHaveCount(1);
+  await page.getByRole("button", { name: "VOR/DME列を追加" }).click();
+
+  await expect(page.getByLabel(/^VOR基準局/)).toHaveCount(2);
+  await expect(firstRow.locator(".vor-reference-cell")).toHaveCount(2);
+  const addedVor = page.getByLabel("VOR基準局", { exact: true });
+  const originalVor = page.getByLabel("VOR基準局 2");
+  await expect(addedVor).toHaveValue("");
+  await expect(originalVor).toHaveValue("__AUTO__");
+  await expect(firstRow.locator(".vor-reference-cell").nth(0)).toHaveText("—");
+  await expect(firstRow.locator(".vor-reference-cell").nth(1)).toHaveText("105 / 0.6");
+
+  await addedVor.selectOption("HKC");
+  await expect(firstRow.locator(".vor-reference-cell").nth(0)).toHaveText(
+    /^\d{3} \/ \d+\.\d$/,
+  );
+  expect(await firstRow.locator(".vor-reference-cell").nth(0).textContent()).not.toBe(
+    await firstRow.locator(".vor-reference-cell").nth(1).textContent(),
+  );
+  await expect(firstRow.locator(".route-from-cell")).toHaveText("RJFM");
+  expect((await table.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(initialWidth + 95);
+  expect(await scroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+  ).toBeLessThanOrEqual(1);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(firstRow.locator(".vor-reference-cell")).toHaveCount(2);
+  await expect(firstRow.locator(".route-from-cell")).toHaveText("RJFM");
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+  ).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: "VOR/DME 1列目を削除" }).click();
+  await expect(page.getByLabel(/^VOR基準局/)).toHaveCount(1);
+  await expect(page.getByLabel("VOR基準局", { exact: true })).toHaveValue("__AUTO__");
+  await expect(firstRow.locator(".vor-reference-cell")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /VOR\/DME .*列目を削除/ })).toHaveCount(0);
 });
 
 test("climb and descent legs show magnetic-course altitude candidates", async ({ page }) => {
@@ -1797,6 +1907,7 @@ test("KMZ document selection modal moves and traps focus", async ({ page }) => {
 });
 
 test("grouped LineStrings require an explicit route candidate selection", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
@@ -1806,6 +1917,7 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await expect(departureSelect).toHaveAttribute("readonly", "");
   await expect(page.getByLabel("TO", { exact: true })).toHaveAttribute("readonly", "");
   await expect(candidateSelect).toHaveValue("line:0");
+  await expect(page.locator(".candidate-control")).not.toHaveClass(/is-required/);
   await page.getByLabel("地図とKML記載順を確認しました").check();
 
   await page.getByRole("button", { name: "KMLを貼り付け" }).click();
@@ -1814,6 +1926,43 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
 
   await expect(candidateSelect).toHaveValue("");
+  const candidateControl = page.locator(".candidate-control");
+  await expect(candidateControl).toHaveClass(/is-required/);
+  await expect(candidateControl.getByText("経路選択", { exact: true })).toBeVisible();
+  await expect(candidateControl.getByText("選択必須", { exact: true })).toBeVisible();
+  await expect(candidateControl).toContainText("使用する飛行経路を選択してください。");
+  await expect(candidateSelect).toHaveAttribute("required", "");
+  await expect(candidateSelect).toHaveAttribute("aria-invalid", "true");
+  const intermediateCandidateBoxes = await Promise.all([
+    candidateControl.boundingBox(),
+    candidateSelect.boundingBox(),
+  ]);
+  if (!intermediateCandidateBoxes[0] || !intermediateCandidateBoxes[1]) {
+    throw new Error("Required route selection is missing at intermediate width");
+  }
+  expect(
+    intermediateCandidateBoxes[1].x + intermediateCandidateBoxes[1].width,
+  ).toBeLessThanOrEqual(
+    intermediateCandidateBoxes[0].x + intermediateCandidateBoxes[0].width + 1,
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+  ).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(candidateControl).toBeVisible();
+  const wideCandidateBoxes = await Promise.all([
+    candidateControl.boundingBox(),
+    candidateSelect.boundingBox(),
+  ]);
+  if (!wideCandidateBoxes[0] || !wideCandidateBoxes[1]) {
+    throw new Error("Required route selection is missing at wide width");
+  }
+  expect(wideCandidateBoxes[1].x + wideCandidateBoxes[1].width).toBeLessThanOrEqual(
+    wideCandidateBoxes[0].x + wideCandidateBoxes[0].width + 1,
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+  ).toBeLessThanOrEqual(1);
   await expect(candidateSelect.locator("option")).toHaveCount(3);
   await expect(candidateSelect.locator("option").nth(0)).toHaveText("経路を選択");
   await expect(candidateSelect.locator("option").nth(1)).toHaveText(
@@ -1829,6 +1978,9 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await expect(page.getByLabel("経路確認")).toHaveCount(0);
 
   await candidateSelect.selectOption("connected_lines:0");
+  await expect(candidateControl).not.toHaveClass(/is-required/);
+  await expect(candidateControl.getByText("選択必須", { exact: true })).toHaveCount(0);
+  await expect(candidateSelect).toHaveAttribute("aria-invalid", "false");
   await expect(departureSelect).toHaveValue(/^RJFM\b/);
   await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
   const routeWorkspace = page.getByLabel("経路地図とLeg設定");
@@ -1842,6 +1994,8 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await expect(routeUseConfirmed).toBeChecked();
 
   await candidateSelect.selectOption("");
+  await expect(candidateControl).toHaveClass(/is-required/);
+  await expect(candidateControl.getByText("選択必須", { exact: true })).toBeVisible();
   await expect(departureSelect).toHaveValue("");
   await expect(page.getByLabel("TO")).toHaveValue("");
   await expect(page.getByText("飛行経路候補を選択すると地図へ表示します")).toBeVisible();
@@ -1953,15 +2107,34 @@ test("KML endpoints automatically determine read-only FROM and TO", async ({ pag
   await expect(page.getByLabel("TO")).toHaveAttribute("readonly", "");
 });
 
-test("RUN UP and A/C choices persist after save and reload", async ({ page }) => {
+test("RUN UP, nose fairing, and A/C choices persist after save and reload", async ({ page }) => {
   await page.goto("/");
   await importKmlCandidate(page);
 
   const runUp = page.getByLabel("RUN UP あり");
-  const airConditioning = page.getByLabel("A/C ON");
+  const noseFairing = page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)");
+  const airConditioning = page.getByLabel("A/C ON (巡航速度 -2 kt)");
   await expect(runUp).toBeChecked();
+  await expect(noseFairing).not.toBeChecked();
   await expect(airConditioning).toBeChecked();
+
+  for (const width of [1100, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const [runUpBox, noseFairingBox, airConditioningBox] = await Promise.all([
+      runUp.boundingBox(),
+      noseFairing.boundingBox(),
+      airConditioning.boundingBox(),
+    ]);
+    if (!runUpBox || !noseFairingBox || !airConditioningBox) {
+      throw new Error(`Fuel option layout is missing at ${width}px`);
+    }
+    expect(noseFairingBox.y).toBeGreaterThanOrEqual(runUpBox.y + runUpBox.height - 1);
+    expect(airConditioningBox.x).toBeGreaterThanOrEqual(runUpBox.x + runUpBox.width - 1);
+    expect(Math.abs(airConditioningBox.y - runUpBox.y)).toBeLessThanOrEqual(1);
+  }
+
   await runUp.uncheck();
+  await noseFairing.check();
   await airConditioning.uncheck();
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
@@ -1971,11 +2144,13 @@ test("RUN UP and A/C choices persist after save and reload", async ({ page }) =>
     return await response.json() as WebState;
   });
   expect(state.project?.run_up_included).toBe(false);
+  expect(state.project?.nose_fairing_enabled).toBe(true);
   expect(state.project?.air_conditioning_enabled).toBe(false);
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
   await page.reload();
   await expect(runUp).not.toBeChecked();
+  await expect(noseFairing).toBeChecked();
   await expect(airConditioning).not.toBeChecked();
 });

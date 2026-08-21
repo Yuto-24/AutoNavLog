@@ -4,7 +4,9 @@ const METERS_PER_NM = 1852;
 const WGS84_A_METERS = 6378137;
 const WGS84_FLATTENING = 1 / 298.257223563;
 const WGS84_B_METERS = (1 - WGS84_FLATTENING) * WGS84_A_METERS;
+const MEAN_EARTH_RADIUS_NM = 6371008.8 / METERS_PER_NM;
 const AUTO_SELECTION_VALUE = "__AUTO__";
+const ROUTE_NEARBY_STATION_LIMIT = 5;
 
 export type VorStationType = "VOR" | "VOR/DME" | "VORTAC";
 
@@ -19,6 +21,11 @@ export interface VorStation {
   variation_source: string;
   source_file: string;
   source_page: number;
+}
+
+export interface VorRoutePoint {
+  latitude_deg: number;
+  longitude_deg: number;
 }
 
 interface VorStationDataset {
@@ -169,6 +176,136 @@ export function nearestVorStation(latitudeDeg: number, longitudeDeg: number): Vo
       ? station
       : nearest
   ));
+}
+
+function stationDistanceToPoint(station: VorStation, point: VorRoutePoint): number {
+  return wgs84Inverse(
+    station.latitude_deg,
+    station.longitude_deg,
+    point.latitude_deg,
+    point.longitude_deg,
+  ).distanceNm;
+}
+
+export function pointDistanceToSegmentNm(
+  point: VorRoutePoint,
+  start: VorRoutePoint,
+  end: VorRoutePoint,
+): number {
+  const startToEnd = wgs84Inverse(
+    start.latitude_deg,
+    start.longitude_deg,
+    end.latitude_deg,
+    end.longitude_deg,
+  );
+  const startToPoint = wgs84Inverse(
+    start.latitude_deg,
+    start.longitude_deg,
+    point.latitude_deg,
+    point.longitude_deg,
+  );
+  if (startToEnd.distanceNm < 1e-9) return startToPoint.distanceNm;
+
+  const angularDistance = startToPoint.distanceNm / MEAN_EARTH_RADIUS_NM;
+  const bearingDelta = (
+    startToPoint.initialTrueBearingDeg - startToEnd.initialTrueBearingDeg
+  ) * Math.PI / 180;
+  const crossTrackArgument = Math.sin(angularDistance) * Math.sin(bearingDelta);
+  const crossTrackAngle = Math.asin(Math.max(-1, Math.min(1, crossTrackArgument)));
+  const alongTrackAngle = Math.atan2(
+    Math.sin(angularDistance) * Math.cos(bearingDelta),
+    Math.cos(angularDistance),
+  );
+  const segmentAngularLength = startToEnd.distanceNm / MEAN_EARTH_RADIUS_NM;
+  if (alongTrackAngle >= 0 && alongTrackAngle <= segmentAngularLength) {
+    return Math.abs(crossTrackAngle) * MEAN_EARTH_RADIUS_NM;
+  }
+  return Math.min(
+    startToPoint.distanceNm,
+    wgs84Inverse(
+      point.latitude_deg,
+      point.longitude_deg,
+      end.latitude_deg,
+      end.longitude_deg,
+    ).distanceNm,
+  );
+}
+
+function stationDistanceToSegment(
+  station: VorStation,
+  start: VorRoutePoint,
+  end: VorRoutePoint,
+): number {
+  return pointDistanceToSegmentNm(station, start, end);
+}
+
+function stationDistanceToRoute(station: VorStation, route: VorRoutePoint[]): number {
+  if (route.length === 0) return Number.POSITIVE_INFINITY;
+  if (route.length === 1) return stationDistanceToPoint(station, route[0]!);
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < route.length - 1; index += 1) {
+    nearestDistance = Math.min(
+      nearestDistance,
+      stationDistanceToSegment(station, route[index]!, route[index + 1]!),
+    );
+  }
+  return nearestDistance;
+}
+
+function compareDistanceThenIdentifier(
+  left: { distance: number; station: VorStation },
+  right: { distance: number; station: VorStation },
+): number {
+  return left.distance - right.distance
+    || left.station.identifier.localeCompare(right.station.identifier);
+}
+
+/**
+ * Order station choices for a route: departure, arrival, five route-nearby
+ * stations ordered from the departure, then all remaining identifiers.
+ */
+export function orderVorStationsForRoute(route: VorRoutePoint[]): VorStation[] {
+  if (route.length === 0) {
+    return [...VOR_STATIONS].sort((left, right) => (
+      left.identifier.localeCompare(right.identifier)
+    ));
+  }
+
+  const departure = route[0]!;
+  const arrival = route.at(-1)!;
+  const departureDistances = VOR_STATIONS.map((station) => ({
+    station,
+    distance: stationDistanceToPoint(station, departure),
+  })).sort(compareDistanceThenIdentifier);
+  const arrivalDistances = VOR_STATIONS.map((station) => ({
+    station,
+    distance: stationDistanceToPoint(station, arrival),
+  })).sort(compareDistanceThenIdentifier);
+  const prioritized = [departureDistances[0]!.station];
+  if (arrivalDistances[0]!.station.identifier !== prioritized[0]!.identifier) {
+    prioritized.push(arrivalDistances[0]!.station);
+  }
+
+  const prioritizedIdentifiers = new Set(prioritized.map((station) => station.identifier));
+  const routeNearby = VOR_STATIONS
+    .filter((station) => !prioritizedIdentifiers.has(station.identifier))
+    .map((station) => ({ station, distance: stationDistanceToRoute(station, route) }))
+    .sort(compareDistanceThenIdentifier)
+    .slice(0, ROUTE_NEARBY_STATION_LIMIT)
+    .map(({ station }) => ({
+      station,
+      distance: stationDistanceToPoint(station, departure),
+    }))
+    .sort(compareDistanceThenIdentifier)
+    .map(({ station }) => station);
+  const selectedIdentifiers = new Set([
+    ...prioritizedIdentifiers,
+    ...routeNearby.map((station) => station.identifier),
+  ]);
+  const remaining = VOR_STATIONS
+    .filter((station) => !selectedIdentifiers.has(station.identifier))
+    .sort((left, right) => left.identifier.localeCompare(right.identifier));
+  return [...prioritized, ...routeNearby, ...remaining];
 }
 
 export function formatVorRadialDistance(

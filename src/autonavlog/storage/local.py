@@ -109,6 +109,9 @@ def _migrate_project_payload(payload: Any) -> tuple[Any, bool]:
         if field not in payload:
             payload[field] = True
             migrated = True
+    if "nose_fairing_enabled" not in payload:
+        payload["nose_fairing_enabled"] = False
+        migrated = True
     metadata = payload.get("metadata")
     if isinstance(metadata, dict):
         ui_state = metadata.get("ui_state")

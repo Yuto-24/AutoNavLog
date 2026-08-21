@@ -358,6 +358,9 @@ export function RouteWorkspace({
   const handlePickingChange = useCallback((active: boolean) => {
     setPickingCheckPoint(active);
   }, []);
+  const clearPickedCoordinate = useCallback(() => {
+    setPickedCoordinate(null);
+  }, []);
   const mapFrameStyle = {
     "--route-map-height": `${mapHeight}px`,
   } as CSSProperties;
@@ -571,6 +574,7 @@ export function RouteWorkspace({
                   />
                 )}
                 <CircleMarker
+                  className="checkpoint-confirmed-marker"
                   center={[checkPoint.latitude_deg, checkPoint.longitude_deg]}
                   radius={7}
                   pathOptions={{
@@ -601,6 +605,24 @@ export function RouteWorkspace({
               </Fragment>
             );
           })}
+          {pickedCoordinate && (
+            <CircleMarker
+              className="checkpoint-draft-marker"
+              center={[pickedCoordinate.latitude, pickedCoordinate.longitude]}
+              radius={9}
+              pathOptions={{
+                color: "#6e4aa0",
+                dashArray: "4 3",
+                fillColor: "#f4edfb",
+                fillOpacity: 0.95,
+                weight: 3,
+              }}
+            >
+              <Tooltip permanent direction="right" offset={[10, 0]}>
+                仮CP（未保存）
+              </Tooltip>
+            </CircleMarker>
+          )}
           <CheckPointMapPicker active={pickingCheckPoint} onPick={handleMapPick} />
           <FitBounds
             coordinates={fitCoordinates}
@@ -702,6 +724,21 @@ export function RouteWorkspace({
         onPolygonRouteConfirmedChange={onPolygonRouteConfirmedChange}
         onConfirm={onConfirmRoute}
       />
+
+      {project && (
+        <CheckPointEditor
+          nodes={nodes}
+          sections={sections}
+          checkPoints={checkPoints}
+          planning={checkPointPlanning}
+          busy={busy}
+          pickedCoordinate={pickedCoordinate}
+          pickingFromMap={pickingCheckPoint}
+          onPickingFromMapChange={handlePickingChange}
+          onPickedCoordinateClear={clearPickedCoordinate}
+          onReplace={onReplaceCheckPoints}
+        />
+      )}
 
       <div className="table-scroll route-table-scroll">
         <table className="route-table">
@@ -925,19 +962,6 @@ export function RouteWorkspace({
           <br />
           {altitudeGuidance.terrainLimitationNote}
         </p>
-      )}
-      {project && (
-        <CheckPointEditor
-          nodes={nodes}
-          sections={sections}
-          checkPoints={checkPoints}
-          planning={checkPointPlanning}
-          busy={busy}
-          pickedCoordinate={pickedCoordinate}
-          pickingFromMap={pickingCheckPoint}
-          onPickingFromMapChange={handlePickingChange}
-          onReplace={onReplaceCheckPoints}
-        />
       )}
     </section>
   );

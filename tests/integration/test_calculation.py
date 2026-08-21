@@ -578,10 +578,20 @@ def test_cruise_equipment_adjustments_apply_after_poh_interpolation_only(
     project,
 ) -> None:
     service = CalculationService(airports, performance_repository)
-    ac_on = service.calculate(project, FakeWeatherProvider())
-    ac_off_project = project.model_copy(deep=True)
-    ac_off_project.air_conditioning_enabled = False
-    ac_off = service.calculate(ac_off_project, FakeWeatherProvider())
+    outcomes = {}
+    for nose_fairing_enabled, air_conditioning_enabled in (
+        (False, False),
+        (True, False),
+        (False, True),
+        (True, True),
+    ):
+        configured = project.model_copy(deep=True)
+        configured.nose_fairing_enabled = nose_fairing_enabled
+        configured.air_conditioning_enabled = air_conditioning_enabled
+        outcomes[(nose_fairing_enabled, air_conditioning_enabled)] = service.calculate(
+            configured,
+            FakeWeatherProvider(),
+        )
 
     source_section_id = str(project.sections[1].id)
 
@@ -594,20 +604,37 @@ def test_cruise_equipment_adjustments_apply_after_poh_interpolation_only(
             == source_section_id
         )
 
-    on_section = source_cruise(ac_on)
-    off_section = source_cruise(ac_off)
-    on_metadata = on_section.performance_metadata
-    off_metadata = off_section.performance_metadata
-    table_ktas = on_metadata["poh_table_ktas"]
-    assert on_section.tas_kt.adopted() == pytest.approx(table_ktas - 12.0)
-    assert off_section.tas_kt.adopted() == pytest.approx(table_ktas - 10.0)
-    assert on_metadata["selected_cell"]["gph"] == off_metadata["selected_cell"]["gph"]
-    assert on_metadata["nose_fairing_adjustment_ktas"] == -10.0
-    assert on_metadata["air_conditioning_adjustment_ktas"] == -2.0
-    assert off_metadata["air_conditioning_adjustment_ktas"] == 0.0
-    assert off_section.ground_speed_kt.adopted() > on_section.ground_speed_kt.adopted()
-    assert off_section.zone_ete_seconds.adopted() < on_section.zone_ete_seconds.adopted()
-    assert off_section.section_fuel_gal.adopted() < on_section.section_fuel_gal.adopted()
+    sections = {
+        configuration: source_cruise(outcome)
+        for configuration, outcome in outcomes.items()
+    }
+    metadata = {
+        configuration: section.performance_metadata
+        for configuration, section in sections.items()
+    }
+    table_ktas = metadata[(False, False)]["poh_table_ktas"]
+    expected_adjustments = {
+        (False, False): (-10.0, -10.0, 0.0),
+        (True, False): (0.0, 0.0, 0.0),
+        (False, True): (-12.0, -10.0, -2.0),
+        (True, True): (-2.0, 0.0, -2.0),
+    }
+    for configuration, (total, nose, air_conditioning) in expected_adjustments.items():
+        assert sections[configuration].tas_kt.adopted() == pytest.approx(table_ktas + total)
+        assert metadata[configuration]["nose_fairing_adjustment_ktas"] == nose
+        assert metadata[configuration]["air_conditioning_adjustment_ktas"] == air_conditioning
+        assert metadata[configuration]["selected_cell"]["gph"] == (
+            metadata[(False, False)]["selected_cell"]["gph"]
+        )
+    assert sections[(True, False)].ground_speed_kt.adopted() > (
+        sections[(False, True)].ground_speed_kt.adopted()
+    )
+    assert sections[(True, False)].zone_ete_seconds.adopted() < (
+        sections[(False, True)].zone_ete_seconds.adopted()
+    )
+    assert sections[(True, False)].section_fuel_gal.adopted() < (
+        sections[(False, True)].section_fuel_gal.adopted()
+    )
 
     manual_project = project.model_copy(deep=True)
     manual_project.sections[1].manual_tas_kt = 140.0
@@ -1229,6 +1256,7 @@ def test_outcome_adoption_and_snapshot_round_trip(
     legacy_qnh_payload["input_data"]["schema_version"] = 1
     legacy_qnh_payload["input_data"]["manual_qnh_hpa"] = 1013.0
     legacy_qnh_payload["input_data"].pop("run_up_included")
+    legacy_qnh_payload["input_data"].pop("nose_fairing_enabled", None)
     legacy_qnh_payload["input_data"].pop("air_conditioning_enabled")
     legacy_qnh_payload["calculation_results"]["qnh_hpa"] = {
         "automatic": 1013.0,
@@ -1258,6 +1286,7 @@ def test_outcome_adoption_and_snapshot_round_trip(
     migrated_snapshot = repository.load_snapshot(saved.id, UUID(snapshot_path.stem))
     migrated_json = migrated_snapshot.model_dump(mode="json")
     assert migrated_snapshot.input_data.run_up_included is True
+    assert migrated_snapshot.input_data.nose_fairing_enabled is False
     assert migrated_snapshot.input_data.air_conditioning_enabled is True
     assert "qnh_hpa" not in migrated_json["calculation_results"]
     assert all(item["kind"] != "ESTIMATED_QNH" for item in migrated_json["weather_requests"])

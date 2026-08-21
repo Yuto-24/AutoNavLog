@@ -1338,6 +1338,11 @@
           "title": "Name",
           "type": "string"
         },
+        "nose_fairing_enabled": {
+          "default": false,
+          "title": "Nose Fairing Enabled",
+          "type": "boolean"
+        },
         "pilot_name": {
           "default": "",
           "title": "Pilot Name",

@@ -71,6 +71,7 @@ export function ImportPlanPanel({
       (candidateNameCounts.get(candidate.name) ?? 0) + 1,
     );
   }
+  const routeSelectionRequired = importState.candidates.length > 0 && !form.candidateKey;
   const acceptDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     if (busy) return;
@@ -136,10 +137,24 @@ export function ImportPlanPanel({
           </div>
         )}
         {!projectExists && importState.candidates.length > 0 && (
-          <div className="field-group candidate-control">
-            <label htmlFor="route-candidate">飛行経路候補</label>
+          <div className={`field-group candidate-control ${
+            routeSelectionRequired ? "is-required" : ""
+          }`}>
+            <div className="candidate-control-heading">
+              <label htmlFor="route-candidate">経路選択</label>
+              {routeSelectionRequired && <span className="required-badge">選択必須</span>}
+            </div>
+            {routeSelectionRequired && (
+              <p className="candidate-required-message" id="route-candidate-required">
+                使用する飛行経路を選択してください。
+              </p>
+            )}
             <select
               id="route-candidate"
+              aria-label="飛行経路候補"
+              aria-describedby={routeSelectionRequired ? "route-candidate-required" : undefined}
+              aria-invalid={routeSelectionRequired}
+              required
               value={form.candidateKey}
               onChange={(event) => {
                 const candidateKey = event.target.value;
@@ -271,7 +286,15 @@ export function ImportPlanPanel({
                 checked={form.airConditioningEnabled}
                 onChange={(event) => update("airConditioningEnabled", event.target.checked)}
               />
-              <span>A/C ON</span>
+              <span>A/C ON (巡航速度 -2 kt)</span>
+            </label>
+            <label className="checkbox-row nose-fairing-option">
+              <input
+                type="checkbox"
+                checked={form.noseFairingEnabled}
+                onChange={(event) => update("noseFairingEnabled", event.target.checked)}
+              />
+              <span>ノーズフェアリングあり (OFF: -10 kt)</span>
             </label>
           </div>
           <label className="span-two">

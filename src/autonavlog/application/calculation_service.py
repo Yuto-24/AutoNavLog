@@ -77,7 +77,7 @@ from .rjfm_departure_plan import rjfm_plan_matches_project
 
 @dataclass(frozen=True)
 class CalculationPolicies:
-    version: str = "nav2-v8-cruise-equipment-fuel"
+    version: str = "nav2-v10-cruise-equipment-options"
     # Kept for serialized policy compatibility. NAV2-v5 uses MSL directly.
     pa_500_policy: Pa500Policy = Pa500Policy.CEILING
     max_iterations: int = 5
@@ -89,10 +89,14 @@ NOSE_FAIRING_KTAS_ADJUSTMENT = -10.0
 AIR_CONDITIONING_KTAS_ADJUSTMENT = -2.0
 
 
-def _adjusted_cruise_ktas(table_ktas: float, air_conditioning_enabled: bool) -> float:
+def _adjusted_cruise_ktas(
+    table_ktas: float,
+    nose_fairing_enabled: bool,
+    air_conditioning_enabled: bool,
+) -> float:
     return (
         table_ktas
-        + NOSE_FAIRING_KTAS_ADJUSTMENT
+        + (0.0 if nose_fairing_enabled else NOSE_FAIRING_KTAS_ADJUSTMENT)
         + (AIR_CONDITIONING_KTAS_ADJUSTMENT if air_conditioning_enabled else 0.0)
     )
 
@@ -1283,6 +1287,7 @@ class CalculationService:
         environments: list[_LegEnvironment],
         end_index: int,
         cruise_policy: CruisePerformanceSelectionPolicy,
+        nose_fairing_enabled: bool,
         air_conditioning_enabled: bool,
     ) -> float | None:
         last_cas: float | None = None
@@ -1314,6 +1319,7 @@ class CalculationService:
                     continue
                 tas = _adjusted_cruise_ktas(
                     selected.row.ktas,
+                    nose_fairing_enabled,
                     air_conditioning_enabled,
                 )
             last_cas = cas_from_tas(
@@ -1331,6 +1337,7 @@ class CalculationService:
         cruise_policy: CruisePerformanceSelectionPolicy,
         issues: list[Issue],
         arrival_altitude_ft_msl: float | None,
+        nose_fairing_enabled: bool,
         air_conditioning_enabled: bool,
     ) -> _DescentPlan | None:
         descent_index = next(
@@ -1355,6 +1362,7 @@ class CalculationService:
             environments,
             descent_index,
             cruise_policy,
+            nose_fairing_enabled,
             air_conditioning_enabled,
         )
         if section.manual_tas_kt is None and cruise_cas is None:
@@ -1766,6 +1774,7 @@ class CalculationService:
             cruise_policy,
             issues,
             arrival_altitude_ft_msl,
+            project.nose_fairing_enabled,
             project.air_conditioning_enabled,
         )
         segmentation = self._build_phase_segmentation(
@@ -1974,6 +1983,7 @@ class CalculationService:
                         if equipment_adjustments_applied:
                             tas = _adjusted_cruise_ktas(
                                 table_ktas,
+                                project.nose_fairing_enabled,
                                 project.air_conditioning_enabled,
                             )
                             tas_state = ValueState.PERFORMANCE_TABLE
@@ -2022,6 +2032,7 @@ class CalculationService:
                                 "nose_fairing_adjustment_ktas": (
                                     NOSE_FAIRING_KTAS_ADJUSTMENT
                                     if equipment_adjustments_applied
+                                    and not project.nose_fairing_enabled
                                     else 0.0
                                 ),
                                 "air_conditioning_adjustment_ktas": (

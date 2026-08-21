@@ -48,6 +48,7 @@ def test_display_and_legacy_sea_loss_fields_do_not_change_calculation_key(
         lambda project: setattr(project, "total_usable_fuel_gal", 80.0),
         lambda project: setattr(project, "tgl_count", 1),
         lambda project: setattr(project, "run_up_included", False),
+        lambda project: setattr(project, "nose_fairing_enabled", True),
         lambda project: setattr(project, "air_conditioning_enabled", False),
         lambda project: setattr(
             project.sections[0],

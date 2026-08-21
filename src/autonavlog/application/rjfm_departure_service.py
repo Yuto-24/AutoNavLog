@@ -200,9 +200,6 @@ def build_rjfm_departure_guidance(
                     float(reference_pack.policy.turn_bank_angle_deg),
                 ),
                 pca_region=_pca_region(reference_pack),
-                minimum_turn_entry_dme_nm=float(
-                    reference_pack.policy.minimum_turn_entry_dme_nm
-                ),
                 # Constraint checks retain quarter-second sampling.  Only the
                 # persisted display polyline is reduced after classification.
                 sample_interval_s=0.25,
@@ -486,7 +483,6 @@ def _constraint_message(code: str, passed: bool) -> str:
         "POSITION_RESIDUAL": "UMK位置一致",
         "ALTITUDE_RESIDUAL": "UMK 5500 ft一致",
         "TANGENT_RESIDUAL": "延長旋回からUMK直線への接線接続",
-        "MZE_ENTRY_DME": "最終延長旋回開始点のMZE DME 4.0 NM以上",
     }.get(code, code)
     return f"{label}: {'適合' if passed else '不適合'}"
 

@@ -36,7 +36,7 @@ def _rewrite_payload(root: Path, payload: dict[str, object]) -> None:
 def test_bundled_rjfm_pack_loads_source_backed_values() -> None:
     pack = RjfmReferencePack.from_directory(PACK_ROOT)
 
-    assert pack.revision == "2026-08-17-rjfm-umk-guidance-v3"
+    assert pack.revision == "2026-08-21-rjfm-umk-guidance-v4"
     assert pack.content_fingerprint == hashlib.sha256(
         (PACK_ROOT / "rjfm-reference.json").read_bytes()
     ).hexdigest()
@@ -100,13 +100,10 @@ def test_bundled_pca_and_departure_policy_keep_source_and_operational_values_sep
     assert pack.policy.center_route_sequence == ["UMK", "OVER_FIELD", "OMARU"]
     assert pack.policy.trigger_radius_nm == 1.0
     assert pack.policy.turn_bank_angle_deg == 20.0
-    assert pack.policy.minimum_turn_entry_dme_nm == 4.0
-    assert pack.policy.minimum_turn_entry_dme_inclusive is True
     assert pack.policy.runways["09"].initial_straight_until_altitude_ft_msl == 1000.0
     assert pack.policy.runways["27"].initial_straight_distance_nm == 1.5
     assert pack.policy.runways["09"].extension_turn_direction == "LEFT"
     assert pack.policy.runways["27"].extension_turn_direction == "RIGHT"
-    assert pack.policy.dme_constraint_scope == "FINAL_EXTENSION_TURN_ENTRY_POINT"
     turn_source = next(
         source
         for source in pack.data.sources
@@ -279,7 +276,6 @@ def test_loader_rejects_digitized_error_below_declared_target_uncertainty(
         ("target_altitude_ft_msl", 5400.0),
         ("trigger_radius_nm", 1.1),
         ("turn_bank_angle_deg", 19.0),
-        ("minimum_turn_entry_dme_nm", 3.9),
         ("target_position_tolerance_nm", 0.02),
         ("target_altitude_tolerance_ft", 20.0),
         ("tangent_course_tolerance_deg", 0.2),
@@ -314,7 +310,6 @@ def test_loader_rejects_policy_course_boundary_mismatch(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("section", "field", "value"),
     [
-        ("policy", "minimum_turn_entry_dme_inclusive", False),
         ("pca", "altitude_bounds_inclusive", False),
     ],
 )

@@ -108,6 +108,7 @@ def current_calculation_input_fingerprint(
             "planned_departure_time_jst": (project.planned_departure_time_jst),
             "total_usable_fuel_gal": project.total_usable_fuel_gal,
             "run_up_included": project.run_up_included,
+            "nose_fairing_enabled": project.nose_fairing_enabled,
             "air_conditioning_enabled": project.air_conditioning_enabled,
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,

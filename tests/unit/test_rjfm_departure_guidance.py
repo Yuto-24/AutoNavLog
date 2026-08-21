@@ -54,7 +54,6 @@ def _request(
     target_course_deg: float = 15,
     target_distance_nm: float = 10,
     wind: Wind | None = None,
-    minimum_dme_nm: float = 0,
 ) -> DepartureGuidanceRequest:
     origin = GeoPoint(31.877, 131.449)
     return DepartureGuidanceRequest(
@@ -80,7 +79,6 @@ def _request(
         magnetic_variation_deg_east=7,
         runway_procedure=procedure or RunwayProcedure.rwy09(),
         pca_region=_remote_pca(origin),
-        minimum_turn_entry_dme_nm=minimum_dme_nm,
     )
 
 
@@ -261,20 +259,17 @@ def test_pca_intersection_in_inclusive_vertical_band_is_hard_invalid() -> None:
     assert pca.sample_index is not None
 
 
-def test_dme_below_configured_minimum_is_warning_not_hard_failure() -> None:
-    request = _request(minimum_dme_nm=100)
+def test_turn_entry_dme_is_informational_without_a_warning_constraint() -> None:
+    request = _request()
     result = generate_rjfm_departure_guidance(request)
 
-    assert result.status is GuidanceStatus.WARNING
+    assert result.status is GuidanceStatus.VALID
     assert result.selected_candidate is not None
     assert result.selected_candidate.hard_valid
-    dme = next(
-        constraint
+    assert all(
+        constraint.code != "MZE_ENTRY_DME"
         for constraint in result.selected_candidate.constraints
-        if constraint.code == "MZE_ENTRY_DME"
     )
-    assert not dme.passed
-    assert dme.severity is ConstraintSeverity.WARNING
     assert (
         result.selected_candidate.mze_dme_nm
         > result.selected_candidate.mze_horizontal_distance_nm
@@ -288,27 +283,6 @@ def test_dme_below_configured_minimum_is_warning_not_hard_failure() -> None:
     assert result.selected_candidate.mze_radial_deg == pytest.approx(
         (true_bearing - request.mze.station_declination_deg_east) % 360,
     )
-
-
-def test_turn_entry_dme_minimum_is_inclusive() -> None:
-    baseline_request = _request()
-    baseline = generate_rjfm_departure_guidance(baseline_request)
-    assert baseline.selected_candidate is not None
-    exact_minimum = baseline.selected_candidate.mze_dme_nm
-
-    result = generate_rjfm_departure_guidance(
-        replace(baseline_request, minimum_turn_entry_dme_nm=exact_minimum)
-    )
-
-    assert result.status is GuidanceStatus.VALID
-    assert result.selected_candidate is not None
-    dme = next(
-        constraint
-        for constraint in result.selected_candidate.constraints
-        if constraint.code == "MZE_ENTRY_DME"
-    )
-    assert dme.passed
-
 
 @pytest.mark.parametrize(
     ("course_deg", "expected"),

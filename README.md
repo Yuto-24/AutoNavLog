@@ -8,7 +8,7 @@ A4 横の転記補助表を作ります。
 利用者が根拠と警告を確認し、公式様式へ手書きで転記してください。航空大学校の公式様式や
 計算規則への準拠は主張していません。
 
-- 現在のバージョン: `1.3.1`
+- 現在のバージョン: `1.3.2`
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
@@ -153,7 +153,8 @@ RWY09の延長旋回は左、RWY27の初期旋回と延長旋回は右です。�
 
 RJFM案内カードは、現在の計算結果に限りNAV LOG主表とFUEL表の下に表示します。
 North Up上の滑走路出発方位に合わせてRWY27を左、RWY09を右へ並べ、各カードには
-旋回開始高度とNAV LOG直線Legとの差だけを表示します。この差は、例外候補のUMK到達時間から、
+旋回開始高度、旋回開始点のMZE DME、NAV LOG直線Legとの差を表示します。DMEは案内値であり、
+閾値による警告は行いません。直線Legとの差は、例外候補のUMK到達時間から、
 NAV LOGが採用するRJFM→UMK/RCA直線距離を同じCLIMB GSで飛行した時間を引いた値です。
 MAP内の経路線と凡例は残ります。画面幅1,240 px以下では「入力 → 経路・MAP → 準備状況 →
 NAV LOG → RJFM案内」の1列順となり、上下に往復せず確認できます。適用条件と制限は
@@ -246,7 +247,7 @@ npm --prefix web run build
 npm --prefix web run test:e2e
 ```
 
-リリース時は `1.3.1` が次の場所で一致していることを確認します。
+リリース時は `1.3.2` が次の場所で一致していることを確認します。
 
 - `pyproject.toml`
 - `web/package.json` と `web/package-lock.json`

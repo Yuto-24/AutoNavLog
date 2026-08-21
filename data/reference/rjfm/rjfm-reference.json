@@ -136,7 +136,7 @@
       "pages_or_sections": [
         "Conversation decisions finalized 2026-08-16"
       ],
-      "notes": "This source supplies planning-policy values that are not asserted to be AIP or training-document facts, including the 656–2,700 ft inclusive operational PCA test, 4.0 NM warning threshold, 20° bank, coordinate trigger radius, and numeric solver tolerances."
+      "notes": "This source supplies planning-policy values that are not asserted to be AIP or training-document facts, including the 656–2,700 ft inclusive operational PCA test, 20° bank, coordinate trigger radius, and numeric solver tolerances."
     },
     {
       "id": "user-approved-rjfm-rwy-turn-policy-2026-08-17",
@@ -400,7 +400,7 @@
     ],
     "feature_name_prefix": "KS4-",
     "checked_at_utc": "2026-08-17T04:16:51Z",
-    "caution_jp": "地図には誤差が含まれる場合があります。境界付近は空域を管轄する機関へ確認してください。この表示は参照専用で、NAV LOG計算やPCA判定には使用しません。",
+    "caution_jp": "地図には誤差が含まれる場合があります。この表示は参照専用で、NAV LOG計算やPCA判定には使用しません。",
     "source_ids": [
       "mlit-civil-training-test-airspace-map-2026-08-17",
       "mlit-gsi-boundary-caution-2026-08-17",
@@ -437,10 +437,6 @@
       }
     },
     "turn_bank_angle_deg": 20.0,
-    "minimum_turn_entry_dme_nm": 4.0,
-    "minimum_turn_entry_dme_inclusive": true,
-    "dme_constraint_scope": "FINAL_EXTENSION_TURN_ENTRY_POINT",
-    "dme_constraint_severity": "WARNING_ONLY",
     "post_cut_straight_allowed_magnetic_courses": [
       {
         "lower_deg": 0.0,
