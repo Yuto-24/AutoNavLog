@@ -1576,6 +1576,55 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   expect(unexpectedConsoleErrors).toEqual([]);
 });
 
+test("VOR/DME reference columns can be added, configured independently, and removed", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.goto("/");
+  await calculateNavLog(page);
+
+  const table = page.locator(".nav-log-table");
+  const scroll = page.locator(".nav-log-scroll");
+  const firstRow = table.locator(".nav-leg-heading-row").first();
+  const initialWidth = (await table.boundingBox())?.width ?? 0;
+
+  await expect(page.getByLabel("VOR基準局")).toHaveCount(1);
+  await expect(firstRow.locator(".vor-reference-cell")).toHaveCount(1);
+  await page.getByRole("button", { name: "VOR/DME列を追加" }).click();
+
+  await expect(page.getByLabel(/^VOR基準局/)).toHaveCount(2);
+  await expect(firstRow.locator(".vor-reference-cell")).toHaveCount(2);
+  const secondVor = page.getByLabel("VOR基準局 2");
+  await expect(secondVor).toHaveValue("");
+  await expect(firstRow.locator(".vor-reference-cell").nth(1)).toHaveText("—");
+
+  await secondVor.selectOption("HKC");
+  await expect(firstRow.locator(".vor-reference-cell").nth(1)).toHaveText(
+    /^\d{3} \/ \d+\.\d$/,
+  );
+  expect(await firstRow.locator(".vor-reference-cell").nth(1).textContent()).not.toBe(
+    await firstRow.locator(".vor-reference-cell").nth(0).textContent(),
+  );
+  await expect(firstRow.locator(".route-from-cell")).toHaveText("RJFM");
+  expect((await table.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(initialWidth + 95);
+  expect(await scroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+  ).toBeLessThanOrEqual(1);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(firstRow.locator(".vor-reference-cell")).toHaveCount(2);
+  await expect(firstRow.locator(".route-from-cell")).toHaveText("RJFM");
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+  ).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: "VOR/DME 2列目を削除" }).click();
+  await expect(page.getByLabel(/^VOR基準局/)).toHaveCount(1);
+  await expect(firstRow.locator(".vor-reference-cell")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /VOR\/DME .*列目を削除/ })).toHaveCount(0);
+});
+
 test("climb and descent legs show magnetic-course altitude candidates", async ({ page }) => {
   await page.goto("/");
 

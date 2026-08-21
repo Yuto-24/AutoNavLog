@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Plus, Trash2 } from "lucide-react";
 
 import {
   DEFAULT_VOR_STATION,
@@ -124,6 +125,13 @@ const fuelAmount = fixedQuantum(0.1, 1);
 const CLIMB_PHASES = new Set<string>(["CLIMB"]);
 const CRUISE_PHASES = new Set<string>(["CRUISE"]);
 const DESCENT_PHASES = new Set<string>(["DESCENT", "VISUAL_ARRIVAL"]);
+const BASE_NAV_LOG_WIDTH_PX = 1776;
+const VOR_COLUMN_WIDTH_PX = 96;
+
+interface VorColumn {
+  id: number;
+  stationIdentifier: string | null;
+}
 
 function numberValue(
   value: AdoptedValue<number>,
@@ -602,7 +610,9 @@ export function NavLogTable({
   ) => void;
 }) {
   const displayRows: NavLogDisplayRow[] = outcome.display_rows;
-  const [manualVorIdentifier, setManualVorIdentifier] = useState<string | null>(null);
+  const [vorColumns, setVorColumns] = useState<VorColumn[]>([
+    { id: 0, stationIdentifier: null },
+  ]);
   const automaticVorStation = useMemo(() => {
     const firstFromRow = displayRows.find(
       (row) => row.from_latitude_deg != null && row.from_longitude_deg != null,
@@ -612,10 +622,43 @@ export function NavLogTable({
       ? nearestVorStation(firstFromRow.from_latitude_deg, firstFromRow.from_longitude_deg)
       : DEFAULT_VOR_STATION;
   }, [displayRows]);
-  const selectedVorStation = manualVorIdentifier === null
-    ? automaticVorStation
-    : VOR_STATIONS.find((station) => station.identifier === manualVorIdentifier)
-      ?? automaticVorStation;
+  const selectedVorStations = vorColumns.map((column) => {
+    if (column.stationIdentifier === null) return automaticVorStation;
+    if (column.stationIdentifier === "") return null;
+    return VOR_STATIONS.find(
+      (station) => station.identifier === column.stationIdentifier,
+    ) ?? null;
+  });
+  const navLogColumnCount = 19 + vorColumns.length;
+  const navLogWidth = BASE_NAV_LOG_WIDTH_PX
+    + (vorColumns.length - 1) * VOR_COLUMN_WIDTH_PX;
+
+  const addVorColumn = () => {
+    setVorColumns((current) => [
+      ...current,
+      {
+        id: current.reduce((maxId, column) => Math.max(maxId, column.id), -1) + 1,
+        stationIdentifier: "",
+      },
+    ]);
+  };
+  const removeVorColumn = (columnId: number) => {
+    setVorColumns((current) => (
+      current.length === 1 ? current : current.filter((column) => column.id !== columnId)
+    ));
+  };
+  const selectVorStation = (columnId: number, stationIdentifier: string) => {
+    setVorColumns((current) => current.map((column) => (
+      column.id === columnId
+        ? {
+            ...column,
+            stationIdentifier: stationIdentifier === VOR_AUTO_SELECTION
+              ? null
+              : stationIdentifier,
+          }
+        : column
+    )));
+  };
 
   const inputSections = new Map(project.sections.map((section) => [section.id, section]));
   const altitudeGuidanceBySection = new Map(
@@ -641,34 +684,62 @@ export function NavLogTable({
           {editStatus.message}
         </span>
       </div>
+      <div className="nav-log-column-actions">
+        <button
+          className="secondary-button nav-log-add-column-button"
+          type="button"
+          onClick={addVorColumn}
+        >
+          <Plus aria-hidden="true" size={15} />
+          VOR/DME列を追加
+        </button>
+        <span>各列で基準局を選び、不要な列は見出しから削除できます。</span>
+      </div>
       <div className="table-scroll nav-log-scroll">
         <div className="nav-log-tables">
-          <table className="nav-log-table official-nav-log-table">
+          <table
+            className="nav-log-table official-nav-log-table"
+            style={{ flexBasis: navLogWidth, width: navLogWidth, minWidth: navLogWidth }}
+          >
           <thead>
             <tr>
-              <th className="vor-reference-header">
-                <label htmlFor="nav-log-vor-station">VOR</label>
-                <select
-                  id="nav-log-vor-station"
-                  aria-label="VOR基準局"
-                  title={`AIP ${VOR_DATASET_EFFECTIVE_CYCLE} / 局からFROMへのradial・距離`}
-                  value={manualVorIdentifier ?? VOR_AUTO_SELECTION}
-                  onChange={(event) => {
-                    setManualVorIdentifier(
-                      event.target.value === VOR_AUTO_SELECTION ? null : event.target.value,
-                    );
-                  }}
-                >
-                  <option value={VOR_AUTO_SELECTION}>
-                    {`自動 ${automaticVorStation.identifier}`}
-                  </option>
-                  {VOR_STATIONS.map((station) => (
-                    <option key={station.identifier} value={station.identifier}>
-                      {`${station.identifier} — ${station.name} (${station.type})`}
+              {vorColumns.map((column, index) => (
+                <th className="vor-reference-header" key={column.id}>
+                  <div className="vor-reference-heading">
+                    <label htmlFor={`nav-log-vor-station-${column.id}`}>
+                      {vorColumns.length === 1 ? "VOR/DME" : `VOR/DME ${index + 1}`}
+                    </label>
+                    {vorColumns.length > 1 && (
+                      <button
+                        className="vor-column-remove-button"
+                        type="button"
+                        aria-label={`VOR/DME ${index + 1}列目を削除`}
+                        title="このVOR/DME列を削除"
+                        onClick={() => removeVorColumn(column.id)}
+                      >
+                        <Trash2 aria-hidden="true" size={12} />
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    id={`nav-log-vor-station-${column.id}`}
+                    aria-label={index === 0 ? "VOR基準局" : `VOR基準局 ${index + 1}`}
+                    title={`AIP ${VOR_DATASET_EFFECTIVE_CYCLE} / 局からFROMへのradial・距離`}
+                    value={column.stationIdentifier ?? VOR_AUTO_SELECTION}
+                    onChange={(event) => selectVorStation(column.id, event.target.value)}
+                  >
+                    {column.stationIdentifier === "" && <option value="">局を選択</option>}
+                    <option value={VOR_AUTO_SELECTION}>
+                      {`自動 ${automaticVorStation.identifier}`}
                     </option>
-                  ))}
-                </select>
-              </th>
+                    {VOR_STATIONS.map((station) => (
+                      <option key={station.identifier} value={station.identifier}>
+                        {`${station.identifier} — ${station.name} (${station.type})`}
+                      </option>
+                    ))}
+                  </select>
+                </th>
+              ))}
               <th>FROM</th>
               <th>TO</th>
               <th>PA<br /><small>ft</small></th>
@@ -692,7 +763,7 @@ export function NavLogTable({
           </thead>
           <tbody>
             {displayRows.length === 0 && (
-              <tr><td colSpan={20} className="unavailable-value">表示行を再計算してください</td></tr>
+              <tr><td colSpan={navLogColumnCount} className="unavailable-value">表示行を再計算してください</td></tr>
             )}
             {displayRows.map((row) => {
               if (row.row_type === "LEG_SEPARATOR") {
@@ -704,7 +775,7 @@ export function NavLogTable({
                     data-row-type={row.row_type}
                     data-row-sequence={row.sequence}
                   >
-                    <td colSpan={20} />
+                    <td colSpan={navLogColumnCount} />
                   </tr>
                 );
               }
@@ -719,11 +790,6 @@ export function NavLogTable({
                 : row.row_type === "DESTINATION_INFO"
                   ? "nav-destination-info-row"
                   : "nav-leg-detail-row";
-              const vorReference = formatVorRadialDistance(
-                selectedVorStation,
-                row.from_latitude_deg,
-                row.from_longitude_deg,
-              );
               return (
                 <tr
                   className={rowClass}
@@ -731,15 +797,40 @@ export function NavLogTable({
                   data-row-type={row.row_type}
                   data-row-sequence={row.sequence}
                 >
+                  {selectedVorStations.map((station, index) => {
+                    const vorReference = station === null
+                      ? "—"
+                      : formatVorRadialDistance(
+                          station,
+                          row.from_latitude_deg,
+                          row.from_longitude_deg,
+                        );
+                    return (
+                      <td
+                        className="vor-reference-cell derived-readonly-cell"
+                        key={vorColumns[index]!.id}
+                        title={station === null
+                          ? "VOR/DME基準局を選択してください。"
+                          : `${station.identifier}からFROMへのradial / 距離（表示専用セル）`}
+                        data-display-text={vorReference}
+                        data-vor-column={index + 1}
+                      >
+                        {vorReference}
+                      </td>
+                    );
+                  })}
                   <td
-                    className="vor-reference-cell derived-readonly-cell"
-                    title={`${selectedVorStation.identifier}からFROMへのradial / 距離（表示専用セル）`}
-                    data-display-text={vorReference}
+                    className="route-name-cell route-from-cell"
+                    data-display-text={row.from_name}
                   >
-                    {vorReference}
+                    {row.from_name}
                   </td>
-                  <td className="route-name-cell" data-display-text={row.from_name}>{row.from_name}</td>
-                  <td className="route-name-cell" data-display-text={row.to_name}>{row.to_name}</td>
+                  <td
+                    className="route-name-cell route-to-cell"
+                    data-display-text={row.to_name}
+                  >
+                    {row.to_name}
+                  </td>
                   <DisplayResultCells
                     row={row}
                     source={source}
