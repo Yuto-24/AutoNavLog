@@ -604,7 +604,10 @@ def test_cruise_equipment_adjustments_apply_after_poh_interpolation_only(
             == source_section_id
         )
 
-    sections = {configuration: source_cruise(outcome) for configuration, outcome in outcomes.items()}
+    sections = {
+        configuration: source_cruise(outcome)
+        for configuration, outcome in outcomes.items()
+    }
     metadata = {
         configuration: section.performance_metadata
         for configuration, section in sections.items()
