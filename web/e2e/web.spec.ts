@@ -1391,6 +1391,11 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
   await page.goto("/");
+  await expect(page).toHaveTitle(/AutoNavLog/);
+  await expect(page.locator("body")).not.toBeEmpty();
+  await expect(
+    page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
+  ).toHaveCount(0);
   await importKmlCandidate(page);
 
   await page.getByLabel("気象モード").selectOption("FTD");
@@ -1424,7 +1429,18 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   const editor = routePanel.getByRole("region", { name: "チェックポイント設定" });
   await editor.getByRole("button", { name: "チェックポイントを追加" }).click();
   await expect(editor.getByLabel("関連Leg")).toHaveCount(0);
+  await editor.getByRole("button", { name: "地図から座標を選択" }).click();
+  await routePanel.locator(".route-map").click({ position: { x: 300, y: 200 } });
+  const draftMarker = routePanel.locator(".checkpoint-draft-marker");
+  await expect(draftMarker).toHaveCount(1);
+  await expect(routePanel.getByText("仮CP（未保存）", { exact: true })).toBeVisible();
+  await expect(editor.getByLabel("緯度")).not.toHaveValue("");
+  await expect(editor.getByLabel("経度")).not.toHaveValue("");
+  const draftMarkerStroke = await draftMarker.getAttribute("stroke");
+  expect(draftMarkerStroke).toBe("#6e4aa0");
+
   await editor.getByLabel("緯度").fill("35.000000");
+  await expect(draftMarker).toHaveCount(0);
   await editor.getByLabel("経度").fill("140.000000");
   await expect(editor.getByText("経路から10 NM以内に対応するLegがありません。")).toBeVisible();
   await expect(editor.getByRole("button", { name: "追加", exact: true })).toBeDisabled();
@@ -1478,6 +1494,10 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   await expect(addCheckPoint).toBeEnabled();
   await addCheckPoint.click();
   await expect(routePanel.getByText("訓練CP", { exact: true })).toBeVisible();
+  const confirmedMarker = routePanel.locator(".checkpoint-confirmed-marker");
+  await expect(confirmedMarker).toHaveCount(1);
+  expect(await confirmedMarker.getAttribute("stroke")).toBe("#9b5b13");
+  expect(await confirmedMarker.getAttribute("stroke")).not.toBe(draftMarkerStroke);
   await expect(editor.getByText(/Leg内 .* NM \/ 累積 .* NM \/ 横ずれ .* NM/)).toBeVisible();
   const checkpointState = await page.evaluate(async () => {
     const response = await fetch("/api/state");

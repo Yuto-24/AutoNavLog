@@ -26,6 +26,7 @@ interface CheckPointEditorProps {
   pickedCoordinate: PickedCoordinate | null;
   pickingFromMap: boolean;
   onPickingFromMapChange: (active: boolean) => void;
+  onPickedCoordinateClear: () => void;
   onReplace: (checkPoints: CheckPointInput[]) => Promise<boolean>;
 }
 
@@ -56,6 +57,7 @@ export function CheckPointEditor({
   pickedCoordinate,
   pickingFromMap,
   onPickingFromMapChange,
+  onPickedCoordinateClear,
   onReplace,
 }: CheckPointEditorProps) {
   const [draft, setDraft] = useState<Draft>(initialDraft);
@@ -123,6 +125,7 @@ export function CheckPointEditor({
     setDraft(initialDraft());
     setEditorOpen(false);
     onPickingFromMapChange(false);
+    onPickedCoordinateClear();
   };
 
   const inputs = checkPoints.map<CheckPointInput>((item) => ({
@@ -173,6 +176,7 @@ export function CheckPointEditor({
           type="button"
           aria-label="チェックポイントを追加"
           onClick={() => {
+            onPickedCoordinateClear();
             setDraft(initialDraft());
             setEditorOpen(true);
           }}
@@ -230,9 +234,10 @@ export function CheckPointEditor({
               max="90"
               step="0.000001"
               value={draft.latitude}
-              onChange={(event) =>
+              onChange={(event) => {
+                onPickedCoordinateClear();
                 setDraft((current) => ({ ...current, latitude: event.target.value }))
-              }
+              }}
             />
           </label>
           <label>
@@ -243,9 +248,10 @@ export function CheckPointEditor({
               max="180"
               step="0.000001"
               value={draft.longitude}
-              onChange={(event) =>
+              onChange={(event) => {
+                onPickedCoordinateClear();
                 setDraft((current) => ({ ...current, longitude: event.target.value }))
-              }
+              }}
             />
           </label>
           {coordinatesValid && matchingSections.length === 0 && (
@@ -307,6 +313,7 @@ export function CheckPointEditor({
                     aria-label={`${item.name}を編集`}
                     disabled={busy}
                     onClick={() => {
+                      onPickedCoordinateClear();
                       setDraft({
                         id: item.id,
                         name: item.name,
