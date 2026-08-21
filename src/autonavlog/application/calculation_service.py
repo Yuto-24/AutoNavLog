@@ -77,7 +77,7 @@ from .rjfm_departure_plan import rjfm_plan_matches_project
 
 @dataclass(frozen=True)
 class CalculationPolicies:
-    version: str = "nav2-v9-cruise-equipment-options"
+    version: str = "nav2-v10-cruise-equipment-options"
     # Kept for serialized policy compatibility. NAV2-v5 uses MSL directly.
     pa_500_policy: Pa500Policy = Pa500Policy.CEILING
     max_iterations: int = 5
@@ -96,7 +96,7 @@ def _adjusted_cruise_ktas(
 ) -> float:
     return (
         table_ktas
-        + (NOSE_FAIRING_KTAS_ADJUSTMENT if nose_fairing_enabled else 0.0)
+        + (0.0 if nose_fairing_enabled else NOSE_FAIRING_KTAS_ADJUSTMENT)
         + (AIR_CONDITIONING_KTAS_ADJUSTMENT if air_conditioning_enabled else 0.0)
     )
 
@@ -2032,7 +2032,7 @@ class CalculationService:
                                 "nose_fairing_adjustment_ktas": (
                                     NOSE_FAIRING_KTAS_ADJUSTMENT
                                     if equipment_adjustments_applied
-                                    and project.nose_fairing_enabled
+                                    and not project.nose_fairing_enabled
                                     else 0.0
                                 ),
                                 "air_conditioning_adjustment_ktas": (

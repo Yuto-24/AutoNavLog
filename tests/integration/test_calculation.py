@@ -611,10 +611,10 @@ def test_cruise_equipment_adjustments_apply_after_poh_interpolation_only(
     }
     table_ktas = metadata[(False, False)]["poh_table_ktas"]
     expected_adjustments = {
-        (False, False): (0.0, 0.0, 0.0),
-        (True, False): (-10.0, -10.0, 0.0),
-        (False, True): (-2.0, 0.0, -2.0),
-        (True, True): (-12.0, -10.0, -2.0),
+        (False, False): (-10.0, -10.0, 0.0),
+        (True, False): (0.0, 0.0, 0.0),
+        (False, True): (-12.0, -10.0, -2.0),
+        (True, True): (-2.0, 0.0, -2.0),
     }
     for configuration, (total, nose, air_conditioning) in expected_adjustments.items():
         assert sections[configuration].tas_kt.adopted() == pytest.approx(table_ktas + total)
@@ -623,14 +623,14 @@ def test_cruise_equipment_adjustments_apply_after_poh_interpolation_only(
         assert metadata[configuration]["selected_cell"]["gph"] == (
             metadata[(False, False)]["selected_cell"]["gph"]
         )
-    assert sections[(False, False)].ground_speed_kt.adopted() > (
-        sections[(True, True)].ground_speed_kt.adopted()
+    assert sections[(True, False)].ground_speed_kt.adopted() > (
+        sections[(False, True)].ground_speed_kt.adopted()
     )
-    assert sections[(False, False)].zone_ete_seconds.adopted() < (
-        sections[(True, True)].zone_ete_seconds.adopted()
+    assert sections[(True, False)].zone_ete_seconds.adopted() < (
+        sections[(False, True)].zone_ete_seconds.adopted()
     )
-    assert sections[(False, False)].section_fuel_gal.adopted() < (
-        sections[(True, True)].section_fuel_gal.adopted()
+    assert sections[(True, False)].section_fuel_gal.adopted() < (
+        sections[(False, True)].section_fuel_gal.adopted()
     )
 
     manual_project = project.model_copy(deep=True)

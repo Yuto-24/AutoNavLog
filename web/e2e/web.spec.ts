@@ -900,7 +900,7 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   await expect(page.getByText("開発用固定気象（出力不可）", { exact: true })).toBeVisible();
   await expect(page.getByLabel("TO")).toHaveValue("");
   await expect(page.getByLabel("RUN UP あり")).toBeChecked();
-  await expect(page.getByLabel("ノーズフェアリングあり (巡航速度 -10 kt)")).not.toBeChecked();
+  await expect(page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)")).not.toBeChecked();
   await expect(page.getByLabel("A/C ON (巡航速度 -2 kt)")).toBeChecked();
   await expect(page.getByLabel("QNH値")).toHaveCount(0);
   await expect(
@@ -2112,7 +2112,7 @@ test("RUN UP, nose fairing, and A/C choices persist after save and reload", asyn
   await importKmlCandidate(page);
 
   const runUp = page.getByLabel("RUN UP あり");
-  const noseFairing = page.getByLabel("ノーズフェアリングあり (巡航速度 -10 kt)");
+  const noseFairing = page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)");
   const airConditioning = page.getByLabel("A/C ON (巡航速度 -2 kt)");
   await expect(runUp).toBeChecked();
   await expect(noseFairing).not.toBeChecked();

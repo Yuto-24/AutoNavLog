@@ -294,7 +294,7 @@ export function ImportPlanPanel({
                 checked={form.noseFairingEnabled}
                 onChange={(event) => update("noseFairingEnabled", event.target.checked)}
               />
-              <span>ノーズフェアリングあり (巡航速度 -10 kt)</span>
+              <span>ノーズフェアリングあり (OFF: -10 kt)</span>
             </label>
           </div>
           <label className="span-two">

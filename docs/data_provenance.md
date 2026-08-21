@@ -75,7 +75,7 @@ MSMの上空風・気温と地表面気温にはForecast Run、元URL、source h
 外挿しません。QNH、MSLP、METARによる補正は取得・保存・計算の対象外です。
 
 巡航性能metadataにはPOH表のKTAS、ノーズフェアリング補正、A/C補正、最終KTASを分けて
-保存します。ノーズフェアリングON時`-10 KTAS`とA/C ON時`-2 KTAS`は利用者提供転記です。
+保存します。ノーズフェアリングなしの`-10 KTAS`とA/C ON時`-2 KTAS`は利用者提供転記です。
 A/C装備時に別POH Supplementが適用されることは
 [Cirrus公式Supplement案内](https://store.cirrusaircraft.com/sr22-supplement-13772-127%2C-air-conditioning/5637369215.p)で確認していますが、
 Supplement本文を収録していないため未確認のページ番号は付けません。

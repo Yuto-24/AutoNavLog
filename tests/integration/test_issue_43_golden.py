@@ -165,7 +165,6 @@ def golden_project() -> Project:
         departure_airport_id="RJFM",
         destination_airport_id="RJFS",
         total_usable_fuel_gal=90,
-        nose_fairing_enabled=True,
         default_variation_deg_east=8,
         route_nodes=nodes,
         sections=sections,
