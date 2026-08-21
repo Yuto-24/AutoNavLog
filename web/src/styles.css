@@ -396,7 +396,7 @@ h1, h2, h3, p { margin-top: 0; }
 .imported-file span { margin-top: 3px; color: var(--slate-500); font-size: 10px; }
 
 .field-group { display: grid; gap: 6px; }
-.candidate-control { margin-top: 12px; }
+.candidate-control { min-width: 0; margin-top: 12px; }
 .candidate-control.is-required {
   padding: 12px;
   background: var(--red-50);
@@ -415,6 +415,7 @@ h1, h2, h3, p { margin-top: 0; }
   font-weight: 800;
 }
 .candidate-required-message { margin: 0; color: var(--red-700); font-size: 12px; font-weight: 700; line-height: 1.5; }
+.candidate-control select { width: 100%; min-width: 0; }
 .candidate-control.is-required select { color: var(--red-700); border-color: var(--red-700); box-shadow: 0 0 0 2px rgb(180 35 24 / 10%); }
 .field-group > label, .field-group > span, .form-grid label > span { color: #304960; font-size: 11px; font-weight: 700; }
 

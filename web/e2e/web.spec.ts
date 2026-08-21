@@ -1877,11 +1877,33 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await expect(candidateControl).toContainText("使用する飛行経路を選択してください。");
   await expect(candidateSelect).toHaveAttribute("required", "");
   await expect(candidateSelect).toHaveAttribute("aria-invalid", "true");
+  const intermediateCandidateBoxes = await Promise.all([
+    candidateControl.boundingBox(),
+    candidateSelect.boundingBox(),
+  ]);
+  if (!intermediateCandidateBoxes[0] || !intermediateCandidateBoxes[1]) {
+    throw new Error("Required route selection is missing at intermediate width");
+  }
+  expect(
+    intermediateCandidateBoxes[1].x + intermediateCandidateBoxes[1].width,
+  ).toBeLessThanOrEqual(
+    intermediateCandidateBoxes[0].x + intermediateCandidateBoxes[0].width + 1,
+  );
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
   ).toBeLessThanOrEqual(1);
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(candidateControl).toBeVisible();
+  const wideCandidateBoxes = await Promise.all([
+    candidateControl.boundingBox(),
+    candidateSelect.boundingBox(),
+  ]);
+  if (!wideCandidateBoxes[0] || !wideCandidateBoxes[1]) {
+    throw new Error("Required route selection is missing at wide width");
+  }
+  expect(wideCandidateBoxes[1].x + wideCandidateBoxes[1].width).toBeLessThanOrEqual(
+    wideCandidateBoxes[0].x + wideCandidateBoxes[0].width + 1,
+  );
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
   ).toBeLessThanOrEqual(1);
