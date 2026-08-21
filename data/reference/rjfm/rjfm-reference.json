@@ -136,7 +136,7 @@
       "pages_or_sections": [
         "Conversation decisions finalized 2026-08-16"
       ],
-      "notes": "This source supplies planning-policy values that are not asserted to be AIP or training-document facts, including the 656–2,700 ft inclusive operational PCA test, 4.0 NM warning threshold, 20° bank, coordinate trigger radius, and numeric solver tolerances."
+      "notes": "This source supplies planning-policy values that are not asserted to be AIP or training-document facts, including the 656–2,700 ft inclusive operational PCA test, 20° bank, coordinate trigger radius, and numeric solver tolerances."
     },
     {
       "id": "user-approved-rjfm-rwy-turn-policy-2026-08-17",
@@ -437,10 +437,6 @@
       }
     },
     "turn_bank_angle_deg": 20.0,
-    "minimum_turn_entry_dme_nm": 4.0,
-    "minimum_turn_entry_dme_inclusive": true,
-    "dme_constraint_scope": "FINAL_EXTENSION_TURN_ENTRY_POINT",
-    "dme_constraint_severity": "WARNING_ONLY",
     "post_cut_straight_allowed_magnetic_courses": [
       {
         "lower_deg": 0.0,

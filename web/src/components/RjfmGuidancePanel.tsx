@@ -85,47 +85,45 @@ export function RjfmGuidancePanel({ guidance }: { guidance: RjfmDepartureGuidanc
         </p>
       </div>
       <div className="rjfm-candidate-grid">
-        {orderedCandidates.map((candidate) => {
-          const dmeWarning = candidate.turn_entry_dme_nm !== null
-            && candidate.turn_entry_dme_nm < 4;
-          return (
-            <article
-              key={candidate.runway}
-              className={`rjfm-candidate ${rjfmCandidateClass(candidate)}`}
-              aria-label={`RWY ${candidate.runway} 候補 ${rjfmStatusLabels[candidate.status]}`}
-            >
-              <div className="rjfm-candidate-heading">
-                <h4>RWY {candidate.runway}</h4>
-                <span className="rjfm-status">{rjfmStatusLabels[candidate.status]}</span>
+        {orderedCandidates.map((candidate) => (
+          <article
+            key={candidate.runway}
+            className={`rjfm-candidate ${rjfmCandidateClass(candidate)}`}
+            aria-label={`RWY ${candidate.runway} 候補 ${rjfmStatusLabels[candidate.status]}`}
+          >
+            <div className="rjfm-candidate-heading">
+              <h4>RWY {candidate.runway}</h4>
+              <span className="rjfm-status">{rjfmStatusLabels[candidate.status]}</span>
+            </div>
+            <dl className="rjfm-candidate-metrics">
+              <div>
+                <dt>旋回開始高度</dt>
+                <dd>
+                  {candidate.turn_entry_altitude_ft_msl === null
+                    ? "—"
+                    : `${Math.round(candidate.turn_entry_altitude_ft_msl).toLocaleString("ja-JP")} ft MSL`}
+                </dd>
               </div>
-              <dl className="rjfm-candidate-metrics">
-                <div>
-                  <dt>旋回開始高度</dt>
-                  <dd>
-                    {candidate.turn_entry_altitude_ft_msl === null
-                      ? "—"
-                      : `${Math.round(candidate.turn_entry_altitude_ft_msl).toLocaleString("ja-JP")} ft MSL`}
-                  </dd>
-                </div>
-                <div>
-                  <dt>NAV LOG直線Legとの差</dt>
-                  <dd>{formatRjfmTimeDelta(candidate.expected_time_delta_seconds)}</dd>
-                </div>
-              </dl>
-              {dmeWarning && (
-                <p className="rjfm-dme-warning">
-                  宮崎VORTAC（MZE）から4 DME未満で旋回開始します。
-                  これは非ブロッキング注意で、候補自体は表示を継続します。
-                </p>
-              )}
-              {candidate.notes.length > 0 && (
-                <ul className="rjfm-candidate-notes">
-                  {candidate.notes.map((note) => <li key={note}>{note}</li>)}
-                </ul>
-              )}
-            </article>
-          );
-        })}
+              <div>
+                <dt>旋回開始 MZE DME</dt>
+                <dd>
+                  {candidate.turn_entry_dme_nm === null
+                    ? "—"
+                    : `${candidate.turn_entry_dme_nm.toFixed(1)} DME`}
+                </dd>
+              </div>
+              <div>
+                <dt>NAV LOG直線Legとの差</dt>
+                <dd>{formatRjfmTimeDelta(candidate.expected_time_delta_seconds)}</dd>
+              </div>
+            </dl>
+            {candidate.notes.length > 0 && (
+              <ul className="rjfm-candidate-notes">
+                {candidate.notes.map((note) => <li key={note}>{note}</li>)}
+              </ul>
+            )}
+          </article>
+        ))}
       </div>
       <div className="rjfm-provenance">
         <div>

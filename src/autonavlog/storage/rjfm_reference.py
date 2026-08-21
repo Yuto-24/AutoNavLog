@@ -382,10 +382,6 @@ class RjfmDeparturePolicy(RjfmReferenceModel):
     trigger_radius_nm: float = Field(gt=0.0)
     runways: dict[str, RunwayDeparturePolicy]
     turn_bank_angle_deg: float = Field(gt=0.0, lt=90.0)
-    minimum_turn_entry_dme_nm: float = Field(gt=0.0)
-    minimum_turn_entry_dme_inclusive: bool
-    dme_constraint_scope: Literal["FINAL_EXTENSION_TURN_ENTRY_POINT"]
-    dme_constraint_severity: Literal["WARNING_ONLY"]
     post_cut_straight_allowed_magnetic_courses: list[MagneticCourseInterval] = Field(
         min_length=2,
         max_length=2,
@@ -418,7 +414,6 @@ class RjfmDeparturePolicy(RjfmReferenceModel):
             "target_altitude_ft_msl": (self.target_altitude_ft_msl, 5500.0),
             "trigger_radius_nm": (self.trigger_radius_nm, 1.0),
             "turn_bank_angle_deg": (self.turn_bank_angle_deg, 20.0),
-            "minimum_turn_entry_dme_nm": (self.minimum_turn_entry_dme_nm, 4.0),
             "target_position_tolerance_nm": (
                 self.target_position_tolerance_nm,
                 0.01,
@@ -440,8 +435,6 @@ class RjfmDeparturePolicy(RjfmReferenceModel):
                 "RJFM policy does not match implemented fixed values: "
                 + ", ".join(mismatched)
             )
-        if not self.minimum_turn_entry_dme_inclusive:
-            raise ValueError("implemented MZE DME boundary is inclusive")
         course_intervals = [
             (
                 interval.lower_deg,

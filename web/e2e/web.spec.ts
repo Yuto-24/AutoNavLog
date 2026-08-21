@@ -86,7 +86,7 @@ const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
   candidates: [
     {
       runway: "09",
-      status: "WARNING",
+      status: "VALID",
       turn_method: "FIXED_BANK_20",
       turn_direction: "LEFT",
       path: [
@@ -119,13 +119,6 @@ const rjfmDepartureGuidanceFixture: RjfmDepartureGuidance = {
           hard: true,
           message: "UMK位置・高度の許容差内です。",
           metadata: {},
-        },
-        {
-          code: "MZE_MINIMUM_DME",
-          passed: false,
-          hard: false,
-          message: "旋回開始点がMZE 4 DME未満です。",
-          metadata: { threshold_nm: 4 },
         },
       ],
       full_turns: 1,
@@ -1179,7 +1172,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(guidance.getByRole("heading", {
     name: "Newta CENTER Route 出発ガイダンス",
   })).toBeVisible();
-  const runway09 = guidance.getByRole("article", { name: "RWY 09 候補 成立（注意）" });
+  const runway09 = guidance.getByRole("article", { name: "RWY 09 候補 成立" });
   const runway27 = guidance.getByRole("article", { name: "RWY 27 候補 不成立" });
   const orderedCards = guidance.locator(".rjfm-candidate");
   await expect(orderedCards.nth(0)).toHaveAttribute("aria-label", /RWY 27/);
@@ -1194,13 +1187,15 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   );
   await expect(runway09.locator(".rjfm-candidate-metrics dt")).toHaveText([
     "旋回開始高度",
+    "旋回開始 MZE DME",
     "NAV LOG直線Legとの差",
   ]);
   await expect(runway09).not.toContainText("92.4°");
   await expect(runway27).not.toContainText("188.1°");
   await expect(runway09).toContainText("LOSS +1.0 min");
-  await expect(runway09).toContainText("宮崎VORTAC（MZE）から4 DME未満");
-  await expect(runway09).toContainText("非ブロッキング注意");
+  await expect(runway09).toContainText("3.8 DME");
+  await expect(runway09).not.toContainText("4 DME未満");
+  await expect(runway09).not.toContainText("非ブロッキング注意");
   await expect(runway27).toContainText("GAIN −0.5 min");
   await expect(guidance).toContainText(
     "固定20°バンクを基本とし、必要時は最大半径調整モデルを想定します。",
@@ -1253,17 +1248,14 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     /kokuarea_minkankunren$/,
   );
   await expect(legend).toContainText("Newta CENTER");
-  await expect(legend).toContainText("RWY 09 成立（注意）");
+  await expect(legend).toContainText("RWY 09 成立");
   await expect(legend).toContainText("RWY 27 不成立");
   await expect(page.locator(".rjfm-center-route")).toHaveAttribute("stroke-dasharray", "8 6");
   await expect(page.locator(".rjfm-guidance-path.is-rwy-09")).toHaveAttribute(
     "stroke",
     "#2368a2",
   );
-  await expect(page.locator(".rjfm-guidance-path.is-warning")).toHaveAttribute(
-    "stroke-dasharray",
-    "9 5",
-  );
+  await expect(page.locator(".rjfm-guidance-path.is-warning")).toHaveCount(0);
   await expect(page.locator(".rjfm-guidance-path.is-invalid")).toHaveAttribute(
     "stroke",
     "#b42318",
