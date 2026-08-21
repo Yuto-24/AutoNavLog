@@ -7,6 +7,9 @@ import type {
   RouteNode,
   VisualReference,
 } from "../types";
+import { pointDistanceToSegmentNm } from "../vorRadial";
+
+const MAX_LINKED_LEG_DISTANCE_NM = 10;
 
 interface PickedCoordinate {
   latitude: number;
@@ -34,14 +37,13 @@ interface Draft {
   linkedSectionId: string;
 }
 
-function initialDraft(sections: NavSection[]): Draft {
-  const recommended = sections.find((section) => section.phase === "CRUISE") ?? sections[0];
+function initialDraft(): Draft {
   return {
     id: null,
     name: "",
     latitude: "",
     longitude: "",
-    linkedSectionId: recommended?.id ?? "",
+    linkedSectionId: "",
   };
 }
 
@@ -56,7 +58,7 @@ export function CheckPointEditor({
   onPickingFromMapChange,
   onReplace,
 }: CheckPointEditorProps) {
-  const [draft, setDraft] = useState<Draft>(() => initialDraft(sections));
+  const [draft, setDraft] = useState<Draft>(initialDraft);
   const [editorOpen, setEditorOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
@@ -76,6 +78,35 @@ export function CheckPointEditor({
     });
     return grouped;
   }, [planning.issues]);
+  const latitude = Number(draft.latitude);
+  const longitude = Number(draft.longitude);
+  const coordinatesValid =
+    draft.latitude.trim() !== "" &&
+    Number.isFinite(latitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    draft.longitude.trim() !== "" &&
+    Number.isFinite(longitude) &&
+    longitude >= -180 &&
+    longitude <= 180;
+  const matchingSections = useMemo(() => {
+    if (!coordinatesValid) return [];
+    const point = { latitude_deg: latitude, longitude_deg: longitude };
+    return sections.filter((section) => {
+      const start = nodeById.get(section.from_node_id);
+      const end = nodeById.get(section.to_node_id);
+      return Boolean(
+        start &&
+        end &&
+        pointDistanceToSegmentNm(point, start, end) <= MAX_LINKED_LEG_DISTANCE_NM,
+      );
+    });
+  }, [coordinatesValid, latitude, longitude, nodeById, sections]);
+  const effectiveLinkedSectionId = matchingSections.length === 1
+    ? matchingSections[0]!.id
+    : matchingSections.some((section) => section.id === draft.linkedSectionId)
+      ? draft.linkedSectionId
+      : "";
 
   useEffect(() => {
     if (!pickedCoordinate) return;
@@ -89,7 +120,7 @@ export function CheckPointEditor({
   }, [pickedCoordinate, onPickingFromMapChange]);
 
   const reset = () => {
-    setDraft(initialDraft(sections));
+    setDraft(initialDraft());
     setEditorOpen(false);
     onPickingFromMapChange(false);
   };
@@ -102,16 +133,8 @@ export function CheckPointEditor({
     linked_section_id: item.linked_section_id ?? "",
   }));
 
-  const latitude = Number(draft.latitude);
-  const longitude = Number(draft.longitude);
   const draftValid =
-    Boolean(draft.name.trim() && draft.linkedSectionId) &&
-    Number.isFinite(latitude) &&
-    latitude >= -90 &&
-    latitude <= 90 &&
-    Number.isFinite(longitude) &&
-    longitude >= -180 &&
-    longitude <= 180;
+    Boolean(draft.name.trim() && effectiveLinkedSectionId) && coordinatesValid;
   const submitLabel = draft.id
     ? saving ? "保存中…" : "保存"
     : saving ? "追加中…" : "追加";
@@ -123,7 +146,7 @@ export function CheckPointEditor({
       name: draft.name.trim(),
       latitude_deg: latitude,
       longitude_deg: longitude,
-      linked_section_id: draft.linkedSectionId,
+      linked_section_id: effectiveLinkedSectionId,
     };
     setSaving(true);
     try {
@@ -150,7 +173,7 @@ export function CheckPointEditor({
           type="button"
           aria-label="チェックポイントを追加"
           onClick={() => {
-            setDraft(initialDraft(sections));
+            setDraft(initialDraft());
             setEditorOpen(true);
           }}
           disabled={busy || !sections.length}
@@ -168,7 +191,7 @@ export function CheckPointEditor({
               <X aria-hidden="true" size={16} />
             </button>
           </div>
-          <label>
+          <label className={matchingSections.length > 1 ? undefined : "checkpoint-name-field"}>
             <span>名称</span>
             <input
               value={draft.name}
@@ -177,26 +200,28 @@ export function CheckPointEditor({
               placeholder="例: 岩瀬ダム"
             />
           </label>
-          <label>
-            <span>関連Leg</span>
-            <select
-              value={draft.linkedSectionId}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, linkedSectionId: event.target.value }))
-              }
-            >
-              <option value="">Legを選択</option>
-              {sections.map((section) => {
-                const from = nodeById.get(section.from_node_id)?.name ?? "?";
-                const to = nodeById.get(section.to_node_id)?.name ?? "?";
-                return (
-                  <option key={section.id} value={section.id}>
-                    Leg {section.sequence + 1}: {from} → {to}（{section.phase}）
-                  </option>
-                );
-              })}
-            </select>
-          </label>
+          {matchingSections.length > 1 && (
+            <label>
+              <span>関連Leg</span>
+              <select
+                value={effectiveLinkedSectionId}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, linkedSectionId: event.target.value }))
+                }
+              >
+                <option value="">Legを選択</option>
+                {matchingSections.map((section) => {
+                  const from = nodeById.get(section.from_node_id)?.name ?? "?";
+                  const to = nodeById.get(section.to_node_id)?.name ?? "?";
+                  return (
+                    <option key={section.id} value={section.id}>
+                      Leg {section.sequence + 1}: {from} → {to}（{section.phase}）
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+          )}
           <label>
             <span>緯度</span>
             <input
@@ -223,6 +248,11 @@ export function CheckPointEditor({
               }
             />
           </label>
+          {coordinatesValid && matchingSections.length === 0 && (
+            <p className="checkpoint-leg-error" role="alert">
+              経路から10 NM以内に対応するLegがありません。
+            </p>
+          )}
           <button
             className={`secondary-button checkpoint-map-pick${pickingFromMap ? " is-active" : ""}`}
             type="button"
@@ -307,7 +337,7 @@ export function CheckPointEditor({
           })}
         </div>
       )}
-      <small className="checkpoint-guidance">巡航区間では15〜20 NM程度の間隔が配置の目安です。上昇・降下を含むLegも、実際の巡航区間に投影できる場合は選択できます。</small>
+      <small className="checkpoint-guidance">巡航区間では15〜20 NM程度の間隔が配置の目安です。対応するLegはCPから10 NM以内を候補とし、1件なら自動選択します。</small>
     </section>
   );
 }

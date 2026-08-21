@@ -1387,6 +1387,8 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
 });
 
 test("FTD route settings and checkpoint CRUD are available from the web UI", async ({ page }) => {
+  const runtimeErrors: string[] = [];
+  page.on("pageerror", (error) => runtimeErrors.push(error.message));
   await page.goto("/");
   await importKmlCandidate(page);
 
@@ -1420,6 +1422,17 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   const routePanel = page.getByRole("region", { name: "経路地図とLeg設定" });
   const editor = routePanel.getByRole("region", { name: "チェックポイント設定" });
   await editor.getByRole("button", { name: "チェックポイントを追加" }).click();
+  await expect(editor.getByLabel("関連Leg")).toHaveCount(0);
+  await editor.getByLabel("緯度").fill("35.000000");
+  await editor.getByLabel("経度").fill("140.000000");
+  await expect(editor.getByText("経路から10 NM以内に対応するLegがありません。")).toBeVisible();
+  await expect(editor.getByRole("button", { name: "追加", exact: true })).toBeDisabled();
+
+  await editor.getByLabel("緯度").fill("32.400000");
+  await editor.getByLabel("経度").fill("131.500000");
+  const linkedSection = editor.getByLabel("関連Leg");
+  await expect(linkedSection).toBeVisible();
+  await expect(linkedSection.locator("option")).toHaveCount(3);
   await editor.locator("select option").first().evaluate((option) => {
     option.textContent =
       "Leg 2: 変針点 UMK(MZE 004/6.2,NHT6.0) → 変針点 OMARU(NHT 171/11.4)（CRUISE）";
@@ -1456,12 +1469,26 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
     expect(bounds!.actionsLeft).toBeGreaterThanOrEqual(bounds!.formLeft);
     expect(bounds!.actionsRight).toBeLessThanOrEqual(bounds!.formRight);
   }
-  await editor.getByLabel("名称").fill("訓練CP");
   await editor.getByLabel("緯度").fill("32.700000");
   await editor.getByLabel("経度").fill("131.550000");
-  await editor.getByRole("button", { name: "追加", exact: true }).click();
+  await expect(editor.getByLabel("関連Leg")).toHaveCount(0);
+  await editor.getByLabel("名称").fill("訓練CP");
+  const addCheckPoint = editor.getByRole("button", { name: "追加", exact: true });
+  await expect(addCheckPoint).toBeEnabled();
+  await addCheckPoint.click();
   await expect(routePanel.getByText("訓練CP", { exact: true })).toBeVisible();
   await expect(editor.getByText(/Leg内 .* NM \/ 累積 .* NM \/ 横ずれ .* NM/)).toBeVisible();
+  const checkpointState = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    return await response.json() as WebState;
+  });
+  const expectedAutomaticSection = checkpointState.project?.sections.find(
+    (section) => section.sequence === 1,
+  );
+  expect(expectedAutomaticSection).toBeDefined();
+  expect(checkpointState.project?.visual_references[0]?.linked_section_id).toBe(
+    expectedAutomaticSection!.id,
+  );
 
   await editor.getByRole("button", { name: "訓練CPを編集" }).click();
   await editor.getByLabel("名称").fill("訓練CP改");
@@ -1471,6 +1498,7 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   page.once("dialog", (dialog) => void dialog.accept());
   await editor.getByRole("button", { name: "訓練CP改を削除" }).click();
   await expect(editor.getByText("まだチェックポイントはありません。")).toBeVisible();
+  expect(runtimeErrors).toEqual([]);
 });
 
 test("changed ALT appears in PA with lesson display precision", async ({ page }) => {

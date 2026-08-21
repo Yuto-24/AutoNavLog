@@ -187,8 +187,8 @@ function stationDistanceToPoint(station: VorStation, point: VorRoutePoint): numb
   ).distanceNm;
 }
 
-function stationDistanceToSegment(
-  station: VorStation,
+export function pointDistanceToSegmentNm(
+  point: VorRoutePoint,
   start: VorRoutePoint,
   end: VorRoutePoint,
 ): number {
@@ -198,17 +198,17 @@ function stationDistanceToSegment(
     end.latitude_deg,
     end.longitude_deg,
   );
-  const startToStation = wgs84Inverse(
+  const startToPoint = wgs84Inverse(
     start.latitude_deg,
     start.longitude_deg,
-    station.latitude_deg,
-    station.longitude_deg,
+    point.latitude_deg,
+    point.longitude_deg,
   );
-  if (startToEnd.distanceNm < 1e-9) return startToStation.distanceNm;
+  if (startToEnd.distanceNm < 1e-9) return startToPoint.distanceNm;
 
-  const angularDistance = startToStation.distanceNm / MEAN_EARTH_RADIUS_NM;
+  const angularDistance = startToPoint.distanceNm / MEAN_EARTH_RADIUS_NM;
   const bearingDelta = (
-    startToStation.initialTrueBearingDeg - startToEnd.initialTrueBearingDeg
+    startToPoint.initialTrueBearingDeg - startToEnd.initialTrueBearingDeg
   ) * Math.PI / 180;
   const crossTrackArgument = Math.sin(angularDistance) * Math.sin(bearingDelta);
   const crossTrackAngle = Math.asin(Math.max(-1, Math.min(1, crossTrackArgument)));
@@ -220,7 +220,23 @@ function stationDistanceToSegment(
   if (alongTrackAngle >= 0 && alongTrackAngle <= segmentAngularLength) {
     return Math.abs(crossTrackAngle) * MEAN_EARTH_RADIUS_NM;
   }
-  return Math.min(startToStation.distanceNm, stationDistanceToPoint(station, end));
+  return Math.min(
+    startToPoint.distanceNm,
+    wgs84Inverse(
+      point.latitude_deg,
+      point.longitude_deg,
+      end.latitude_deg,
+      end.longitude_deg,
+    ).distanceNm,
+  );
+}
+
+function stationDistanceToSegment(
+  station: VorStation,
+  start: VorRoutePoint,
+  end: VorRoutePoint,
+): number {
+  return pointDistanceToSegmentNm(station, start, end);
 }
 
 function stationDistanceToRoute(station: VorStation, route: VorRoutePoint[]): number {
