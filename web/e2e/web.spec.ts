@@ -1497,6 +1497,15 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   const firstParent = page.locator(".nav-log-table .nav-leg-heading-row").first();
   const vorSelect = page.getByLabel("VOR基準局");
   await expect(vorSelect.locator("option")).toHaveCount(32);
+  const orderedVorIdentifiers = await vorSelect.locator("option").evaluateAll((options) => (
+    options.slice(1).map((option) => (option as HTMLOptionElement).value)
+  ));
+  expect(orderedVorIdentifiers.slice(0, 7)).toEqual([
+    "MZE", "TFE", "KGE", "HKC", "KUE", "SWE", "UBE",
+  ]);
+  expect(orderedVorIdentifiers.slice(7)).toEqual(
+    [...orderedVorIdentifiers.slice(7)].sort((left, right) => left.localeCompare(right)),
+  );
   await expect(vorSelect).toHaveValue("__AUTO__");
   await expect(vorSelect.locator("option:checked")).toHaveText("自動 MZE");
   const automaticVorText = await firstParent.locator("td").nth(0).textContent();
@@ -1594,16 +1603,19 @@ test("VOR/DME reference columns can be added, configured independently, and remo
 
   await expect(page.getByLabel(/^VOR基準局/)).toHaveCount(2);
   await expect(firstRow.locator(".vor-reference-cell")).toHaveCount(2);
-  const secondVor = page.getByLabel("VOR基準局 2");
-  await expect(secondVor).toHaveValue("");
-  await expect(firstRow.locator(".vor-reference-cell").nth(1)).toHaveText("—");
+  const addedVor = page.getByLabel("VOR基準局", { exact: true });
+  const originalVor = page.getByLabel("VOR基準局 2");
+  await expect(addedVor).toHaveValue("");
+  await expect(originalVor).toHaveValue("__AUTO__");
+  await expect(firstRow.locator(".vor-reference-cell").nth(0)).toHaveText("—");
+  await expect(firstRow.locator(".vor-reference-cell").nth(1)).toHaveText("105 / 0.6");
 
-  await secondVor.selectOption("HKC");
-  await expect(firstRow.locator(".vor-reference-cell").nth(1)).toHaveText(
+  await addedVor.selectOption("HKC");
+  await expect(firstRow.locator(".vor-reference-cell").nth(0)).toHaveText(
     /^\d{3} \/ \d+\.\d$/,
   );
-  expect(await firstRow.locator(".vor-reference-cell").nth(1).textContent()).not.toBe(
-    await firstRow.locator(".vor-reference-cell").nth(0).textContent(),
+  expect(await firstRow.locator(".vor-reference-cell").nth(0).textContent()).not.toBe(
+    await firstRow.locator(".vor-reference-cell").nth(1).textContent(),
   );
   await expect(firstRow.locator(".route-from-cell")).toHaveText("RJFM");
   expect((await table.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(initialWidth + 95);
@@ -1619,8 +1631,9 @@ test("VOR/DME reference columns can be added, configured independently, and remo
     await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
   ).toBeLessThanOrEqual(1);
 
-  await page.getByRole("button", { name: "VOR/DME 2列目を削除" }).click();
+  await page.getByRole("button", { name: "VOR/DME 1列目を削除" }).click();
   await expect(page.getByLabel(/^VOR基準局/)).toHaveCount(1);
+  await expect(page.getByLabel("VOR基準局", { exact: true })).toHaveValue("__AUTO__");
   await expect(firstRow.locator(".vor-reference-cell")).toHaveCount(1);
   await expect(page.getByRole("button", { name: /VOR\/DME .*列目を削除/ })).toHaveCount(0);
 });

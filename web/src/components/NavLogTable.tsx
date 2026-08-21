@@ -5,6 +5,7 @@ import {
   DEFAULT_VOR_STATION,
   formatVorRadialDistance,
   nearestVorStation,
+  orderVorStationsForRoute,
   VOR_AUTO_SELECTION,
   VOR_DATASET_EFFECTIVE_CYCLE,
   VOR_STATIONS,
@@ -632,14 +633,18 @@ export function NavLogTable({
   const navLogColumnCount = 19 + vorColumns.length;
   const navLogWidth = BASE_NAV_LOG_WIDTH_PX
     + (vorColumns.length - 1) * VOR_COLUMN_WIDTH_PX;
+  const orderedVorStations = useMemo(() => {
+    const route = [...project.route_nodes].sort((left, right) => left.sequence - right.sequence);
+    return orderVorStationsForRoute(route);
+  }, [project.route_nodes]);
 
   const addVorColumn = () => {
     setVorColumns((current) => [
-      ...current,
       {
         id: current.reduce((maxId, column) => Math.max(maxId, column.id), -1) + 1,
         stationIdentifier: "",
       },
+      ...current,
     ]);
   };
   const removeVorColumn = (columnId: number) => {
@@ -732,7 +737,7 @@ export function NavLogTable({
                     <option value={VOR_AUTO_SELECTION}>
                       {`自動 ${automaticVorStation.identifier}`}
                     </option>
-                    {VOR_STATIONS.map((station) => (
+                    {orderedVorStations.map((station) => (
                       <option key={station.identifier} value={station.identifier}>
                         {`${station.identifier} — ${station.name} (${station.type})`}
                       </option>
