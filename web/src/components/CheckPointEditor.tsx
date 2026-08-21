@@ -112,6 +112,9 @@ export function CheckPointEditor({
     Number.isFinite(longitude) &&
     longitude >= -180 &&
     longitude <= 180;
+  const submitLabel = draft.id
+    ? saving ? "保存中…" : "保存"
+    : saving ? "追加中…" : "追加";
 
   const save = async () => {
     if (!draftValid) return;
@@ -145,6 +148,7 @@ export function CheckPointEditor({
         <button
           className="secondary-button checkpoint-add-button"
           type="button"
+          aria-label="チェックポイントを追加"
           onClick={() => {
             setDraft(initialDraft(sections));
             setEditorOpen(true);
@@ -235,7 +239,7 @@ export function CheckPointEditor({
               disabled={!draftValid || saving || busy}
               onClick={() => void save()}
             >
-              {saving ? "保存中…" : "保存"}
+              {submitLabel}
             </button>
           </div>
         </div>
