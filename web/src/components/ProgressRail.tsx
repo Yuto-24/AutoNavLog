@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
 
-const steps = ["経路", "飛行計画", "確認・出力"] as const;
+const steps = ["経路", "飛行計画", "確認・計算"] as const;
 
 export function ProgressRail({ activeStep }: { activeStep: number }) {
   return (

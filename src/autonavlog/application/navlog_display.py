@@ -7,6 +7,7 @@ from re import sub
 from typing import Any
 from uuid import UUID
 
+from autonavlog.application.vertical_profile import descent_profile_from_metadata
 from autonavlog.domain.calculation import (
     NavLogDisplayCell,
     NavLogDisplayRow,
@@ -173,57 +174,31 @@ def _wind(
     )
 
 
-def _summed(
-    values: list[AdoptedValue[float]],
-    formatter: Callable[[float], str],
-    *,
-    fallback_reason: str,
-) -> tuple[NavLogDisplayCell, float | None]:
-    adopted = [value.adopted() for value in values]
-    if any(value is None for value in adopted):
-        return _unavailable(fallback_reason), None
-    total = sum(value for value in adopted if value is not None)
-    return (
-        _display(
-            formatter(total),
-            total,
-            manual=any(value.adopted_source == AdoptedSource.MANUAL for value in values),
-        ),
-        total,
-    )
-
-
 def _summed_combined(
     values: list[AdoptedValue[float]],
     cumulative: AdoptedValue[float],
     formatter: Callable[[float], str],
     *,
     fallback_reason: str,
-) -> tuple[NavLogDisplayCell, float | None, float | None]:
-    primary, total = _summed(
-        values,
-        formatter,
-        fallback_reason=fallback_reason,
-    )
+) -> NavLogDisplayCell:
+    adopted = [value.adopted() for value in values]
     cumulative_value = cumulative.adopted()
-    if total is None:
-        return primary, None, cumulative_value
+    if any(value is None for value in adopted):
+        return _unavailable(fallback_reason)
     if cumulative_value is None:
-        return _unavailable(_reason(cumulative, fallback_reason)), total, None
-    return (
-        _display(
-            f"{formatter(total)} / {formatter(cumulative_value)}",
-            f"{total}/{cumulative_value}",
-            manual=(
-                primary.manual or cumulative.adopted_source == AdoptedSource.MANUAL
-            ),
+        return _unavailable(_reason(cumulative, fallback_reason))
+    total = sum(value for value in adopted if value is not None)
+    return _display(
+        f"{formatter(total)} / {formatter(cumulative_value)}",
+        f"{total}/{cumulative_value}",
+        manual=(
+            any(value.adopted_source == AdoptedSource.MANUAL for value in values)
+            or cumulative.adopted_source == AdoptedSource.MANUAL
         ),
-        total,
-        cumulative_value,
     )
 
 
-def _summed_transcription_combined(
+def _display_rounded_combined(
     values: list[AdoptedValue[float]],
     cumulative: AdoptedValue[float],
     formatter: Callable[[float], str],
@@ -232,28 +207,22 @@ def _summed_transcription_combined(
     unit_scale: float,
     prior_display_cumulative: float | None,
     fallback_reason: str,
-) -> tuple[NavLogDisplayCell, float | None, float | None, float | None]:
+) -> tuple[NavLogDisplayCell, float | None]:
     """Build a parent ZONE/CUM cell from the values visible in child rows.
 
-    Exact totals remain available separately for calculation/audit.  The rendered
-    parent uses each child value after the same transcription rounding applied to
-    the child row, so visible arithmetic remains self-consistent.
+    Authoritative exact totals remain in ``CalculationOutcome.sections``. The
+    parent uses each child after display rounding so visible arithmetic stays
+    self-consistent.
     """
 
     adopted = [value.adopted() for value in values]
     cumulative_value = cumulative.adopted()
     if any(value is None for value in adopted):
-        return _unavailable(fallback_reason), None, cumulative_value, None
-    exact_total = sum(value for value in adopted if value is not None)
+        return _unavailable(fallback_reason), None
     if cumulative_value is None:
-        return (
-            _unavailable(_reason(cumulative, fallback_reason)),
-            exact_total,
-            None,
-            None,
-        )
+        return _unavailable(_reason(cumulative, fallback_reason)), None
     if prior_display_cumulative is None:
-        return _unavailable(fallback_reason), exact_total, cumulative_value, None
+        return _unavailable(fallback_reason), None
 
     display_total = sum(
         round_half_up(value / unit_scale, quantum) * unit_scale
@@ -270,8 +239,6 @@ def _summed_transcription_combined(
                 or cumulative.adopted_source == AdoptedSource.MANUAL
             ),
         ),
-        exact_total,
-        cumulative_value,
         display_cumulative,
     )
 
@@ -449,24 +416,9 @@ def _estimated_descent_altitudes(
         if zone_seconds is None:
             continue
         elapsed_seconds += zone_seconds
-        metadata = section.performance_metadata
-        cruise = metadata.get("cruise_altitude_ft_msl")
-        target = metadata.get("target_altitude_ft_msl")
-        addition = metadata.get("operational_addition_seconds", 60.0)
-        if not isinstance(cruise, (int, float)) or isinstance(cruise, bool):
-            continue
-        if not isinstance(target, (int, float)) or isinstance(target, bool):
-            continue
-        operational_seconds = (
-            float(addition)
-            if isinstance(addition, (int, float)) and not isinstance(addition, bool)
-            else 60.0
-        )
-        vertical_seconds = max(0.0, elapsed_seconds - operational_seconds)
-        estimates[section.sequence] = max(
-            float(target),
-            float(cruise) - vertical_seconds / 60.0 * 500.0,
-        )
+        profile = descent_profile_from_metadata(section.performance_metadata)
+        if profile is not None:
+            estimates[section.sequence] = profile.altitude_at_elapsed(elapsed_seconds)
     return estimates
 
 
@@ -577,12 +529,7 @@ def build_navlog_display_rows(
             and leg.phase == FlightPhase.VISUAL_ARRIVAL
         )
 
-        (
-            distance_cell,
-            distance_total,
-            cumulative_distance,
-            display_cumulative_distance_nm,
-        ) = _summed_transcription_combined(
+        distance_cell, display_cumulative_distance_nm = _display_rounded_combined(
             [zone.zone_distance_nm for zone in zones],
             last.cumulative_distance_nm,
             _distance,
@@ -591,12 +538,7 @@ def build_navlog_display_rows(
             prior_display_cumulative=display_cumulative_distance_nm,
             fallback_reason="DISPLAY_DISTANCE_SUBTOTAL_UNAVAILABLE",
         )
-        (
-            ete_cell,
-            ete_total,
-            cumulative_ete,
-            display_cumulative_ete_seconds,
-        ) = _summed_transcription_combined(
+        ete_cell, display_cumulative_ete_seconds = _display_rounded_combined(
             [zone.zone_ete_seconds for zone in zones],
             last.cumulative_ete_seconds,
             _duration,
@@ -605,7 +547,7 @@ def build_navlog_display_rows(
             prior_display_cumulative=display_cumulative_ete_seconds,
             fallback_reason="DISPLAY_ETE_SUBTOTAL_UNAVAILABLE",
         )
-        fuel_cell, _fuel_total, _remaining = _summed_combined(
+        fuel_cell = _summed_combined(
             [zone.section_fuel_gal for zone in zones],
             last.remaining_fuel_gal,
             _fuel,
@@ -676,7 +618,6 @@ def build_navlog_display_rows(
                 source_result_sequence=first.sequence,
                 phase=first.phase,
                 row_type="PHYSICAL_LEG_SUMMARY",
-                counts_toward_totals=False,
                 from_name=leg.start_name,
                 to_name=leg.end_name,
                 from_latitude_deg=first.from_latitude_deg,
@@ -699,10 +640,6 @@ def build_navlog_display_rows(
                 ato=_blank(),
                 ate=_blank(),
                 fuel=fuel_cell,
-                zone_distance_nm_exact=distance_total,
-                cumulative_distance_nm_exact=cumulative_distance,
-                zone_ete_seconds_exact=ete_total,
-                cumulative_ete_seconds_exact=cumulative_ete,
             )
         )
 
@@ -765,8 +702,6 @@ def build_navlog_display_rows(
                     and _same_effective(candidates["gs"], parent_gs_context)
                     else candidates["gs"]
                 )
-                zone_distance = zone.zone_distance_nm.adopted()
-                zone_ete = zone.zone_ete_seconds.adopted()
                 append(
                     NavLogDisplayRow(
                         section_id=zone.section_id,
@@ -774,7 +709,6 @@ def build_navlog_display_rows(
                         source_result_sequence=zone.sequence,
                         phase=zone.phase,
                         row_type="CALCULATION_ZONE",
-                        counts_toward_totals=True,
                         from_name="",
                         to_name=_strip_checkpoint_prefix(zone.to_name),
                         from_latitude_deg=zone.from_latitude_deg,
@@ -809,8 +743,6 @@ def build_navlog_display_rows(
                             _fuel,
                             fallback_reason="SECTION_FUEL_UNAVAILABLE",
                         ),
-                        zone_distance_nm_exact=zone_distance,
-                        zone_ete_seconds_exact=zone_ete,
                     )
                 )
 
@@ -823,7 +755,6 @@ def build_navlog_display_rows(
                     sequence=0,
                     phase=FlightPhase.VISUAL_ARRIVAL,
                     row_type="DESTINATION_INFO",
-                    counts_toward_totals=False,
                     from_name="",
                     to_name=destination.icao,
                     pa_display_kind=PressureAltitudeDisplayKind.NUMERIC,
@@ -855,7 +786,6 @@ def build_navlog_display_rows(
                 sequence=0,
                 phase=leg.phase,
                 row_type="LEG_SEPARATOR",
-                counts_toward_totals=False,
                 pa_display_kind=PressureAltitudeDisplayKind.BLANK,
                 pa=_blank(),
                 toat=_blank(),

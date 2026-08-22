@@ -776,7 +776,7 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect(calculationProgress).toBeVisible();
   await expect(calculateButton).toHaveText("NAV LOGを計算中…");
   releaseCalculationRequest();
-  await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
+  await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused({ timeout: 30_000 });
   await expect(calculationProgress).toBeHidden();
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
   await expect(
@@ -871,7 +871,7 @@ test("GSI live tile Polygon contract fails closed on payload drift", () => {
   }
 });
 
-test("desktop workflow renders and stays fail-closed", async ({ page }) => {
+test("desktop workflow renders without the removed A4 output", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -897,7 +897,6 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
     paddingLeft: "0px",
     paddingRight: "0px",
   });
-  await expect(page.getByText("開発用固定気象（出力不可）", { exact: true })).toBeVisible();
   await expect(page.getByLabel("TO")).toHaveValue("");
   await expect(page.getByLabel("RUN UP あり")).toBeChecked();
   await expect(page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)")).not.toBeChecked();
@@ -916,10 +915,7 @@ test("desktop workflow renders and stays fail-closed", async ({ page }) => {
   await expect(
     page.getByText("PATTERN_ALTITUDE_REQUIRED", { exact: true }),
   ).toHaveCount(0);
-  await expect(
-    page.getByText("DEVELOPMENT_WEATHER_PROVIDER", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: "A4転記補助HTMLを出力" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "A4転記補助HTMLを出力" })).toHaveCount(0);
   await page.screenshot({
     path: path.join(repositoryRoot, "docs/web-design/implementation-calculated.png"),
     fullPage: true,
@@ -1015,8 +1011,15 @@ test("mobile route confirmation follows the map without scrolling back", async (
 });
 
 test("responsive workflow keeps a one-way order at intermediate width", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
+  await expect(page).toHaveTitle(/AutoNavLog/);
+  await expect(page.locator("body")).not.toBeEmpty();
+  await expect(
+    page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
+  ).toHaveCount(0);
   await calculateNavLog(page);
   await reloadWithCurrentRjfmGuidance(page);
 
@@ -1107,6 +1110,7 @@ test("responsive workflow keeps a one-way order at intermediate width", async ({
   expect(wideEndpoints[1]!.x + wideEndpoints[1]!.width).toBeLessThanOrEqual(
     wide[0]!.x + wide[0]!.width,
   );
+  expect(pageErrors).toEqual([]);
 });
 
 test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays editable", async ({ page }) => {

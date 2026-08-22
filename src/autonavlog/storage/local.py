@@ -8,10 +8,7 @@ from threading import RLock
 from typing import Any
 from uuid import UUID, uuid4
 
-from autonavlog.domain.enums import AdoptedSource
-from autonavlog.domain.planning import ARRIVAL_ALTITUDE_RULE_VERSION
 from autonavlog.domain.project import Project
-from autonavlog.domain.snapshot import CalculationSnapshot
 
 from .repository import ProjectIndex, ProjectSummary, SaveResult
 from .safe_json import (
@@ -27,47 +24,6 @@ class RevisionConflictError(RuntimeError):
     def __init__(self, message: str, conflict_copy: Path):
         super().__init__(message)
         self.conflict_copy = conflict_copy
-
-
-def _migrate_v3_arrival_snapshot(payload: Any) -> tuple[Any, bool]:
-    if not isinstance(payload, dict):
-        return payload, False
-    calculation_results = payload.get("calculation_results")
-    if not isinstance(calculation_results, dict):
-        return payload, False
-    arrival = calculation_results.get("arrival_altitude")
-    if not isinstance(arrival, dict):
-        return payload, False
-    if arrival.get("rule_version") != "CAC_REV19_8_4_9_V3":
-        return payload, False
-
-    selected_pattern = arrival.get("derived_pattern_altitude_ft_msl")
-    master_pattern = arrival.get("pattern_altitude_ft_msl")
-    if (
-        isinstance(selected_pattern, bool)
-        or not isinstance(selected_pattern, int)
-        or isinstance(master_pattern, bool)
-        or not isinstance(master_pattern, (int, float))
-    ):
-        return payload, False
-    selected_source = (
-        AdoptedSource.AUTOMATIC if selected_pattern == master_pattern else AdoptedSource.MANUAL
-    )
-    arrival["selected_pattern_altitude_ft_msl"] = selected_pattern
-    arrival["selected_pattern_altitude_source"] = selected_source.value
-    arrival["rule_version"] = ARRIVAL_ALTITUDE_RULE_VERSION
-
-    input_data = payload.get("input_data")
-    if isinstance(input_data, dict):
-        metadata = input_data.get("metadata")
-        if isinstance(metadata, dict):
-            ui_state = metadata.get("ui_state")
-            if isinstance(ui_state, dict):
-                arrival_plan = ui_state.get("arrival_plan")
-                if isinstance(arrival_plan, dict):
-                    arrival_plan["selected_pattern_altitude_ft_msl"] = selected_pattern
-                    arrival_plan["selected_pattern_altitude_source"] = selected_source.value
-    return payload, True
 
 
 def _normalize_legacy_wind_directions(project_payload: dict[str, Any]) -> bool:
@@ -102,8 +58,8 @@ def _migrate_project_payload(payload: Any) -> tuple[Any, bool]:
     migrated = False
     if payload.pop("manual_qnh_hpa", None) is not None:
         migrated = True
-    if payload.get("schema_version") != 2:
-        payload["schema_version"] = 2
+    if payload.get("schema_version") != 3:
+        payload["schema_version"] = 3
         migrated = True
     for field in ("run_up_included", "air_conditioning_enabled"):
         if field not in payload:
@@ -114,10 +70,31 @@ def _migrate_project_payload(payload: Any) -> tuple[Any, bool]:
         migrated = True
     metadata = payload.get("metadata")
     if isinstance(metadata, dict):
+        if "snapshot_effective_issues" in metadata:
+            metadata.pop("snapshot_effective_issues", None)
+            migrated = True
         ui_state = metadata.get("ui_state")
         if isinstance(ui_state, dict) and "manual_qnh_fingerprint" in ui_state:
             ui_state.pop("manual_qnh_fingerprint", None)
             migrated = True
+    for collection, obsolete_fields in (
+        ("route_nodes", ("project_id",)),
+        ("visual_references", ("project_id", "along_track_fraction")),
+        (
+            "sections",
+            ("project_id", "safe_enroute_altitude_ft_msl", "loss_time_seconds", "notes"),
+        ),
+    ):
+        values = payload.get(collection)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            for field in obsolete_fields:
+                if field in value:
+                    value.pop(field, None)
+                    migrated = True
     return payload, _normalize_legacy_wind_directions(payload) or migrated
 
 
@@ -132,32 +109,6 @@ def _read_migrated_project(path: Path) -> Project:
     except (TypeError, ValueError) as error:
         raise JsonStorageError("cannot migrate legacy project JSON") from error
     return validate_json_bytes((serialized + "\n").encode("utf-8"), Project)
-
-
-def _migrate_qnh_snapshot(payload: Any) -> tuple[Any, bool]:
-    if not isinstance(payload, dict):
-        return payload, False
-    migrated = False
-    input_data = payload.get("input_data")
-    if isinstance(input_data, dict):
-        _, changed = _migrate_project_payload(input_data)
-        migrated = migrated or changed
-    calculation_results = payload.get("calculation_results")
-    if isinstance(calculation_results, dict) and "qnh_hpa" in calculation_results:
-        calculation_results.pop("qnh_hpa", None)
-        migrated = True
-    for field in ("weather_requests", "weather_results"):
-        values = payload.get(field)
-        if isinstance(values, list):
-            retained = [
-                item
-                for item in values
-                if not isinstance(item, dict) or item.get("kind") != "ESTIMATED_QNH"
-            ]
-            if len(retained) != len(values):
-                payload[field] = retained
-                migrated = True
-    return payload, migrated
 
 
 class LocalProjectRepository:
@@ -292,42 +243,9 @@ class LocalProjectRepository:
             if not (project_dir / "project.json").exists():
                 raise FileNotFoundError(f"project not found: {project_id}")
             shutil.rmtree(project_dir)
-            snapshot_dir = self.root / "snapshots" / str(project_id)
-            if snapshot_dir.exists():
-                shutil.rmtree(snapshot_dir)
             projects = [
                 summary
                 for summary in self._read_or_rebuild_index()
                 if summary.id != project_id
             ]
             self._write_index(self._sort_summaries(projects))
-
-    def create_snapshot(self, snapshot: CalculationSnapshot) -> Path:
-        path = self.root / "snapshots" / str(snapshot.project_id) / f"{snapshot.id}.json"
-        if path.exists():
-            raise FileExistsError("snapshots are immutable")
-        atomic_model_write(path, snapshot, keep_backup=False)
-        return path
-
-    def load_snapshot(self, project_id: UUID, snapshot_id: UUID) -> CalculationSnapshot:
-        path = self.root / "snapshots" / str(project_id) / f"{snapshot_id}.json"
-        try:
-            raw = path.read_bytes()
-        except OSError as error:
-            raise JsonStorageError(f"cannot read JSON file: {path}") from error
-        payload = parse_json_bytes(raw)
-        payload, migrated = _migrate_v3_arrival_snapshot(payload)
-        payload, qnh_migrated = _migrate_qnh_snapshot(payload)
-        migrated = migrated or qnh_migrated
-        if migrated:
-            try:
-                serialized = json.dumps(
-                    payload, ensure_ascii=False, sort_keys=True, allow_nan=False
-                )
-            except (TypeError, ValueError) as error:
-                raise JsonStorageError("cannot migrate legacy snapshot JSON") from error
-            raw = (serialized + "\n").encode("utf-8")
-        snapshot = validate_json_bytes(raw, CalculationSnapshot)
-        if snapshot.project_id != project_id or snapshot.id != snapshot_id:
-            raise JsonStorageError("snapshot identity does not match its storage path")
-        return snapshot

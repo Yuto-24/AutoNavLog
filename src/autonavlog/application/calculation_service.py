@@ -12,7 +12,6 @@ from autonavlog.domain.calculation import (
     DerivedRoutePoint,
     FuelPlan,
     Issue,
-    IterationRecord,
     NavLogDisplayRow,
     SectionResult,
 )
@@ -264,13 +263,6 @@ class CalculationService:
         project: Project,
         issues: list[Issue],
     ) -> tuple[PersistedUiState | None, ArrivalAltitudeResult | None]:
-        if "snapshot_effective_issues" in project.metadata:
-            issues.append(
-                self._blocker(
-                    "PROJECT_STATE_INVALID",
-                    "編集可能ProjectにSnapshot専用状態が含まれています。",
-                )
-            )
         raw_state = project.metadata.get("ui_state")
         if raw_state is None:
             return None, None
@@ -475,7 +467,6 @@ class CalculationService:
 
         previous_times: dict[str, datetime] = {}
         previous_arrival_time_utc: datetime | None = None
-        iteration_records: list[IterationRecord] = []
         final: _IterationResult | None = None
         final_weather_requests: list[WeatherRequest] = []
         final_weather_results: list[WeatherResult] = []
@@ -529,13 +520,6 @@ class CalculationService:
                 if value is not None
             ]
             delta = max(deltas) if deltas else None
-            iteration_records.append(
-                IterationRecord(
-                    iteration=iteration,
-                    max_time_delta_seconds=delta,
-                    representative_times_utc=iteration_result.representative_times,
-                )
-            )
             if previous_times and delta is not None and delta < self.policies.convergence_seconds:
                 converged = True
                 break
@@ -549,12 +533,7 @@ class CalculationService:
                 check_point_projections,
                 arrival_altitude,
             )
-            return outcome.model_copy(
-                update={
-                    "selected_forecast_run_id": selected_run_id,
-                    "iterations": iteration_records,
-                }
-            )
+            return outcome.model_copy(update={"selected_forecast_run_id": selected_run_id})
 
         if final.arrival_time_utc is not None:
             destination_request = next(
@@ -659,7 +638,6 @@ class CalculationService:
             arrival_altitude=arrival_altitude,
             fuel_plan=fuel_plan,
             issues=issues,
-            iterations=iteration_records,
             converged=converged,
             status=project_status,
             policy_version=self.policies.version,
@@ -1395,7 +1373,7 @@ class CalculationService:
             )
             return None
 
-        # Miyazaki NAV2: vertical descent time plus one operational minute.
+        # Miyazaki NAV2: descend, level off, then decelerate for one minute.
         vertical_descent_duration_seconds = altitude_difference / 500.0 * 60.0
         duration_seconds = vertical_descent_duration_seconds + 60.0
         common_environment = descent_environment.for_phase(FlightPhase.DESCENT)
@@ -1494,7 +1472,8 @@ class CalculationService:
                 "cruise_altitude_ft_msl": cruise_altitude,
                 "planned_duration_seconds": duration_seconds,
                 "vertical_descent_duration_seconds": vertical_descent_duration_seconds,
-                "operational_addition_seconds": 60.0,
+                "deceleration_duration_seconds": 60.0,
+                "phase_profile_rule": "DESCEND_LEVEL_OFF_DECELERATE_V1",
                 "eoc_source_section_id": str(geometries[eoc_leg_index].section.id),
                 "cruise_cas_kt": cruise_cas,
                 "fuel_flow_gph": 12.0,
@@ -1621,7 +1600,6 @@ class CalculationService:
     @staticmethod
     def _derived_points_from_segmentation(
         segmentation: PhaseSegmentation,
-        boundary_times: dict[float, datetime],
     ) -> list[DerivedRoutePoint]:
         points: list[DerivedRoutePoint] = []
         if segmentation.rca_point is not None:
@@ -1642,9 +1620,6 @@ class CalculationService:
                         latitude_deg=segmentation.rca_point.latitude_deg,
                         longitude_deg=segmentation.rca_point.longitude_deg,
                         along_route_distance_nm=(segmentation.rca_point.along_route_distance_nm),
-                        estimated_time_utc=boundary_times.get(
-                            segmentation.rca_point.along_route_distance_nm
-                        ),
                     )
                 )
         if segmentation.eoc_point is not None:
@@ -1667,9 +1642,6 @@ class CalculationService:
                         latitude_deg=segmentation.eoc_point.latitude_deg,
                         longitude_deg=segmentation.eoc_point.longitude_deg,
                         along_route_distance_nm=(segmentation.eoc_point.along_route_distance_nm),
-                        estimated_time_utc=boundary_times.get(
-                            segmentation.eoc_point.along_route_distance_nm
-                        ),
                     )
                 )
         return points
@@ -1799,7 +1771,6 @@ class CalculationService:
         cumulative_distance = 0.0
         cumulative_seconds: float | None = 0.0
         departure_utc = project.planned_departure_time_jst.astimezone(timezone.utc)
-        boundary_times: dict[float, datetime] = {0.0: departure_utc}
         source_time_bounds: dict[str, tuple[float, float]] = {}
         climb_source = (
             next(
@@ -2207,9 +2178,6 @@ class CalculationService:
                     raise RuntimeError("determined route timing lost its segment start")
                 arrival_seconds = segment_start_seconds + ete_seconds
                 cumulative_seconds = arrival_seconds
-                boundary_times[segment.end_distance_nm] = departure_utc + timedelta(
-                    seconds=arrival_seconds
-                )
                 source_key = str(section.id)
                 previous_bounds = source_time_bounds.get(source_key)
                 source_time_bounds[source_key] = (
@@ -2248,7 +2216,6 @@ class CalculationService:
                 manual_wind_speed = None
                 wind_state = ValueState.AUTO if usable_destination_wind else ValueState.FIXED_RULE
 
-            has_derived_endpoint = bool(segment.start.markers or segment.end.markers)
             planned_altitude = (
                 arrival_altitude_ft_msl
                 if (
@@ -2269,11 +2236,6 @@ class CalculationService:
                     section_id=section.id,
                     sequence=len(sections),
                     phase=segment.phase,
-                    segment_label=(
-                        f"{segment.start.label}→{segment.end.label}"
-                        if has_derived_endpoint
-                        else None
-                    ),
                     from_name=segment.start.label,
                     to_name=segment.end.label,
                     from_latitude_deg=segment.start.latitude_deg,
@@ -2283,9 +2245,6 @@ class CalculationService:
                         ValueState.FIXED_RULE,
                         planned_altitude_metadata,
                     ),
-                    # DESIGN.md §0.2: compatibility-only; legacy SEA must stay unused.
-                    safe_enroute_altitude_ft_msl=_unavailable(),
-                    loss_time_seconds=0.0,
                     pressure_altitude_exact_ft=_automatic(exact_pa),
                     pressure_altitude_planning_ft=_automatic(
                         planning_pa,
@@ -2349,8 +2308,6 @@ class CalculationService:
                     cumulative_distance_nm=_automatic(cumulative_distance),
                     zone_ete_seconds=_automatic(ete_seconds),
                     cumulative_ete_seconds=_automatic(cumulative_seconds),
-                    # DESIGN.md §6.5: ETO needs an actual time check, not planned ETD.
-                    eto_utc=_unavailable(),
                     section_fuel_gal=_automatic(
                         section_fuel,
                         ValueState.PERFORMANCE_TABLE
@@ -2398,10 +2355,7 @@ class CalculationService:
             if cumulative_seconds is None
             else departure_utc + timedelta(seconds=cumulative_seconds)
         )
-        derived_points = self._derived_points_from_segmentation(
-            segmentation,
-            boundary_times,
-        )
+        derived_points = self._derived_points_from_segmentation(segmentation)
         if (
             climb_plan is not None
             and geometries

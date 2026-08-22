@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict
 
 from autonavlog.domain.enums import ProjectStatus
 from autonavlog.domain.project import Project
-from autonavlog.domain.snapshot import CalculationSnapshot
 
 
 class ProjectSummary(BaseModel):
@@ -48,7 +47,3 @@ class ProjectRepository(Protocol):
     def delete(self, project_id: UUID) -> None: ...
 
     def autosave(self, project: Project) -> Path: ...
-
-    def create_snapshot(self, snapshot: CalculationSnapshot) -> Path: ...
-
-    def load_snapshot(self, project_id: UUID, snapshot_id: UUID) -> CalculationSnapshot: ...

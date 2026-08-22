@@ -56,7 +56,6 @@ from autonavlog.importers.kml import (
 from autonavlog.nav.geodesy import geodesic_leg
 from autonavlog.nav.variation import variation_for_departure_latitude
 from autonavlog.performance.repository import PerformanceRepository
-from autonavlog.presentation.transfer_aid import render_transfer_aid_document
 from autonavlog.storage.airports import AirportRepository
 from autonavlog.storage.reference_data import (
     ReferenceCatalog,
@@ -600,7 +599,6 @@ class AutoNavLogWebApplication:
                 replacements.append(
                     VisualReference(
                         id=item.id if item.id is not None else None,
-                        project_id=working.id,
                         name=item.name,
                         latitude_deg=item.latitude_deg,
                         longitude_deg=item.longitude_deg,
@@ -610,7 +608,6 @@ class AutoNavLogWebApplication:
                     )
                     if item.id is not None
                     else VisualReference(
-                        project_id=working.id,
                         name=item.name,
                         latitude_deg=item.latitude_deg,
                         longitude_deg=item.longitude_deg,
@@ -856,8 +853,8 @@ class AutoNavLogWebApplication:
                         code="DEVELOPMENT_WEATHER_PROVIDER",
                         severity=IssueSeverity.BLOCKER,
                         message=(
-                            "開発用固定気象で計算しています。公開用の転記補助HTMLは"
-                            "実気象providerで再計算するまで出力できません。"
+                            "開発用固定気象で計算しています。実気象providerで再計算するまで"
+                            "運用用の計算結果として扱えません。"
                         ),
                     ),
                 ]
@@ -994,46 +991,6 @@ class AutoNavLogWebApplication:
             self._projects_changed(session)
             return self.present(session)
 
-    def create_snapshot(self, session: WebSession) -> str:
-        with session.lock:
-            if session.project is None or session.outcome is None:
-                raise WebApplicationError(
-                    "CALCULATION_REQUIRED",
-                    "計算後にSnapshotを作成してください。",
-                )
-            evaluation = self._evaluate(session)
-            path = self.project_service.snapshot(
-                session.project,
-                session.outcome,
-                session.calculation_service,
-                msm_package_version=getattr(session.weather_provider, "package_version", None),
-                effective_issues=evaluation.effective_issues,
-            )
-            return path.name
-
-    def transfer_aid_html(self, session: WebSession) -> tuple[str, str]:
-        with session.lock:
-            if session.project is None or session.outcome is None:
-                raise WebApplicationError(
-                    "CALCULATION_REQUIRED",
-                    "先にNAV LOGを計算してください。",
-                )
-            evaluation = self._evaluate(session)
-            if not evaluation.transfer_aid_allowed:
-                raise WebApplicationError(
-                    "TRANSFER_AID_BLOCKED",
-                    "未確定項目の解消・必要な確認・再計算後に出力できます。",
-                    status_code=409,
-                )
-            filename = f"AutoNavLog_transfer_aid_{session.project.id}.html"
-            return filename, render_transfer_aid_document(
-                session.project,
-                session.outcome,
-                effective_issues=evaluation.effective_issues,
-                calculation_is_current=evaluation.calculation_is_current,
-                editable=True,
-            )
-
     def present(self, session: WebSession) -> dict[str, Any]:
         with session.lock:
             return self._present_unlocked(session)
@@ -1148,9 +1105,6 @@ class AutoNavLogWebApplication:
                 "status": None if evaluation is None else evaluation.status.value,
                 "calculationIsCurrent": (
                     False if evaluation is None else evaluation.calculation_is_current
-                ),
-                "transferAidAllowed": (
-                    False if evaluation is None else evaluation.transfer_aid_allowed
                 ),
                 "workflowStep": self._workflow_step(session),
                 "nextAction": self._next_action(session, issues),
@@ -1624,7 +1578,6 @@ class AutoNavLogWebApplication:
         destination = self.reference_catalog.airports[destination_id]
         project.route_nodes = [
             RouteNode(
-                project_id=project.id,
                 sequence=index,
                 name=entry[0] or f"WP{index}",
                 latitude_deg=entry[1],
@@ -1660,7 +1613,6 @@ class AutoNavLogWebApplication:
             )
         project.sections = [
             NavSection(
-                project_id=project.id,
                 sequence=index,
                 from_node_id=start.id,
                 to_node_id=end.id,
@@ -1878,7 +1830,7 @@ class AutoNavLogWebApplication:
             return "確認事項を確認済みにしてください"
         if session.outcome is None:
             return "NAV LOGを計算してください"
-        return "A4転記補助HTMLを出力できます"
+        return "NAV LOGの計算結果を確認してください"
 
     @staticmethod
     def _departure_datetime(flight_date: Any, hhmm: str) -> datetime:

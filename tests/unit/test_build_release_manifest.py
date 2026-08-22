@@ -69,32 +69,6 @@ def _write_wheel(
         )
 
 
-def _write_notebook(path: Path) -> None:
-    path.write_text(
-        json.dumps(
-            {
-                "nbformat": 4,
-                "nbformat_minor": 5,
-                "metadata": {},
-                "cells": [
-                    {
-                        "cell_type": "code",
-                        "execution_count": None,
-                        "metadata": {},
-                        "outputs": [],
-                        "source": [
-                            'manifest_path = "release-manifest.json"\n',
-                            "from autonavlog.weather.msm_adapter import MsmWeatherProvider\n",
-                            "app.render()\n",
-                        ],
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-
 def _write_runtime_data(root: Path) -> tuple[int, int, int]:
     data_root = root / "data" / "autonavlog"
     write_reference_pack(data_root / "reference" / "default")
@@ -266,7 +240,6 @@ def _release_fixture(tmp_path: Path) -> Path:
         distribution="jma-msm-wind",
         version="0.2.1",
     )
-    _write_notebook(root / "AutoNavLog.ipynb")
     row_counts = _write_runtime_data(root)
     _write_acceptance_reports(
         root,
@@ -301,7 +274,6 @@ def test_manifest_accepts_complete_release_and_preserves_bootstrap_shape(
     assert manifest["acceptance"]["real_msm"]["mode"] == "LIVE"
     paths = {item["path"] for item in manifest["files"]}
     assert {
-        "AutoNavLog.ipynb",
         "wheels/autonavlog-1.1.0-py3-none-any.whl",
         "wheels/jma_msm_wind-0.2.1-py3-none-any.whl",
         "data/autonavlog/reference/default/reference-manifest.json",

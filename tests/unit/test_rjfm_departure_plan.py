@@ -80,8 +80,6 @@ def _project(points: list[tuple[str, float, float]]) -> Project:
             },
             manual_temperature_c=18,
             manual_tas_kt=145,
-            loss_time_seconds=60 if index == 1 else 0,
-            notes=f"leg-{index}",
         )
         for index, (start, end) in enumerate(zip(nodes, nodes[1:], strict=False))
     ]
@@ -128,9 +126,6 @@ def test_umk_trigger_inserts_omaru_once_and_preserves_remainder() -> None:
     ]
     assert [section.planned_altitude_ft_msl for section in sections[:2]] == [5500, 5500]
     assert sections[1].manual_tas_kt == 145
-    assert sections[1].notes == "leg-1"
-    assert sections[1].loss_time_seconds == 0
-    assert sections[2].loss_time_seconds == 60
 
     first_ids = [node.id for node in project.ordered_nodes()]
     apply_rjfm_departure_exception(project, _references())

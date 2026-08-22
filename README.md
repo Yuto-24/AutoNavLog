@@ -1,14 +1,14 @@
 # AutoNavLog
 
 AutoNavLog は、航空大学校の宮崎課程 NAV2 で使う航法 LOG の地上準備を支援する、
-SR22 G6 向けの Web アプリです。KML または KMZ の経路を読み込み、NAV LOG の計算結果と
-A4 横の転記補助表を作ります。
+SR22 G6 向けの Web アプリです。KML または KMZ の経路を読み込み、NAV LOG の計算結果を
+Web 画面に表示します。
 
-出力は非公式の補助資料です。運航資料、完成帳票、別添 8-1 の原本としては使えません。
-利用者が根拠と警告を確認し、公式様式へ手書きで転記してください。航空大学校の公式様式や
-計算規則への準拠は主張していません。
+表示内容は非公式の地上準備資料です。運航資料、完成帳票、別添 8-1 の原本としては使えません。
+利用者が根拠と警告を確認してください。航空大学校の公式様式や計算規則への準拠は
+主張していません。
 
-- 現在のバージョン: `1.3.2`
+- 現在のバージョン: `1.4.0`
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
@@ -19,10 +19,9 @@ A4 横の転記補助表を作ります。
 - 飛行計画、性能、MSM の風と気温から NAV LOG を計算する
 - 計算結果、警告、確認事項を Web 画面で見る
 - Project と気象キャッシュを保存する
-- 公式様式へ書き写すための A4 横 HTML を出力する
 
-SEA、DEM、陸域マスクは現在の計算対象に含めていません。既存 Project を読み込むために
-SEA 関連の項目は残していますが、計算、画面表示、出力可否の判定には使いません。
+SEA、DEM、陸域マスクは現在の計算対象に含めていません。旧 Project に残る SEA 関連の項目は
+schema v3 への読込時に破棄します。
 
 ## 経路を取り込む
 
@@ -56,9 +55,22 @@ LineStringがないPoint-only KMLでは従来のPoint候補を利用できます
 - MSM の取得先と AviationWeather.gov へ接続できるネットワーク
 - 外部公開時は Cloudflare Tunnel と Cloudflare Access
 
-## 起動
+## 設定ファイル
 
-リポジトリのルートで実行します。
+- `compose.yaml`: 標準の Web + MSM 構成
+- `compose.wsl.yaml`: WSL mirrored networking 用 override
+- `.env`: 接続先ごとの環境変数。秘密情報を Git へ追加しないでください
+
+操作対象を明確にするため、以降の例では checkout を変数にします。
+
+```bash
+REPO_DIR=/path/to/AutoNavLog
+cd "$REPO_DIR"
+```
+
+## 起動方法
+
+`REPO_DIR` へ移動して実行します。
 
 ```bash
 AUTONAVLOG_TRUSTED_LOCAL_IDENTITY=local-user docker compose up -d --build
@@ -167,12 +179,12 @@ RJFMのMAPには宮崎特別管制区（PCA）の水平境界と9 km中心除外
 
 同梱している RJFM/RJFO の場周経路高度は、一次資料による出典確認が終わっていないため
 `UNVERIFIED` です。経路の取込、入力確認、下書き保存はできますが、
-`PATTERN_ALTITUDE_REQUIRED` が転記補助表の出力を止めます。
+`PATTERN_ALTITUDE_REQUIRED` が NAV LOG の計算完了を止めます。
 
 性能データの収録範囲と検証結果は[データ来歴](docs/data_provenance.md)、計算時の丸めや補間は
 [計算規則](docs/calculation_rules.md)に記録しています。
 
-## 更新
+## 更新作業手順
 
 Project と気象キャッシュは named volume にあるため、次の手順では削除されません。
 
@@ -241,13 +253,12 @@ pytest
 ruff check .
 mypy src/autonavlog
 python scripts/validate_performance_data.py data/performance
-python scripts/validate_notebook.py notebooks/AutoNavLog.ipynb
 python scripts/export_schemas.py --check
 npm --prefix web run build
 npm --prefix web run test:e2e
 ```
 
-リリース時は `1.3.2` が次の場所で一致していることを確認します。
+リリース時は `1.4.0` が次の場所で一致していることを確認します。
 
 - `pyproject.toml`
 - `web/package.json` と `web/package-lock.json`
@@ -255,26 +266,9 @@ npm --prefix web run test:e2e
 - `.github/workflows/release-to-drive.yml`
 
 `src/autonavlog/version.py` は固定値を持たず、インストール済み Package Metadata から版番号を取得します。
-旧 Colab Preview は検証済み ZIP と SHA-256 の組を保つため `0.3.1` に固定しており、現行 Web 版の
-バージョン更新対象には含めません。`jma-msm-wind==0.2.1` は別製品の版なので変更しません。
+`jma-msm-wind==0.2.1` は別製品の版なので変更しません。
 
-## 旧 Colab 配布
-
-Colab 版は互換確認と移行確認のために残しています。新規運用には Web 版を使ってください。
-Preview 配布は検証済み bundle と一致する `0.3.1` のまま凍結しています。
-
-プレビュー ZIP は次のコマンドで作ります。
-
-```bash
-python scripts/build_colab_preview_bundle.py \
-  dist/autonavlog-0.3.1-py3-none-any.whl \
-  /path/to/jma_msm_wind-0.2.1-py3-none-any.whl \
-  dist/autonavlog-colab-preview-0.3.1.zip
-```
-
-ZIP を Colab VM の `/content` または Google Drive の `MyDrive` 直下へ置き、
-`notebooks/AutoNavLog_Colab_Preview.ipynb` を実行します。Notebook は ZIP 内の各ファイルについて
-size と SHA-256 を検査します。
+## リリース配布
 
 `release-to-drive` workflow を使う場合は、次の Actions secrets が必要です。
 
@@ -284,22 +278,17 @@ size と SHA-256 を検査します。
 | `GDRIVE_SERVICE_ACCOUNT_JSON` | Drive へアップロードする Service Account JSON |
 | `GDRIVE_RELEASE_FOLDER_ID` | 共有 Drive のリリース親フォルダー |
 
-1つの Project を複数の Notebook から同時に編集しないでください。revision が競合すると、
-AutoNavLog は既存ファイルを残し、`project-conflict-*.json` を保存します。
-
 ## リポジトリ
 
 | パス | 内容 |
 | --- | --- |
-| `src/autonavlog/domain` | Project、計算結果、Snapshot、気象のデータ契約 |
+| `src/autonavlog/domain` | Project、計算結果、気象のデータ契約 |
 | `src/autonavlog/nav` | 測地線、PA、TAS/CAS、風、燃料、丸め |
 | `src/autonavlog/performance` | 性能 CSV の検査、上昇補間、巡航セル選択 |
 | `src/autonavlog/weather` | MSM、TAF の取得と変換 |
-| `src/autonavlog/storage` | ローカル保存と Google Drive 保存 |
+| `src/autonavlog/storage` | Project と参照データのローカル保存 |
 | `src/autonavlog/web` | FastAPI と Web API |
 | `web` | React、TypeScript、Vite、Playwright |
-| `src/autonavlog/presentation` | 旧 Colab UI と A4 横の転記補助表 |
-| `notebooks` | 旧 Colab 互換用 Notebook |
 
 設計の全体像は[アーキテクチャ](docs/architecture.md)を参照してください。実 MSM のリリース検査は
 [実 MSM リリース受入ゲート](docs/real_msm_acceptance.md)にあります。

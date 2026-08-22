@@ -8,67 +8,6 @@
       "title": "AdoptedSource",
       "type": "string"
     },
-    "AdoptedValue_datetime_": {
-      "additionalProperties": false,
-      "properties": {
-        "adopted_source": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/AdoptedSource"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "automatic_metadata": {
-          "additionalProperties": true,
-          "title": "Automatic Metadata",
-          "type": "object"
-        },
-        "automatic_status": {
-          "$ref": "#/$defs/ValueState",
-          "default": "UNAVAILABLE"
-        },
-        "automatic_value": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Automatic Value"
-        },
-        "manual_override": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Manual Override"
-        },
-        "warnings": {
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "title": "Warnings",
-          "type": "array"
-        }
-      },
-      "title": "AdoptedValue[datetime]",
-      "type": "object"
-    },
     "AdoptedValue_float_": {
       "additionalProperties": false,
       "properties": {
@@ -345,19 +284,6 @@
           "title": "Along Route Distance Nm",
           "type": "number"
         },
-        "estimated_time_utc": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Estimated Time Utc"
-        },
         "latitude_deg": {
           "title": "Latitude Deg",
           "type": "number"
@@ -597,44 +523,9 @@
       "title": "IssueSeverity",
       "type": "string"
     },
-    "IterationRecord": {
-      "additionalProperties": false,
-      "properties": {
-        "iteration": {
-          "title": "Iteration",
-          "type": "integer"
-        },
-        "max_time_delta_seconds": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Max Time Delta Seconds"
-        },
-        "representative_times_utc": {
-          "additionalProperties": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "title": "Representative Times Utc",
-          "type": "object"
-        }
-      },
-      "required": [
-        "iteration",
-        "max_time_delta_seconds",
-        "representative_times_utc"
-      ],
-      "title": "IterationRecord",
-      "type": "object"
-    },
     "NavLogDisplayCell": {
       "additionalProperties": false,
-      "description": "A formatted display cell with explicit blank/error semantics.\n\n``text`` is the canonical value rendered by both Web and A4 output.\n``effective_value`` may remain populated when ``state`` is ``INHERIT`` so\nthe projection records which parent/preceding value is used without\nrepeating it visually.",
+      "description": "A formatted display cell with explicit blank/error semantics.\n\n``text`` is the canonical value rendered by the Web NAV LOG.\n``effective_value`` may remain populated when ``state`` is ``INHERIT`` so\nthe projection records which parent/preceding value is used without\nrepeating it visually.",
       "properties": {
         "effective_value": {
           "anyOf": [
@@ -685,7 +576,7 @@
             }
           ],
           "default": null,
-          "description": "Canonical formatted text shared by Web and A4 renderers.",
+          "description": "Canonical formatted text rendered by the Web NAV LOG.",
           "title": "Text"
         }
       },
@@ -707,38 +598,6 @@
         },
         "cas": {
           "$ref": "#/$defs/NavLogDisplayCell"
-        },
-        "counts_toward_totals": {
-          "default": false,
-          "description": "Legacy projection metadata only. Route totals must always come from CalculationOutcome.sections, never from display_rows.",
-          "title": "Counts Toward Totals",
-          "type": "boolean"
-        },
-        "cumulative_distance_nm_exact": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Cumulative Distance Nm Exact"
-        },
-        "cumulative_ete_seconds_exact": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Cumulative Ete Seconds Exact"
         },
         "distance": {
           "$ref": "#/$defs/NavLogDisplayCell"
@@ -793,7 +652,7 @@
         },
         "mh": {
           "$ref": "#/$defs/NavLogDisplayCell",
-          "description": "Magnetic heading display cell. The calculation effective value is MC + WCA; transcription text adds the separately rounded 1-degree MC and WCA display operands."
+          "description": "Magnetic heading display cell. The calculation effective value is MC + WCA; display text adds the separately rounded 1-degree MC and WCA display operands."
         },
         "pa": {
           "$ref": "#/$defs/NavLogDisplayCell"
@@ -879,34 +738,6 @@
         },
         "wind": {
           "$ref": "#/$defs/NavLogDisplayCell"
-        },
-        "zone_distance_nm_exact": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Unrounded display-row zone/subtotal distance; never a totals source.",
-          "title": "Zone Distance Nm Exact"
-        },
-        "zone_ete_seconds_exact": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Unrounded display-row zone/subtotal ETE; never a totals source.",
-          "title": "Zone Ete Seconds Exact"
         }
       },
       "required": [
@@ -1355,9 +1186,6 @@
         "cumulative_ete_seconds": {
           "$ref": "#/$defs/AdoptedValue_float_"
         },
-        "eto_utc": {
-          "$ref": "#/$defs/AdoptedValue_datetime_"
-        },
         "from_latitude_deg": {
           "anyOf": [
             {
@@ -1393,11 +1221,6 @@
         "ground_speed_kt": {
           "$ref": "#/$defs/AdoptedValue_float_"
         },
-        "loss_time_seconds": {
-          "minimum": 0,
-          "title": "Loss Time Seconds",
-          "type": "number"
-        },
         "magnetic_course_deg": {
           "$ref": "#/$defs/AdoptedValue_float_",
           "description": "Magnetic course: MC = (TC + VAR) mod 360."
@@ -1426,9 +1249,6 @@
         "remaining_fuel_gal": {
           "$ref": "#/$defs/AdoptedValue_float_"
         },
-        "safe_enroute_altitude_ft_msl": {
-          "$ref": "#/$defs/AdoptedValue_float_"
-        },
         "section_fuel_gal": {
           "$ref": "#/$defs/AdoptedValue_float_"
         },
@@ -1436,18 +1256,6 @@
           "format": "uuid",
           "title": "Section Id",
           "type": "string"
-        },
-        "segment_label": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Segment Label"
         },
         "sequence": {
           "minimum": 0,
@@ -1496,8 +1304,6 @@
         "from_name",
         "to_name",
         "planned_altitude_ft_msl",
-        "safe_enroute_altitude_ft_msl",
-        "loss_time_seconds",
         "pressure_altitude_exact_ft",
         "pressure_altitude_planning_ft",
         "true_course_deg",
@@ -1515,7 +1321,6 @@
         "cumulative_distance_nm",
         "zone_ete_seconds",
         "cumulative_ete_seconds",
-        "eto_utc",
         "section_fuel_gal",
         "remaining_fuel_gal"
       ],
@@ -1583,13 +1388,6 @@
         "$ref": "#/$defs/Issue"
       },
       "title": "Issues",
-      "type": "array"
-    },
-    "iterations": {
-      "items": {
-        "$ref": "#/$defs/IterationRecord"
-      },
-      "title": "Iterations",
       "type": "array"
     },
     "performance_table_version": {

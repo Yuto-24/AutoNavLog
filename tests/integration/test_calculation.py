@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
 import shutil
 from datetime import timedelta, timezone
 from pathlib import Path
-from uuid import UUID
 
 import pytest
 
@@ -25,11 +23,9 @@ from autonavlog.domain.enums import (
     WeatherRequestKind,
 )
 from autonavlog.domain.project import ManualWind, NavSection, RouteNode
-from autonavlog.domain.snapshot import CalculationSnapshot
 from autonavlog.domain.weather import WeatherResult
 from autonavlog.nav.airspeed import tas_from_cas
 from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
-from autonavlog.presentation.clearcopy import render_clearcopy_html
 from autonavlog.storage.local import LocalProjectRepository
 from autonavlog.weather.destination_taf import DestinationWindForecast
 from autonavlog.weather.fake_provider import FakeWeatherProvider
@@ -53,7 +49,7 @@ def _project_with_climb_endpoint_at_25_nm(project):
     return aligned
 
 
-def test_full_calculation_iteration_and_clearcopy(
+def test_full_calculation_iteration_and_navlog_projection(
     airports,
     performance_repository,
     project,
@@ -92,10 +88,6 @@ def test_full_calculation_iteration_and_clearcopy(
     assert outcome.sections[-1].remaining_fuel_gal.adopted() is not None
     assert len(provider.query_history) >= 2
     assert all(run_id == "20260728000000" for run_id, _ in provider.query_history)
-    html = render_clearcopy_html(aligned_project, outcome)
-    assert "PILOT" in html
-    assert "ZONE / CUM" in html
-    assert "QNH" not in html
 
 
 def test_destination_surface_temperature_uses_calculated_arrival_time(
@@ -274,55 +266,6 @@ def test_saved_forecast_run_stays_pinned_until_explicitly_changed(
     assert not any(issue.code == "FORECAST_UPDATE_AVAILABLE" for issue in latest_outcome.issues)
 
 
-@pytest.mark.parametrize(
-    "safe_value",
-    [None, 2000.0, 8000.0],
-)
-def test_legacy_safe_enroute_altitude_is_not_used_for_status_or_timing(
-    airports,
-    performance_repository,
-    project,
-    safe_value: float | None,
-) -> None:
-    service = CalculationService(airports, performance_repository)
-    baseline = service.calculate(project, FakeWeatherProvider())
-    legacy = project.model_copy(deep=True)
-    for section in legacy.sections:
-        section.safe_enroute_altitude_ft_msl = safe_value
-
-    outcome = service.calculate(
-        legacy,
-        FakeWeatherProvider(),
-    )
-
-    assert [section.safe_enroute_altitude_ft_msl for section in legacy.sections] == [
-        safe_value,
-        safe_value,
-    ]
-    assert all(
-        result.safe_enroute_altitude_ft_msl.adopted() is None and result.eto_utc.adopted() is None
-        for result in outcome.sections
-    )
-    assert outcome.status == baseline.status
-    assert not outcome.blockers
-    assert not any(
-        issue.code
-        in {
-            "SAFE_ENROUTE_ALTITUDE_REQUIRED",
-            "PLANNED_ALTITUDE_BELOW_SAFE_ENROUTE",
-        }
-        for issue in outcome.issues
-    )
-    assert all(
-        section.zone_ete_seconds.adopted() == baseline.sections[index].zone_ete_seconds.adopted()
-        for index, section in enumerate(outcome.sections)
-    )
-    assert all(
-        section.section_fuel_gal.adopted() == baseline.sections[index].section_fuel_gal.adopted()
-        for index, section in enumerate(outcome.sections)
-    )
-
-
 def test_climb_leg_is_automatically_split_at_rca_without_losing_distance(
     airports,
     performance_repository,
@@ -421,16 +364,10 @@ def test_climb_leg_is_automatically_split_at_rca_without_losing_distance(
     summary, *details = first_leg_rows
     assert summary.from_name == "RJFM"
     assert all(row.from_name == "" for row in details)
-    assert summary.zone_distance_nm_exact == pytest.approx(
-        sum(row.zone_distance_nm_exact or 0.0 for row in details)
-    )
-    assert summary.zone_ete_seconds_exact == pytest.approx(
-        sum(row.zone_ete_seconds_exact or 0.0 for row in details)
-    )
-    assert all(row.cumulative_distance_nm_exact is None for row in details)
-    assert all(row.cumulative_ete_seconds_exact is None for row in details)
-    assert summary.counts_toward_totals is False
-    assert all(row.counts_toward_totals for row in details)
+    assert summary.distance.text is not None
+    assert " / " in summary.distance.text
+    assert summary.ete.text is not None
+    assert " / " in summary.ete.text
     # display_rows intentionally are not a totals source.  In particular the
     # final visual-arrival Leg has only its parent plus destination information.
     assert outcome.sections[-1].cumulative_distance_nm.adopted() == pytest.approx(
@@ -738,7 +675,6 @@ def test_eoc_uses_cruise_to_vrep_time_and_carries_into_previous_leg(
     )
     sections = [
         NavSection(
-            project_id=routed.id,
             sequence=0,
             from_node_id=departure.id,
             to_node_id=turn.id,
@@ -748,7 +684,6 @@ def test_eoc_uses_cruise_to_vrep_time_and_carries_into_previous_leg(
             manual_wind_speed_kt=0.0,
         ),
         NavSection(
-            project_id=routed.id,
             sequence=1,
             from_node_id=turn.id,
             to_node_id=vrep.id,
@@ -759,7 +694,6 @@ def test_eoc_uses_cruise_to_vrep_time_and_carries_into_previous_leg(
             manual_tas_kt=120.0,
         ),
         NavSection(
-            project_id=routed.id,
             sequence=2,
             from_node_id=vrep.id,
             to_node_id=destination.id,
@@ -795,7 +729,11 @@ def test_eoc_uses_cruise_to_vrep_time_and_carries_into_previous_leg(
     assert descent.performance_metadata["vertical_descent_duration_seconds"] == pytest.approx(
         420.0
     )
-    assert descent.performance_metadata["operational_addition_seconds"] == 60.0
+    assert descent.performance_metadata["deceleration_duration_seconds"] == 60.0
+    assert (
+        descent.performance_metadata["phase_profile_rule"]
+        == "DESCEND_LEVEL_OFF_DECELERATE_V1"
+    )
 
 
 def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
@@ -834,7 +772,6 @@ def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
     route_nodes = [departure, first_turn, vrep, destination]
     sections = [
         NavSection(
-            project_id=project.id,
             sequence=0,
             from_node_id=departure.id,
             to_node_id=first_turn.id,
@@ -842,7 +779,6 @@ def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
             planned_altitude_ft_msl=5000,
         ),
         NavSection(
-            project_id=project.id,
             sequence=1,
             from_node_id=first_turn.id,
             to_node_id=vrep.id,
@@ -850,7 +786,6 @@ def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
             planned_altitude_ft_msl=5000,
         ),
         NavSection(
-            project_id=project.id,
             sequence=2,
             from_node_id=vrep.id,
             to_node_id=destination.id,
@@ -945,62 +880,6 @@ def test_zero_length_leg_is_returned_as_route_blocker(
     assert outcome.status == ProjectStatus.ROUTE_INCOMPLETE
     assert not outcome.sections
     assert any(issue.code == "ROUTE_INCOMPLETE" for issue in outcome.blockers)
-
-
-@pytest.mark.parametrize(
-    "loss_value",
-    [0.0, 60.0, 180.0],
-)
-def test_legacy_loss_time_is_not_used_for_status_or_timing(
-    airports,
-    performance_repository,
-    project,
-    loss_value: float,
-) -> None:
-    service = CalculationService(airports, performance_repository)
-    baseline = service.calculate(project, FakeWeatherProvider())
-    legacy = project.model_copy(deep=True)
-    for section in legacy.sections:
-        section.loss_time_seconds = loss_value
-
-    outcome = service.calculate(
-        legacy,
-        FakeWeatherProvider(),
-    )
-
-    assert outcome.status == baseline.status
-    assert not outcome.blockers
-    assert not baseline.blockers
-    assert all(
-        point.estimated_time_utc == baseline_point.estimated_time_utc
-        for point, baseline_point in zip(
-            outcome.derived_points,
-            baseline.derived_points,
-            strict=True,
-        )
-    )
-    assert all(
-        section.zone_ete_seconds.adopted() == baseline.sections[index].zone_ete_seconds.adopted()
-        for index, section in enumerate(outcome.sections)
-    )
-    assert all(
-        section.section_fuel_gal.adopted() == baseline.sections[index].section_fuel_gal.adopted()
-        for index, section in enumerate(outcome.sections)
-    )
-    assert all(
-        section.cumulative_ete_seconds.adopted()
-        == baseline.sections[index].cumulative_ete_seconds.adopted()
-        for index, section in enumerate(outcome.sections)
-    )
-    assert all(
-        section.remaining_fuel_gal.adopted()
-        == baseline.sections[index].remaining_fuel_gal.adopted()
-        for index, section in enumerate(outcome.sections)
-    )
-    assert outcome.derived_points[0].along_route_distance_nm == pytest.approx(
-        baseline.derived_points[0].along_route_distance_nm,
-        abs=1e-9,
-    )
 
 
 def test_visual_arrival_calculates_calm_and_displays_destination_forecast(
@@ -1228,7 +1107,7 @@ def test_multiple_cruise_sections_are_a_valid_phase_sequence(
     assert not any(item.code == "FLIGHT_PHASE_SEQUENCE_INVALID" for item in outcome.issues)
 
 
-def test_outcome_adoption_and_snapshot_round_trip(
+def test_outcome_adoption_and_project_round_trip(
     airports,
     performance_repository,
     project,
@@ -1242,80 +1121,9 @@ def test_outcome_adoption_and_snapshot_round_trip(
     adopted = projects.apply_calculation_outcome(project, outcome)
     assert adopted.selected_forecast_run_id == outcome.selected_forecast_run_id
     saved = projects.save(adopted).project
-    snapshot_path = projects.snapshot(
-        saved,
-        outcome,
-        calculation,
-        msm_package_version=None,
-    )
-    restored = repository.load_snapshot(saved.id, UUID(snapshot_path.stem))
-    assert restored.calculation_results.model_dump(mode="json") == outcome.model_dump(mode="json")
-    assert restored.input_data.revision == saved.revision
-
-    legacy_qnh_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
-    legacy_qnh_payload["input_data"]["schema_version"] = 1
-    legacy_qnh_payload["input_data"]["manual_qnh_hpa"] = 1013.0
-    legacy_qnh_payload["input_data"].pop("run_up_included")
-    legacy_qnh_payload["input_data"].pop("nose_fairing_enabled", None)
-    legacy_qnh_payload["input_data"].pop("air_conditioning_enabled")
-    legacy_qnh_payload["calculation_results"]["qnh_hpa"] = {
-        "automatic": 1013.0,
-        "manual": None,
-        "adopted_source": "AUTOMATIC",
-        "automatic_metadata": {},
-    }
-    legacy_qnh_payload["weather_requests"].append(
-        {
-            "request_id": "project:qnh",
-            "kind": "ESTIMATED_QNH",
-            "latitude_deg": 31.877,
-            "longitude_deg": 131.449,
-            "valid_time_utc": "2026-08-17T00:00:00Z",
-        }
-    )
-    legacy_qnh_payload["weather_results"].append(
-        {
-            "request_id": "project:qnh",
-            "kind": "ESTIMATED_QNH",
-            "availability": "AVAILABLE",
-            "values": {"qnh_hpa": 1013.0},
-            "metadata": {},
-        }
-    )
-    snapshot_path.write_text(json.dumps(legacy_qnh_payload), encoding="utf-8")
-    migrated_snapshot = repository.load_snapshot(saved.id, UUID(snapshot_path.stem))
-    migrated_json = migrated_snapshot.model_dump(mode="json")
-    assert migrated_snapshot.input_data.run_up_included is True
-    assert migrated_snapshot.input_data.nose_fairing_enabled is False
-    assert migrated_snapshot.input_data.air_conditioning_enabled is True
-    assert "qnh_hpa" not in migrated_json["calculation_results"]
-    assert all(item["kind"] != "ESTIMATED_QNH" for item in migrated_json["weather_requests"])
-    assert all(item["kind"] != "ESTIMATED_QNH" for item in migrated_json["weather_results"])
-    snapshot_path.write_text(migrated_snapshot.model_dump_json(), encoding="utf-8")
-
-    old_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
-    old_payload["calculation_results"].pop("display_rows")
-    old_snapshot = CalculationSnapshot.model_validate_json(
-        json.dumps(old_payload, ensure_ascii=False),
-        strict=True,
-    )
-    assert old_snapshot.calculation_results.display_rows == []
-
-    # A short-lived dev schema persisted display rows by inheriting
-    # SectionResult.  Accept the snapshot but discard that projection: Project
-    # inputs, not a saved display_rows list, are the source for regeneration.
-    old_payload["calculation_results"]["display_rows"] = [
-        outcome.sections[0].model_dump(mode="json")
-        | {
-            "row_type": "CALCULATION_ZONE",
-            "counts_toward_totals": True,
-        }
-    ]
-    legacy_snapshot = CalculationSnapshot.model_validate_json(
-        json.dumps(old_payload, ensure_ascii=False),
-        strict=True,
-    )
-    assert legacy_snapshot.calculation_results.display_rows == []
+    restored = projects.load(saved.id)
+    assert restored.revision == saved.revision
+    assert restored.selected_forecast_run_id == outcome.selected_forecast_run_id
 
 
 def test_weather_warning_does_not_mask_an_unrelated_blocker_status(project) -> None:

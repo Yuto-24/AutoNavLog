@@ -90,7 +90,6 @@ def _cp(
             if linked
             else None
         ),
-        along_track_fraction=0.99,
     )
 
 

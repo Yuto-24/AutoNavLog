@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from autonavlog.application.readiness import (
     IssueProducer,
-    can_render_transfer_aid,
     create_effective_issue,
     dedupe_effective_issues,
     derive_project_status,
@@ -122,32 +121,4 @@ def test_status_derivation_prioritizes_route_weather_and_other_blockers() -> Non
     )
     assert derive_project_status([manual], set(), outcome_exists=True) == (
         ProjectStatus.MANUAL_INPUT_REQUIRED
-    )
-
-
-def test_transfer_gate_requires_current_editable_and_acknowledged_state() -> None:
-    warning = _effective(
-        "RCA_BEYOND_FIRST_TURN",
-        acknowledgement_required=True,
-    )
-    assert not can_render_transfer_aid(
-        [warning],
-        set(),
-        outcome_exists=True,
-        calculation_is_current=True,
-        editable=True,
-    )
-    assert can_render_transfer_aid(
-        [warning],
-        {warning.ctx.ack_key},
-        outcome_exists=True,
-        calculation_is_current=True,
-        editable=True,
-    )
-    assert not can_render_transfer_aid(
-        [],
-        set(),
-        outcome_exists=True,
-        calculation_is_current=False,
-        editable=True,
     )

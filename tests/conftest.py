@@ -138,7 +138,6 @@ def project() -> Project:
             to_node_id=turn.id,
             phase=FlightPhase.CLIMB,
             planned_altitude_ft_msl=5000,
-            safe_enroute_altitude_ft_msl=1000,
         ),
         NavSection(
             sequence=1,
@@ -146,7 +145,6 @@ def project() -> Project:
             to_node_id=destination.id,
             phase=FlightPhase.CRUISE,
             planned_altitude_ft_msl=5000,
-            safe_enroute_altitude_ft_msl=1000,
         ),
     ]
     return Project(

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from html.parser import HTMLParser
 from pathlib import Path
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -29,7 +28,6 @@ from autonavlog.domain.weather import WeatherRequest, WeatherResult
 from autonavlog.importers.kml import import_kml_text, waypoint_name_slots_from_line
 from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
 from autonavlog.performance.repository import PerformanceRepository
-from autonavlog.presentation.transfer_aid import render_transfer_aid_html
 from autonavlog.storage.airports import AirportRepository
 from autonavlog.storage.local import LocalProjectRepository
 from autonavlog.weather.destination_taf import DestinationWindForecast
@@ -91,7 +89,6 @@ def golden_project() -> Project:
     nodes = [
         RouteNode(
             id=NODE_IDS[index],
-            project_id=PROJECT_ID,
             sequence=index,
             name=name,
             latitude_deg=line.coordinates[index][0],
@@ -114,7 +111,6 @@ def golden_project() -> Project:
     sections = [
         NavSection(
             id=SECTION_IDS[index],
-            project_id=PROJECT_ID,
             sequence=index,
             from_node_id=nodes[index].id,
             to_node_id=nodes[index + 1].id,
@@ -146,7 +142,6 @@ def golden_project() -> Project:
         )
         return VisualReference(
             id=CHECK_POINT_IDS[index],
-            project_id=PROJECT_ID,
             name=name,
             latitude_deg=latitude,
             longitude_deg=longitude,
@@ -243,38 +238,6 @@ def golden_outcome(
     return _calculate_golden(golden_airports, golden_project)
 
 
-class _RouteTableProjectionParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.in_route_table = False
-        self.rows: list[tuple[str, int, list[str]]] = []
-        self._current: tuple[str, int, list[str]] | None = None
-
-    def handle_starttag(
-        self,
-        tag: str,
-        attrs: list[tuple[str, str | None]],
-    ) -> None:
-        attributes = dict(attrs)
-        if tag == "table" and attributes.get("class") == "route-table":
-            self.in_route_table = True
-        elif tag == "tr" and self.in_route_table and "data-row-type" in attributes:
-            self._current = (
-                str(attributes["data-row-type"]),
-                int(str(attributes["data-row-sequence"])),
-                [],
-            )
-        elif tag == "td" and self._current is not None and "data-display-text" in attributes:
-            self._current[2].append(str(attributes["data-display-text"] or ""))
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag == "tr" and self._current is not None:
-            self.rows.append(self._current)
-            self._current = None
-        elif tag == "table" and self.in_route_table:
-            self.in_route_table = False
-
-
 def test_issue_43_golden_kml_physical_legs_and_course_policy(
     golden_project: Project,
     golden_outcome: CalculationOutcome,
@@ -304,10 +267,6 @@ def test_issue_43_golden_kml_physical_legs_and_course_policy(
         "9.5",
         "10.0",
     ]
-    assert [row.zone_distance_nm_exact for row in parent_rows] == pytest.approx(
-        [58.4474384266, 47.6595086898, 9.4024413989, 10.1422196142],
-        abs=1e-9,
-    )
     assert [row.tc.text for row in parent_rows] == ["284", "012", "330", "315"]
     assert [row.variation.text for row in parent_rows] == ["+7", "+8", "+8", "+8"]
     assert [row.mc.text for row in parent_rows] == ["291", "020", "338", "323"]
@@ -340,17 +299,6 @@ def test_issue_43_golden_display_structure_inheritance_and_destination(
         assert group[0].row_type == "PHYSICAL_LEG_SUMMARY"
         details = [row for row in group if row.row_type == "CALCULATION_ZONE"]
         assert details
-        assert group[0].zone_distance_nm_exact == pytest.approx(
-            sum(row.zone_distance_nm_exact or 0.0 for row in details),
-            abs=1e-9,
-        )
-        assert group[0].zone_ete_seconds_exact == pytest.approx(
-            sum(row.zone_ete_seconds_exact or 0.0 for row in details),
-            abs=1e-6,
-        )
-        assert all(row.cumulative_distance_nm_exact is None for row in details)
-        assert all(row.cumulative_ete_seconds_exact is None for row in details)
-
         displayed_zone_distance = sum(float(row.distance.text or "nan") for row in details)
         displayed_zone_ete = sum(float(row.ete.text or "nan") for row in details)
         displayed_cumulative_distance += displayed_zone_distance
@@ -465,53 +413,6 @@ def test_issue_43_golden_display_structure_inheritance_and_destination(
         assert cell.text is None
 
 
-def test_issue_43_golden_a4_uses_the_canonical_display_projection(
-    golden_project: Project,
-    golden_outcome: CalculationOutcome,
-) -> None:
-    html = render_transfer_aid_html(golden_project, golden_outcome)
-    parser = _RouteTableProjectionParser()
-    parser.feed(html)
-    cell_fields = (
-        "pa",
-        "toat",
-        "cas",
-        "tas",
-        "tc",
-        "variation",
-        "mc",
-        "wind",
-        "wca",
-        "mh",
-        "distance",
-        "gs",
-        "ete",
-        "eto",
-        "ato",
-        "ate",
-        "fuel",
-    )
-    expected = []
-    for row in golden_outcome.display_rows:
-        values: list[str] = []
-        if row.row_type != "LEG_SEPARATOR":
-            values = [
-                row.from_name,
-                row.to_name,
-                *(getattr(row, field).text or "" for field in cell_fields),
-            ]
-        expected.append((row.row_type, row.sequence, values))
-
-    assert parser.rows == expected
-    assert "未取得" not in html
-    assert all(
-        cell.text is None
-        for row in golden_outcome.display_rows
-        for cell in (getattr(row, field) for field in cell_fields)
-        if cell.state in {DisplayCellState.BLANK, DisplayCellState.INHERIT}
-    )
-
-
 def test_issue_43_saved_golden_project_regenerates_identical_display_rows_after_switch(
     golden_airports: AirportRepository,
     golden_project: Project,
@@ -523,9 +424,6 @@ def test_issue_43_saved_golden_project_regenerates_identical_display_rows_after_
     other_id = UUID("43000000-0000-0000-0003-000000000001")
     other_payload = golden_project.model_dump()
     other_payload |= {"id": other_id, "name": "別Project", "revision": 0}
-    for collection in ("route_nodes", "sections", "visual_references"):
-        for item in other_payload[collection]:
-            item["project_id"] = other_id
     other_project = Project.model_validate(other_payload)
     saved_other = projects.save(other_project).project
 

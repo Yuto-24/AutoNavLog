@@ -39,7 +39,7 @@ interface PendingKmz {
   candidates: string[];
 }
 
-type ActiveOperation = "calculate" | "download" | null;
+type ActiveOperation = "calculate" | null;
 
 function App() {
   const api = useMemo(() => new ApiClient(), []);
@@ -805,14 +805,6 @@ function App() {
     );
   };
 
-  const handleDownload = async () => {
-    await runTask(api.downloadTransferAid.bind(api), {
-      success: "A4転記補助HTMLのダウンロードを開始しました。",
-      fallbackError: "出力できませんでした。",
-      operation: "download",
-    });
-  };
-
   if (!state) {
     return (
       <main className="loading-screen">
@@ -968,7 +960,6 @@ function App() {
           onCalculate={handleCalculate}
           onConfirmDestination={handleConfirmDestination}
           onAcknowledge={handleAcknowledge}
-          onDownload={handleDownload}
         />
       </main>
 

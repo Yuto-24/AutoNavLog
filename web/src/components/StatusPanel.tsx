@@ -4,7 +4,6 @@ import {
   CloudSun,
   CheckCircle2,
   Database,
-  Download,
   XCircle,
 } from "lucide-react";
 import type { ReadinessState, RuntimeState } from "../types";
@@ -19,11 +18,10 @@ interface StatusPanelProps {
   destinationReady: boolean;
   outcomeExists: boolean;
   busy: boolean;
-  activeOperation: "calculate" | "download" | null;
+  activeOperation: "calculate" | null;
   onCalculate: () => void;
   onConfirmDestination: () => void;
   onAcknowledge: (ackKey: string, checked: boolean) => void;
-  onDownload: () => void;
 }
 
 export function StatusPanel({
@@ -40,7 +38,6 @@ export function StatusPanel({
   onCalculate,
   onConfirmDestination,
   onAcknowledge,
-  onDownload,
 }: StatusPanelProps) {
   const blockers = readiness.issues.filter((issue) => issue.severity === "BLOCKER");
   const warnings = readiness.issues.filter((issue) => issue.severity === "WARNING");
@@ -73,7 +70,7 @@ export function StatusPanel({
           <AlertTriangle aria-hidden="true" size={18} />
           <p>
             <strong>開発用気象モード</strong>
-            固定気象で画面と計算を試せますが、転記補助HTMLは出力できません。
+            固定気象で画面と計算を試せます。
           </p>
         </div>
       )}
@@ -151,28 +148,6 @@ export function StatusPanel({
             ? "NAV LOGを計算中…"
             : outcomeExists ? "NAV LOGを再計算" : "NAV LOGを作る"}
         </button>
-        <button
-          className="secondary-button full-width output-button"
-          type="button"
-          onClick={onDownload}
-          disabled={!readiness.transferAidAllowed || busy}
-        >
-          <Download aria-hidden="true" size={18} />
-          {activeOperation === "download" ? "出力を準備中…" : "A4転記補助HTMLを出力"}
-        </button>
-        {activeOperation === "download" && (
-          <div className="operation-progress" role="status" aria-live="polite">
-            <span>
-              A4転記補助HTMLの出力を準備しています。
-            </span>
-            <progress
-              aria-label="HTMLを出力準備中"
-            />
-          </div>
-        )}
-        {!readiness.transferAidAllowed && outcomeExists && (
-          <p className="button-reason">ブロッカー解消・確認事項の承認・再計算後に有効になります。</p>
-        )}
       </div>
     </aside>
   );

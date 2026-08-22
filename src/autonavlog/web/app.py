@@ -419,10 +419,6 @@ def create_app(
             )
         return job_payload(job)
 
-    @app.post("/api/calculate")
-    def calculate(session: SessionDependency) -> dict[str, Any]:
-        return web.calculate(session)
-
     @app.put("/api/acknowledgements/{ack_key}")
     def acknowledge(
         ack_key: str,
@@ -451,21 +447,6 @@ def create_app(
         session: SessionDependency,
     ) -> dict[str, Any]:
         return web.delete(session, project_id)
-
-    @app.post("/api/snapshots")
-    def create_snapshot(session: SessionDependency) -> dict[str, str]:
-        return {"snapshot": web.create_snapshot(session)}
-
-    @app.get("/api/transfer-aid")
-    def transfer_aid(session: SessionDependency) -> HTMLResponse:
-        filename, html = web.transfer_aid_html(session)
-        return HTMLResponse(
-            content=html,
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Cache-Control": "no-store",
-            },
-        )
 
     static_root = Path(__file__).with_name("static")
     assets_root = static_root / "assets"

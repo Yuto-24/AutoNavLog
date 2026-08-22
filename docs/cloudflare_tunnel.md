@@ -36,7 +36,7 @@ Projectと参照データをnamed volume `autonavlog-data` に保存します。
 curl --fail --silent http://127.0.0.1:8123/healthz
 ```
 
-`--weather fake` はUI確認専用で、転記補助HTMLを常に止めます。標準imageは
+`--weather fake` はUIと計算確認専用で、release-ready statusにはなりません。標準imageは
 private `jma-msm-wind==0.2.1` wheelを組み込み、`--weather msm` で起動します。
 上空風・気温と地表面気温はMSM、目的地の参考風はAviationWeather.govのTAFから取得します。
 

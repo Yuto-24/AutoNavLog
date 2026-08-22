@@ -1,14 +1,12 @@
 # AutoNavLog Web design system
 
-This directory freezes the implementation reference for the responsive Web UI
-introduced when Colab moved to a compatibility and migration-only path.
+This directory freezes the implementation reference for the responsive Web UI.
 
 ## Concept images
 
 - `primary-workspace.png`: KML/KMZ import, flight-plan input, route map, and
   readiness status in one desktop workspace.
-- `calculated-review.png`: calculated NAV LOG, confirmation items, and
-  transfer-aid output state.
+- `calculated-review.png`: calculated NAV LOG and confirmation items.
 
 The images are visual references only. All labels, inputs, tables, map markers,
 and actions remain code-native and accessible.
@@ -43,7 +41,7 @@ decorative cards. Shadows are reserved for temporary overlays.
 ## Component inventory
 
 - App header with app version, project identity, storage state, Save, and New actions.
-- Three-step progress rail: Route, Flight plan, Review/output.
+- Three-step progress rail: Route, Flight plan, Review/calculation.
 - KML/KMZ drop zone and paste dialog.
 - Shape candidate list with a required route-use confirmation placed directly below the map.
 - Flight-plan fields: DATE, ETD JST, read-only KML-derived FROM/TO, FUEL
@@ -57,7 +55,6 @@ decorative cards. Shadows are reserved for temporary overlays.
 - NAV LOG result table aligned to the 19-column 別添8-1 layout plus INFO and
   TIME/FUEL summary.
 - Destination TAF wind strip, shown as reference data and kept outside calculation inputs.
-- A4 transcription-aid HTML output action.
 
 ## Container and responsive rules
 
@@ -101,10 +98,10 @@ metrics, badges, and unrelated navigation are prohibited.
 | Area | Concept | Implementation | Result |
 | --- | --- | --- | --- |
 | Header | Navy product bar, version, project identity, save/new actions | Same hierarchy and action placement | Match |
-| Workflow | Three numbered stages directly below header | Route, flight plan, review/output rail with completed states | Match |
+| Workflow | Three numbered stages directly below header | Route, flight plan, review/calculation rail with completed states | Match |
 | Desktop layout | Input / route / readiness columns | 24% / fluid / 25% three-column workspace | Match |
 | Route workspace | Map over compact POINT/ROLE/ALT/PHASE table | Leaflet/OSM route, airport/VREP/RCA/EOC markers, editable Leg table | Match |
-| Readiness | Provenance, next action, blockers/confirmations, primary/output actions | Same order; duplicate causes collapsed by code/Leg/segment | Match |
+| Readiness | Provenance, next action, blockers/confirmations, primary calculation action | Same order; duplicate causes collapsed by code/Leg/segment | Match |
 | Calculated view | Dense NAV LOG, destination TAF wind, and fuel strip | 19-column NAV LOG plus reference wind and TIME/FUEL tables | Match |
 | Visual language | White canvas, navy/teal, amber/red status, thin borders, no gradients | Same token family and restrained radii | Match |
 | Mobile | Single-column stack with all safety/status content retained | 390 px stack, full-width controls, no body horizontal overflow | Match |
@@ -124,8 +121,8 @@ metrics, badges, and unrelated navigation are prohibited.
 
 - The concept map is a generated static geography; implementation uses live OpenStreetMap
   raster tiles and remains usable when tiles are unavailable.
-- At desktop height, long readiness lists scroll inside the right rail so the calculation and
-  output actions remain reachable.
+- At desktop height, long readiness lists scroll inside the right rail so the calculation action
+  remains reachable.
 - The current bundled RJFM/RJFO reference rows remain `UNVERIFIED`; visual fidelity does not
   override the primary-source release gate.
-- Fake weather remains the local default and prevents transfer-aid output by design.
+- Fake weather remains the local default and prevents a release-ready status by design.

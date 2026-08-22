@@ -64,12 +64,6 @@
           "title": "Id",
           "type": "string"
         },
-        "loss_time_seconds": {
-          "default": 0,
-          "minimum": 0,
-          "title": "Loss Time Seconds",
-          "type": "number"
-        },
         "manual_tas_kt": {
           "anyOf": [
             {
@@ -144,42 +138,12 @@
           "default": null,
           "title": "Manual Wind Speed Kt"
         },
-        "notes": {
-          "default": "",
-          "title": "Notes",
-          "type": "string"
-        },
         "phase": {
           "$ref": "#/$defs/FlightPhase"
         },
         "planned_altitude_ft_msl": {
           "title": "Planned Altitude Ft Msl",
           "type": "number"
-        },
-        "project_id": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Project Id"
-        },
-        "safe_enroute_altitude_ft_msl": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Safe Enroute Altitude Ft Msl"
         },
         "sequence": {
           "minimum": 0,
@@ -269,19 +233,6 @@
           "title": "Name",
           "type": "string"
         },
-        "project_id": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Project Id"
-        },
         "role": {
           "$ref": "#/$defs/RouteNodeRole"
         },
@@ -321,20 +272,6 @@
     "VisualReference": {
       "additionalProperties": false,
       "properties": {
-        "along_track_fraction": {
-          "anyOf": [
-            {
-              "maximum": 1,
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Along Track Fraction"
-        },
         "id": {
           "format": "uuid",
           "title": "Id",
@@ -369,19 +306,6 @@
           "minLength": 1,
           "title": "Name",
           "type": "string"
-        },
-        "project_id": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Project Id"
         },
         "role": {
           "$ref": "#/$defs/VisualReferenceRole"
@@ -515,8 +439,8 @@
       "type": "boolean"
     },
     "schema_version": {
-      "const": 2,
-      "default": 2,
+      "const": 3,
+      "default": 3,
       "title": "Schema Version",
       "type": "integer"
     },
