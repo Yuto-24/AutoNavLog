@@ -239,45 +239,6 @@ def _find_required_wheel(
     return matches[0]
 
 
-def _validate_notebook(path: Path) -> None:
-    notebook = _load_json(path, "distribution notebook")
-    _require(notebook.get("nbformat") == 4, "distribution notebook must use nbformat 4")
-    cells = _require_sequence(notebook.get("cells"), "distribution notebook cells")
-    _require(cells, "distribution notebook contains no cells")
-    code = []
-    for index, raw_cell in enumerate(cells):
-        cell = _require_mapping(raw_cell, f"distribution notebook cell {index}")
-        if cell.get("cell_type") != "code":
-            continue
-        _require(
-            cell.get("execution_count") is None,
-            f"distribution notebook code cell {index} has an execution count",
-        )
-        _require(
-            cell.get("outputs") in (None, []),
-            f"distribution notebook code cell {index} contains saved outputs",
-        )
-        source = cell.get("source", "")
-        if isinstance(source, str):
-            code.append(source)
-        else:
-            code.append(
-                "".join(
-                    str(part)
-                    for part in _require_sequence(
-                        source,
-                        f"distribution notebook cell {index} source",
-                    )
-                )
-            )
-    joined_code = "\n".join(code)
-    for marker in ("release-manifest.json", "MsmWeatherProvider", "app.render()"):
-        _require(
-            marker in joined_code,
-            f"distribution notebook is missing bootstrap marker: {marker}",
-        )
-
-
 def _read_csv(path: Path, label: str) -> tuple[set[str], list[dict[str, str]]]:
     _require(path.is_file(), f"{label} is absent: {path}")
     _require(path.stat().st_size > 0, f"{label} is empty: {path}")
@@ -600,7 +561,6 @@ def _validate_release_tree(root: Path, version: str) -> dict[str, Any]:
         "wheel files must appear only at the top level of the wheel directory",
     )
 
-    _validate_notebook(root / "AutoNavLog.ipynb")
     data_root = root / "data" / "autonavlog"
     airport_rows = _validate_reference_pack(data_root / "reference" / "default")
     climb_rows, cruise_rows = _validate_performance(data_root / "performance")

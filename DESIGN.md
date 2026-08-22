@@ -1,5 +1,10 @@
 # AutoNavLog UI改善 要求仕様書
 
+> [!IMPORTANT]
+> この文書は AutoNavLog 1.1.0 向けの設計履歴です。1.4.0 では Colab、A4転記補助HTML、
+> 計算結果Snapshot、旧SEA/LOSS互換fieldを廃止しています。現行契約は `README.md`、
+> `docs/architecture.md`、`docs/calculation_rules.md`、生成済みJSON Schemaを参照してください。
+
 - 版: 2.10.0
 - 日付: 2026-08-17
 - 対象: AutoNavLog 1.1.0 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel

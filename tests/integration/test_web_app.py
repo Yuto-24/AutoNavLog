@@ -71,6 +71,21 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
+async def _calculate(client: httpx.AsyncClient) -> dict[str, object]:
+    created = await client.post("/api/calculation-jobs")
+    assert created.status_code == 202, created.text
+    job = created.json()
+    for _ in range(100):
+        response = await client.get(f"/api/calculation-jobs/{job['job_id']}")
+        assert response.status_code == 200, response.text
+        job = response.json()
+        if job["status"] in {"succeeded", "failed"}:
+            break
+        await asyncio.sleep(0.01)
+    assert job["status"] == "succeeded", job
+    return job["state"]
+
+
 @pytest.mark.anyio
 async def test_trusted_http_session_cookie_is_reusable(tmp_path: Path) -> None:
     app = create_app(
@@ -97,7 +112,7 @@ async def test_trusted_http_session_cookie_is_reusable(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_web_route_calculation_save_and_fail_closed_output(
+async def test_web_route_calculation_save_and_fail_closed_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -178,9 +193,8 @@ async def test_web_route_calculation_save_and_fail_closed_output(
             for issue in confirmed_state["readiness"]["issues"]
         )
 
-        unconfirmed = await client.post("/api/calculate")
-        assert unconfirmed.status_code == 409
-        assert unconfirmed.json()["error"]["code"] == "PATTERN_ALTITUDE_REQUIRED"
+        removed_calculate = await client.post("/api/calculate")
+        assert removed_calculate.status_code == 405
 
         manual_arrival = await client.put(
             "/api/project",
@@ -278,7 +292,7 @@ async def test_web_route_calculation_save_and_fail_closed_output(
             issue["code"] == "DEVELOPMENT_WEATHER_PROVIDER"
             for issue in calculated_state["readiness"]["issues"]
         )
-        assert calculated_state["readiness"]["transferAidAllowed"] is False
+        assert "transferAidAllowed" not in calculated_state["readiness"]
 
         editable_sections = destination_state["project"]["sections"]
         first_editable_id = editable_sections[0]["id"]
@@ -361,8 +375,7 @@ async def test_web_route_calculation_save_and_fail_closed_output(
         assert after_failure["outcome"] == last_good_outcome
 
         blocked = await client.get("/api/transfer-aid")
-        assert blocked.status_code == 409
-        assert blocked.json()["error"]["code"] == "TRANSFER_AID_BLOCKED"
+        assert blocked.status_code == 404
 
         saved = await client.post(
             "/api/projects/save",
@@ -416,9 +429,7 @@ async def test_ftd_mode_calculates_with_fixed_wind_and_isa_without_fake_weather_
             },
         )
         assert destination.status_code == 200, destination.text
-        calculated = await client.post("/api/calculate")
-        assert calculated.status_code == 200, calculated.text
-        calculated_state = calculated.json()
+        calculated_state = await _calculate(client)
         assert calculated_state["project"]["selected_forecast_run_id"] == "ftd-fixed-v1"
         assert calculated_state["destinationWind"]["reason_code"] == "FTD_MODE_NO_TAF"
         assert calculated_state["destinationWind"]["source_label"] == "FTD固定気象"
@@ -1037,13 +1048,12 @@ async def test_intermediate_line_names_preserve_every_original_coordinate(
             },
         )
         assert destination.status_code == 200, destination.text
-        calculated = await client.post("/api/calculate")
-        assert calculated.status_code == 200, calculated.text
+        calculated_state = await _calculate(client)
         assert not any(
             issue["code"] == "RJFM_DEPARTURE_PLAN_STALE"
-            for issue in calculated.json()["outcome"]["issues"]
+            for issue in calculated_state["outcome"]["issues"]
         )
-        guidance = calculated.json()["outcome"]["rjfm_departure_guidance"]
+        guidance = calculated_state["outcome"]["rjfm_departure_guidance"]
         assert [candidate["runway"] for candidate in guidance["candidates"]] == [
             "09",
             "27",
@@ -1052,10 +1062,10 @@ async def test_intermediate_line_names_preserve_every_original_coordinate(
             "KML:UMK",
             rjfm_plan["over_field"]["source"],
         ]
-        assert calculated.json()["project"]["metadata"]["ui_state"][
+        assert calculated_state["project"]["metadata"]["ui_state"][
             "rjfm_departure_guidance"
         ] == guidance
-        assert guidance["generated_against_fingerprint"] == calculated.json()["project"][
+        assert guidance["generated_against_fingerprint"] == calculated_state["project"][
             "metadata"
         ]["ui_state"]["calculated_against_fingerprint"]
 

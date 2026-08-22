@@ -92,5 +92,5 @@ Supplement本文を収録していないため未確認のページ番号は付�
 計算へは使いません。再計算のたびに到着予定時刻へ合わせて選び直し、取得失敗時は目的空港
 情報行だけを`UNAVAILABLE`とします。VREP→目的空港は常に固定CALMで計算します。
 
-SnapshotはProject revision、入力、手動値、性能表version、Policy version、気象要求と
-結果、パッケージversion、警告を含む不変JSONです。
+Projectは入力、手動値、選択した参照データを保存します。CalculationOutcome、気象要求、
+気象結果は保存用Snapshotへ複製せず、現在のWeb sessionで再計算可能な状態として扱います。

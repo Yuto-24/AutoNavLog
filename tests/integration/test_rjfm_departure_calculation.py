@@ -154,12 +154,6 @@ def test_umk_physical_navlog_groups_rjfm_through_omaru_with_direct_parent_course
     assert parent.wca.state == DisplayCellState.BLANK
     assert parent.mh.state == DisplayCellState.BLANK
     assert parent.gs.state == DisplayCellState.BLANK
-    assert parent.zone_distance_nm_exact == pytest.approx(
-        sum(row.zone_distance_nm_exact or 0.0 for row in children)
-    )
-    assert parent.zone_ete_seconds_exact == pytest.approx(
-        sum(row.zone_ete_seconds_exact or 0.0 for row in children)
-    )
     controlled_results = [
         result
         for result in outcome.sections
@@ -275,12 +269,6 @@ def test_omaru_first_navlog_uses_rjfm_omaru_parent_and_virtual_umk_child(
         working.ordered_sections()[0].id
     }
     assert [row.to_name for row in children][:1] == ["UMK/RCA（仮定）"]
-    assert parent.zone_distance_nm_exact == pytest.approx(
-        sum(row.zone_distance_nm_exact or 0.0 for row in children)
-    )
-    assert parent.zone_ete_seconds_exact == pytest.approx(
-        sum(row.zone_ete_seconds_exact or 0.0 for row in children)
-    )
 
 
 def test_direct_calculation_rejects_stale_persisted_rjfm_plan(

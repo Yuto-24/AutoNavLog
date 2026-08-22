@@ -149,34 +149,11 @@ def derive_project_status(
     return ProjectStatus.READY_FOR_COPY
 
 
-def can_render_transfer_aid(
-    effective_issues: Iterable[EffectiveIssue],
-    acknowledged_warning_codes: set[str],
-    *,
-    outcome_exists: bool,
-    calculation_is_current: bool,
-    editable: bool,
-) -> bool:
-    issues = list(effective_issues)
-    return (
-        outcome_exists
-        and editable
-        and calculation_is_current
-        and not any(item.effective_severity == IssueSeverity.BLOCKER for item in issues)
-        and all(
-            not item.effective_acknowledgement_required
-            or item.ctx.ack_key in acknowledged_warning_codes
-            for item in issues
-        )
-    )
-
-
 @dataclass(frozen=True)
 class ReadinessEvaluation:
     effective_issues: tuple[EffectiveIssue, ...]
     status: ProjectStatus
     calculation_is_current: bool
-    transfer_aid_allowed: bool
 
 
 def _readiness_blocker(code: str, message: str) -> Issue:
@@ -348,16 +325,8 @@ def evaluate_readiness(
         project.acknowledged_warning_codes,
         outcome_exists=outcome is not None,
     )
-    allowed = can_render_transfer_aid(
-        effective,
-        project.acknowledged_warning_codes,
-        outcome_exists=outcome is not None,
-        calculation_is_current=calculation_is_current,
-        editable=editable,
-    )
     return ReadinessEvaluation(
         effective_issues=tuple(effective),
         status=status,
         calculation_is_current=calculation_is_current,
-        transfer_aid_allowed=allowed,
     )

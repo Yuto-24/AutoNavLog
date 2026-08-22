@@ -237,14 +237,6 @@ class ReadinessService:
                     message="旧ProjectのFROM/TO・VREP・参照行を再確認してください。",
                 )
             )
-        if editable and "snapshot_effective_issues" in project.metadata:
-            project_issues.append(
-                Issue(
-                    code="PROJECT_STATE_INVALID",
-                    severity=IssueSeverity.BLOCKER,
-                    message="Snapshot専用状態を編集Projectとして開くことはできません。",
-                )
-            )
         project_issues.extend(project_check_points(project).issues)
         if not project.route_nodes or not project.sections:
             project_issues.append(

@@ -42,7 +42,6 @@ class Airport(DomainModel):
 
 class RouteNode(DomainModel):
     id: UUID = Field(default_factory=uuid4)
-    project_id: UUID | None = None
     sequence: int = Field(ge=0)
     name: str = Field(min_length=1)
     latitude_deg: float = Field(ge=-90, le=90)
@@ -55,13 +54,11 @@ class RouteNode(DomainModel):
 
 class VisualReference(DomainModel):
     id: UUID = Field(default_factory=uuid4)
-    project_id: UUID | None = None
     name: str = Field(min_length=1)
     latitude_deg: float = Field(ge=-90, le=90)
     longitude_deg: float = Field(ge=-180, le=180)
     role: VisualReferenceRole
     linked_section_id: UUID | None = None
-    along_track_fraction: float | None = Field(default=None, ge=0, le=1)
     source: str = "MANUAL"
 
 
@@ -88,13 +85,11 @@ class FtdWeatherSettings(DomainModel):
 
 class NavSection(DomainModel):
     id: UUID = Field(default_factory=uuid4)
-    project_id: UUID | None = None
     sequence: int = Field(ge=0)
     from_node_id: UUID
     to_node_id: UUID
     phase: FlightPhase
     planned_altitude_ft_msl: float
-    safe_enroute_altitude_ft_msl: float | None = None
     manual_wind_direction_deg: int | None = Field(default=None, ge=1, le=360)
     manual_wind_speed_kt: float | None = Field(default=None, ge=0)
     manual_wind_by_phase: dict[FlightPhase, ManualWind] = Field(default_factory=dict)
@@ -104,8 +99,6 @@ class NavSection(DomainModel):
         Annotated[float, Field(ge=-80, le=60)],
     ] = Field(default_factory=dict)
     manual_tas_kt: float | None = Field(default=None, gt=0)
-    loss_time_seconds: float = Field(default=0, ge=0)
-    notes: str = ""
 
     @model_validator(mode="after")
     def validate_manual_wind_pair(self) -> NavSection:
@@ -126,7 +119,7 @@ class NavSection(DomainModel):
 
 class Project(DomainModel):
     id: UUID = Field(default_factory=uuid4)
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     name: str = Field(min_length=1)
     pilot_name: str = ""
     ship_identifier: str = ""

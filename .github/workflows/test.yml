@@ -23,7 +23,6 @@ jobs:
       - run: mypy src/autonavlog
       - run: pytest --cov=autonavlog --cov-report=term-missing
       - run: python scripts/validate_performance_data.py data/performance
-      - run: python scripts/validate_notebook.py notebooks/AutoNavLog.ipynb
       - run: python scripts/export_schemas.py --check
       - run: python -m build
 

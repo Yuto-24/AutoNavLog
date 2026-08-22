@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .enums import (
     DerivedPointType,
@@ -38,21 +37,17 @@ class DerivedRoutePoint(CalculationModel):
     latitude_deg: float
     longitude_deg: float
     along_route_distance_nm: float
-    estimated_time_utc: datetime | None = None
 
 
 class SectionResult(CalculationModel):
     section_id: UUID
     sequence: int = Field(ge=0)
     phase: FlightPhase
-    segment_label: str | None = None
     from_name: str
     to_name: str
     from_latitude_deg: float | None = Field(default=None, ge=-90, le=90)
     from_longitude_deg: float | None = Field(default=None, ge=-180, le=180)
     planned_altitude_ft_msl: AdoptedValue[float]
-    safe_enroute_altitude_ft_msl: AdoptedValue[float]
-    loss_time_seconds: float = Field(ge=0)
     pressure_altitude_exact_ft: AdoptedValue[float]
     pressure_altitude_planning_ft: AdoptedValue[float]
     true_course_deg: AdoptedValue[float] = Field(
@@ -80,7 +75,6 @@ class SectionResult(CalculationModel):
     cumulative_distance_nm: AdoptedValue[float]
     zone_ete_seconds: AdoptedValue[float]
     cumulative_ete_seconds: AdoptedValue[float]
-    eto_utc: AdoptedValue[datetime]
     section_fuel_gal: AdoptedValue[float]
     remaining_fuel_gal: AdoptedValue[float]
     performance_metadata: dict[str, Any] = Field(default_factory=dict)
@@ -89,7 +83,7 @@ class SectionResult(CalculationModel):
 class NavLogDisplayCell(CalculationModel):
     """A formatted display cell with explicit blank/error semantics.
 
-    ``text`` is the canonical value rendered by both Web and A4 output.
+    ``text`` is the canonical value rendered by the Web NAV LOG.
     ``effective_value`` may remain populated when ``state`` is ``INHERIT`` so
     the projection records which parent/preceding value is used without
     repeating it visually.
@@ -104,7 +98,7 @@ class NavLogDisplayCell(CalculationModel):
     )
     text: str | None = Field(
         default=None,
-        description="Canonical formatted text shared by Web and A4 renderers.",
+        description="Canonical formatted text rendered by the Web NAV LOG.",
     )
     effective_value: float | str | None = Field(
         default=None,
@@ -163,13 +157,6 @@ class NavLogDisplayRow(CalculationModel):
             "destination reference information, or visual Leg separator."
         )
     )
-    counts_toward_totals: bool = Field(
-        default=False,
-        description=(
-            "Legacy projection metadata only. Route totals must always come from "
-            "CalculationOutcome.sections, never from display_rows."
-        ),
-    )
     from_name: str = ""
     to_name: str = ""
     from_latitude_deg: float | None = Field(default=None, ge=-90, le=90)
@@ -187,7 +174,7 @@ class NavLogDisplayRow(CalculationModel):
     mh: NavLogDisplayCell = Field(
         description=(
             "Magnetic heading display cell. The calculation effective value is "
-            "MC + WCA; transcription text adds the separately rounded 1-degree "
+            "MC + WCA; display text adds the separately rounded 1-degree "
             "MC and WCA display operands."
         )
     )
@@ -198,18 +185,6 @@ class NavLogDisplayRow(CalculationModel):
     ato: NavLogDisplayCell
     ate: NavLogDisplayCell
     fuel: NavLogDisplayCell
-    zone_distance_nm_exact: float | None = Field(
-        default=None,
-        ge=0,
-        description="Unrounded display-row zone/subtotal distance; never a totals source.",
-    )
-    cumulative_distance_nm_exact: float | None = Field(default=None, ge=0)
-    zone_ete_seconds_exact: float | None = Field(
-        default=None,
-        ge=0,
-        description="Unrounded display-row zone/subtotal ETE; never a totals source.",
-    )
-    cumulative_ete_seconds_exact: float | None = Field(default=None, ge=0)
 
 
 class FuelPlan(CalculationModel):
@@ -226,12 +201,6 @@ class FuelPlan(CalculationModel):
     min_required_gal: float | None = None
     extra_gal: float | None = None
     extra_endurance_seconds: float | None = None
-
-
-class IterationRecord(CalculationModel):
-    iteration: int
-    max_time_delta_seconds: float | None
-    representative_times_utc: dict[str, datetime]
 
 
 class CalculationOutcome(CalculationModel):
@@ -257,27 +226,10 @@ class CalculationOutcome(CalculationModel):
     rjfm_departure_guidance: RjfmDepartureGuidance | None = None
     fuel_plan: FuelPlan
     issues: list[Issue] = Field(default_factory=list)
-    iterations: list[IterationRecord] = Field(default_factory=list)
     converged: bool = False
     status: ProjectStatus
     policy_version: str
     performance_table_version: str | None = None
-
-    @field_validator("display_rows", mode="before")
-    @classmethod
-    def discard_legacy_display_projection(cls, value: Any) -> Any:
-        """Accept snapshots created before display cells became a separate DTO.
-
-        Legacy rows inherited ``SectionResult`` and are intentionally discarded:
-        saved display projections are not authoritative and callers must render
-        a fresh projection from Project inputs and the current calculation policy.
-        """
-
-        if isinstance(value, list) and any(
-            isinstance(row, dict) and "pa" not in row for row in value
-        ):
-            return []
-        return value
 
     @property
     def blockers(self) -> list[Issue]:

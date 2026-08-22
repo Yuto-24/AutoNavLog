@@ -253,7 +253,6 @@ def _insert_omaru_after_umk(
         return
     _capture_original_node_override(project, nodes[1])
     new_node = RouteNode(
-        project_id=project.id,
         sequence=2,
         name="OMARU",
         latitude_deg=omaru.latitude_deg,
@@ -270,21 +269,17 @@ def _insert_omaru_after_umk(
     original_remainder = sections[1] if len(sections) > 1 else None
     copied = original_remainder or sections[0]
     inserted = NavSection(
-        project_id=project.id,
         sequence=1,
         from_node_id=nodes[1].id,
         to_node_id=new_node.id,
         phase=FlightPhase.CRUISE,
         planned_altitude_ft_msl=TARGET_ALTITUDE_FT_MSL,
-        safe_enroute_altitude_ft_msl=copied.safe_enroute_altitude_ft_msl,
         manual_wind_direction_deg=copied.manual_wind_direction_deg,
         manual_wind_speed_kt=copied.manual_wind_speed_kt,
         manual_wind_by_phase=dict(copied.manual_wind_by_phase),
         manual_temperature_c=copied.manual_temperature_c,
         manual_temperature_c_by_phase=dict(copied.manual_temperature_c_by_phase),
         manual_tas_kt=copied.manual_tas_kt,
-        loss_time_seconds=0.0,
-        notes=copied.notes,
     )
     rebuilt: list[NavSection] = [sections[0], inserted]
     if original_remainder is not None:

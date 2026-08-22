@@ -44,7 +44,7 @@ def validate_runtime_data(
     nominal_altitude_ft: float = 5_000.0,
     nominal_temperature_c: float = 15.0,
 ) -> dict[str, Any]:
-    """Validate the minimum source-backed data needed by the NAV2 Colab release."""
+    """Validate the minimum source-backed data needed by the AutoNavLog Web release."""
 
     root = Path(data_root)
     reference_path = root / "reference" / "default"

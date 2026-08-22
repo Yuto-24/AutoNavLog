@@ -7,13 +7,11 @@ from pathlib import Path
 
 from autonavlog.domain.calculation import CalculationOutcome
 from autonavlog.domain.project import Project
-from autonavlog.domain.snapshot import CalculationSnapshot
 from autonavlog.domain.weather import WeatherRequest, WeatherResult
 
 MODELS = {
     "project.schema.json": Project,
     "calculation-outcome.schema.json": CalculationOutcome,
-    "snapshot.schema.json": CalculationSnapshot,
     "weather-request.schema.json": WeatherRequest,
     "weather-result.schema.json": WeatherResult,
 }

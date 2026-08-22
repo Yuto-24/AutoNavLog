@@ -4,6 +4,26 @@ AutoNavLog の利用者に影響する変更を記録します。
 
 ## Unreleased
 
+## 1.4.0 - 2026-08-22
+
+### 変更
+
+- 配布と実行経路を Web 版へ一本化し、Colab Notebook、Preview bundle、Colab UI、Google Drive
+  Project 保存を廃止しました。
+- A4 転記補助 HTML と、その出力 API・画面操作・専用 presentation code を廃止しました。
+- 計算結果 Snapshot の保存 API と schema を廃止し、保存対象を Project 入力へ整理しました。
+- Project schema を v3 に更新し、子要素の重複 `project_id`、未使用の SEA・loss・notes・
+  `along_track_fraction` を読込時に破棄します。
+- 計算結果から、表示専用の重複未丸め値、未使用の ETO、反復履歴を削除しました。
+- 降下高度プロファイルを「降下後に level off し、その後 1 分減速」として独立させました。
+  総降下時間と EOC の位置は従来どおりです。
+- 同期計算 API を廃止し、進捗を扱える calculation job API に一本化しました。
+
+### 配布
+
+- Python・Web・release workflow のバージョンを `1.4.0` に統一しました。
+- release manifest から Notebook の同梱・検証要件を削除しました。
+
 ## 1.3.2 - 2026-08-21
 
 ### 追加

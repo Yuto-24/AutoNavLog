@@ -75,13 +75,11 @@ export interface FtdWeatherSettings {
 
 export interface VisualReference {
   id: string;
-  project_id: string | null;
   name: string;
   latitude_deg: number;
   longitude_deg: number;
   role: string;
   linked_section_id: string | null;
-  along_track_fraction: number | null;
   source: string;
 }
 
@@ -155,7 +153,6 @@ export interface SectionResult {
   section_id: string;
   sequence: number;
   phase: FlightPhase;
-  segment_label: string | null;
   from_name: string;
   to_name: string;
   from_latitude_deg?: number | null;
@@ -206,7 +203,6 @@ export interface NavLogDisplayRow {
     | "CALCULATION_ZONE"
     | "DESTINATION_INFO"
     | "LEG_SEPARATOR";
-  counts_toward_totals: boolean;
   from_name: string;
   to_name: string;
   from_latitude_deg?: number | null;
@@ -235,10 +231,6 @@ export interface NavLogDisplayRow {
   ato: NavLogDisplayCell;
   ate: NavLogDisplayCell;
   fuel: NavLogDisplayCell;
-  zone_distance_nm_exact: number | null;
-  cumulative_distance_nm_exact: number | null;
-  zone_ete_seconds_exact: number | null;
-  cumulative_ete_seconds_exact: number | null;
 }
 
 export interface DerivedPoint {
@@ -486,7 +478,6 @@ export interface EffectiveIssue {
 export interface ReadinessState {
   status: string | null;
   calculationIsCurrent: boolean;
-  transferAidAllowed: boolean;
   workflowStep: number;
   nextAction: string;
   issues: EffectiveIssue[];

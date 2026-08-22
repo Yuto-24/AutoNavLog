@@ -146,35 +146,6 @@ export class ApiClient {
     }
   }
 
-  private async fetchTransferAid(retryOnUnauthorized: boolean): Promise<Response> {
-    const response = await fetch("/api/transfer-aid", {
-      credentials: "same-origin",
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (response.status === 401 && retryOnUnauthorized) {
-      await this.createSession();
-      return this.fetchTransferAid(false);
-    }
-    return response;
-  }
-
-  async downloadTransferAid(): Promise<void> {
-    const response = await this.fetchTransferAid(true);
-    if (!response.ok) {
-      throw await parseError(response);
-    }
-    const blob = await response.blob();
-    const disposition = response.headers.get("Content-Disposition") ?? "";
-    const match = /filename="([^"]+)"/.exec(disposition);
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = match?.[1] ?? "AutoNavLog_transfer_aid.html";
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-  }
 }
 
 export async function fileToBase64(file: File): Promise<string> {

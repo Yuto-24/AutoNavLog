@@ -859,7 +859,7 @@ export function NavLogTable({
       </div>
       {rjfmGuidance && <RjfmGuidancePanel guidance={rjfmGuidance} />}
       <p className="nav-log-disclaimer">
-        本表示は地上準備の転記補助です。運航の可否を決定する資料ではありません。
+        本表示は地上準備用です。運航の可否を決定する資料ではありません。
         最新の気象・NOTAM・AIPおよび適用可能な原資料を確認してください。
       </p>
     </section>

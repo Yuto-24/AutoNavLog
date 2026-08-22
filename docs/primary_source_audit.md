@@ -44,7 +44,7 @@ POHおよび全Supplementに対してそのまま適用可能かは、機体別�
 | TGL | CAC-REV19 8-(5)「10.(7)」 | 場周1回につき7分、2.0 gal | 値は裏付け済み |
 | RESERVE | CAC-REV19 8-(5)「10.(8)」および別添8-1 | VFR Navigationのreserveとして0:45、12.4 gal | 値は裏付け済み。運航規程との版整合は別途確認対象 |
 | EXTRA | CAC-REV19 8-(5)「10.(10)」 | TOTALからMIN REQUIREDを引いた燃料を16.5 GPHで時間換算する | 値は裏付け済み |
-| 別添8-1の主表 | CAC-REV19 別添8-1 | DATE、SHIP、FROM、TO、PILOT、TTL DIST/TIME、TAKE OFF/LANDING、およびFROM、TO、PA、TOAT、CAS、TAS、TC、VAR、MC、WIND、WCA、MH、ZONE/CUM DIST、GS、ZONE/CUM ETE、ETO、ATO、ATE、SECT/REM FUEL | 項目集合は裏付け済み。AutoNavLogのA4表は原本複製ではなく非公式転記補助表 |
+| 別添8-1の主表 | CAC-REV19 別添8-1 | DATE、SHIP、FROM、TO、PILOT、TTL DIST/TIME、TAKE OFF/LANDING、およびFROM、TO、PA、TOAT、CAS、TAS、TC、VAR、MC、WIND、WCA、MH、ZONE/CUM DIST、GS、ZONE/CUM ETE、ETO、ATO、ATE、SECT/REM FUEL | 項目集合は裏付け済み。AutoNavLogはWebで計算結果を表示し、A4帳票は出力しない |
 | 別添8-1の燃料欄 | CAC-REV19 別添8-1 | TAXI・RUN UP、CLIMB、CRUISE、DESCENT、TGL、ADDITIONAL、RESERVE、MIN REQUIRED、EXTRA、TOTAL | 項目集合は裏付け済み |
 
 ## SR22 POH性能頁で直接確認した事項
@@ -81,16 +81,15 @@ POHおよび全Supplementに対してそのまま適用可能かは、機体別�
 - 巡航表のPWR→ISA偏差→高度という補間順序、0.1単位のties-to-even、および外挿禁止。
   規程が要求する「計画に近い条件のうち不利」を満たすことのGolden照合。
 - WGS84測地線、Leg中点での気象照会、RCA/EOCを物理Leg内で分割するexactアルゴリズム。
-- Loss Timeを機上修正値として地上の時間・Forecast・燃料から除外する扱い。
 - 目的地TAFの卓越風を到着予定時刻へ合わせ、NAV LOG最終行への表示だけに使用する扱い。
 - MSM風・気温の時間/空間補間、同一Forecast Runで最大5回反復して30秒未満を収束とすること。
 - EOCの追加1分、直前巡航Legだけへの時間持越し、0.5 NM未満の変針点snap、および
   物理Leg小計/Calculation Zone内訳という表示Policy。
 - 方位1°、距離0.5 nm、時間0.5分という記入単位に対するhalf-upのtie処理、燃料0.1 galの
   一律half-up、および丸めを適用する計算段階。
-- SEA・地形機能はv2.6の対象外。規程が求める気象・航空情報・経路障害物の確認。
+- SEA・地形機能はv1.4.0の対象外。規程が求める気象・航空情報・経路障害物の確認。
 - 別添8-1原本とのレイアウト一致、校内でのソフトウェア承認、検証済みGolden NAV LOGとの
   end-to-end一致。
 
-これらが完了するまで、AutoNavLogの出力は非公式の地上準備・転記補助であり、航空大学校の
+これらが完了するまで、AutoNavLogの表示は非公式の地上準備資料であり、航空大学校の
 承認済みNAV LOGまたは運航資料とは表示しません。
