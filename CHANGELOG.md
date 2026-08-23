@@ -13,6 +13,9 @@ AutoNavLog の利用者に影響する変更を記録します。
   別 Leg に選ぶと既存の同 Phase を自動で `CRUISE` へ戻す基準 Leg 方式へ変更しました。
 - RJFM北行き例外の固定区間と `VISUAL_ARRIVAL` は、PHASE変更モードでも固定のままとしました。
 - PHASE変更中は、RCA・EOC・性能・時間・燃料計算へ影響することを経路表の直上へ表示します。
+- EOCはDESCENT基準Leg自身の高度から探索を開始し、Leg内ならそこで確定、物理変針点上で
+  一致する場合だけ前方Legへ再帰するよう修正しました。各変針点高度を満たせない短いLegは
+  Blockerとし、Legごとの風・GSとprofile全体で1回だけのlevel off後60秒減速を使用します。
 
 ### 配布
 
