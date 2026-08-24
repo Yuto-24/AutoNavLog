@@ -76,7 +76,7 @@ from .rjfm_departure_plan import rjfm_plan_matches_project
 
 @dataclass(frozen=True)
 class CalculationPolicies:
-    version: str = "nav2-v10-cruise-equipment-options"
+    version: str = "nav2-v12-strict-eoc-turn-boundaries"
     # Kept for serialized policy compatibility. NAV2-v5 uses MSL directly.
     pa_500_policy: Pa500Policy = Pa500Policy.CEILING
     max_iterations: int = 5
@@ -1271,8 +1271,8 @@ class CalculationService:
         last_cas: float | None = None
         for environment in environments[:end_index]:
             phase = environment.geometry.section.phase
-            # The immediately preceding physical leg supplies the cruise CAS;
-            # a DESCENT leg's legacy altitude is not an intermediate constraint.
+            # The latest preceding cruise leg supplies the descent CAS.  EOC
+            # altitude transitions are resolved separately by _build_descent_plan.
             if phase in {FlightPhase.DESCENT, FlightPhase.VISUAL_ARRIVAL}:
                 continue
             phase_environment = environment.for_phase(FlightPhase.CRUISE)
@@ -1353,104 +1353,215 @@ class CalculationService:
             )
             return None
 
-        cruise_altitude = float(
-            geometries[descent_index - 1].section.planned_altitude_ft_msl
-            if descent_index > 0
-            else section.planned_altitude_ft_msl
-        )
-        altitude_difference = cruise_altitude - target_altitude
-        if altitude_difference <= 0:
-            issues.append(
-                self._blocker(
-                    "DESCENT_ALTITUDE_INVALID",
-                    "巡航高度はVREP高度より高く設定してください。",
-                    section.id,
-                    metadata={
-                        "cruise_altitude_ft_msl": cruise_altitude,
-                        "vrep_altitude_ft_msl": target_altitude,
-                    },
-                )
-            )
-            return None
-
-        # Miyazaki NAV2: descend, level off, then decelerate for one minute.
-        vertical_descent_duration_seconds = altitude_difference / 500.0 * 60.0
-        duration_seconds = vertical_descent_duration_seconds + 60.0
-        common_environment = descent_environment.for_phase(FlightPhase.DESCENT)
-        temperature = common_environment.temperature_c
-        wind_speed = common_environment.wind_speed_kt
-        if temperature is None or wind_speed is None:
+        # NAV2 uses one descent CAS/TAS and representative temperature based
+        # on the DESCENT basis leg.  Wind and TC still vary by physical leg.
+        common_descent_environment = descent_environment.for_phase(FlightPhase.DESCENT)
+        common_temperature = common_descent_environment.temperature_c
+        if common_temperature is None:
             return None
         descent_tas = section.manual_tas_kt
         if descent_tas is None and cruise_cas is not None:
             descent_tas = tas_from_cas(
                 cruise_cas,
-                common_environment.pressure_altitude_exact_ft,
-                temperature,
+                common_descent_environment.pressure_altitude_exact_ft,
+                common_temperature,
             )
         if descent_tas is None:
             return None
 
+        # The DESCENT basis leg is the first candidate.  Preceding physical
+        # legs are considered only when the profile lands exactly on a turn
+        # boundary; an underlength basis leg is unsafe rather than recoverable
+        # by backtracking.  This keeps #39/#40 turn-altitude transitions exact.
+        cruise_altitude = float(section.planned_altitude_ft_msl)
+        altitude_difference = cruise_altitude - target_altitude
+        if altitude_difference <= 0:
+            issues.append(
+                self._blocker(
+                    "DESCENT_ALTITUDE_INVALID",
+                    "DESCENT基準Legの高度は到着側高度より高く設定してください。",
+                    section.id,
+                    metadata={
+                        "constraint_section_id": str(section.id),
+                        "constraint_start_altitude_ft_msl": cruise_altitude,
+                        "constraint_target_altitude_ft_msl": target_altitude,
+                    },
+                )
+            )
+            return None
+
+        ground_speeds: dict[int, float] = {}
+        ground_speed_details: dict[int, dict[str, Any]] = {}
+
         def descent_ground_speed(index: int) -> float | None:
+            cached = ground_speeds.get(index)
+            if cached is not None:
+                return cached
+            phase_environment = environments[index].for_phase(FlightPhase.DESCENT)
+            wind_speed = phase_environment.wind_speed_kt
+            if wind_speed is None:
+                return None
             try:
-                return solve_wind_triangle(
+                solution = solve_wind_triangle(
                     environments[index].geometry.true_course_deg,
                     descent_tas,
-                    common_environment.wind_direction_deg_from,
+                    phase_environment.wind_direction_deg_from,
                     wind_speed,
-                ).ground_speed_kt
+                )
             except WindTriangleError as error:
                 issues.append(
                     self._blocker("WIND_TRIANGLE_FAILED", str(error), section.id)
                 )
                 return None
+            ground_speeds[index] = solution.ground_speed_kt
+            ground_speed_details[index] = {
+                "section_id": str(environments[index].geometry.section.id),
+                "true_course_deg": environments[index].geometry.true_course_deg,
+                "tas_kt": descent_tas,
+                "wind_direction_deg_from": phase_environment.wind_direction_deg_from,
+                "wind_speed_kt": wind_speed,
+                "ground_speed_kt": solution.ground_speed_kt,
+            }
+            return solution.ground_speed_kt
 
         offsets = self._route_leg_offsets(geometries)
         route_end_distance = offsets[descent_index][1]
-        descent_gs = descent_ground_speed(descent_index)
-        if descent_gs is None:
-            return None
-        descent_leg_seconds = geometries[descent_index].distance_nm / descent_gs * 3600.0
-        if duration_seconds <= descent_leg_seconds + 1e-9:
-            route_start_distance = route_end_distance - descent_gs * duration_seconds / 3600.0
-            eoc_leg_index = descent_index
-        else:
-            previous_index = descent_index - 1
-            remaining_seconds = duration_seconds - descent_leg_seconds
-            if previous_index < 0:
-                issues.append(
-                    self._blocker(
-                        "EOC_BEFORE_SUPPORTED_LEG",
-                        "EOCが降下Legより前ですが、直前の巡航Legがありません。",
-                        section.id,
-                    )
-                )
+        eoc_leg_index = descent_index
+        vertical_descent_duration_seconds = altitude_difference / 500.0 * 60.0
+        constraint_transitions: list[dict[str, Any]] = [
+            {
+                "section_id": str(section.id),
+                "start_altitude_ft_msl": cruise_altitude,
+                "target_altitude_ft_msl": target_altitude,
+                "vertical_duration_seconds": vertical_descent_duration_seconds,
+                "deceleration_duration_seconds": 60.0,
+                "target_kind": "DESCENT_TARGET",
+            }
+        ]
+
+        while True:
+            ground_speed = descent_ground_speed(eoc_leg_index)
+            if ground_speed is None:
                 return None
-            previous_gs = descent_ground_speed(previous_index)
-            if previous_gs is None:
-                return None
-            previous_leg_seconds = (
-                geometries[previous_index].distance_nm / previous_gs * 3600.0
+            available_seconds = (
+                geometries[eoc_leg_index].distance_nm / ground_speed * 3600.0
             )
-            if remaining_seconds > previous_leg_seconds + 1e-9:
+            transition = constraint_transitions[0]
+            required_seconds = float(transition["vertical_duration_seconds"])
+            if eoc_leg_index == descent_index:
+                required_seconds += 60.0
+            transition["required_duration_seconds"] = required_seconds
+            transition["available_duration_seconds"] = available_seconds
+
+            # An EOC strictly inside the current leg is complete by itself.
+            # Do not read a preceding altitude in this case (Issue #73 Case A).
+            if required_seconds < available_seconds - 1e-9:
+                transition["boundary_relation"] = "INTERIOR"
+                route_start_distance = (
+                    offsets[eoc_leg_index][1]
+                    - ground_speed * required_seconds / 3600.0
+                )
+                break
+
+            if required_seconds > available_seconds + 1e-9:
                 issues.append(
                     self._blocker(
-                        "EOC_BEFORE_SUPPORTED_LEG",
-                        "EOCが直前の巡航Leg始点より前になります。",
+                        "DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE",
+                        "この物理Leg内で次の高度制約まで500 fpmの降下を完了できません。",
                         section.id,
                         metadata={
-                            "required_seconds": duration_seconds,
-                            "descent_leg_seconds": descent_leg_seconds,
-                            "previous_leg_seconds": previous_leg_seconds,
+                            "required_seconds": required_seconds,
+                            "available_seconds": available_seconds,
+                            "constraint_section_id": str(
+                                geometries[eoc_leg_index].section.id
+                            ),
+                            "constraint_start_altitude_ft_msl": transition[
+                                "start_altitude_ft_msl"
+                            ],
+                            "constraint_target_altitude_ft_msl": transition[
+                                "target_altitude_ft_msl"
+                            ],
+                            "constraint_section_ids": [
+                                transition["section_id"]
+                                for transition in constraint_transitions
+                            ],
+                            "constraint_transitions": constraint_transitions,
+                            "ground_speeds": [
+                                ground_speed_details[index]
+                                for index in range(eoc_leg_index, descent_index + 1)
+                            ],
                         },
                     )
                 )
                 return None
-            route_start_distance = (
-                offsets[previous_index][1]
-                - previous_gs * remaining_seconds / 3600.0
+
+            # The EOC lies exactly at this leg's start boundary.  Only this
+            # equality case continues into a preceding altitude transition.
+            transition["boundary_relation"] = "BOUNDARY"
+            if eoc_leg_index == 0:
+                route_start_distance = offsets[0][0]
+                break
+
+            previous_index = eoc_leg_index - 1
+            previous_section = geometries[previous_index].section
+            transition_target_altitude = float(
+                geometries[eoc_leg_index].section.planned_altitude_ft_msl
             )
+            transition_start_altitude = float(previous_section.planned_altitude_ft_msl)
+            transition_altitude_delta = (
+                transition_start_altitude - transition_target_altitude
+            )
+            if transition_altitude_delta < 0:
+                issues.append(
+                    self._blocker(
+                        "DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE",
+                        "前方の変針点高度が上昇を要求するため、連続降下として成立しません。",
+                        section.id,
+                        metadata={
+                            "constraint_section_id": str(previous_section.id),
+                            "constraint_start_altitude_ft_msl": transition_start_altitude,
+                            "constraint_target_altitude_ft_msl": transition_target_altitude,
+                            "required_seconds": required_seconds,
+                            "available_seconds": available_seconds,
+                            "constraint_section_ids": [
+                                str(previous_section.id),
+                                *(
+                                    transition["section_id"]
+                                    for transition in constraint_transitions
+                                ),
+                            ],
+                            "constraint_transitions": [
+                                {
+                                    "section_id": str(previous_section.id),
+                                    "start_altitude_ft_msl": transition_start_altitude,
+                                    "target_altitude_ft_msl": transition_target_altitude,
+                                    "vertical_duration_seconds": None,
+                                    "deceleration_duration_seconds": 0.0,
+                                    "target_kind": "PHYSICAL_TURN",
+                                },
+                                *constraint_transitions,
+                            ],
+                        },
+                    )
+                )
+                return None
+            transition_duration = transition_altitude_delta / 500.0 * 60.0
+            constraint_transitions.insert(
+                0,
+                {
+                    "section_id": str(previous_section.id),
+                    "start_altitude_ft_msl": transition_start_altitude,
+                    "target_altitude_ft_msl": transition_target_altitude,
+                    "vertical_duration_seconds": transition_duration,
+                    "deceleration_duration_seconds": 0.0,
+                    "target_kind": "PHYSICAL_TURN",
+                },
+            )
+            vertical_descent_duration_seconds += transition_duration
+            cruise_altitude = transition_start_altitude
             eoc_leg_index = previous_index
+
+        duration_seconds = vertical_descent_duration_seconds + 60.0
 
         if cruise_cas is None:
             phase_environment = descent_environment.for_phase(FlightPhase.DESCENT)
@@ -1475,9 +1586,17 @@ class CalculationService:
                 "deceleration_duration_seconds": 60.0,
                 "phase_profile_rule": "DESCEND_LEVEL_OFF_DECELERATE_V1",
                 "eoc_source_section_id": str(geometries[eoc_leg_index].section.id),
+                "constraint_section_ids": [
+                    transition["section_id"] for transition in constraint_transitions
+                ],
+                "constraint_transitions": constraint_transitions,
+                "ground_speeds": [
+                    ground_speed_details[index]
+                    for index in range(eoc_leg_index, descent_index + 1)
+                ],
                 "cruise_cas_kt": cruise_cas,
                 "fuel_flow_gph": 12.0,
-                "boundary_method": "descent-leg-then-immediate-previous-leg-only",
+                "boundary_method": "current-leg-first-recursive-turn-altitude-aware",
             },
         )
 
@@ -1811,16 +1930,28 @@ class CalculationService:
             if descent_plan is not None
             else None
         )
-
         for segment in segmentation.segments:
             environment = environments[segment.source_index]
             geometry = environment.geometry
             section = geometry.section
+            # EOC can span physical legs.  Resolve each transformed DESCENT
+            # zone through its source leg for wind, while retaining the NAV2
+            # common descent TAS/OAT basis from the selected DESCENT leg.
+            source_phase_environment = environment.for_phase(segment.phase)
             phase_environment = (
-                common_descent_environment
+                replace(
+                    common_descent_environment,
+                    weather=source_phase_environment.weather,
+                    wind_direction_deg_from=(
+                        source_phase_environment.wind_direction_deg_from
+                    ),
+                    wind_speed_kt=source_phase_environment.wind_speed_kt,
+                    weather_metadata=source_phase_environment.weather_metadata,
+                    weather_warnings=source_phase_environment.weather_warnings,
+                )
                 if segment.phase == FlightPhase.DESCENT
                 and common_descent_environment is not None
-                else environment.for_phase(segment.phase)
+                else source_phase_environment
             )
             weather = phase_environment.weather
             segment_geometry = geodesic_leg(
