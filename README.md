@@ -60,6 +60,10 @@ LineStringがないPoint-only KMLでは従来のPoint候補を利用できます
 - MSM の取得先と AviationWeather.gov へ接続できるネットワーク
 - 外部公開時は Cloudflare Tunnel と Cloudflare Access
 
+AutoNavLog のサポート対象runtimeは Docker / Docker Compose のみです。アプリケーションの
+containerは Python 3.12 を使用します。hostへのPython packageのinstallやhost上での直接実行は、
+動作する場合があってもサポート対象ではありません。
+
 ## 設定ファイル
 
 - `compose.yaml`: 標準の Web + MSM 構成
@@ -248,8 +252,9 @@ cloudflared tunnel --url http://localhost:8123
 
 ## 開発
 
-Python 3.12 を主対象とし、3.10 から 3.12 までをサポートします。`jma-msm-wind` は
-`0.2.1` に固定しています。Web サービスの通常起動に Python の開発環境は不要です。
+backend CIは当面host側の Python 3.12 で実行します。次のhost側コマンドは開発時の検査用であり、
+host上でのアプリケーション実行をサポート対象にするものではありません。
+`jma-msm-wind` は `0.2.1` に固定しています。
 
 ```bash
 uv venv --python 3.12

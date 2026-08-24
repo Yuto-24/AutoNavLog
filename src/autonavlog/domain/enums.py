@@ -1,11 +1,4 @@
-from enum import Enum
-
-
-class StrEnum(str, Enum):
-    """Python 3.10-compatible string enum."""
-
-    def __str__(self) -> str:
-        return str(self.value)
+from enum import StrEnum as StrEnum
 
 
 class RouteNodeRole(StrEnum):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from math import isfinite
 from typing import Any
 from uuid import UUID
@@ -733,7 +733,7 @@ class CalculationService:
             if project.selected_forecast_run_id is None:
                 run = provider.resolve_run(requirement)
                 selected_run_id = run.id
-                initial_time_utc = run.initial_time_utc.astimezone(timezone.utc)
+                initial_time_utc = run.initial_time_utc.astimezone(UTC)
             else:
                 status = provider.inspect_run_status(
                     project.selected_forecast_run_id,
@@ -742,7 +742,7 @@ class CalculationService:
                 selected_run_id = project.selected_forecast_run_id
                 try:
                     initial_time_utc = datetime.strptime(selected_run_id, "%Y%m%d%H%M%S").replace(
-                        tzinfo=timezone.utc
+                        tzinfo=UTC
                     )
                 except ValueError:
                     initial_time_utc = None
@@ -1973,7 +1973,7 @@ class CalculationService:
         phases: list[FlightPhase] = []
         cumulative_distance = 0.0
         cumulative_seconds: float | None = 0.0
-        departure_utc = project.planned_departure_time_jst.astimezone(timezone.utc)
+        departure_utc = project.planned_departure_time_jst.astimezone(UTC)
         source_time_bounds: dict[str, tuple[float, float]] = {}
         climb_source = (
             next(

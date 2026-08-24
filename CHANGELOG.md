@@ -17,6 +17,9 @@ AutoNavLog の利用者に影響する変更を記録します。
 - Colab廃止後も残っていたGoogle Drive向け正式配布workflow、Driveアップロード処理、
   配布tree用manifest生成と専用テストを削除しました。
 - 空港・性能のruntime data検査はDrive配布から切り離し、通常CIで継続して検査します。
+- サポート対象runtimeを Docker / Docker Compose のみにし、containerのPythonを3.12に
+  固定しました。hostへinstallして直接実行する方法はサポート対象外です。
+- backend CI、Python package metadata、Ruffの解析対象をPython 3.12へ統一しました。
 
 ### 配布
 

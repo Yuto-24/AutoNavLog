@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, is_dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 from math import (
     atan,
     atan2,
@@ -34,7 +34,7 @@ TANGENT_TOLERANCE_DEG = 0.1
 MAX_DERIVED_FULL_TURNS = 60
 
 
-class GuidanceStatus(str, Enum):
+class GuidanceStatus(StrEnum):
     VALID = "VALID"
     WARNING = "WARNING"
     INVALID = "INVALID"
@@ -42,7 +42,7 @@ class GuidanceStatus(str, Enum):
     UNSUPPORTED = "UNSUPPORTED"
 
 
-class TurnDirection(str, Enum):
+class TurnDirection(StrEnum):
     LEFT = "LEFT"
     RIGHT = "RIGHT"
 
@@ -51,12 +51,12 @@ class TurnDirection(str, Enum):
         return -1 if self is TurnDirection.LEFT else 1
 
 
-class TurnModel(str, Enum):
+class TurnModel(StrEnum):
     FIXED_BANK_AIR_MASS = "FIXED_BANK_AIR_MASS"
     ADJUSTED_GROUND_CIRCLE = "ADJUSTED_GROUND_CIRCLE"
 
 
-class PathPhase(str, Enum):
+class PathPhase(StrEnum):
     INITIAL_STRAIGHT = "INITIAL_STRAIGHT"
     INITIAL_CUT_TURN = "INITIAL_CUT_TURN"
     OUTBOUND = "OUTBOUND"
@@ -64,7 +64,7 @@ class PathPhase(str, Enum):
     DIRECT_UMK = "DIRECT_UMK"
 
 
-class ConstraintSeverity(str, Enum):
+class ConstraintSeverity(StrEnum):
     HARD = "HARD"
     WARNING = "WARNING"
 

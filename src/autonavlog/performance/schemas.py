@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,12 +23,12 @@ class PerformanceSourceArtifact(PerformanceModel):
     role: str
 
 
-class ClimbTemperaturePolicy(str, Enum):
+class ClimbTemperaturePolicy(StrEnum):
     TABLE_GRID = "TABLE_GRID"
     ISA_BASELINE_10_PERCENT_PER_10C_ABOVE = "ISA_BASELINE_10_PERCENT_PER_10C_ABOVE"
 
 
-class CruiseInterpolationPolicy(str, Enum):
+class CruiseInterpolationPolicy(StrEnum):
     PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR = (
         "PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR"
     )

@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +24,7 @@ def _parse_utc_datetime(value: str) -> datetime:
         ) from error
     if parsed.tzinfo is None:
         raise argparse.ArgumentTypeError("valid time must include a UTC offset")
-    return parsed.astimezone(timezone.utc)
+    return parsed.astimezone(UTC)
 
 
 def _write_report(report: dict[str, Any], output: Path | None) -> None:

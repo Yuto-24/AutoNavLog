@@ -208,6 +208,8 @@
 - APIと静的ファイルは `autonavlog.web` のFastAPIアプリが同一オリジンで配信する。
 - Node buildとPython runtimeを分離したmulti-stage `Dockerfile` でSPAをpackageへ組み込み、
   `docker compose up -d --build` でserviceとして起動できること。hostの`.venv`へ依存しない。
+- サポート対象runtimeはDocker / Docker Composeのみとし、containerのPythonは3.12とする。
+  hostへのpackage installとhost上での直接実行は、開発用検査に利用できてもサポート対象外とする。
 - container内では `0.0.0.0:8000` をlistenし、Composeのpublished portはhostの
   `127.0.0.1:8123` だけへbindする。LANやInternetへ直接portを公開しない。
 - runtimeは非root、read-only root filesystem、全Linux capability削除、

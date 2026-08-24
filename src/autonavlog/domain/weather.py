@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -25,7 +25,7 @@ class ForecastRequirement(WeatherModel):
             raise ValueError("at least one valid time is required")
         if any(value.tzinfo is None for value in values):
             raise ValueError("valid times must be timezone-aware")
-        return tuple(sorted({value.astimezone(timezone.utc) for value in values}))
+        return tuple(sorted({value.astimezone(UTC) for value in values}))
 
 
 class ForecastRun(WeatherModel):
@@ -62,7 +62,7 @@ class WeatherRequest(WeatherModel):
     def normalize_time(cls, value: datetime) -> datetime:
         if value.tzinfo is None:
             raise ValueError("weather request time must be timezone-aware")
-        return value.astimezone(timezone.utc)
+        return value.astimezone(UTC)
 
 
 class WeatherResult(WeatherModel):

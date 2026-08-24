@@ -7,7 +7,7 @@ name = "autonavlog"
 version = "1.4.3"
 description = "Ground-planning support for Civil Aviation College NAV2 navigation logs"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.12,<3.13"
 license = "LicenseRef-Proprietary"
 authors = [{name = "AutoNavLog contributors"}]
 dependencies = [
@@ -50,10 +50,12 @@ addopts = "-ra"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+# Keep Pydantic generics on typing.Generic until their PEP 695 migration is validated separately.
+ignore = ["UP046", "UP047"]
 
 [tool.mypy]
 python_version = "3.12"

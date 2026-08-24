@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from threading import Event
 from time import monotonic
 
 from autonavlog.domain.enums import Availability
 from autonavlog.weather.destination_taf import AviationWeatherTafProvider
 
-VALID_FROM = datetime(2026, 8, 13, tzinfo=timezone.utc)
+VALID_FROM = datetime(2026, 8, 13, tzinfo=UTC)
 VALID_TO = VALID_FROM + timedelta(hours=30)
 
 

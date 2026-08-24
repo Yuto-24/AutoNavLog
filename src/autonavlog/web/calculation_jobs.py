@@ -4,7 +4,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from secrets import token_urlsafe
 from threading import BoundedSemaphore, RLock
 from typing import Any, Literal
@@ -25,8 +25,8 @@ class CalculationJob:
     owner_id: str
     session_token: str
     status: JobStatus = "queued"
-    created_at_utc: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at_utc: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at_utc: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at_utc: datetime = field(default_factory=lambda: datetime.now(UTC))
     result: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
     progress_percent: int = 0
@@ -119,7 +119,7 @@ class CalculationJobQueue:
                     "message": str(error),
                     "status": int(getattr(error, "status_code", 500)),
                 }
-                job.updated_at_utc = datetime.now(timezone.utc)
+                job.updated_at_utc = datetime.now(UTC)
         else:
             with self._lock:
                 job = self._jobs[job_id]
@@ -127,7 +127,7 @@ class CalculationJobQueue:
                 job.result = result
                 job.progress_percent = 100
                 job.progress_message = "NAV LOGの計算が完了しました。"
-                job.updated_at_utc = datetime.now(timezone.utc)
+                job.updated_at_utc = datetime.now(UTC)
         finally:
             self._capacity.release()
 
@@ -146,7 +146,7 @@ class CalculationJobQueue:
             job.status = status
             job.progress_percent = normalized_percent
             job.progress_message = message
-            job.updated_at_utc = datetime.now(timezone.utc)
+            job.updated_at_utc = datetime.now(UTC)
 
     def report_progress(self, job_id: str, percent: int, message: str) -> None:
         """Record monotonic calculation progress for API polling clients."""

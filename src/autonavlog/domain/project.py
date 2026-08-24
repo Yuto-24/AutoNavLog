@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -143,8 +143,8 @@ class Project(DomainModel):
     route_nodes: list[RouteNode] = Field(default_factory=list)
     visual_references: list[VisualReference] = Field(default_factory=list)
     sections: list[NavSection] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("planned_departure_time_jst")
@@ -159,7 +159,7 @@ class Project(DomainModel):
     def normalize_utc(cls, value: datetime) -> datetime:
         if value.tzinfo is None:
             raise ValueError("timestamps must be timezone-aware")
-        return value.astimezone(timezone.utc)
+        return value.astimezone(UTC)
 
     @model_validator(mode="after")
     def validate_route_graph(self) -> Project:

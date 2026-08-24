@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import MethodType, SimpleNamespace
 from typing import Any
 
@@ -22,8 +22,8 @@ from autonavlog.weather.real_msm_acceptance import (
     run_real_msm_acceptance,
 )
 
-VALID_TIME = datetime(2026, 7, 30, 3, tzinfo=timezone.utc)
-RUN_TIME = datetime(2026, 7, 29, 18, tzinfo=timezone.utc)
+VALID_TIME = datetime(2026, 7, 30, 3, tzinfo=UTC)
+RUN_TIME = datetime(2026, 7, 29, 18, tzinfo=UTC)
 SHA_A = "a" * 64
 SHA_B = "b" * 64
 SOURCE_URLS = (

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -36,12 +36,12 @@ def test_delete_expired_projects_deletes_routes_whose_departure_time_has_passed(
 ) -> None:
     repository = LocalProjectRepository(tmp_path)
     expired = project.model_copy(
-        update={"planned_departure_time_jst": datetime(2026, 8, 16, 9, tzinfo=timezone.utc)}
+        update={"planned_departure_time_jst": datetime(2026, 8, 16, 9, tzinfo=UTC)}
     )
     repository.save(expired, expected_revision=0)
     service = ProjectService(
         repository,
-        clock=lambda: datetime(2026, 8, 16, 9, 0, 1, tzinfo=timezone.utc),
+        clock=lambda: datetime(2026, 8, 16, 9, 0, 1, tzinfo=UTC),
     )
 
     assert service.delete_expired_projects() == []
@@ -54,12 +54,12 @@ def test_delete_expired_projects_keeps_routes_before_their_departure_time(
 ) -> None:
     repository = LocalProjectRepository(tmp_path)
     upcoming = project.model_copy(
-        update={"planned_departure_time_jst": datetime(2026, 8, 16, 9, tzinfo=timezone.utc)}
+        update={"planned_departure_time_jst": datetime(2026, 8, 16, 9, tzinfo=UTC)}
     )
     repository.save(upcoming, expected_revision=0)
     service = ProjectService(
         repository,
-        clock=lambda: datetime(2026, 8, 16, 8, 59, 59, tzinfo=timezone.utc),
+        clock=lambda: datetime(2026, 8, 16, 8, 59, 59, tzinfo=UTC),
     )
 
     assert [summary.id for summary in service.delete_expired_projects()] == [project.id]

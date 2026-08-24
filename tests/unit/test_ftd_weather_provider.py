@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -38,14 +38,14 @@ def _request(request_id: str, altitude: float) -> WeatherRequest:
         kind=WeatherRequestKind.ALOFT,
         latitude_deg=32,
         longitude_deg=131,
-        valid_time_utc=datetime(2026, 8, 16, tzinfo=timezone.utc),
+        valid_time_utc=datetime(2026, 8, 16, tzinfo=UTC),
         altitude_ft_msl=altitude,
     )
 
 
 def _prepared_provider(settings: FtdWeatherSettings | None = None) -> FtdWeatherProvider:
     provider = FtdWeatherProvider(settings or _settings())
-    requirement = ForecastRequirement(valid_times_utc=(datetime(2026, 8, 16, tzinfo=timezone.utc),))
+    requirement = ForecastRequirement(valid_times_utc=(datetime(2026, 8, 16, tzinfo=UTC),))
     run = provider.resolve_run(requirement)
     assert run.id == FTD_FORECAST_RUN_ID
     provider.prepare_run(run.id, requirement)
@@ -109,7 +109,7 @@ def test_ftd_surface_temperature_uses_isa_at_airport_elevation() -> None:
         kind=WeatherRequestKind.SURFACE_TEMPERATURE,
         latitude_deg=31.877,
         longitude_deg=131.448,
-        valid_time_utc=datetime(2026, 8, 16, tzinfo=timezone.utc),
+        valid_time_utc=datetime(2026, 8, 16, tzinfo=UTC),
         elevation_ft_msl=123.0,
     )
 

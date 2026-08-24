@@ -4,7 +4,7 @@ import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib import metadata
 from typing import Any, NoReturn, cast
 from urllib.parse import urlparse
@@ -157,7 +157,7 @@ def _validate_source_provenance(
         ) from error
     if initial_time.tzinfo is None:
         _fail(f"{result.request_id}: provenance initial_time_utc is timezone-naive")
-    if initial_time.astimezone(timezone.utc) != forecast_initial_time_utc.astimezone(timezone.utc):
+    if initial_time.astimezone(UTC) != forecast_initial_time_utc.astimezone(UTC):
         _fail(f"{result.request_id}: provenance forecast run does not match resolved run")
 
     interpolation_method = provenance.get("interpolation_method")
@@ -169,7 +169,7 @@ def _validate_source_provenance(
     return {
         "source_urls": list(source_urls),
         "source_hashes": source_hashes,
-        "initial_time_utc": initial_time.astimezone(timezone.utc).isoformat(),
+        "initial_time_utc": initial_time.astimezone(UTC).isoformat(),
         "interpolation_method": interpolation_method,
         "trace_keys": sorted(str(key) for key in trace),
     }
@@ -299,7 +299,7 @@ def run_real_msm_acceptance(
     valid_time = config.valid_time_utc
     if valid_time is None:  # Guard for callers bypassing dataclass validation.
         _fail("live MSM acceptance requires valid_time_utc")
-    valid_time = valid_time.astimezone(timezone.utc)
+    valid_time = valid_time.astimezone(UTC)
     requirement = ForecastRequirement(
         valid_times_utc=(valid_time,),
         require_surface_temperature=True,
@@ -342,7 +342,7 @@ def run_real_msm_acceptance(
     report["forecast"] = {
         "valid_time_utc": valid_time.isoformat(),
         "resolved_run_id": forecast_run.id,
-        "initial_time_utc": forecast_run.initial_time_utc.astimezone(timezone.utc).isoformat(),
+        "initial_time_utc": forecast_run.initial_time_utc.astimezone(UTC).isoformat(),
         "result_count": len(checked_results),
         "results": checked_results,
     }
