@@ -882,11 +882,11 @@ tbody tr:last-child td { border-bottom: 0; }
   font-weight: 750;
   line-height: 1.4;
 }
-.altitude-review-cell { background: var(--red-50); }
-.altitude-review-row .altitude-course { color: var(--red-700); font-weight: 700; }
-.altitude-review-row .table-number-input {
-  color: var(--red-700);
-  border-color: var(--red-700);
+.altitude-warning-cell { background: var(--amber-100); }
+.altitude-warning-row .altitude-course { color: var(--amber-700); font-weight: 700; }
+.altitude-warning-row .table-number-input {
+  color: var(--amber-700);
+  border-color: var(--amber-700);
 }
 .altitude-guidance-note { margin: 8px 0 0; color: var(--slate-500); font-size: 9px; line-height: 1.5; }
 

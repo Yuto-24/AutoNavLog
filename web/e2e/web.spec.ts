@@ -763,7 +763,7 @@ async function calculateNavLog(
   await expect(altitudeInputs.first()).toHaveValue(firstAltitudeCandidate);
   await expect(altitudeInputs.last()).toHaveValue("1800");
   await expect(cruiseAltitude).toHaveValue(cruiseCandidate);
-  await expect(page.locator(".altitude-review-row")).toHaveCount(0);
+  await expect(page.locator(".altitude-warning-row")).toHaveCount(0);
   let releaseCalculationRequest = () => {};
   const calculationRequestReleased = new Promise<void>((resolve) => {
     releaseCalculationRequest = resolve;
@@ -1782,7 +1782,22 @@ test("climb and descent legs show magnetic-course altitude candidates", async ({
   }
   await climbCandidate.selectOption(climbAltitude);
   await descentCandidate.selectOption(descentAltitude);
-  await expect(page.locator(".altitude-review-row")).toHaveCount(1);
+  const descentRow = descentCandidate.locator("xpath=ancestor::tr");
+  const descentInput = descentRow.getByLabel(/出発Legの計画高度/);
+
+  await descentInput.fill("3000");
+  await expect(descentCandidate).toHaveValue("custom");
+  await expect(descentRow).not.toHaveClass(/altitude-warning-row/);
+  await expect(descentRow).not.toContainText("候補外（警告）");
+
+  await descentInput.fill("3100");
+  await expect(descentCandidate).toHaveValue("custom");
+  await expect(descentRow).toHaveClass(/altitude-warning-row/);
+  await expect(descentRow).toContainText("候補外（警告）");
+  await expect(descentInput).toHaveCSS("border-top-color", "rgb(168, 102, 13)");
+
+  await descentCandidate.selectOption(descentAltitude);
+  await expect(descentRow).not.toHaveClass(/altitude-warning-row/);
 });
 
 test("NAV LOG safe inputs validate and recalculate automatically", async ({ page }) => {
