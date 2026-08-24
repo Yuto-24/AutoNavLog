@@ -47,7 +47,7 @@ def descent_profile_from_metadata(
     assert rate is not None
     assert vertical is not None
     assert deceleration is not None
-    if cruise <= target or rate <= 0 or vertical <= 0 or deceleration < 0:
+    if cruise < target or rate <= 0 or vertical < 0 or deceleration < 0:
         return None
     expected_vertical = (cruise - target) / rate * 60.0
     if abs(expected_vertical - vertical) > 1e-6:

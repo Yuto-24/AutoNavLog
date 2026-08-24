@@ -109,6 +109,7 @@ def split_route_into_phase_segments(
     eoc_distance_nm = _snap_eoc_to_physical_turn(
         eoc_distance_nm,
         physical_boundaries,
+        excluded_boundaries=(descent_end_distance_nm,),
     )
     _validate_phase_boundaries(
         total_distance_nm,
@@ -354,12 +355,25 @@ def _add_boundary(
 def _snap_eoc_to_physical_turn(
     distance_nm: float | None,
     physical_boundaries: tuple[float, ...],
+    *,
+    excluded_boundaries: tuple[float | None, ...] = (),
 ) -> float | None:
-    """Snap EOC to an intermediate physical turn when strictly within 0.5 NM."""
+    """Snap EOC to an eligible physical turn when strictly within 0.5 NM.
+
+    The descent end (normally VREP) is excluded so an EOC cannot collapse onto
+    its own terminal boundary.
+    """
 
     if distance_nm is None or not isfinite(distance_nm):
         return distance_nm
-    candidates = physical_boundaries[1:-1]
+    candidates = tuple(
+        boundary
+        for boundary in physical_boundaries[1:-1]
+        if not any(
+            excluded is not None and abs(boundary - excluded) <= _DISTANCE_TOLERANCE_NM
+            for excluded in excluded_boundaries
+        )
+    )
     if not candidates:
         return distance_nm
     nearest = min(candidates, key=lambda boundary: abs(boundary - distance_nm))
