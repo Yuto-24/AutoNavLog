@@ -1491,13 +1491,29 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   const editor = routePanel.getByRole("region", { name: "チェックポイント設定" });
   await editor.getByRole("button", { name: "チェックポイントを追加" }).click();
   await expect(editor.getByLabel("関連Leg")).toHaveCount(0);
-  await editor.getByRole("button", { name: "地図から座標を選択" }).click();
+  const mapFrame = routePanel.locator("#route-map-frame");
+  const activeMapPicker = editor.getByRole("button", { name: "地図上の地点をクリック" });
+  await expect(activeMapPicker).toHaveAttribute("aria-pressed", "true");
+  await expect(mapFrame).toHaveClass(/is-picking-checkpoint/);
+  expect(await mapFrame.evaluate((element) => getComputedStyle(element).boxShadow)).toContain(
+    "rgba(11, 31, 51, 0.58)",
+  );
   await routePanel.locator(".route-map").click({ position: { x: 300, y: 200 } });
+  await expect(mapFrame).not.toHaveClass(/is-picking-checkpoint/);
   const draftMarker = routePanel.locator(".checkpoint-draft-marker");
   await expect(draftMarker).toHaveCount(1);
   await expect(routePanel.getByText("仮CP（未保存）", { exact: true })).toBeVisible();
   await expect(editor.getByLabel("緯度")).not.toHaveValue("");
   await expect(editor.getByLabel("経度")).not.toHaveValue("");
+  const nameWarning = editor.getByText(
+    "チェックポイントの名称・未入力（入力必須）",
+    { exact: true },
+  );
+  await expect(nameWarning).toBeVisible();
+  await expect(nameWarning).toHaveCSS("color", "rgb(180, 35, 24)");
+  await expect(editor.getByLabel("名称")).toHaveAttribute("aria-invalid", "true");
+  await expect(editor.getByLabel("名称")).toHaveCSS("border-top-color", "rgb(180, 35, 24)");
+  await expect(editor.getByText("Blocking", { exact: true })).toHaveCount(0);
   const draftMarkerStroke = await draftMarker.getAttribute("stroke");
   expect(draftMarkerStroke).toBe("#6e4aa0");
 
@@ -1552,6 +1568,8 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   await editor.getByLabel("経度").fill("131.550000");
   await expect(editor.getByLabel("関連Leg")).toHaveCount(0);
   await editor.getByLabel("名称").fill("訓練CP");
+  await expect(nameWarning).toHaveCount(0);
+  await expect(editor.getByLabel("名称")).not.toHaveAttribute("aria-invalid");
   const addCheckPoint = editor.getByRole("button", { name: "追加", exact: true });
   await expect(addCheckPoint).toBeEnabled();
   await addCheckPoint.click();

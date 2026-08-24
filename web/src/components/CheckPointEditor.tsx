@@ -138,6 +138,11 @@ export function CheckPointEditor({
 
   const draftValid =
     Boolean(draft.name.trim() && effectiveLinkedSectionId) && coordinatesValid;
+  const nameIsBlocking = Boolean(pickedCoordinate && !draft.name.trim());
+  const nameFieldClassName = [
+    matchingSections.length > 1 ? "" : "checkpoint-name-field",
+    nameIsBlocking ? "checkpoint-name-warning" : "",
+  ].filter(Boolean).join(" ");
   const submitLabel = draft.id
     ? saving ? "保存中…" : "保存"
     : saving ? "追加中…" : "追加";
@@ -179,6 +184,7 @@ export function CheckPointEditor({
             onPickedCoordinateClear();
             setDraft(initialDraft());
             setEditorOpen(true);
+            onPickingFromMapChange(true);
           }}
           disabled={busy || !sections.length}
         >
@@ -195,14 +201,25 @@ export function CheckPointEditor({
               <X aria-hidden="true" size={16} />
             </button>
           </div>
-          <label className={matchingSections.length > 1 ? undefined : "checkpoint-name-field"}>
+          <label className={nameFieldClassName || undefined}>
             <span>名称</span>
             <input
               value={draft.name}
               maxLength={100}
+              aria-invalid={nameIsBlocking || undefined}
+              aria-describedby={nameIsBlocking ? "checkpoint-name-warning" : undefined}
               onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
               placeholder="例: 岩瀬ダム"
             />
+            {nameIsBlocking && (
+              <small
+                id="checkpoint-name-warning"
+                className="checkpoint-name-warning-text"
+                role="alert"
+              >
+                チェックポイントの名称・未入力（入力必須）
+              </small>
+            )}
           </label>
           {matchingSections.length > 1 && (
             <label>
@@ -262,6 +279,7 @@ export function CheckPointEditor({
           <button
             className={`secondary-button checkpoint-map-pick${pickingFromMap ? " is-active" : ""}`}
             type="button"
+            aria-pressed={pickingFromMap}
             onClick={() => onPickingFromMapChange(!pickingFromMap)}
           >
             <Crosshair aria-hidden="true" size={16} />
@@ -314,6 +332,7 @@ export function CheckPointEditor({
                     disabled={busy}
                     onClick={() => {
                       onPickedCoordinateClear();
+                      onPickingFromMapChange(false);
                       setDraft({
                         id: item.id,
                         name: item.name,
