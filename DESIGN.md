@@ -525,7 +525,7 @@ UIは未知の `Issue.code` も落とさず、`severity`、`message`、`section_
 | `WIND_UNAVAILABLE` / `TEMPERATURE_UNAVAILABLE` / `QNH_UNAVAILABLE` | 既存値 | 既存 |
 | `WIND_TRIANGLE_FAILED` / `INSUFFICIENT_FUEL` | BLOCKER | 既存 |
 | `RCA_OUTSIDE_ROUTE` | BLOCKER | 既存 |
-| `DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` | BLOCKER | DESCENT基準Leg、または物理変針点境界で再帰した直前Legの高度遷移が、500 fpmでそのLegの利用可能時間に収まらない場合。境界再帰中の非単調（上昇を要する）遷移も含む。制約Leg・各高度遷移・required/available秒・Leg別GSを診断metadataへ残す |
+| `DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` | BLOCKER | DESCENT基準Legから候補を経路始点側へ追加しても、候補Legの高度からVREPまでの500 fpm連続降下と60秒減速が収まらない場合。新たに加えた前Legの高度が次Legより低い場合も含む。開始高度からVREPへの1件の遷移、通過Leg、required/available秒・Leg別GSを診断metadataへ残す |
 | `RCA_BEYOND_FIRST_TURN` | WARNING（要承認） | 既存 |
 | `DEFAULTS_NOT_REVIEWED` / `RECALCULATION_REQUIRED` | BLOCKER | 新規 |
 | `MANUAL_QNH_RECONFIRM_REQUIRED` / `PERFORMANCE_DATA_UNVERIFIED` | BLOCKER | 新規 |
@@ -537,7 +537,7 @@ UIは未知の `Issue.code` も落とさず、`severity`、`message`、`section_
 
 作業ツリーに存在する `SAFE_ENROUTE_ALTITUDE_REQUIRED` と `PLANNED_ALTITUDE_BELOW_SAFE_ENROUTE` は、本版では生成しない。旧版で設計した `SEA_*` コードも追加・生成しない。旧Outcome/Snapshotの履歴表示に残っていても、編集可能Projectの再計算後へ持ち越してはならない。
 
-`EOC_OUTSIDE_ROUTE` は現行EOC探索では生成しない旧コードである。DESCENT基準Legの必要時間が利用可能時間を超えた場合、または物理変針点の**完全一致**から再帰した高度遷移が不足・非単調な場合は、経路外へEOCを置かず `DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` を生成する。旧Outcome/Snapshotに残る履歴表示と、現行の再計算結果を混同してはならない。
+`EOC_OUTSIDE_ROUTE` は現行EOC探索では生成しない旧コードである。DESCENT基準Legで不足した場合は直前Legを候補へ追加して連続降下を再計算し、経路始点からでも不足する場合、または新たに加えた前Legの高度が次Legより低い場合は、経路外へEOCを置かず `DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` を生成する。旧Outcome/Snapshotに残る履歴表示と、現行の再計算結果を混同してはならない。
 
 `REFERENCE_DATA_MISSING` は実体のIssueではなく、複数の参照データBlockerをステータスバーで集約する表示名とする。
 
@@ -1003,7 +1003,7 @@ Web版のProject保存はD-32どおり既存の `LocalProjectRepository` を使�
 
 `CalculationOutcome.derived_points`（`DerivedPointType.RCA` / `EOC`）を結果テーブルおよび地図上に表示する。`RCA_OUTSIDE_ROUTE` はBlocker、`RCA_BEYOND_FIRST_TURN` は承認可能なWarningとして提示し、承認は `acknowledged_warning_codes` へ記録する。
 
-EOCはDESCENT基準Legの計画高度から必要時間を求め、必要時間が同Legの利用可能時間より**短い**ときだけそのLeg内に置いて探索を終了する。必要時間が**長い**場合は前方Legへ遡らず、`DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` BlockerとしてEOCを生成しない。必要時間が**完全一致**して物理変針点上になる場合に限り、直前Legの計画高度から当該変針点高度への単調な500 fpm遷移を同じ規則で再帰する。再帰Legの必要時間が長い、または高度が非単調で上昇を要する場合も同Blockerとする。このため現行EOC探索は `EOC_OUTSIDE_ROUTE` を生成しない。
+EOCはDESCENT基準Legの計画高度から探索し、必要時間が同Leg内に収まらない場合は経路始点方向の前Legを候補へ加える。候補ごとに、そのLegの計画高度からVREPまで500 fpmで連続降下し、VREPでlevel off後に60秒だけ減速する必要時間を再計算する。中間変針点の計画高度は制約にしない。新たに加えた前Legの高度が次Legより低い場合、または経路始点からでも不足する場合は`DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` BlockerとしてEOCを生成しない。このため現行EOC探索は `EOC_OUTSIDE_ROUTE` を生成しない。
 ### FR-39 ETO / Loss Timeと地上準備欄 【必須】
 
 Loss Timeは機上で事前計算結果を修正する値とし、地上計画のZONE/CUM ETE・TTL TIME・Forecast・燃料へ一切加えない。LOSS入力UIを提供しない。別添8-1へ転記するETO欄は空欄とし、ETD基準の内部計画時刻をETOとして印字してはならない。詳細は第6.5節。
@@ -2044,7 +2044,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | 入力 | `Project`（deep copyされる） |
 | 出力 | `CalculationOutcome`（集計正本`sections: list[SectionResult]` / 表示専用`display_rows: list[NavLogDisplayRow]` / `derived_points` / `arrival_altitude: ArrivalAltitudeResult` / `check_point_projections: list[CheckPointProjection]` / `fuel_plan` / `issues` / `iterations` / `converged` / `status` / `policy_version` / `performance_table_version` / `qnh_hpa`） |
 | 各値 | `AdoptedValue[T]`。`adopted()` で採用値、`state` で `ValueState` |
-| Policy | `CalculationPolicies.version = "nav2-v12-strict-eoc-turn-boundaries"`。Variationは`DEPARTURE_LATITUDE_32N_V1`、VREP個別規則は`ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"`とする |
+| Policy | `CalculationPolicies.version = "nav2-v13-continuous-eoc-backtracking"`。Variationは`DEPARTURE_LATITUDE_32N_V1`、VREP個別規則は`ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"`とする |
 | 陳腐化判定 | 計算入力fingerprintは`calculation_policy_version`に加えて`variation_rule_version`を含み、Variation規則だけの変更でも再計算を要求する |
 | エラー | 例外ではなく `Issue` として返る。`blockers` プロパティで抽出 |
 | SEAの使用 | **なし（v2.6.0）**。`safe_enroute_altitude_ft_msl` は互換fieldとして残してよいが、計算・Issue・fingerprint・status・表示・出力へ使用しない |

@@ -1702,6 +1702,8 @@ test("climb and descent legs show magnetic-course altitude candidates", async ({
   await page.getByRole("button", { name: "経路を確定" }).click();
 
   const phaseSelects = page.getByLabel(/出発LegのPhase/);
+  await page.getByRole("button", { name: "変更", exact: true }).click();
+  await expect(phaseSelects.nth(0)).toBeEnabled();
   await phaseSelects.nth(0).selectOption("CLIMB");
   await phaseSelects.nth(2).selectOption("DESCENT");
 

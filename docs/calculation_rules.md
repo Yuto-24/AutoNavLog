@@ -197,19 +197,15 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
 - 降下は直前巡航CAS、500 fpm、12 GPHを使用します。EOC探索はまずDESCENT基準Leg自身の
   計画高度から開始し、`（基準Leg高度 - VREP高度）/ 500 fpm + 1分`が同Leg内に収まる場合は
   そこで終了します。前方の高度を先に採用しません。
-- 基準Legの必要時間がLeg利用可能時間より**短い**場合、EOCはそのLeg内にあり、前方Legの
-  高度を参照せず終了します。必要時間が**長い**場合は、そのLegの終点高度制約を500 fpmで
-  満たせないため、前方へ遡らず`DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` Blockerとします。
-- 必要時間と利用可能時間が一致してEOCが物理変針点上にある場合だけ、経路始点方向の直前
-  Legを検査します。前Legの高度から当該変針点高度への500 fpm遷移がLeg利用可能時間より
-  短ければそのLeg内にEOCを置き、一致すればさらに同じ規則で再帰します。長い、または
-  非単調（上昇を要する）遷移は`DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` Blockerとします。
-  Blockerには制約Leg、各高度遷移、required/available秒、Leg別GSをmetadataへ残します。
+- 基準Legの必要時間が同Leg内に収まらない場合は、経路始点方向の直前Legを候補へ加え、
+  その候補Legの計画高度からVREPまでの**1本の連続降下**として必要時間を再計算します。
+  各変針点の計画高度は中間制約にしません。追加した前Legの高度が次Legより低い場合は
+  `DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` Blockerとし、経路始点からでも不足する場合も
+  同Blockerとします。metadataには開始高度からVREPまでの1件の遷移、通過Leg、Leg別GSを残します。
 - EOC位置を逆算するときは、対象の各物理LegについてDESCENT phaseのTAS、Wind、TCから
   Wind Triangleを解き、そのLeg固有のGSを使います。phase-specific wind overrideも同じ経路で
   採用します。`deceleration_duration_seconds = 60`は全プロファイルで1回だけであり、
-  EOCから直ちに500 fpmで降下し、各物理変針点高度を通過してVREP高度でlevel offし、
-  最後の1分を減速に使います。
+  EOCから直ちに500 fpmでVREP高度まで連続降下し、level off後の最後の1分を減速に使います。
 - 目視位置通報点以降はCAS 121 kt・12 GPH、CALM固定で、WCA=0、GS=TASとします。
   CAS、降下率、燃料流量、到着区間CALMは規程で裏付け済みです。
 - 目的地TAFの風は、出発予定時刻へ計算済み累積ETEを加えた到着予定時刻に合わせて
@@ -227,7 +223,14 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
   補間率を結果metadataへ残します。VREPから目的空港までのCALM固定規則は変更しません。
 - RCA/EOCは採用距離軸上の算出位置で物理LegをCalculation Zoneへ分割します。EOCと物理
   変針点の距離差が0.5 NM未満なら内部計算上も変針点へsnapし、`<TP名> / EOC`と表示します。
-  ちょうど0.5 NMではsnapしません。このsnap規則をCheck Pointへは適用しません。
+  VREPである降下終端はsnap候補から除外します。ちょうど0.5 NMではsnapしません。
+  このsnap規則をCheck Pointへは適用しません。
+  snapは境界を揃える限定的な位置正規化です。EOC metadataの500 fpm降下時間とlevel off後
+  60秒は計画高度から求めた値を保持するため、snapした場合だけZoneのGS×ETE合計と完全一致
+  しないことがあります。
+  進行方向の次Leg開始へsnapした場合は、EOCの`section_id`、`eoc_source_section_id`、
+  `descent_path_section_ids`を実際に始まるDESCENT Legへ揃え、開始高度を決めた候補Legは
+  `profile_start_section_id`へ残します。
   Check Point、RCA、EOC、物理終点は未丸めのalong-route distance順に並べ、表示丸めで
   前後関係を変えません。通常の分割ではZone距離合計と`DIST = GS × ETE`を保存します。
   上記RJFM UMK/RCA例外の`CLIMB`行だけはPOH ETEを優先するため、この等式の対象外です。

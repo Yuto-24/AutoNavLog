@@ -107,9 +107,9 @@ def golden_project() -> Project:
     # 6500 ft reproduces the Golden RCA at 14.5 NM with the deterministic
     # climb weather/performance inputs below.  The later parent Legs retain
     # their own planning altitudes; Check Points do not create physical Legs.
-    # The strict EOC model requires every completed altitude transition to fit
-    # its physical Leg.  Keep the Golden descent inside 玉名→大牟田 so the
-    # display regression remains a viable NAVLOG rather than a blocker.
+    # The continuous EOC model starts from the DESCENT basis Leg when it fits.
+    # Keep the Golden descent inside 玉名→大牟田 so the display regression remains
+    # a viable NAVLOG rather than exercising multi-Leg backtracking.
     altitudes = [6500.0, 7500.0, 2800.0, 2000.0]
     sections = [
         NavSection(
@@ -559,3 +559,49 @@ def test_issue_43_eoc_does_not_snap_to_a_nearby_check_point(
     ]
     assert labels.index("EOC") < labels.index("合津")
     assert not any("合津 / EOC" in label for label in labels)
+
+
+def test_issue_43_check_points_remain_ordered_when_one_is_after_vrep(
+    golden_airports: AirportRepository,
+    golden_project: Project,
+) -> None:
+    project = golden_project.model_copy(deep=True)
+    vrep = project.route_nodes[3]
+    destination = project.route_nodes[4]
+    final_leg = geodesic_leg(
+        vrep.latitude_deg,
+        vrep.longitude_deg,
+        destination.latitude_deg,
+        destination.longitude_deg,
+    )
+    latitude, longitude = point_along_leg(
+        vrep.latitude_deg,
+        vrep.longitude_deg,
+        final_leg.initial_true_course_deg,
+        final_leg.distance_nm / 2,
+    )
+    after_vrep_id = UUID("43000000-0000-0000-0002-000000000004")
+    project.visual_references.append(
+        VisualReference(
+            id=after_vrep_id,
+            name="VREP後CP",
+            latitude_deg=latitude,
+            longitude_deg=longitude,
+            role=VisualReferenceRole.CHECK_POINT,
+            linked_section_id=SECTION_IDS[3],
+            source="Issue #43 Golden fixture",
+        )
+    )
+
+    outcome = _calculate_golden(golden_airports, project)
+
+    assert [point.checkpoint_id for point in outcome.check_point_projections] == [
+        *CHECK_POINT_IDS,
+        after_vrep_id,
+    ]
+    eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
+    after_vrep = outcome.check_point_projections[-1]
+    assert after_vrep.cumulative_distance_nm > eoc.along_route_distance_nm
+    # The final visual-arrival presentation policy intentionally remains a
+    # destination row rather than adding an extra navigation calculation zone.
+    assert not any(row.to_name == "VREP後CP" for row in outcome.display_rows)

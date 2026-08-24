@@ -816,10 +816,10 @@ def test_eoc_backtracks_one_leg_with_leg_specific_descent_ground_speeds(
     performance_repository,
     project,
 ) -> None:
-    """Case B: use the preceding constraint and each physical leg's GS."""
+    """Case B: use one continuous profile and each physical leg's GS."""
     routed, sections = _eoc_backtracking_project(
         project,
-        leg_distances_nm=(2.0, 30.0, 10.666666666666666),
+        leg_distances_nm=(2.0, 30.0, 10.0),
         altitudes_ft_msl=(7_000, 6_500, 5_500),
         manual_courses_deg=(0, 90, 180),
         descent_winds={
@@ -835,9 +835,9 @@ def test_eoc_backtracks_one_leg_with_leg_specific_descent_ground_speeds(
 
     assert not outcome.blockers
     eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
-    # The current leg consumes its exact 324 s descent + final 60 s.  The
-    # preceding 6,500 -> 5,500 transition is a 120 s partial leg at 140 kt.
-    assert eoc.along_route_distance_nm == pytest.approx(27.333333333333332)
+    # 6,500 -> 2,800 ft at 500 fpm plus one minute requires 504 seconds.
+    # The basis leg contributes 360 s, then 144 s at 140 kt in the prior leg.
+    assert eoc.along_route_distance_nm == pytest.approx(26.4)
     descent = _section_for_source(outcome, sections[1].id, FlightPhase.DESCENT)
     assert descent.ground_speed_kt.adopted() == pytest.approx(140.0)
     descent_basis = _section_for_source(outcome, sections[2].id, FlightPhase.DESCENT)
@@ -853,14 +853,11 @@ def test_eoc_backtracks_one_leg_with_leg_specific_descent_ground_speeds(
             transition["vertical_duration_seconds"],
         )
         for transition in metadata["constraint_transitions"]
-    ] == [
-        (6_500.0, 5_500.0, 120.0),
-        (5_500.0, 2_800.0, 324.0),
+    ] == [(6_500.0, 2_800.0, 444.0)]
+    assert metadata["descent_path_section_ids"] == [
+        str(sections[1].id),
+        str(sections[2].id),
     ]
-    assert [
-        transition["boundary_relation"]
-        for transition in metadata["constraint_transitions"]
-    ] == ["INTERIOR", "BOUNDARY"]
     assert [detail["ground_speed_kt"] for detail in metadata["ground_speeds"]] == [
         pytest.approx(140.0),
         pytest.approx(100.0),
@@ -869,10 +866,241 @@ def test_eoc_backtracks_one_leg_with_leg_specific_descent_ground_speeds(
     assert profile is not None
     assert profile.altitude_at_elapsed(120.0) == pytest.approx(5_500.0)
     assert profile.altitude_at_elapsed(444.0) == pytest.approx(2_800.0)
-    assert descent.zone_ete_seconds.adopted() == pytest.approx(120.0)
-    assert descent.section_fuel_gal.adopted() == pytest.approx(0.4)
-    assert descent_basis.zone_ete_seconds.adopted() == pytest.approx(384.0)
-    assert descent_basis.section_fuel_gal.adopted() == pytest.approx(1.28)
+    assert descent.zone_ete_seconds.adopted() == pytest.approx(144.0)
+    assert descent.section_fuel_gal.adopted() == pytest.approx(0.48)
+    assert descent_basis.zone_ete_seconds.adopted() == pytest.approx(360.0)
+    assert descent_basis.section_fuel_gal.adopted() == pytest.approx(1.2)
+    wp2_row = next(
+        row
+        for row in outcome.display_rows
+        if row.to_name == "WP2" and row.row_type == "CALCULATION_ZONE"
+    )
+    assert wp2_row.pa.text == "(5300)"
+
+
+def test_eoc_auto_tas_uses_each_crossed_leg_descent_environment(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    routed, sections = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(2.0, 30.0, 10.0),
+        altitudes_ft_msl=(7_000, 6_500, 6_500),
+        manual_courses_deg=(0, 90, 180),
+        descent_winds={
+            1: ManualWind(direction_deg_from=270, speed_kt=20),
+            2: ManualWind(direction_deg_from=180, speed_kt=20),
+        },
+    )
+    # No manual DESCENT TAS: each crossed Leg must derive TAS from the common
+    # descent CAS using its own DESCENT-phase PA and OAT.
+    sections[1].manual_temperature_c_by_phase = {FlightPhase.DESCENT: -20.0}
+    sections[2].manual_tas_kt = None
+    sections[2].manual_temperature_c_by_phase = {FlightPhase.DESCENT: 20.0}
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    descent_sections = [
+        _section_for_source(outcome, section.id, FlightPhase.DESCENT)
+        for section in sections[1:3]
+    ]
+    metadata = descent_sections[0].performance_metadata
+    details = metadata["ground_speeds"]
+    assert len(details) == 2
+    assert details[0]["tas_kt"] != pytest.approx(details[1]["tas_kt"])
+    for result, detail in zip(descent_sections, details, strict=True):
+        assert result.tas_kt.adopted() == pytest.approx(detail["tas_kt"])
+        assert result.ground_speed_kt.adopted() == pytest.approx(
+            detail["ground_speed_kt"]
+        )
+        distance = result.zone_distance_nm.adopted()
+        ground_speed = result.ground_speed_kt.adopted()
+        assert distance is not None
+        assert ground_speed is not None
+        assert result.zone_ete_seconds.adopted() == pytest.approx(
+            distance / ground_speed * 3600.0
+        )
+
+
+def test_eoc_accepts_equal_vrep_altitude_as_one_minute_level_deceleration(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    routed, sections = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(2.0, 30.0, 3.0),
+        altitudes_ft_msl=(7_000, 2_700, 2_800),
+        manual_courses_deg=(0, 90, 180),
+    )
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
+    assert eoc.along_route_distance_nm == pytest.approx(33.0)
+    descent = _section_for_source(outcome, sections[2].id, FlightPhase.DESCENT)
+    metadata = descent.performance_metadata
+    assert metadata["eoc_source_section_id"] == str(sections[2].id)
+    assert metadata["vertical_descent_duration_seconds"] == pytest.approx(0.0)
+    assert metadata["deceleration_duration_seconds"] == pytest.approx(60.0)
+    assert metadata["planned_duration_seconds"] == pytest.approx(60.0)
+    assert descent.zone_ete_seconds.adopted() == pytest.approx(60.0)
+    assert descent.section_fuel_gal.adopted() == pytest.approx(0.2)
+
+
+def test_eoc_backtracks_when_descent_basis_altitude_is_below_vrep(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    routed, sections = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(2.0, 30.0, 10.0),
+        altitudes_ft_msl=(7_000, 6_500, 2_600),
+        manual_courses_deg=(0, 90, 180),
+    )
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    descent = _section_for_source(outcome, sections[1].id, FlightPhase.DESCENT)
+    metadata = descent.performance_metadata
+    assert metadata["eoc_source_section_id"] == str(sections[1].id)
+    assert metadata["cruise_altitude_ft_msl"] == pytest.approx(6_500.0)
+    assert metadata["target_altitude_ft_msl"] == pytest.approx(2_800.0)
+    assert metadata["planned_duration_seconds"] == pytest.approx(504.0)
+
+
+@pytest.mark.parametrize(
+    (
+        "descent_distance_nm",
+        "expected_eoc_distance_nm",
+        "expected_eoc_label",
+        "expected_zone_seconds",
+        "expected_eoc_source_index",
+    ),
+    [
+        (16.4, 8.0, "WP2 / EOC", 492.0, 2),
+        (16.3, 7.5, "EOC", 504.0, 1),
+    ],
+)
+def test_eoc_integration_snap_threshold_preserves_profile_metadata(
+    airports,
+    performance_repository,
+    project,
+    descent_distance_nm,
+    expected_eoc_distance_nm,
+    expected_eoc_label,
+    expected_zone_seconds,
+    expected_eoc_source_index,
+) -> None:
+    routed, sections = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(2.0, 6.0, descent_distance_nm),
+        altitudes_ft_msl=(7_000, 6_500, 6_500),
+        manual_courses_deg=(0, 90, 180),
+    )
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
+    assert eoc.along_route_distance_nm == pytest.approx(expected_eoc_distance_nm)
+    assert any(section.to_name == expected_eoc_label for section in outcome.sections)
+    descent = next(section for section in outcome.sections if section.phase == FlightPhase.DESCENT)
+    metadata = descent.performance_metadata
+    expected_source_id = str(sections[expected_eoc_source_index].id)
+    assert eoc.section_id == sections[expected_eoc_source_index].id
+    assert metadata["eoc_source_section_id"] == expected_source_id
+    assert metadata["constraint_section_ids"][0] == expected_source_id
+    assert metadata["descent_path_section_ids"][0] == expected_source_id
+    if expected_eoc_source_index == 2:
+        assert metadata["profile_start_section_id"] == str(sections[1].id)
+        assert metadata["constraint_transitions"][0]["section_id"] == str(
+            sections[1].id
+        )
+        assert metadata["constraint_section_ids"] == [expected_source_id]
+        assert metadata["descent_path_section_ids"] == [expected_source_id]
+        assert [detail["section_id"] for detail in metadata["ground_speeds"]] == [
+            expected_source_id
+        ]
+        assert metadata["eoc_boundary_normalization"] == (
+            "SNAPPED_TO_FOLLOWING_LEG_START"
+        )
+    assert metadata["vertical_descent_duration_seconds"] == pytest.approx(444.0)
+    assert metadata["deceleration_duration_seconds"] == pytest.approx(60.0)
+    assert metadata["planned_duration_seconds"] == pytest.approx(504.0)
+    descent_sections = [
+        section for section in outcome.sections if section.phase == FlightPhase.DESCENT
+    ]
+    assert all(
+        section.performance_metadata["fuel_flow_gph"] == 12.0
+        for section in descent_sections
+    )
+    zone_seconds = sum(
+        section.zone_ete_seconds.adopted() or 0.0 for section in descent_sections
+    )
+    assert zone_seconds == pytest.approx(expected_zone_seconds)
+    assert sum(
+        section.section_fuel_gal.adopted() or 0.0 for section in descent_sections
+    ) == pytest.approx(12.0 * zone_seconds / 3600.0)
+    assert descent_sections[-1].cumulative_ete_seconds.adopted() is not None
+
+
+@pytest.mark.parametrize("descent_distance_nm", [2.2, 2.5])
+def test_eoc_does_not_snap_to_the_vrep_descent_end_boundary(
+    airports,
+    performance_repository,
+    project,
+    descent_distance_nm,
+) -> None:
+    routed, sections = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(2.0, 30.0, descent_distance_nm),
+        altitudes_ft_msl=(7_000, 6_500, 2_800),
+        manual_courses_deg=(0, 90, 180),
+    )
+    sections[2].manual_tas_kt = 12.0
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
+    # Equal VREP altitude still requires exactly the one 60 s deceleration.
+    # At 12 kt that is 0.2 NM, so the first case is 0.2 NM before VREP. VREP
+    # is not an EOC snap candidate; exactly 0.5 NM remains raw as well.
+    assert eoc.along_route_distance_nm == pytest.approx(
+        32.0 + descent_distance_nm - 0.2
+    )
+    assert eoc.section_id == sections[2].id
+    descent = _section_for_source(outcome, sections[2].id, FlightPhase.DESCENT)
+    assert descent.performance_metadata["planned_duration_seconds"] == pytest.approx(
+        60.0
+    )
+    assert descent.performance_metadata["vertical_descent_duration_seconds"] == pytest.approx(
+        0.0
+    )
+    assert descent.performance_metadata["deceleration_duration_seconds"] == pytest.approx(
+        60.0
+    )
 
 
 def test_eoc_backtracks_through_multiple_legs_with_one_global_deceleration_minute(
@@ -880,10 +1108,10 @@ def test_eoc_backtracks_through_multiple_legs_with_one_global_deceleration_minut
     performance_repository,
     project,
 ) -> None:
-    """Cases C and E: recursive backtracking retains constraints and one +1 min."""
+    """Cases C and E: recursive backtracking retains one +1 minute."""
     routed, sections = _eoc_backtracking_project(
         project,
-        leg_distances_nm=(30.0, 4.666666666666667, 10.666666666666666),
+        leg_distances_nm=(30.0, 4.666666666666667, 8.0),
         altitudes_ft_msl=(7_500, 6_500, 5_500),
         manual_courses_deg=(0, 90, 180),
         descent_winds={
@@ -899,9 +1127,9 @@ def test_eoc_backtracks_through_multiple_legs_with_one_global_deceleration_minut
 
     assert not outcome.blockers
     eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
-    # Current and immediate preceding legs end exactly on their height
-    # constraints, so the earliest 7,500 -> 6,500 transition starts at 26 NM.
-    assert eoc.along_route_distance_nm == pytest.approx(26.0)
+    # The 5,500 and 6,500 candidates are short.  A single 7,500 -> 2,800 ft
+    # profile needs 624 seconds and starts 7.2 NM before the first turn.
+    assert eoc.along_route_distance_nm == pytest.approx(22.8)
     descent = _section_for_source(outcome, sections[0].id, FlightPhase.DESCENT)
     metadata = descent.performance_metadata
     assert metadata["eoc_source_section_id"] == str(sections[0].id)
@@ -920,15 +1148,7 @@ def test_eoc_backtracks_through_multiple_legs_with_one_global_deceleration_minut
             transition["vertical_duration_seconds"],
         )
         for transition in metadata["constraint_transitions"]
-    ] == [
-        (7_500.0, 6_500.0, 120.0),
-        (6_500.0, 5_500.0, 120.0),
-        (5_500.0, 2_800.0, 324.0),
-    ]
-    assert [
-        transition["boundary_relation"]
-        for transition in metadata["constraint_transitions"]
-    ] == ["INTERIOR", "BOUNDARY", "BOUNDARY"]
+    ] == [(7_500.0, 2_800.0, 564.0)]
     assert [detail["ground_speed_kt"] for detail in metadata["ground_speeds"]] == [
         pytest.approx(120.0),
         pytest.approx(140.0),
@@ -944,9 +1164,9 @@ def test_eoc_backtracks_through_multiple_legs_with_one_global_deceleration_minut
         for section in sections[:3]
     ]
     assert [section.zone_ete_seconds.adopted() for section in descent_sections] == [
+        pytest.approx(216.0),
         pytest.approx(120.0),
-        pytest.approx(120.0),
-        pytest.approx(384.0),
+        pytest.approx(288.0),
     ]
     assert all(
         section.performance_metadata["fuel_flow_gph"] == 12.0
@@ -972,7 +1192,7 @@ def test_eoc_backtracking_blocks_when_the_profile_precedes_the_route_start(
     """Case D: do not create an EOC if every preceding physical leg is too short."""
     routed, _ = _eoc_backtracking_project(
         project,
-        leg_distances_nm=(3.0, 4.0, 12.8),
+        leg_distances_nm=(3.0, 4.0, 10.0),
         altitudes_ft_msl=(7_500, 6_500, 5_500),
         manual_courses_deg=(0, 90, 180),
     )
@@ -987,9 +1207,17 @@ def test_eoc_backtracking_blocks_when_the_profile_precedes_the_route_start(
         for issue in outcome.blockers
         if issue.code == "DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE"
     )
-    assert blocker.metadata["required_seconds"] == pytest.approx(120.0)
-    assert blocker.metadata["available_seconds"] == pytest.approx(90.0)
-    assert blocker.metadata["constraint_section_ids"]
+    assert blocker.message == (
+        "経路始点から降下しても、VREPまでに500 fpmの降下と減速1分を完了できません。"
+        "計画高度、経路、VREP高度を見直してください。"
+    )
+    assert blocker.metadata["descent_path_section_ids"]
+    assert blocker.metadata["constraint_section_ids"] == blocker.metadata[
+        "descent_path_section_ids"
+    ]
+    assert len(blocker.metadata["constraint_transitions"]) == 1
+    assert blocker.metadata["ground_speeds"]
+    assert blocker.metadata["required_seconds"] > blocker.metadata["available_seconds"]
     assert not any(point.type.value == "EOC" for point in outcome.derived_points)
 
 
@@ -1000,7 +1228,7 @@ def test_eoc_backtracking_blocks_a_non_monotonic_turn_altitude_transition(
 ) -> None:
     routed, _ = _eoc_backtracking_project(
         project,
-        leg_distances_nm=(2.0, 30.0, 12.8),
+        leg_distances_nm=(2.0, 30.0, 10.0),
         altitudes_ft_msl=(7_000, 5_400, 5_500),
         manual_courses_deg=(0, 90, 180),
     )
@@ -1017,6 +1245,16 @@ def test_eoc_backtracking_blocks_a_non_monotonic_turn_altitude_transition(
     )
     assert blocker.metadata["constraint_start_altitude_ft_msl"] == 5_400.0
     assert blocker.metadata["constraint_target_altitude_ft_msl"] == 5_500.0
+    assert blocker.message == (
+        "「WP1 → WP2」は5,400 ft、次の区間は5,500 ftです。"
+        "前の区間のほうが低いため、連続降下を計算できません。"
+        "前の区間が同じか高くなるように計画高度を見直してください。"
+    )
+    assert blocker.metadata["constraint_section_ids"] == blocker.metadata[
+        "descent_path_section_ids"
+    ]
+    assert len(blocker.metadata["constraint_transitions"]) == 1
+    assert len(blocker.metadata["ground_speeds"]) == 2
     assert not any(point.type.value == "EOC" for point in outcome.derived_points)
 
 
@@ -1031,9 +1269,9 @@ def test_eoc_backtracking_blocks_a_non_monotonic_turn_altitude_transition(
     ),
     [
         (7.0, 5_000.0, 31.0, 120.0, 1),
-        (6.0, 5_000.0, 20.0, 420.0, 0),
-        (4.0, 5_000.0, None, None, None),
-        (6.0, 12_000.0, None, None, None),
+        (6.0, 5_000.0, 30.0, 120.0, 1),
+        (4.0, 5_000.0, 18.0, 420.0, 0),
+        (6.0, 12_000.0, 30.0, 120.0, 1),
     ],
 )
 def test_eoc_uses_current_leg_interior_or_exact_turn_transition(
