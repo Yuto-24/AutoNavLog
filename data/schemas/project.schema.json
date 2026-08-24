@@ -370,6 +370,15 @@
       "title": "Departure Airport Id",
       "type": "string"
     },
+    "descent_rate_fpm": {
+      "default": 500,
+      "enum": [
+        500,
+        1000
+      ],
+      "title": "Descent Rate Fpm",
+      "type": "integer"
+    },
     "destination_airport_id": {
       "title": "Destination Airport Id",
       "type": "string"
@@ -439,8 +448,8 @@
       "type": "boolean"
     },
     "schema_version": {
-      "const": 3,
-      "default": 3,
+      "const": 4,
+      "default": 4,
       "title": "Schema Version",
       "type": "integer"
     },
