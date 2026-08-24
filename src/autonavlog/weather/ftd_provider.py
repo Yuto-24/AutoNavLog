@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from math import atan2, cos, degrees, hypot, radians, sin
 from typing import Any
 
@@ -61,7 +61,7 @@ class FtdWeatherProvider:
 
     @staticmethod
     def _initial_time(requirement: ForecastRequirement) -> datetime:
-        return min(requirement.valid_times_utc).astimezone(timezone.utc)
+        return min(requirement.valid_times_utc).astimezone(UTC)
 
     def resolve_run(self, requirement: ForecastRequirement) -> ForecastRun:
         return ForecastRun(

@@ -4,7 +4,7 @@ import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -86,7 +86,7 @@ def _prune_msm_cache(
         LOGGER.info("MSM cache cleanup completed: deleted_files=0 remaining_bytes=0")
         return 0, 0
     deleted = 0
-    cutoff = datetime.now(timezone.utc).timestamp() - maximum_age.total_seconds()
+    cutoff = datetime.now(UTC).timestamp() - maximum_age.total_seconds()
     files: list[tuple[float, int, Path]] = []
     for path in cache_dir.rglob("*"):
         if not path.is_file():
@@ -126,7 +126,7 @@ def _weather_factory(
     config: WebRuntimeConfig,
 ) -> tuple[Callable[[], WeatherProvider], str, bool]:
     if config.weather_mode == "fake":
-        run_id = datetime.now(timezone.utc).strftime("%Y%m%d000000")
+        run_id = datetime.now(UTC).strftime("%Y%m%d000000")
 
         def create_fake() -> WeatherProvider:
             return FakeWeatherProvider(runs=(run_id,))

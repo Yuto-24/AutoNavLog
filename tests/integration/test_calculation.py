@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import shutil
-from datetime import timedelta, timezone
+from datetime import UTC, timedelta
 from pathlib import Path
 
 import pytest
@@ -113,7 +113,7 @@ def test_destination_surface_temperature_uses_calculated_arrival_time(
     cumulative_ete = outcome.sections[-1].cumulative_ete_seconds.adopted()
     assert cumulative_ete is not None
     calculated_arrival = project.planned_departure_time_jst.astimezone(
-        timezone.utc
+        UTC
     ) + timedelta(seconds=cumulative_ete)
     destination_requests = [
         request
@@ -148,7 +148,7 @@ def test_final_destination_surface_query_is_refreshed_to_exact_arrival(
     cumulative_ete = outcome.sections[-1].cumulative_ete_seconds.adopted()
     assert cumulative_ete is not None
     calculated_arrival = project.planned_departure_time_jst.astimezone(
-        timezone.utc
+        UTC
     ) + timedelta(seconds=cumulative_ete)
     destination_requests = [
         request

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
@@ -36,7 +36,7 @@ def _assertion(
     email: str | None = "Pilot@Example.com",
     expires_in: timedelta = timedelta(minutes=5),
 ) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     claims: dict[str, object] = {
         "iss": issuer,
         "aud": [audience],

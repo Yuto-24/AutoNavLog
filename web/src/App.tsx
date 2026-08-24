@@ -40,6 +40,7 @@ interface PendingKmz {
 }
 
 type ActiveOperation = "calculate" | null;
+const ROUTE_EDITOR_VREP_REASON = "経路画面で指定したVREP計画高度";
 
 function App() {
   const api = useMemo(() => new ApiClient(), []);
@@ -504,6 +505,23 @@ function App() {
     if (invalidate) invalidateCalculationInputs();
     setState((current) => {
       if (!current?.project) return current;
+      const currentSection = current.project.sections.find(
+        (section) => section.id === sectionId,
+      );
+      const arrival = current.project.metadata.ui_state?.arrival_plan;
+      const changedVrepAltitude =
+        currentSection?.phase === "VISUAL_ARRIVAL"
+        && typeof safeChanges.planned_altitude_ft_msl === "number"
+        && safeChanges.planned_altitude_ft_msl !== currentSection.planned_altitude_ft_msl;
+      const nextArrival = changedVrepAltitude && arrival
+        ? {
+            ...arrival,
+            altitude_mode: "MANUAL_NON_STANDARD_ENTRY" as const,
+            manual_vrep_altitude_ft_msl: safeChanges.planned_altitude_ft_msl ?? null,
+            manual_override_reason:
+              arrival.manual_override_reason ?? ROUTE_EDITOR_VREP_REASON,
+          }
+        : arrival;
       return {
         ...current,
         project: {
@@ -511,6 +529,15 @@ function App() {
           sections: current.project.sections.map((section) =>
             section.id === sectionId ? { ...section, ...safeChanges } : section,
           ),
+          metadata: nextArrival
+            ? {
+                ...current.project.metadata,
+                ui_state: {
+                  ...current.project.metadata.ui_state,
+                  arrival_plan: nextArrival,
+                },
+              }
+            : current.project.metadata,
         },
       };
     });

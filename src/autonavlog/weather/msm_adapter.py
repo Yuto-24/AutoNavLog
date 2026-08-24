@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,7 @@ def _jsonable(value: Any) -> Any:
     if is_dataclass(value) and not isinstance(value, type):
         return _jsonable(asdict(value))
     if isinstance(value, datetime):
-        return value.astimezone(timezone.utc).isoformat()
+        return value.astimezone(UTC).isoformat()
     if isinstance(value, dict):
         return {str(key): _jsonable(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -69,7 +69,7 @@ class MsmWeatherProvider:
         )
 
     def _run_id(self, value: str) -> Any:
-        parsed = datetime.strptime(value, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+        parsed = datetime.strptime(value, "%Y%m%d%H%M%S").replace(tzinfo=UTC)
         return self._msm.RunId(parsed)
 
     def resolve_run(self, requirement: ForecastRequirement) -> ForecastRun:

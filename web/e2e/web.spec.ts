@@ -968,6 +968,59 @@ test("desktop workflow renders without the removed A4 output", async ({ page }) 
   expect(pageErrors).toEqual([]);
 });
 
+test("edited VREP altitude reaches the calculation request and NAV LOG", async ({ page }) => {
+  const pageErrors: string[] = [];
+  const consoleErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+  await page.getByRole("button", { name: "目的空港・場周高度を確定" }).click();
+
+  const routeAltitudes = page.locator(".route-table tbody .table-number-input");
+  for (let index = 0; index < await routeAltitudes.count() - 1; index += 1) {
+    await routeAltitudes.nth(index).fill("3500");
+  }
+  const vrepAltitude = page.locator(".route-table tbody tr.vrep-row .table-number-input");
+  await expect(vrepAltitude).toHaveValue("1500");
+  await vrepAltitude.fill("2100");
+  await expect(vrepAltitude).toHaveValue("2100");
+
+  const updateRequest = page.waitForRequest(
+    (request) => request.url().endsWith("/api/project") && request.method() === "PUT",
+  );
+  await page.getByRole("button", { name: "NAV LOGを作る" }).click();
+  const payload = (await updateRequest).postDataJSON() as Record<string, unknown>;
+  expect(payload.arrival_altitude_mode).toBe("MANUAL_NON_STANDARD_ENTRY");
+  expect(payload.manual_vrep_altitude_ft_msl).toBe(2100);
+  expect(payload.manual_vrep_reason).toBe("経路画面で指定したVREP計画高度");
+
+  await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused({ timeout: 30_000 });
+  const state = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  const visualResult = state.outcome?.sections.find(
+    (section) => section.phase === "VISUAL_ARRIVAL",
+  );
+  expect(visualResult?.planned_altitude_ft_msl.automatic_value).toBe(2100);
+  await expect(
+    page.locator(".nav-log-table").getByRole("cell", { name: "2100", exact: true }),
+  ).toHaveCount(1);
+  await page.screenshot({ path: "/tmp/autonavlog-vrep-v1.4.3.png", fullPage: false });
+  expect(pageErrors).toEqual([]);
+  expect(
+    consoleErrors.filter((message) => !message.includes("401 (Unauthorized)")),
+  ).toEqual([]);
+});
+
 test("mobile fuel input allows a temporary blank value", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");

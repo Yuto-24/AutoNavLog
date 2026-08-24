@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from autonavlog.domain.enums import Availability, WeatherRequestKind
 from autonavlog.domain.weather import (
@@ -53,7 +53,7 @@ class FakeWeatherProvider:
 
     @staticmethod
     def _run_datetime(run_id: str) -> datetime:
-        return datetime.strptime(run_id, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+        return datetime.strptime(run_id, "%Y%m%d%H%M%S").replace(tzinfo=UTC)
 
     def resolve_run(self, requirement: ForecastRequirement) -> ForecastRun:
         run_id = self.runs[0]

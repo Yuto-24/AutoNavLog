@@ -1,0 +1,32 @@
+import tomllib
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_python_runtime_contract_is_312() -> None:
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert config["project"]["requires-python"] == ">=3.12,<3.13"
+    assert config["tool"]["ruff"]["target-version"] == "py312"
+    assert config["tool"]["mypy"]["python_version"] == "3.12"
+    assert "FROM python:3.12-slim-bookworm AS runtime" in (
+        ROOT / "Dockerfile"
+    ).read_text(encoding="utf-8")
+
+
+def test_backend_ci_runs_only_python_312() -> None:
+    workflow = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
+
+    assert 'python-version: "3.12"' in workflow
+    assert "matrix:" not in workflow
+    assert '"3.10"' not in workflow
+    assert '"3.11"' not in workflow
+
+
+def test_readme_marks_host_runtime_as_unsupported() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "サポート対象runtimeは Docker / Docker Compose のみ" in readme
+    assert "host上での直接実行" in readme
+    assert "サポート対象ではありません" in readme

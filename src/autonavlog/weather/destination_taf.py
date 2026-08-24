@@ -5,7 +5,7 @@ import math
 import re
 import threading
 from collections.abc import Callable, Mapping
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -66,7 +66,7 @@ class DestinationWindForecast(BaseModel):
             return None
         if value.tzinfo is None:
             raise ValueError("destination wind times must be timezone-aware")
-        return value.astimezone(timezone.utc)
+        return value.astimezone(UTC)
 
 
 class DestinationWindProvider(Protocol):
@@ -150,7 +150,7 @@ class AviationWeatherTafProvider:
         self._transport = transport
         self._timeout_seconds = timeout_seconds
         self._cache_ttl = cache_ttl
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._cache: dict[str, tuple[datetime, list[dict[str, Any]]]] = {}
         self._inflight: dict[str, _PendingTafFetch] = {}
         self._fetch_slots = threading.BoundedSemaphore(maximum_concurrent_fetches)
@@ -162,7 +162,7 @@ class AviationWeatherTafProvider:
         valid_time_utc: datetime,
     ) -> DestinationWindForecast:
         normalized_icao = airport_icao.strip().upper()
-        normalized_time = valid_time_utc.astimezone(timezone.utc)
+        normalized_time = valid_time_utc.astimezone(UTC)
         if not _ICAO_PATTERN.fullmatch(normalized_icao):
             return unavailable_destination_wind(
                 normalized_icao,
@@ -193,7 +193,7 @@ class AviationWeatherTafProvider:
 
     def _records_with_deadline(self, airport_icao: str) -> list[dict[str, Any]]:
         """Bound the complete fetch, including DNS resolution, by the timeout."""
-        now = self._clock().astimezone(timezone.utc)
+        now = self._clock().astimezone(UTC)
         start_worker = False
         with self._lock:
             cached = self._cache.get(airport_icao)
@@ -242,7 +242,7 @@ class AviationWeatherTafProvider:
     ) -> None:
         try:
             pending.records = self._download_records(airport_icao)
-            completed_at = self._clock().astimezone(timezone.utc)
+            completed_at = self._clock().astimezone(UTC)
         except Exception as error:
             pending.error = error
             completed_at = None
@@ -354,8 +354,8 @@ class AviationWeatherTafProvider:
             wind_gust_kt=gust,
             variable_direction=variable,
             issue_time_utc=_iso_datetime(record.get("issueTime")),
-            taf_valid_from_utc=datetime.fromtimestamp(valid_from, timezone.utc),
-            taf_valid_to_utc=datetime.fromtimestamp(valid_to, timezone.utc),
+            taf_valid_from_utc=datetime.fromtimestamp(valid_from, UTC),
+            taf_valid_to_utc=datetime.fromtimestamp(valid_to, UTC),
             forecast_change=str(forecast.get("fcstChange") or "BASE"),
             raw_taf=(
                 str(record["rawTAF"])
@@ -392,4 +392,4 @@ def _iso_datetime(value: object) -> datetime | None:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         return None
-    return parsed.astimezone(timezone.utc)
+    return parsed.astimezone(UTC)

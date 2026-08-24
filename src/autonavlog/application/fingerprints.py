@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 import unicodedata
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 from enum import Enum
 from typing import Any
 from uuid import UUID
@@ -45,7 +45,7 @@ def normalize(value: Any, *, _depth: int = 0) -> Any:
             raise ValueError("datetime must be timezone-aware") from error
         if value.tzinfo is None or offset is None:
             raise ValueError("datetime must be timezone-aware")
-        return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, time):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from autonavlog.domain.weather import ForecastRequirement
 from autonavlog.weather.provider import WeatherProvider
@@ -63,7 +63,7 @@ class WeatherPrewarmer:
 
     def run_once(self) -> str:
         """Prepare one run covering the configured UTC horizon."""
-        now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
         hours = int(self._horizon.total_seconds() // 3600)
         requirement = ForecastRequirement(
             valid_times_utc=tuple(now + timedelta(hours=offset) for offset in range(hours + 1)),

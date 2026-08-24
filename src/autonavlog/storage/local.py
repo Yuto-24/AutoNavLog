@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
 from typing import Any
@@ -209,7 +209,7 @@ class LocalProjectRepository:
         if path.exists():
             existing = _read_migrated_project(path)
             if existing.revision != expected_revision:
-                stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+                stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
                 while True:
                     token = uuid4().hex
                     conflict = path.with_name(f"project-conflict-{stamp}-{token}.json")
@@ -225,7 +225,7 @@ class LocalProjectRepository:
         saved = project.model_copy(
             update={
                 "revision": expected_revision + 1,
-                "updated_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(UTC),
             }
         )
         atomic_model_write(path, saved)

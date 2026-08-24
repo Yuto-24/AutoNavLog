@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from autonavlog.domain.calculation import CalculationOutcome
@@ -18,7 +18,7 @@ class ProjectService:
         clock: Callable[[], datetime] | None = None,
     ):
         self.repository = repository
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     def create(
         self,

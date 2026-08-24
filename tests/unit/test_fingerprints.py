@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone, tzinfo
+from datetime import UTC, date, datetime, tzinfo
 from decimal import Decimal
 from uuid import UUID
 
@@ -19,7 +19,7 @@ def _vector(rounded_float: float) -> dict[str, object]:
         "none_value": None,
         "text": "宮崎",
         "uuid": UUID("0f4f2a34-2f0e-4a3c-8b2a-1d9f6e5c4b3a"),
-        "when": datetime(2026, 8, 2, 0, 0, tzinfo=timezone.utc),
+        "when": datetime(2026, 8, 2, 0, 0, tzinfo=UTC),
         "on": date(2026, 8, 2),
         "nested": {"b": [1, 2.5], "a": {"deep": "x"}},
         "as_set": {"b", "a", "c"},

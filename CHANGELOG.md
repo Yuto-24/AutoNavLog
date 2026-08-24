@@ -4,11 +4,26 @@ AutoNavLog の利用者に影響する変更を記録します。
 
 ## Unreleased
 
+## 1.4.3 - 2026-08-25
+
+### 修正
+
+- 経路表で変更したVREP高度を手動の到着計画高度として保存し、NAV LOGと
+  DESCENT／EOC、時間・距離・燃料の再計算へ一貫して反映するようにしました。
+- VREP高度を変更していない場合は、距離と場周経路高度から求める従来の自動高度を維持します。
+
 ### 変更
 
 - Colab廃止後も残っていたGoogle Drive向け正式配布workflow、Driveアップロード処理、
   配布tree用manifest生成と専用テストを削除しました。
 - 空港・性能のruntime data検査はDrive配布から切り離し、通常CIで継続して検査します。
+- サポート対象runtimeを Docker / Docker Compose のみにし、containerのPythonを3.12に
+  固定しました。hostへinstallして直接実行する方法はサポート対象外です。
+- backend CI、Python package metadata、Ruffの解析対象をPython 3.12へ統一しました。
+
+### 配布
+
+- Python・Web のバージョンを `1.4.3` に更新しました。
 
 ## 1.4.2 - 2026-08-24
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -15,7 +15,7 @@ from autonavlog.domain.project import Project
 from .fingerprints import canonical_json, make_fingerprint
 
 
-class IssueProducer(str, Enum):
+class IssueProducer(StrEnum):
     OUTCOME = "OUTCOME"
     REFERENCE_DATA = "REFERENCE_DATA"
     STALE_RESULT = "STALE_RESULT"

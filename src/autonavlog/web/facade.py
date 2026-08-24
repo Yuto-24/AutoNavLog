@@ -91,6 +91,7 @@ from .models import (
 
 JST = ZoneInfo("Asia/Tokyo")
 RouteEntry = tuple[str, float, float, str]
+ROUTE_EDITOR_VREP_REASON = "経路画面で指定したVREP計画高度"
 
 
 ISSUE_ACTIONS: dict[str, str] = {
@@ -1677,6 +1678,49 @@ class AutoNavLogWebApplication:
             if len(project.sections) >= 2:
                 project.sections[-2].phase = FlightPhase.DESCENT
             current_plan = current.arrival_plan
+            altitude_mode = request.arrival_altitude_mode
+            manual_vrep_altitude = request.manual_vrep_altitude_ft_msl
+            manual_vrep_reason = request.manual_vrep_reason
+            if altitude_mode == ArrivalAltitudeMode.STANDARD_DISTANCE_RULE:
+                snapshot = current.reference_data_snapshot
+                selected_pattern = (
+                    None
+                    if current_plan is None
+                    else current_plan.selected_pattern_altitude_ft_msl
+                )
+                if selected_pattern is None and snapshot is not None:
+                    selected_pattern = int(snapshot.destination_airport.pattern_altitude_ft_msl)
+                visual_section = project.ordered_sections()[-1] if project.sections else None
+                if (
+                    snapshot is not None
+                    and selected_pattern is not None
+                    and visual_section is not None
+                ):
+                    destination = snapshot.destination_airport
+                    distance_nm = geodesic_leg(
+                        ordered[-2].latitude_deg,
+                        ordered[-2].longitude_deg,
+                        destination.latitude_deg,
+                        destination.longitude_deg,
+                    ).distance_nm
+                    automatic_altitude = standard_vrep_altitude_ft_msl(
+                        distance_nm,
+                        selected_pattern,
+                    )
+                    route_altitude = float(visual_section.planned_altitude_ft_msl)
+                    if abs(route_altitude - automatic_altitude) > 1e-9:
+                        rounded_route_altitude = round(route_altitude)
+                        if (
+                            abs(route_altitude - rounded_route_altitude) > 1e-9
+                            or rounded_route_altitude % 100 != 0
+                        ):
+                            raise WebApplicationError(
+                                "VREP_ALTITUDE_INVALID",
+                                "VREP高度は100 ft単位で入力してください。",
+                            )
+                        altitude_mode = ArrivalAltitudeMode.MANUAL_NON_STANDARD_ENTRY
+                        manual_vrep_altitude = rounded_route_altitude
+                        manual_vrep_reason = ROUTE_EDITOR_VREP_REASON
             plan = ArrivalPlan(
                 visual_reporting_point_node_id=vrep_id,
                 selected_pattern_altitude_ft_msl=(
@@ -1685,9 +1729,9 @@ class AutoNavLogWebApplication:
                 selected_pattern_altitude_source=(
                     None if current_plan is None else current_plan.selected_pattern_altitude_source
                 ),
-                altitude_mode=request.arrival_altitude_mode,
-                manual_vrep_altitude_ft_msl=request.manual_vrep_altitude_ft_msl,
-                manual_override_reason=request.manual_vrep_reason,
+                altitude_mode=altitude_mode,
+                manual_vrep_altitude_ft_msl=manual_vrep_altitude,
+                manual_override_reason=manual_vrep_reason,
             )
         self.project_service.set_ui_state(
             project,

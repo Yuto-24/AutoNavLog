@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from fractions import Fraction
 from types import ModuleType, SimpleNamespace
 
@@ -15,7 +15,7 @@ from autonavlog.weather.msm_adapter import MsmWeatherProvider
 
 def test_fake_provider_fixes_selected_run_and_preserves_request_ids() -> None:
     provider = FakeWeatherProvider(("20260728120000", "20260728090000"))
-    requirement = ForecastRequirement(valid_times_utc=(datetime(2026, 7, 29, tzinfo=timezone.utc),))
+    requirement = ForecastRequirement(valid_times_utc=(datetime(2026, 7, 29, tzinfo=UTC),))
     status = provider.inspect_run_status("20260728090000", requirement)
     assert status.selected_run_id == "20260728090000"
     assert status.update_available
@@ -25,7 +25,7 @@ def test_fake_provider_fixes_selected_run_and_preserves_request_ids() -> None:
         kind=WeatherRequestKind.ALOFT,
         latitude_deg=31,
         longitude_deg=131,
-        valid_time_utc=datetime(2026, 7, 29, tzinfo=timezone.utc),
+        valid_time_utc=datetime(2026, 7, 29, tzinfo=UTC),
         altitude_ft_msl=5000,
     )
     assert provider.query_batch(status.selected_run_id, [request])[0].request_id == "q1"
@@ -89,7 +89,7 @@ def test_msm_adapter_allows_aloft_only_without_terrain(
 
     provider = MsmWeatherProvider(tmp_path, client=Client())
     requirement = ForecastRequirement(
-        valid_times_utc=(datetime(2026, 7, 29, tzinfo=timezone.utc),),
+        valid_times_utc=(datetime(2026, 7, 29, tzinfo=UTC),),
     )
 
     provider.prepare_run("20260728120000", requirement)
@@ -132,7 +132,7 @@ def test_msm_adapter_samples_lsurf_temperature_with_provenance(
 
     provider = MsmWeatherProvider(tmp_path, client=Client())
     requirement = ForecastRequirement(
-        valid_times_utc=(datetime(2026, 7, 29, tzinfo=timezone.utc),),
+        valid_times_utc=(datetime(2026, 7, 29, tzinfo=UTC),),
         require_surface_temperature=True,
     )
     prepared = provider.prepare_run("20260728120000", requirement)
@@ -141,7 +141,7 @@ def test_msm_adapter_samples_lsurf_temperature_with_provenance(
         kind=WeatherRequestKind.SURFACE_TEMPERATURE,
         latitude_deg=31.877,
         longitude_deg=131.448,
-        valid_time_utc=datetime(2026, 7, 29, tzinfo=timezone.utc),
+        valid_time_utc=datetime(2026, 7, 29, tzinfo=UTC),
         elevation_ft_msl=20,
     )
 

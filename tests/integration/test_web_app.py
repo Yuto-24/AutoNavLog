@@ -386,6 +386,127 @@ async def test_web_route_calculation_save_and_fail_closed_state(
 
 
 @pytest.mark.anyio
+async def test_route_vrep_altitude_edit_drives_calculation_and_survives_reload(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        imported = await client.post(
+            "/api/import",
+            json={"filename": "route.kml", "kml_text": KML},
+        )
+        assert imported.status_code == 200, imported.text
+        confirmed = await client.post(
+            "/api/route/confirm",
+            json={
+                **_route_payload(),
+                "all_leg_altitude_ft_msl": 3000,
+            },
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        destination = await client.post(
+            "/api/destination/confirm",
+            json={"selected_pattern_altitude_ft_msl": 1000},
+        )
+        assert destination.status_code == 200, destination.text
+
+        automatic_state = await _calculate(client)
+        automatic_plan = automatic_state["project"]["metadata"]["ui_state"]["arrival_plan"]
+        assert automatic_plan["altitude_mode"] == "STANDARD_DISTANCE_RULE"
+        assert automatic_plan["manual_vrep_altitude_ft_msl"] is None
+        assert automatic_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 1500
+        assert automatic_state["outcome"]["arrival_altitude"]["adopted_source"] == "AUTOMATIC"
+
+        project = automatic_state["project"]
+        visual_section_id = project["sections"][-1]["id"]
+        edited = await client.put(
+            "/api/project",
+            json={
+                "flight_date": project["flight_date"],
+                "departure_time_jst": "09:00",
+                "total_usable_fuel_gal": project["total_usable_fuel_gal"],
+                "default_variation_deg_east": project["default_variation_deg_east"],
+                "weather_mode": project["weather_mode"],
+                "run_up_included": project["run_up_included"],
+                "nose_fairing_enabled": project["nose_fairing_enabled"],
+                "air_conditioning_enabled": project["air_conditioning_enabled"],
+                "tgl_count": project["tgl_count"],
+                "sections": [
+                    {
+                        "section_id": section["id"],
+                        "planned_altitude_ft_msl": (
+                            2100
+                            if section["id"] == visual_section_id
+                            else section["planned_altitude_ft_msl"]
+                        ),
+                        "phase": section["phase"],
+                    }
+                    for section in project["sections"]
+                ],
+                "visual_reporting_point_node_id": project["route_nodes"][-2]["id"],
+                "arrival_altitude_mode": "STANDARD_DISTANCE_RULE",
+                "manual_vrep_altitude_ft_msl": None,
+                "manual_vrep_reason": None,
+            },
+        )
+        assert edited.status_code == 200, edited.text
+        edited_plan = edited.json()["project"]["metadata"]["ui_state"]["arrival_plan"]
+        assert edited_plan["altitude_mode"] == "MANUAL_NON_STANDARD_ENTRY"
+        assert edited_plan["manual_vrep_altitude_ft_msl"] == 2100
+        assert edited_plan["manual_override_reason"] == "経路画面で指定したVREP計画高度"
+        assert edited.json()["project"]["sections"][-1]["planned_altitude_ft_msl"] == 2100
+
+        manual_state = await _calculate(client)
+        manual_arrival = manual_state["outcome"]["arrival_altitude"]
+        assert manual_arrival["adopted_altitude_ft_msl"] == 2100
+        assert manual_arrival["adopted_source"] == "MANUAL"
+        visual_result = next(
+            section
+            for section in manual_state["outcome"]["sections"]
+            if section["phase"] == "VISUAL_ARRIVAL"
+        )
+        assert visual_result["planned_altitude_ft_msl"]["automatic_value"] == 2100
+        automatic_eoc = next(
+            point
+            for point in automatic_state["outcome"]["derived_points"]
+            if point["type"] == "EOC"
+        )
+        manual_eoc = next(
+            point
+            for point in manual_state["outcome"]["derived_points"]
+            if point["type"] == "EOC"
+        )
+        assert manual_eoc["along_route_distance_nm"] > automatic_eoc["along_route_distance_nm"]
+        assert manual_state["outcome"]["sections"][-1]["cumulative_ete_seconds"] != (
+            automatic_state["outcome"]["sections"][-1]["cumulative_ete_seconds"]
+        )
+        assert manual_state["outcome"]["sections"][-1]["remaining_fuel_gal"] != (
+            automatic_state["outcome"]["sections"][-1]["remaining_fuel_gal"]
+        )
+
+        saved = await client.post("/api/projects/save", json={"name": "manual-vrep"})
+        assert saved.status_code == 200, saved.text
+        loaded = await client.post(
+            "/api/projects/load",
+            json={"project_id": saved.json()["project"]["id"]},
+        )
+        assert loaded.status_code == 200, loaded.text
+        loaded_plan = loaded.json()["project"]["metadata"]["ui_state"]["arrival_plan"]
+        assert loaded_plan["manual_vrep_altitude_ft_msl"] == 2100
+        reloaded_state = await _calculate(client)
+        assert reloaded_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 2100
+
+
+@pytest.mark.anyio
 async def test_ftd_mode_calculates_with_fixed_wind_and_isa_without_fake_weather_blocker(
     tmp_path: Path,
 ) -> None:

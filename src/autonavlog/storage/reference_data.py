@@ -9,7 +9,7 @@ import shutil
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, TypeVar
 from uuid import UUID
@@ -526,7 +526,7 @@ class ReferenceDataCatalogRepository:
             manifest = ReferenceManifest(
                 dataset_id=dataset_id,
                 revision=revision,
-                created_at_utc=datetime.now(timezone.utc),
+                created_at_utc=datetime.now(UTC),
                 tables=tables,
             )
             manifest_bytes = (

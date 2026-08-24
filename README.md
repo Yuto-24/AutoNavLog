@@ -8,7 +8,7 @@ Web 画面に表示します。
 利用者が根拠と警告を確認してください。航空大学校の公式様式や計算規則への準拠は
 主張していません。
 
-- 現在のバージョン: `1.4.2`
+- 現在のバージョン: `1.4.3`
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
@@ -59,6 +59,10 @@ LineStringがないPoint-only KMLでは従来のPoint候補を利用できます
 - JavaScript と Cookie を有効にした新しいブラウザ
 - MSM の取得先と AviationWeather.gov へ接続できるネットワーク
 - 外部公開時は Cloudflare Tunnel と Cloudflare Access
+
+AutoNavLog のサポート対象runtimeは Docker / Docker Compose のみです。アプリケーションの
+containerは Python 3.12 を使用します。hostへのPython packageのinstallやhost上での直接実行は、
+動作する場合があってもサポート対象ではありません。
 
 ## 設定ファイル
 
@@ -248,8 +252,9 @@ cloudflared tunnel --url http://localhost:8123
 
 ## 開発
 
-Python 3.12 を主対象とし、3.10 から 3.12 までをサポートします。`jma-msm-wind` は
-`0.2.1` に固定しています。Web サービスの通常起動に Python の開発環境は不要です。
+backend CIは当面host側の Python 3.12 で実行します。次のhost側コマンドは開発時の検査用であり、
+host上でのアプリケーション実行をサポート対象にするものではありません。
+`jma-msm-wind` は `0.2.1` に固定しています。
 
 ```bash
 uv venv --python 3.12
@@ -265,7 +270,7 @@ npm --prefix web run build
 npm --prefix web run test:e2e
 ```
 
-リリース時は `1.4.2` が次の場所で一致していることを確認します。
+リリース時は `1.4.3` が次の場所で一致していることを確認します。
 
 - `pyproject.toml`
 - `web/package.json` と `web/package-lock.json`
