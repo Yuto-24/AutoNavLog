@@ -886,9 +886,12 @@ export function RouteWorkspace({
                     candidateAltitude === effectiveAltitude,
                 ),
               );
-              const requiresAltitudeReview =
+              const hasAltitudeCandidateWarning =
                 fixedAltitude === null &&
                 Boolean(guidance?.appliesToCruisingAltitudeInput) &&
+                effectiveAltitude !== null &&
+                Number.isFinite(effectiveAltitude) &&
+                effectiveAltitude > 3000 &&
                 !isCandidateAltitude;
               const phaseLocked = Boolean(section && isPhaseLocked(section));
               return (
@@ -897,14 +900,14 @@ export function RouteWorkspace({
                   className={[
                     node.role === "VISUAL_REPORTING_POINT" ? "vrep-row" : "",
                     node.role === "DESTINATION" ? "destination-row" : "",
-                    requiresAltitudeReview ? "altitude-review-row" : "",
+                    hasAltitudeCandidateWarning ? "altitude-warning-row" : "",
                   ].filter(Boolean).join(" ")}
                 >
                   <td>
                     <span className="point-index">{index}</span>
                     <strong>{node.name}</strong>
                   </td>
-                  <td className={requiresAltitudeReview ? "altitude-review-cell" : ""}>
+                  <td className={hasAltitudeCandidateWarning ? "altitude-warning-cell" : ""}>
                     {section && fixedLabels ? (
                       <div
                         className="fixed-altitude-control"
@@ -965,7 +968,7 @@ export function RouteWorkspace({
                               : ""}
                             VAR {guidance.variationDegEast > 0 ? "+" : ""}{guidance.variationDegEast}°
                             {" / MC "}{Math.round(guidance.magneticCourseDeg)}
-                            {requiresAltitudeReview ? "・候補外（要確認）" : ""}
+                            {hasAltitudeCandidateWarning ? "・候補外（警告）" : ""}
                           </small>
                         )}
                       </div>
