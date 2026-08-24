@@ -4,6 +4,8 @@
 > この文書は AutoNavLog 1.1.0 向けの設計履歴です。1.4.0 では Colab、A4転記補助HTML、
 > 計算結果Snapshot、旧SEA/LOSS互換fieldを廃止しています。現行契約は `README.md`、
 > `docs/architecture.md`、`docs/calculation_rules.md`、生成済みJSON Schemaを参照してください。
+> 以下に残るNotebook、Colab、Google Driveの記述は当時の設計記録であり、
+> 現行の配布・保存経路ではありません。
 
 - 版: 2.10.0
 - 日付: 2026-08-17
@@ -1993,7 +1995,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | hash検証 | `tables[].sha256` と実CSVのSHA-256が一致すること。不一致は `validation_status` によらず常にBLOCKER |
 | Issue | `PERFORMANCE_DATA_UNVERIFIED`（BLOCKER・**新規**。第0.4節。現行コードには存在しない）。原因は `Issue.metadata["reason"]` ∈ `{UNVERIFIED, PENDING, REJECTED, UNKNOWN_STATUS, HASH_MISMATCH}` |
 | **現状**（2026-08-02 作業ツリー） | `validation_status: "VERIFIED"`、両CSVの `sha256` は実ファイルと一致、`climb_temperature_policy: "ISA_BASELINE_10_PERCENT_PER_10C_ABOVE"` |
-| リリース検証 | `scripts/build_release_manifest.py` / `scripts/build_colab_preview_bundle.py` / `release_validation.py` が `"VERIFIED"` 完全一致を要求する（既存。本書の判定と整合している） |
+| リリース検証 | 現行の通常CIは `scripts/validate_runtime_data.py` / `release_validation.py` で `"VERIFIED"` 完全一致を要求する |
 
 ### A.4 保存
 
