@@ -1,0 +1,114 @@
+.route-workspace .route-table-phase-compact th:nth-child(1) {
+  width: auto;
+}
+
+.route-workspace .route-table-phase-compact th:nth-child(2) {
+  width: 250px;
+}
+
+.route-workspace .route-table-phase-compact th:nth-child(3) {
+  width: 132px;
+}
+
+.phase-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.phase-edit-toggle {
+  min-height: 24px;
+  padding: 0 7px;
+  color: #43596e;
+  background: #ffffff;
+  border: 1px solid #aebbc7;
+  border-radius: 5px;
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.phase-edit-toggle:hover:not(:disabled),
+.phase-edit-toggle.is-active {
+  color: var(--navy-950);
+  background: var(--slate-100);
+  border-color: #7d92a5;
+}
+
+.phase-edit-toggle:disabled {
+  color: #8e9aa5;
+  background: #e8edf1;
+  border-color: #c9d1d8;
+}
+
+.phase-edit-note {
+  margin: 10px 0 0;
+  padding: 7px 9px;
+  color: #6b4a0b;
+  background: #fff9e8;
+  border: 1px solid #ead39d;
+  border-bottom: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.phase-edit-note + .route-table-scroll {
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.phase-cell {
+  vertical-align: middle;
+}
+
+.phase-select {
+  min-height: 28px;
+  padding: 0 5px;
+  font-weight: 650;
+}
+
+.phase-select.is-readonly {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 22px;
+  padding: 0;
+  color: var(--navy-950);
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
+  pointer-events: none;
+}
+
+.phase-select.is-editing {
+  width: 100%;
+  background: #ffffff;
+}
+
+.route-workspace .fixed-phase,
+.phase-locked-value {
+  display: block;
+  padding: 4px 5px;
+  color: var(--teal-700);
+  background: var(--teal-50);
+  border-left: 3px solid var(--teal-700);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.phase-arrival-value {
+  color: #43596e;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+@media (max-width: 760px) {
+  .route-workspace .route-table-phase-compact th:nth-child(2) {
+    width: 230px;
+  }
+
+  .route-workspace .route-table-phase-compact th:nth-child(3) {
+    width: 118px;
+  }
+}

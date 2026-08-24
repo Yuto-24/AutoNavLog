@@ -35,6 +35,7 @@ import { CheckPointEditor } from "./CheckPointEditor";
 import { MapResizeHandle } from "./MapResizeHandle";
 import { rjfmCandidateClass, rjfmStatusLabels } from "./RjfmGuidancePanel";
 import { RouteConfirmation } from "./RouteConfirmation";
+import "./RouteWorkspacePhase.css";
 
 interface RouteWorkspaceProps {
   candidate: RouteCandidate | null;
@@ -53,7 +54,11 @@ interface RouteWorkspaceProps {
   canConfirmRoute: boolean;
   onAltitudeInputChange: (sectionId: string, value: string) => void;
   onDestinationPatternAltitudeChange: (value: string) => void;
-  onSectionChange: (sectionId: string, changes: Partial<NavSection>) => void;
+  onSectionChange: (
+    sectionId: string,
+    changes: Partial<NavSection>,
+    invalidate?: boolean,
+  ) => void;
   onRouteUseConfirmedChange: (checked: boolean) => void;
   onPolygonRouteConfirmedChange: (checked: boolean) => void;
   onConfirmRoute: () => void;
@@ -174,6 +179,7 @@ export function RouteWorkspace({
 }: RouteWorkspaceProps) {
   const [mapHeight, setMapHeight] = useState(425);
   const [pickingCheckPoint, setPickingCheckPoint] = useState(false);
+  const [phaseEditing, setPhaseEditing] = useState(false);
   const [pickedCoordinate, setPickedCoordinate] = useState<{
     latitude: number;
     longitude: number;
@@ -194,6 +200,10 @@ export function RouteWorkspace({
     () => [...(project?.sections ?? [])].sort((a, b) => a.sequence - b.sequence),
     [project],
   );
+  const nodeById = useMemo(
+    () => new Map(nodes.map((node) => [node.id, node])),
+    [nodes],
+  );
   const sectionByFromNode = useMemo(
     () => new Map(sections.map((section) => [section.from_node_id, section])),
     [sections],
@@ -205,6 +215,64 @@ export function RouteWorkspace({
       ),
     [altitudeGuidance.sections],
   );
+  useEffect(() => {
+    setPhaseEditing(false);
+  }, [project?.id]);
+  const isPhaseLocked = useCallback(
+    (section: NavSection): boolean => {
+      const guidance = guidanceBySection.get(section.id);
+      const startNode = nodeById.get(section.from_node_id);
+      return (
+        isFixedAltitudeMode(guidance?.inputMode) ||
+        section.phase === "VISUAL_ARRIVAL" ||
+        startNode?.role === "VISUAL_REPORTING_POINT"
+      );
+    },
+    [guidanceBySection, nodeById],
+  );
+  const currentClimbSection = sections.find((section) => section.phase === "CLIMB") ?? null;
+  const currentDescentSection = sections.find((section) => section.phase === "DESCENT") ?? null;
+  const fixedClimbExists = Boolean(currentClimbSection && isPhaseLocked(currentClimbSection));
+  const fixedDescentExists = Boolean(currentDescentSection && isPhaseLocked(currentDescentSection));
+  const hasEditablePhaseSections = sections.some((section) => !isPhaseLocked(section));
+  const phaseOptionsForSection = (section: NavSection): FlightPhase[] => {
+    const options: FlightPhase[] = [];
+    const canBeClimb =
+      (!fixedClimbExists || section.phase === "CLIMB") &&
+      (currentDescentSection === null ||
+        section.sequence < currentDescentSection.sequence ||
+        section.phase === "CLIMB");
+    const canBeDescent =
+      (!fixedDescentExists || section.phase === "DESCENT") &&
+      (currentClimbSection === null ||
+        section.sequence > currentClimbSection.sequence ||
+        section.phase === "DESCENT");
+    if (canBeClimb) options.push("CLIMB");
+    options.push("CRUISE");
+    if (canBeDescent) options.push("DESCENT");
+    return options;
+  };
+  const changePhaseBasis = (section: NavSection, nextPhase: FlightPhase) => {
+    if (!phaseEditing || isPhaseLocked(section) || nextPhase === "VISUAL_ARRIVAL") return;
+    if (nextPhase === "CLIMB" || nextPhase === "DESCENT") {
+      const duplicates = sections.filter(
+        (candidate) =>
+          candidate.id !== section.id &&
+          candidate.phase === nextPhase &&
+          !isPhaseLocked(candidate),
+      );
+      duplicates.forEach((candidate) =>
+        onSectionChange(candidate.id, { phase: "CRUISE" }, false),
+      );
+      if (section.phase !== nextPhase || duplicates.length > 0) {
+        onSectionChange(section.id, { phase: nextPhase });
+      }
+      return;
+    }
+    if (section.phase !== "CRUISE") {
+      onSectionChange(section.id, { phase: "CRUISE" });
+    }
+  };
   const checkPoints = useMemo(
     () => (project?.visual_references ?? []).filter((item) => item.role === "CHECK_POINT"),
     [project],
@@ -740,13 +808,34 @@ export function RouteWorkspace({
         />
       )}
 
+      {project && phaseEditing && (
+        <div className="phase-edit-note" role="status">
+          CLIMB / DESCENT を別Legへ選ぶと、既存の同Phaseは自動でCRUISEへ戻ります。
+          RCA・EOC・性能・時間・燃料計算が変わるため、計画意図を確認して変更してください。
+        </div>
+      )}
       <div className="table-scroll route-table-scroll">
-        <table className="route-table">
+        <table className="route-table route-table-phase-compact">
           <thead>
             <tr>
               <th>POINT</th>
               <th>ALT ft MSL / MC候補</th>
-              <th>PHASE</th>
+              <th>
+                <div className="phase-heading">
+                  <span>PHASE</span>
+                  {project && hasEditablePhaseSections && (
+                    <button
+                      className={`phase-edit-toggle${phaseEditing ? " is-active" : ""}`}
+                      type="button"
+                      disabled={busy}
+                      aria-pressed={phaseEditing}
+                      onClick={() => setPhaseEditing((current) => !current)}
+                    >
+                      {phaseEditing ? "完了" : "変更"}
+                    </button>
+                  )}
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -793,6 +882,7 @@ export function RouteWorkspace({
                 fixedAltitude === null &&
                 Boolean(guidance?.appliesToCruisingAltitudeInput) &&
                 !isCandidateAltitude;
+              const phaseLocked = Boolean(section && isPhaseLocked(section));
               return (
                 <tr
                   key={node.id}
@@ -919,7 +1009,7 @@ export function RouteWorkspace({
                       "—"
                     )}
                   </td>
-                  <td>
+                  <td className="phase-cell">
                     {section && fixedLabels ? (
                       <span
                         className="fixed-phase"
@@ -927,25 +1017,43 @@ export function RouteWorkspace({
                       >
                         {fixedLabels.phase}
                       </span>
+                    ) : section && phaseLocked ? (
+                      <span
+                        className="phase-locked-value"
+                        aria-label={`${node.name}出発Legの固定Phase`}
+                      >
+                        {phaseLabels[section.phase]}（固定）
+                      </span>
                     ) : section ? (
                       <select
-                        className="table-select"
+                        className={`table-select phase-select${phaseEditing ? " is-editing" : " is-readonly"}`}
                         aria-label={`${node.name}出発LegのPhase`}
+                        aria-disabled={!phaseEditing}
+                        tabIndex={phaseEditing ? 0 : -1}
+                        title={
+                          phaseEditing
+                            ? "CLIMBまたはDESCENTを選ぶと同Phaseの基準Legが移動します。"
+                            : "変更する場合はPHASE列の「変更」を押してください。"
+                        }
                         value={section.phase}
+                        onPointerDown={(event) => {
+                          if (!phaseEditing) event.preventDefault();
+                        }}
+                        onKeyDown={(event) => {
+                          if (!phaseEditing) event.preventDefault();
+                        }}
                         onChange={(event) =>
-                          onSectionChange(section.id, {
-                            phase: event.target.value as FlightPhase,
-                          })
+                          changePhaseBasis(section, event.target.value as FlightPhase)
                         }
                       >
-                        {Object.entries(phaseLabels).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
+                        {phaseOptionsForSection(section).map((phase) => (
+                          <option key={phase} value={phase}>
+                            {phaseLabels[phase]}
                           </option>
                         ))}
                       </select>
                     ) : (
-                      "到着"
+                      <span className="phase-arrival-value">到着</span>
                     )}
                   </td>
                 </tr>
