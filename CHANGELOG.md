@@ -4,6 +4,12 @@ AutoNavLog の利用者に影響する変更を記録します。
 
 ## Unreleased
 
+### 変更
+
+- Colab廃止後も残っていたGoogle Drive向け正式配布workflow、Driveアップロード処理、
+  配布tree用manifest生成と専用テストを削除しました。
+- 空港・性能のruntime data検査はDrive配布から切り離し、通常CIで継続して検査します。
+
 ## 1.4.2 - 2026-08-24
 
 ### 修正

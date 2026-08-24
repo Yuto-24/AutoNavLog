@@ -1,7 +1,7 @@
-# 実MSMリリース受入ゲート
+# 実MSM受入検査
 
 `scripts/validate_real_msm_release.py`は、決定論的テストで使う
-`FakeWeatherProvider`とは別の、実MSM専用リリースゲートです。
+`FakeWeatherProvider`とは別の、実MSM専用の手動受入検査です。
 `FakeWeatherProvider`、ラッパー、派生クラスは実MSMとして受理しません。
 
 既定はネットワークへ接続しないオフライン事前検査です。次をすべて検査し、不足や不整合を
@@ -12,7 +12,7 @@
 
 ```bash
 python scripts/validate_real_msm_release.py \
-  --cache-dir /content/msm-cache
+  --cache-dir /tmp/autonavlog-msm-cache
 ```
 
 ライブ試験は明示的な`--live`指定時だけRISHへ接続し、GRIBをキャッシュします。実行時刻を
@@ -20,10 +20,10 @@ python scripts/validate_real_msm_release.py \
 
 ```bash
 python scripts/validate_real_msm_release.py \
-  --cache-dir /content/msm-cache \
+  --cache-dir /tmp/autonavlog-msm-cache \
   --live \
   --valid-time 2026-07-30T03:00:00Z \
-  --output /content/real-msm-acceptance.json
+  --output /tmp/real-msm-acceptance.json
 ```
 
 ライブ試験は同じ時刻について、RJFM/RJFOそれぞれの5000 ft MSL上空風・気温と
@@ -35,25 +35,7 @@ MSM地上気温を問い合わせます。4結果がすべて`AVAILABLE`であ�
 - Forecast Run、補間方式、格子・気圧面等のtraceが存在
 - 地上気温が`tmp_surface`のK値から℃へ変換され、水平・時間補間のtraceを保持
 
-オフライン事前検査の`PASS`はライブ取得成功を意味しません。実MSMをリリース済みと判定
-する証拠は、`mode: LIVE`、`live_executed: true`、`status: PASS`を持つJSONだけです。
-ここで使うRJFM/RJFO座標は配布経路を通すための受入プローブであり、アプリ本体の検証済み
+オフライン事前検査の`PASS`はライブ取得成功を意味しません。実MSMのライブ受入に成功した
+証拠は、`mode: LIVE`、`live_executed: true`、`status: PASS`を持つJSONだけです。
+ここで使うRJFM/RJFO座標は実行経路を通すための受入プローブであり、アプリ本体の検証済み
 空港データを代替しません。
-
-## Driveリリースworkflow
-
-`.github/workflows/release-to-drive.yml`の手動実行では、
-`msm_valid_time_utc`を`YYYY-MM-DDTHH:MM:SSZ`形式で必ず指定します。暗黙の現在時刻へ
-フォールバックしないため、同じ入力による再実行は同じForecast valid timeを検査します。
-将来scheduled triggerを追加する場合も、version管理された固定UTC値を供給するまでは
-fail-closedとし、実行時の時計から値を生成してはいけません。
-
-workflowはrelease treeを組み立てて2つのwheelを新規venvへインストールした後、次の
-証跡を`release/acceptance/`へ保存します。
-
-- `runtime-data-acceptance.json`: 配布tree内の空港・性能データに対する厳格検査
-- `real-msm-acceptance.json`: 指定時刻に対する実MSMライブ受入検査
-
-片方が失敗しても他方を実行して両方の診断を収集し、JSONをGitHub Actions artifactへ
-退避してからjobを失敗させます。両方が成功した場合だけ証跡を含む
-`release-manifest.json`を作成し、Driveへアップロードします。

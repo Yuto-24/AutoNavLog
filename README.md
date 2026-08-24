@@ -259,6 +259,7 @@ pytest
 ruff check .
 mypy src/autonavlog
 python scripts/validate_performance_data.py data/performance
+python scripts/validate_runtime_data.py data
 python scripts/export_schemas.py --check
 npm --prefix web run build
 npm --prefix web run test:e2e
@@ -269,20 +270,9 @@ npm --prefix web run test:e2e
 - `pyproject.toml`
 - `web/package.json` と `web/package-lock.json`
 - `README.md` と `CHANGELOG.md`
-- `.github/workflows/release-to-drive.yml`
 
 `src/autonavlog/version.py` は固定値を持たず、インストール済み Package Metadata から版番号を取得します。
 `jma-msm-wind==0.2.1` は別製品の版なので変更しません。
-
-## リリース配布
-
-`release-to-drive` workflow を使う場合は、次の Actions secrets が必要です。
-
-| Secret | 内容 |
-| --- | --- |
-| `MSM_REPO_TOKEN` | `Yuto-24/jma-msm-wind-kyushu` の read 権限 |
-| `GDRIVE_SERVICE_ACCOUNT_JSON` | Drive へアップロードする Service Account JSON |
-| `GDRIVE_RELEASE_FOLDER_ID` | 共有 Drive のリリース親フォルダー |
 
 ## リポジトリ
 
@@ -296,8 +286,8 @@ npm --prefix web run test:e2e
 | `src/autonavlog/web` | FastAPI と Web API |
 | `web` | React、TypeScript、Vite、Playwright |
 
-設計の全体像は[アーキテクチャ](docs/architecture.md)を参照してください。実 MSM のリリース検査は
-[実 MSM リリース受入ゲート](docs/real_msm_acceptance.md)にあります。
+設計の全体像は[アーキテクチャ](docs/architecture.md)を参照してください。実 MSM の手動受入検査は
+[実 MSM 受入検査](docs/real_msm_acceptance.md)にあります。
 
 ## ライセンスと問い合わせ
 
