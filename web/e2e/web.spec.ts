@@ -1520,11 +1520,13 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   await editor.getByLabel("緯度").fill("35.000000");
   await expect(draftMarker).toHaveCount(0);
   await editor.getByLabel("経度").fill("140.000000");
-  await expect(editor.getByText("経路から10 NM以内に対応するLegがありません。")).toBeVisible();
+  await expect(editor.getByText(
+    "Leg線分内にabeam点があり、横ずれ10 NM以内となる関連Legがありません。",
+  )).toBeVisible();
   await expect(editor.getByRole("button", { name: "追加", exact: true })).toBeDisabled();
 
-  await editor.getByLabel("緯度").fill("32.400000");
-  await editor.getByLabel("経度").fill("131.500000");
+  await editor.getByLabel("緯度").fill("32.389063");
+  await editor.getByLabel("経度").fill("131.597572");
   const linkedSection = editor.getByLabel("関連Leg");
   await expect(linkedSection).toBeVisible();
   await expect(linkedSection.locator("option")).toHaveCount(3);
@@ -1564,9 +1566,10 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
     expect(bounds!.actionsLeft).toBeGreaterThanOrEqual(bounds!.formLeft);
     expect(bounds!.actionsRight).toBeLessThanOrEqual(bounds!.formRight);
   }
-  await editor.getByLabel("緯度").fill("32.700000");
-  await editor.getByLabel("経度").fill("131.550000");
+  await editor.getByLabel("緯度").fill("32.482176");
+  await editor.getByLabel("経度").fill("131.517485");
   await expect(editor.getByLabel("関連Leg")).toHaveCount(0);
+  await expect(editor.getByText(/関連Legがありません/)).toHaveCount(0);
   await editor.getByLabel("名称").fill("訓練CP");
   await expect(nameWarning).toHaveCount(0);
   await expect(editor.getByLabel("名称")).not.toHaveAttribute("aria-invalid");

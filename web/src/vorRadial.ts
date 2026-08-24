@@ -7,6 +7,7 @@ const WGS84_B_METERS = (1 - WGS84_FLATTENING) * WGS84_A_METERS;
 const MEAN_EARTH_RADIUS_NM = 6371008.8 / METERS_PER_NM;
 const AUTO_SELECTION_VALUE = "__AUTO__";
 const ROUTE_NEARBY_STATION_LIMIT = 5;
+const SEGMENT_ENDPOINT_MARGIN_NM = 1 / METERS_PER_NM;
 
 export type VorStationType = "VOR" | "VOR/DME" | "VORTAC";
 
@@ -229,6 +230,46 @@ export function pointDistanceToSegmentNm(
       end.longitude_deg,
     ).distanceNm,
   );
+}
+
+export function pointAbeamDistanceToSegmentNm(
+  point: VorRoutePoint,
+  start: VorRoutePoint,
+  end: VorRoutePoint,
+): number | null {
+  const startToEnd = wgs84Inverse(
+    start.latitude_deg,
+    start.longitude_deg,
+    end.latitude_deg,
+    end.longitude_deg,
+  );
+  if (startToEnd.distanceNm <= SEGMENT_ENDPOINT_MARGIN_NM * 2) return null;
+
+  const startToPoint = wgs84Inverse(
+    start.latitude_deg,
+    start.longitude_deg,
+    point.latitude_deg,
+    point.longitude_deg,
+  );
+  const angularDistance = startToPoint.distanceNm / MEAN_EARTH_RADIUS_NM;
+  const bearingDelta = (
+    startToPoint.initialTrueBearingDeg - startToEnd.initialTrueBearingDeg
+  ) * Math.PI / 180;
+  const alongTrackAngle = Math.atan2(
+    Math.sin(angularDistance) * Math.cos(bearingDelta),
+    Math.cos(angularDistance),
+  );
+  const alongTrackDistanceNm = alongTrackAngle * MEAN_EARTH_RADIUS_NM;
+  if (
+    alongTrackDistanceNm <= SEGMENT_ENDPOINT_MARGIN_NM ||
+    startToEnd.distanceNm - alongTrackDistanceNm <= SEGMENT_ENDPOINT_MARGIN_NM
+  ) {
+    return null;
+  }
+
+  const crossTrackArgument = Math.sin(angularDistance) * Math.sin(bearingDelta);
+  const crossTrackAngle = Math.asin(Math.max(-1, Math.min(1, crossTrackArgument)));
+  return Math.abs(crossTrackAngle) * MEAN_EARTH_RADIUS_NM;
 }
 
 function stationDistanceToSegment(
