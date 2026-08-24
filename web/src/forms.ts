@@ -16,6 +16,7 @@ export interface PlanningForm {
   runUpIncluded: boolean;
   noseFairingEnabled: boolean;
   airConditioningEnabled: boolean;
+  descentRateFpm: 500 | 1000;
   tglCount: number;
   allLegAltitudeFtMsl: number;
   candidateKey: string;
@@ -148,6 +149,7 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     runUpIncluded: true,
     noseFairingEnabled: false,
     airConditioningEnabled: true,
+    descentRateFpm: 500,
     tglCount: 0,
     allLegAltitudeFtMsl: 3000,
     candidateKey: "",
@@ -187,6 +189,7 @@ export function formFromProject(
     runUpIncluded: project.run_up_included,
     noseFairingEnabled: project.nose_fairing_enabled,
     airConditioningEnabled: project.air_conditioning_enabled,
+    descentRateFpm: project.descent_rate_fpm,
     tglCount: project.tgl_count,
     weatherMode: project.weather_mode,
     ftdSurfaceWindDirection: String(

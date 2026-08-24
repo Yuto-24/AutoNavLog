@@ -76,7 +76,7 @@ from .rjfm_departure_plan import rjfm_plan_matches_project
 
 @dataclass(frozen=True)
 class CalculationPolicies:
-    version: str = "nav2-v13-continuous-eoc-backtracking"
+    version: str = "nav2-v14-selectable-descent-rate"
     # Kept for serialized policy compatibility. NAV2-v5 uses MSL directly.
     pa_500_policy: Pa500Policy = Pa500Policy.CEILING
     max_iterations: int = 5
@@ -1317,6 +1317,7 @@ class CalculationService:
         arrival_altitude_ft_msl: float | None,
         nose_fairing_enabled: bool,
         air_conditioning_enabled: bool,
+        descent_rate_fpm: int,
     ) -> _DescentPlan | None:
         descent_index = next(
             (
@@ -1428,7 +1429,7 @@ class CalculationService:
                 geometries[eoc_leg_index].section.planned_altitude_ft_msl
             )
             candidate_vertical_seconds = (
-                (candidate_altitude - target_altitude) / 500.0 * 60.0
+                (candidate_altitude - target_altitude) / descent_rate_fpm * 60.0
             )
             required_seconds = candidate_vertical_seconds + 60.0
             available_seconds = 0.0
@@ -1480,7 +1481,8 @@ class CalculationService:
                     self._blocker(
                         "DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE",
                         (
-                            "経路始点から降下しても、VREPまでに500 fpmの降下と"
+                            "経路始点から降下しても、VREPまでに"
+                            f"{descent_rate_fpm} fpmの降下と"
                             "減速1分を完了できません。"
                             "計画高度、経路、VREP高度を見直してください。"
                         ),
@@ -1488,6 +1490,7 @@ class CalculationService:
                         metadata={
                             "required_seconds": required_seconds,
                             "available_seconds": available_seconds,
+                            "descent_rate_fpm": descent_rate_fpm,
                             "constraint_section_id": str(geometries[0].section.id),
                             "constraint_start_altitude_ft_msl": candidate_altitude,
                             "constraint_target_altitude_ft_msl": target_altitude,
@@ -1514,7 +1517,7 @@ class CalculationService:
                 if previous_ground_speed is None:
                     return None
                 previous_vertical_seconds = (
-                    (previous_altitude - target_altitude) / 500.0 * 60.0
+                    (previous_altitude - target_altitude) / descent_rate_fpm * 60.0
                 )
                 required_with_previous_seconds = previous_vertical_seconds + 60.0
                 available_with_previous_seconds = available_seconds + (
@@ -1553,6 +1556,7 @@ class CalculationService:
                             "constraint_target_altitude_ft_msl": following_altitude,
                             "required_seconds": required_with_previous_seconds,
                             "available_seconds": available_with_previous_seconds,
+                            "descent_rate_fpm": descent_rate_fpm,
                             "constraint_section_ids": descent_path_section_ids,
                             "constraint_transitions": [constraint_transition],
                             "descent_path_section_ids": descent_path_section_ids,
@@ -1599,7 +1603,7 @@ class CalculationService:
             cruise_cas_kt=cruise_cas,
             metadata={
                 "type": "descent",
-                "descent_rate_fpm": 500.0,
+                "descent_rate_fpm": float(descent_rate_fpm),
                 "target_altitude_ft_msl": target_altitude,
                 "cruise_altitude_ft_msl": cruise_altitude,
                 "planned_duration_seconds": duration_seconds,
@@ -1947,6 +1951,7 @@ class CalculationService:
             arrival_altitude_ft_msl,
             project.nose_fairing_enabled,
             project.air_conditioning_enabled,
+            project.descent_rate_fpm,
         )
         segmentation = self._build_phase_segmentation(
             geometries,

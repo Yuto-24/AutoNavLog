@@ -271,6 +271,29 @@ export function ImportPlanPanel({
               />
             </label>
           </div>
+          <fieldset className="descent-rate-control span-two">
+            <legend>計画降下率</legend>
+            <div className="descent-rate-segments">
+              {([500, 1000] as const).map((rate) => (
+                <label key={rate}>
+                  <input
+                    type="radio"
+                    name="descent-rate-fpm"
+                    value={rate}
+                    checked={form.descentRateFpm === rate}
+                    onChange={() => update("descentRateFpm", rate)}
+                  />
+                  <span>
+                    {rate} fpm
+                    {rate === 500 && <small>標準</small>}
+                  </span>
+                </label>
+              ))}
+            </div>
+            {form.descentRateFpm === 1000 && (
+              <small className="descent-rate-note">標準計画値は500 fpmです。</small>
+            )}
+          </fieldset>
           <div className="fuel-option-row span-two">
             <label className="checkbox-row">
               <input

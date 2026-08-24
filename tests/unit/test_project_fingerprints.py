@@ -48,6 +48,7 @@ def test_display_only_fields_do_not_change_calculation_key(
         lambda project: setattr(project, "run_up_included", False),
         lambda project: setattr(project, "nose_fairing_enabled", True),
         lambda project: setattr(project, "air_conditioning_enabled", False),
+        lambda project: setattr(project, "descent_rate_fpm", 1000),
         lambda project: setattr(
             project.sections[0],
             "planned_altitude_ft_msl",
@@ -153,6 +154,25 @@ def test_defaults_review_includes_phase(
     assert (
         defaults_review_fingerprint(
             changed_phase,
+            performance_table_version="fixture-v1",
+            policy_version="nav2-v2",
+        )
+        != baseline
+    )
+
+
+def test_defaults_review_includes_descent_rate(project: Project) -> None:
+    baseline = defaults_review_fingerprint(
+        project,
+        performance_table_version="fixture-v1",
+        policy_version="nav2-v2",
+    )
+    changed = project.model_copy(deep=True)
+    changed.descent_rate_fpm = 1000
+
+    assert (
+        defaults_review_fingerprint(
+            changed,
             performance_table_version="fixture-v1",
             policy_version="nav2-v2",
         )

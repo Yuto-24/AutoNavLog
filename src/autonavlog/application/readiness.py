@@ -268,7 +268,7 @@ def collect_effective_issues(
         if ui_state.defaults_review_fingerprint != current_defaults_review_fingerprint:
             defaults_issue = _readiness_blocker(
                 "DEFAULTS_NOT_REVIEWED",
-                "ALT・Phase・燃料・偏差などの既定値を確認してください。",
+                "ALT・Phase・燃料・降下率・偏差などの既定値を確認してください。",
             )
             effective.append(
                 create_effective_issue(

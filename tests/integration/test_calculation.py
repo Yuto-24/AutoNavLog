@@ -811,6 +811,72 @@ def _section_for_source(outcome, section_id, phase: FlightPhase):
     )
 
 
+def test_selectable_descent_rate_recalculates_eoc_time_profile_and_fuel(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    routed, _ = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(20.0, 30.0, 20.0),
+        altitudes_ft_msl=(7_500, 6_500, 5_500),
+        manual_courses_deg=(0, 90, 180),
+    )
+    service = CalculationService(airports, performance_repository)
+
+    outcomes = {}
+    for rate in (500, 1000):
+        configured = routed.model_copy(deep=True)
+        configured.descent_rate_fpm = rate
+        outcomes[rate] = service.calculate(configured, FakeWeatherProvider())
+
+    standard = outcomes[500]
+    fast = outcomes[1000]
+    assert not standard.blockers
+    assert not fast.blockers
+
+    standard_eoc = next(point for point in standard.derived_points if point.type.value == "EOC")
+    fast_eoc = next(point for point in fast.derived_points if point.type.value == "EOC")
+    assert standard_eoc.along_route_distance_nm == pytest.approx(57.2)
+    assert fast_eoc.along_route_distance_nm == pytest.approx(62.6)
+
+    standard_descent = next(
+        section for section in standard.sections if section.phase == FlightPhase.DESCENT
+    )
+    fast_descent = next(
+        section for section in fast.sections if section.phase == FlightPhase.DESCENT
+    )
+    standard_metadata = standard_descent.performance_metadata
+    fast_metadata = fast_descent.performance_metadata
+    assert standard_metadata["descent_rate_fpm"] == 500.0
+    assert fast_metadata["descent_rate_fpm"] == 1000.0
+    assert standard_metadata["vertical_descent_duration_seconds"] == pytest.approx(324.0)
+    assert fast_metadata["vertical_descent_duration_seconds"] == pytest.approx(162.0)
+    assert standard_metadata["planned_duration_seconds"] == pytest.approx(384.0)
+    assert fast_metadata["planned_duration_seconds"] == pytest.approx(222.0)
+    assert standard_metadata["deceleration_duration_seconds"] == 60.0
+    assert fast_metadata["deceleration_duration_seconds"] == 60.0
+
+    standard_profile = descent_profile_from_metadata(standard_metadata)
+    fast_profile = descent_profile_from_metadata(fast_metadata)
+    assert standard_profile is not None
+    assert fast_profile is not None
+    assert standard_profile.altitude_at_elapsed(162.0) == pytest.approx(4_150.0)
+    assert fast_profile.altitude_at_elapsed(162.0) == pytest.approx(2_800.0)
+
+    for outcome, planned_seconds in ((standard, 384.0), (fast, 222.0)):
+        descent_sections = [
+            section for section in outcome.sections if section.phase == FlightPhase.DESCENT
+        ]
+        assert all(
+            section.performance_metadata["fuel_flow_gph"] == 12.0
+            for section in descent_sections
+        )
+        assert sum(
+            section.section_fuel_gal.adopted() or 0.0 for section in descent_sections
+        ) == pytest.approx(12.0 * planned_seconds / 3600.0)
+
+
 def test_eoc_backtracks_one_leg_with_leg_specific_descent_ground_speeds(
     airports,
     performance_repository,
@@ -1219,6 +1285,48 @@ def test_eoc_backtracking_blocks_when_the_profile_precedes_the_route_start(
     assert blocker.metadata["ground_speeds"]
     assert blocker.metadata["required_seconds"] > blocker.metadata["available_seconds"]
     assert not any(point.type.value == "EOC" for point in outcome.derived_points)
+
+    faster = routed.model_copy(deep=True)
+    faster.descent_rate_fpm = 1000
+    faster_outcome = CalculationService(airports, performance_repository).calculate(
+        faster,
+        FakeWeatherProvider(),
+    )
+    assert not any(
+        issue.code == "DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE"
+        for issue in faster_outcome.blockers
+    )
+    assert any(point.type.value == "EOC" for point in faster_outcome.derived_points)
+
+
+def test_eoc_infeasible_message_uses_selected_descent_rate(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    routed, _ = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(1.0, 1.0, 1.0),
+        altitudes_ft_msl=(7_500, 6_500, 5_500),
+        manual_courses_deg=(0, 90, 180),
+    )
+    routed.descent_rate_fpm = 1000
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    blocker = next(
+        issue
+        for issue in outcome.blockers
+        if issue.code == "DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE"
+    )
+    assert blocker.message == (
+        "経路始点から降下しても、VREPまでに1000 fpmの降下と減速1分を完了できません。"
+        "計画高度、経路、VREP高度を見直してください。"
+    )
+    assert blocker.metadata["descent_rate_fpm"] == 1000
 
 
 def test_eoc_backtracking_blocks_a_non_monotonic_turn_altitude_transition(

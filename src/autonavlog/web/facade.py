@@ -313,6 +313,7 @@ class AutoNavLogWebApplication:
                     "run_up_included": request.run_up_included,
                     "nose_fairing_enabled": request.nose_fairing_enabled,
                     "air_conditioning_enabled": request.air_conditioning_enabled,
+                    "descent_rate_fpm": request.descent_rate_fpm,
                 }
             )
             project.tgl_count = request.tgl_count
@@ -741,6 +742,7 @@ class AutoNavLogWebApplication:
         working.run_up_included = request.run_up_included
         working.nose_fairing_enabled = request.nose_fairing_enabled
         working.air_conditioning_enabled = request.air_conditioning_enabled
+        working.descent_rate_fpm = request.descent_rate_fpm
         weather_changed = (
             working.weather_mode != request.weather_mode
             or working.ftd_weather != request.ftd_weather

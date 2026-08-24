@@ -529,7 +529,7 @@ UIは未知の `Issue.code` も落とさず、`severity`、`message`、`section_
 | `WIND_UNAVAILABLE` / `TEMPERATURE_UNAVAILABLE` / `QNH_UNAVAILABLE` | 既存値 | 既存 |
 | `WIND_TRIANGLE_FAILED` / `INSUFFICIENT_FUEL` | BLOCKER | 既存 |
 | `RCA_OUTSIDE_ROUTE` | BLOCKER | 既存 |
-| `DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` | BLOCKER | DESCENT基準Legから候補を経路始点側へ追加しても、候補Legの高度からVREPまでの500 fpm連続降下と60秒減速が収まらない場合。新たに加えた前Legの高度が次Legより低い場合も含む。開始高度からVREPへの1件の遷移、通過Leg、required/available秒・Leg別GSを診断metadataへ残す |
+| `DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` | BLOCKER | DESCENT基準Legから候補を経路始点側へ追加しても、候補Legの高度からVREPまでの選択降下率による連続降下と60秒減速が収まらない場合。新たに加えた前Legの高度が次Legより低い場合も含む。開始高度からVREPへの1件の遷移、選択降下率、通過Leg、required/available秒・Leg別GSを診断metadataへ残す |
 | `RCA_BEYOND_FIRST_TURN` | WARNING（要承認） | 既存 |
 | `DEFAULTS_NOT_REVIEWED` / `RECALCULATION_REQUIRED` | BLOCKER | 新規 |
 | `MANUAL_QNH_RECONFIRM_REQUIRED` / `PERFORMANCE_DATA_UNVERIFIED` | BLOCKER | 新規 |
@@ -822,7 +822,7 @@ SEA算出、SEA入力、SEA確認、結果テーブルのSEA列は実装しな�
 | --- | --- |
 | AUTO | 値のみ |
 | PERFORMANCE_TABLE | 値＋出典（`performance_metadata`） |
-| FIXED_RULE | 値＋`規則値`（例: 降下 500 fpm、到着 無風） |
+| FIXED_RULE | 値＋`規則値`（例: 降下燃料 12 GPH、到着 無風） |
 | MANUAL_OVERRIDE | 値＋`手動`＋自動値の併記 |
 | UNAVAILABLE | `未取得`（太字・赤系背景）＋理由 |
 | WARNING | 値＋警告アイコン |
@@ -974,7 +974,7 @@ Web版のProject保存はD-32どおり既存の `LocalProjectRepository` を使�
 
 `AdoptedValue` と `WeatherResult.availability` / `reason_code` をそのまま表示する。**欠損値を 0・無風・1013.25 hPa・最近傍値で補ってはならない**（既存方針）。
 
-ただし `FIXED_RULE` として規定された値（降下 500 fpm / 12 GPH、到着 CAS 121 kt・原則無風・12 GPH）はフォールバックではなく規則値である。両者を表示上区別する。
+ただし `FIXED_RULE` として規定された値（降下12 GPH、到着 CAS 121 kt・原則無風・12 GPH）はフォールバックではなく規則値である。標準降下率500 fpmと明示選択の1000 fpmはProject入力として別に保持する。両者を表示上区別する。
 
 ### FR-33 Forecast Run の選択と提示 【必須】
 
@@ -1007,7 +1007,7 @@ Web版のProject保存はD-32どおり既存の `LocalProjectRepository` を使�
 
 `CalculationOutcome.derived_points`（`DerivedPointType.RCA` / `EOC`）を結果テーブルおよび地図上に表示する。`RCA_OUTSIDE_ROUTE` はBlocker、`RCA_BEYOND_FIRST_TURN` は承認可能なWarningとして提示し、承認は `acknowledged_warning_codes` へ記録する。
 
-EOCはDESCENT基準Legの計画高度から探索し、必要時間が同Leg内に収まらない場合は経路始点方向の前Legを候補へ加える。候補ごとに、そのLegの計画高度からVREPまで500 fpmで連続降下し、VREPでlevel off後に60秒だけ減速する必要時間を再計算する。中間変針点の計画高度は制約にしない。新たに加えた前Legの高度が次Legより低い場合、または経路始点からでも不足する場合は`DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` BlockerとしてEOCを生成しない。このため現行EOC探索は `EOC_OUTSIDE_ROUTE` を生成しない。
+EOCはDESCENT基準Legの計画高度から探索し、必要時間が同Leg内に収まらない場合は経路始点方向の前Legを候補へ加える。候補ごとに、そのLegの計画高度からVREPまでProjectの`descent_rate_fpm`（500または1000）で連続降下し、VREPでlevel off後に60秒だけ減速する必要時間を再計算する。500 fpmを標準とし、1000 fpmは明示選択時だけ採用する。中間変針点の計画高度は制約にしない。新たに加えた前Legの高度が次Legより低い場合、または経路始点からでも不足する場合は`DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` BlockerとしてEOCを生成しない。このため現行EOC探索は `EOC_OUTSIDE_ROUTE` を生成しない。
 ### FR-39 ETO / Loss Timeと地上準備欄 【必須】
 
 Loss Timeは機上で事前計算結果を修正する値とし、地上計画のZONE/CUM ETE・TTL TIME・Forecast・燃料へ一切加えない。LOSS入力UIを提供しない。別添8-1へ転記するETO欄は空欄とし、ETD基準の内部計画時刻をETOとして印字してはならない。詳細は第6.5節。
@@ -1366,7 +1366,7 @@ Projectと参照snapshotを突き合わせるcross-model検証で、結果の `a
 - VREP→目的空港を `VISUAL_ARRIVAL`、その直前を `DESCENT` とする
 - KML取込時は最後の非空港地点を候補提示するだけとし、利用者確認なしにVREPへ確定しない
 - 条件を満たすVREPがない場合は `VISUAL_REPORTING_POINT_REQUIRED`、位置関係が不正なら `VISUAL_REPORTING_POINT_ROUTE_INVALID`（いずれもBLOCKER）
-- 解決したVREP高度を、降下目標、500 fpm降下時間、EOC、DESCENT代表気象高度、VISUAL_ARRIVAL代表気象高度、VISUAL_ARRIVAL行のALTへ同じ値として渡す
+- 解決したVREP高度を、降下目標、選択降下率による降下時間、EOC、DESCENT代表気象高度、VISUAL_ARRIVAL代表気象高度、VISUAL_ARRIVAL行のALTへ同じ値として渡す
 - 全Leg高度一括変更は自動VREP高度を上書きしない。VREP高度の編集操作は手動overrideへの明示切替とする
 
 `CalculationOutcome.arrival_altitude: ArrivalAltitudeResult` は上記の完全な型を保持する。Snapshotは同じJSONを保存し、読込時に `selected_reference_fingerprint` とrule versionを再検証して再現する。
@@ -2005,13 +2005,13 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | --- | --- |
 | 保存先 | `{root}/projects/{project_id}/project.json` |
 | 自動保存 | `{root}/projects/{project_id}/autosave.json` |
-| Snapshot | `{root}/snapshots/{project_id}/{snapshot_id}.json` |
-| Drive root | `/content/drive/MyDrive/AutoNavLog` |
+| Snapshot | 保存しない（v1.4.0で廃止） |
+| Drive root | 使用しない |
 | 形式 | JSON（`ensure_ascii=False`、`indent=2`、`sort_keys=True`） |
 | 書込み | tempfile → `fsync` → `os.replace` |
-| `schema_version` | `Project` / `CalculationSnapshot` ともに `1` |
+| `schema_version` | `Project`は`4` |
 | 競合 | `expected_revision` 不一致で `project-conflict-{UTC}.json` を作成し例外 |
-| 移行規則 | 旧形式なし（`schema_version` は1のみ） |
+| 移行規則 | Project v1〜v3をv4へ移行し、`descent_rate_fpm`欠損時は標準の500を採用する |
 
 ### A.5 Forecast Run
 
@@ -2037,7 +2037,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | 上空風・気温 | `WeatherRequestKind.ALOFT`。欠損は `WIND_UNAVAILABLE` / `TEMPERATURE_UNAVAILABLE` |
 | 出発・到着TOAT | `WeatherRequestKind.SURFACE_TEMPERATURE`。MSM `tmp_surface`を水平・時間補間し、出発はETD、到着は計算済み最終累積ETEの時刻を使う。空港標高へ気圧面気温を外挿しない |
 | フォールバック | **禁止**（0・1013.25 hPa・最近傍気象） |
-| 固定規則値 | 降下 500 fpm・12 GPH、到着 CAS 121 kt・原則無風・12 GPH（`ValueState.FIXED_RULE`） |
+| 固定規則値 | 標準降下率500 fpm（1000 fpmはProjectで明示選択）・降下12 GPH、到着 CAS 121 kt・原則無風・12 GPH（燃料・到着値は`ValueState.FIXED_RULE`） |
 | バッチ | `query_batch(forecast_run_id, requests)`。件数不一致は `WEATHER_BATCH_MISMATCH` |
 
 ### A.7 航法計算API
@@ -2048,7 +2048,7 @@ Loss Timeは、飛行中に実Time Checkと実測状況を基に、事前計算�
 | 入力 | `Project`（deep copyされる） |
 | 出力 | `CalculationOutcome`（集計正本`sections: list[SectionResult]` / 表示専用`display_rows: list[NavLogDisplayRow]` / `derived_points` / `arrival_altitude: ArrivalAltitudeResult` / `check_point_projections: list[CheckPointProjection]` / `fuel_plan` / `issues` / `iterations` / `converged` / `status` / `policy_version` / `performance_table_version` / `qnh_hpa`） |
 | 各値 | `AdoptedValue[T]`。`adopted()` で採用値、`state` で `ValueState` |
-| Policy | `CalculationPolicies.version = "nav2-v13-continuous-eoc-backtracking"`。Variationは`DEPARTURE_LATITUDE_32N_V1`、VREP個別規則は`ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"`とする |
+| Policy | `CalculationPolicies.version = "nav2-v14-selectable-descent-rate"`。Variationは`DEPARTURE_LATITUDE_32N_V1`、VREP個別規則は`ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"`とする |
 | 陳腐化判定 | 計算入力fingerprintは`calculation_policy_version`に加えて`variation_rule_version`を含み、Variation規則だけの変更でも再計算を要求する |
 | エラー | 例外ではなく `Issue` として返る。`blockers` プロパティで抽出 |
 | SEAの使用 | **なし（v2.6.0）**。`safe_enroute_altitude_ft_msl` は互換fieldとして残してよいが、計算・Issue・fingerprint・status・表示・出力へ使用しない |

@@ -125,6 +125,7 @@ export interface Project {
   run_up_included: boolean;
   nose_fairing_enabled: boolean;
   air_conditioning_enabled: boolean;
+  descent_rate_fpm: 500 | 1000;
   weather_mode: "FORECAST" | "FTD";
   ftd_weather: FtdWeatherSettings | null;
   tgl_count: number;
@@ -176,6 +177,7 @@ export interface SectionResult {
   cumulative_ete_seconds: AdoptedValue<number>;
   section_fuel_gal: AdoptedValue<number>;
   remaining_fuel_gal: AdoptedValue<number>;
+  performance_metadata: Record<string, unknown>;
 }
 
 export type DisplayCellState =

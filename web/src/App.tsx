@@ -405,6 +405,7 @@ function App() {
             run_up_included: form.runUpIncluded,
             nose_fairing_enabled: form.noseFairingEnabled,
             air_conditioning_enabled: form.airConditioningEnabled,
+            descent_rate_fpm: form.descentRateFpm,
             tgl_count: form.tglCount,
             all_leg_altitude_ft_msl: form.allLegAltitudeFtMsl,
             use_penultimate_as_vrep: form.usePenultimateAsVrep,
@@ -602,6 +603,7 @@ function App() {
       run_up_included: form.runUpIncluded,
       nose_fairing_enabled: form.noseFairingEnabled,
       air_conditioning_enabled: form.airConditioningEnabled,
+      descent_rate_fpm: form.descentRateFpm,
       tgl_count: form.tglCount,
       sections: payloadSections.map((section) => {
         const guidance = altitudeGuidanceBySection.get(section.id);
