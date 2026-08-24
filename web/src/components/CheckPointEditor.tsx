@@ -7,7 +7,7 @@ import type {
   RouteNode,
   VisualReference,
 } from "../types";
-import { pointDistanceToSegmentNm } from "../vorRadial";
+import { pointAbeamDistanceToSegmentNm } from "../vorRadial";
 
 const MAX_LINKED_LEG_DISTANCE_NM = 10;
 
@@ -97,11 +97,9 @@ export function CheckPointEditor({
     return sections.filter((section) => {
       const start = nodeById.get(section.from_node_id);
       const end = nodeById.get(section.to_node_id);
-      return Boolean(
-        start &&
-        end &&
-        pointDistanceToSegmentNm(point, start, end) <= MAX_LINKED_LEG_DISTANCE_NM,
-      );
+      if (!start || !end) return false;
+      const abeamDistanceNm = pointAbeamDistanceToSegmentNm(point, start, end);
+      return abeamDistanceNm !== null && abeamDistanceNm <= MAX_LINKED_LEG_DISTANCE_NM;
     });
   }, [coordinatesValid, latitude, longitude, nodeById, sections]);
   const effectiveLinkedSectionId = matchingSections.length === 1
@@ -273,7 +271,7 @@ export function CheckPointEditor({
           </label>
           {coordinatesValid && matchingSections.length === 0 && (
             <p className="checkpoint-leg-error" role="alert">
-              経路から10 NM以内に対応するLegがありません。
+              Leg線分内にabeam点があり、横ずれ10 NM以内となる関連Legがありません。
             </p>
           )}
           <button
@@ -363,7 +361,7 @@ export function CheckPointEditor({
           })}
         </div>
       )}
-      <small className="checkpoint-guidance">巡航区間では15〜20 NM程度の間隔が配置の目安です。対応するLegはCPから10 NM以内を候補とし、1件なら自動選択します。</small>
+      <small className="checkpoint-guidance">巡航区間では15〜20 NM程度の間隔が配置の目安です。abeam点がLeg線分内にあり、横ずれ10 NM以内となる区間を候補とし、1件なら自動選択します。</small>
     </section>
   );
 }
