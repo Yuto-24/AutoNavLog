@@ -52,6 +52,7 @@ class ConfirmRouteRequest(WebRequestModel):
     run_up_included: bool = True
     nose_fairing_enabled: bool = False
     air_conditioning_enabled: bool = True
+    descent_rate_fpm: Literal[500, 1000] = 500
     tgl_count: int = Field(default=0, ge=0, le=20)
     all_leg_altitude_ft_msl: float = Field(default=3000, gt=0, le=25_000)
     use_penultimate_as_vrep: bool = True
@@ -113,6 +114,7 @@ class UpdateProjectRequest(WebRequestModel):
     run_up_included: bool = True
     nose_fairing_enabled: bool = False
     air_conditioning_enabled: bool = True
+    descent_rate_fpm: Literal[500, 1000] = 500
     tgl_count: int = Field(default=0, ge=0, le=20)
     sections: list[SectionUpdate] = Field(default_factory=list, max_length=500)
     visual_reporting_point_node_id: UUID | None = None

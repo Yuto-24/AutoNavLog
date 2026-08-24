@@ -232,6 +232,14 @@ export function RouteWorkspace({
   );
   const currentClimbSection = sections.find((section) => section.phase === "CLIMB") ?? null;
   const currentDescentSection = sections.find((section) => section.phase === "DESCENT") ?? null;
+  const calculatedDescentRate = outcome?.sections
+    .find((section) => section.phase === "DESCENT")
+    ?.performance_metadata.descent_rate_fpm;
+  const displayedDescentRate =
+    typeof calculatedDescentRate === "number" &&
+    (calculatedDescentRate === 500 || calculatedDescentRate === 1000)
+      ? calculatedDescentRate
+      : null;
   const fixedClimbExists = Boolean(currentClimbSection && isPhaseLocked(currentClimbSection));
   const fixedDescentExists = Boolean(currentDescentSection && isPhaseLocked(currentDescentSection));
   const hasEditablePhaseSections = sections.some((section) => !isPhaseLocked(section));
@@ -1054,6 +1062,11 @@ export function RouteWorkspace({
                       </select>
                     ) : (
                       <span className="phase-arrival-value">到着</span>
+                    )}
+                    {section?.phase === "DESCENT" && displayedDescentRate !== null && (
+                      <small className="descent-rate-result">
+                        計算結果 {displayedDescentRate} fpm
+                      </small>
                     )}
                   </td>
                 </tr>

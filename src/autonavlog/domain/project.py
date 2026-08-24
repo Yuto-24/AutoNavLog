@@ -119,7 +119,7 @@ class NavSection(DomainModel):
 
 class Project(DomainModel):
     id: UUID = Field(default_factory=uuid4)
-    schema_version: Literal[3] = 3
+    schema_version: Literal[4] = 4
     name: str = Field(min_length=1)
     pilot_name: str = ""
     ship_identifier: str = ""
@@ -135,6 +135,7 @@ class Project(DomainModel):
     run_up_included: bool = True
     nose_fairing_enabled: bool = False
     air_conditioning_enabled: bool = True
+    descent_rate_fpm: Literal[500, 1000] = 500
     tgl_count: int = Field(default=0, ge=0)
     selected_forecast_run_id: str | None = None
     revision: int = Field(default=0, ge=0)

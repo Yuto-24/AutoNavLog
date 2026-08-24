@@ -774,6 +774,46 @@ async def _save_route(client: httpx.AsyncClient, name: str) -> str:
 
 
 @pytest.mark.anyio
+async def test_descent_rate_api_validation_and_saved_project_persistence(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        assert (
+            await client.post("/api/import", json={"filename": "route.kml", "kml_text": KML})
+        ).status_code == 200
+
+        invalid = await client.post(
+            "/api/route/confirm",
+            json=_route_payload() | {"descent_rate_fpm": 750},
+        )
+        assert invalid.status_code == 422
+
+        confirmed = await client.post(
+            "/api/route/confirm",
+            json=_route_payload() | {"descent_rate_fpm": 1000},
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        assert confirmed.json()["project"]["descent_rate_fpm"] == 1000
+
+        saved = await client.post("/api/projects/save", json={"name": "1000-fpm"})
+        assert saved.status_code == 200, saved.text
+        project_id = saved.json()["project"]["id"]
+        loaded = await client.post("/api/projects/load", json={"project_id": project_id})
+        assert loaded.status_code == 200, loaded.text
+        assert loaded.json()["project"]["descent_rate_fpm"] == 1000
+
+
+@pytest.mark.anyio
 async def test_cloudflare_assertion_authentication_and_session_rotation(
     tmp_path: Path,
 ) -> None:

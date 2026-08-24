@@ -5,7 +5,9 @@ from io import BytesIO
 from zipfile import ZipFile
 
 import pytest
+from pydantic import ValidationError
 
+from autonavlog.domain.project import Project
 from autonavlog.importers.kml import (
     ImportLimits,
     KmlImportError,
@@ -151,6 +153,15 @@ def test_atomic_project_save_and_revision_conflict(tmp_path, project) -> None:
     assert repository.load(project.id) == saved.project
 
 
+def test_project_descent_rate_accepts_only_supported_values(project) -> None:
+    payload = project.model_dump(mode="python")
+    assert Project.model_validate(payload).descent_rate_fpm == 500
+    assert Project.model_validate(payload | {"descent_rate_fpm": 1000}).descent_rate_fpm == 1000
+
+    with pytest.raises(ValidationError):
+        Project.model_validate(payload | {"descent_rate_fpm": 750})
+
+
 def test_legacy_project_fields_migrate_without_resaving_obsolete_values(
     tmp_path,
     project,
@@ -164,6 +175,7 @@ def test_legacy_project_fields_migrate_without_resaving_obsolete_values(
     payload.pop("run_up_included")
     payload.pop("nose_fairing_enabled", None)
     payload.pop("air_conditioning_enabled")
+    payload.pop("descent_rate_fpm")
     payload["sections"][0]["manual_wind_direction_deg"] = 0
     payload["sections"][0]["manual_wind_speed_kt"] = 10
     payload["sections"][0]["project_id"] = str(saved.id)
@@ -175,10 +187,11 @@ def test_legacy_project_fields_migrate_without_resaving_obsolete_values(
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     migrated = repository.load(saved.id)
-    assert migrated.schema_version == 3
+    assert migrated.schema_version == 4
     assert migrated.run_up_included is True
     assert migrated.nose_fairing_enabled is False
     assert migrated.air_conditioning_enabled is True
+    assert migrated.descent_rate_fpm == 500
     assert migrated.sections[0].manual_wind_direction_deg == 0
     assert "manual_qnh_hpa" not in migrated.model_dump(mode="json")
     assert "project_id" not in migrated.route_nodes[0].model_dump(mode="json")
@@ -192,7 +205,8 @@ def test_legacy_project_fields_migrate_without_resaving_obsolete_values(
     assert stored["run_up_included"] is True
     assert stored["nose_fairing_enabled"] is False
     assert stored["air_conditioning_enabled"] is True
-    assert stored["schema_version"] == 3
+    assert stored["descent_rate_fpm"] == 500
+    assert stored["schema_version"] == 4
     assert "project_id" not in stored["route_nodes"][0]
     assert "safe_enroute_altitude_ft_msl" not in stored["sections"][0]
     assert "loss_time_seconds" not in stored["sections"][0]

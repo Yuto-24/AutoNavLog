@@ -110,6 +110,7 @@ def current_calculation_input_fingerprint(
             "run_up_included": project.run_up_included,
             "nose_fairing_enabled": project.nose_fairing_enabled,
             "air_conditioning_enabled": project.air_conditioning_enabled,
+            "descent_rate_fpm": project.descent_rate_fpm,
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
             "selected_forecast_run_id": project.selected_forecast_run_id,
@@ -187,6 +188,7 @@ def defaults_review_fingerprint(
                 for section in project.ordered_sections()
             ],
             "total_usable_fuel_gal": project.total_usable_fuel_gal,
+            "descent_rate_fpm": project.descent_rate_fpm,
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
             "performance_table_version": performance_table_version,

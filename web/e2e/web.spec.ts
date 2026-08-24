@@ -689,7 +689,10 @@ async function expectDisplayProjectionToMatchWebTable(page: Page): Promise<void>
   });
 }
 
-async function calculateNavLog(page: Page): Promise<void> {
+async function calculateNavLog(
+  page: Page,
+  verifyDestinationWind = true,
+): Promise<void> {
   const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
   await openPaste.click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
@@ -797,15 +800,17 @@ async function calculateNavLog(page: Page): Promise<void> {
   await expect.poll(() => windInputs.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
   await expect(page.getByLabel("NAV LOG高度ポリシー")).toHaveCount(0);
   await expect(page.getByText("PA = MSL", { exact: true })).toHaveCount(0);
-  const destinationWindSummary = page.getByLabel("目的地空港の風予報");
-  await expect(destinationWindSummary).toContainText(/目的地風: \d{3}\/\d{1,2} kt/);
-  const destinationWind = (await destinationWindSummary.textContent())
-    ?.match(/目的地風: (\d{3}\/\d{1,2}) kt/)?.[1];
-  expect(destinationWind).toBeDefined();
   const finalRow = page.locator(".nav-log-table .nav-destination-info-row");
-  await expect(
-    finalRow.getByRole("cell", { name: destinationWind, exact: true }),
-  ).toBeVisible();
+  if (verifyDestinationWind) {
+    const destinationWindSummary = page.getByLabel("目的地空港の風予報");
+    await expect(destinationWindSummary).toContainText(/目的地風: \d{3}\/\d{1,2} kt/);
+    const destinationWind = (await destinationWindSummary.textContent())
+      ?.match(/目的地風: (\d{3}\/\d{1,2}) kt/)?.[1];
+    expect(destinationWind).toBeDefined();
+    await expect(
+      finalRow.getByRole("cell", { name: destinationWind, exact: true }),
+    ).toBeVisible();
+  }
   await expect(finalRow.getByLabel(/手動風向$/)).toHaveCount(0);
   await expect(finalRow.getByLabel(/手動風速$/)).toHaveCount(0);
   await expect(
@@ -1014,7 +1019,7 @@ test("edited VREP altitude reaches the calculation request and NAV LOG", async (
   await expect(
     page.locator(".nav-log-table").getByRole("cell", { name: "2100", exact: true }),
   ).toHaveCount(1);
-  await page.screenshot({ path: "/tmp/autonavlog-vrep-v1.4.3.png", fullPage: false });
+  await page.screenshot({ path: "/tmp/autonavlog-vrep-v1.5.0.png", fullPage: false });
   expect(pageErrors).toEqual([]);
   expect(
     consoleErrors.filter((message) => !message.includes("401 (Unauthorized)")),
@@ -2212,4 +2217,94 @@ test("RUN UP, nose fairing, and A/C choices persist after save and reload", asyn
   await expect(runUp).not.toBeChecked();
   await expect(noseFairing).toBeChecked();
   await expect(airConditioning).not.toBeChecked();
+});
+
+test("500 and 1000 fpm descent rates recalculate, render, and persist", async ({ page }) => {
+  const pageErrors: string[] = [];
+  const consoleErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.goto("/");
+
+  const rateGroup = page.getByRole("group", { name: "計画降下率" });
+  const standardRate = page.getByRole("radio", { name: /500 fpm/ });
+  const fastRate = page.getByRole("radio", { name: /1000 fpm/ });
+  await expect(rateGroup).toBeVisible();
+  await expect(standardRate).toBeChecked();
+  await expect(fastRate).not.toBeChecked();
+  await expect(page.getByText("標準計画値は500 fpmです。", { exact: true })).toHaveCount(0);
+
+  const assertWorkflowLayout = async (width: 1100 | 1440) => {
+    await page.setViewportSize({ width, height: 900 });
+    const [inputBox, routeBox, statusBox, groupBox] = await Promise.all([
+      page.locator(".input-rail").boundingBox(),
+      page.locator(".route-workspace").boundingBox(),
+      page.locator(".status-rail").boundingBox(),
+      rateGroup.boundingBox(),
+    ]);
+    if (!inputBox || !routeBox || !statusBox || !groupBox) {
+      throw new Error(`Descent-rate workflow layout is missing at ${width}px`);
+    }
+    expect(groupBox.x).toBeGreaterThanOrEqual(inputBox.x);
+    expect(groupBox.x + groupBox.width).toBeLessThanOrEqual(inputBox.x + inputBox.width);
+    if (width === 1100) {
+      expect(routeBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height - 1);
+      expect(statusBox.y).toBeGreaterThanOrEqual(routeBox.y + routeBox.height - 1);
+    } else {
+      expect(routeBox.x).toBeGreaterThanOrEqual(inputBox.x + inputBox.width - 1);
+      expect(statusBox.x).toBeGreaterThanOrEqual(routeBox.x + routeBox.width - 1);
+      expect(Math.abs(routeBox.y - inputBox.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(statusBox.y - inputBox.y)).toBeLessThanOrEqual(1);
+    }
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+    ).toBeLessThanOrEqual(1);
+  };
+
+  await assertWorkflowLayout(1100);
+  await assertWorkflowLayout(1440);
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await fastRate.check();
+  await expect(fastRate).toBeChecked();
+  await expect(standardRate).not.toBeChecked();
+  await expect(page.getByText("標準計画値は500 fpmです。", { exact: true })).toBeVisible();
+  await page.getByLabel("気象モード").selectOption("FTD");
+
+  await calculateNavLog(page, false);
+  await expect(page.getByText("計算結果 1000 fpm", { exact: true })).toBeVisible();
+  await standardRate.check();
+  await expect(page.getByText("計算結果 1000 fpm", { exact: true })).toBeVisible();
+  await expect(page.getByText("計算結果 500 fpm", { exact: true })).toHaveCount(0);
+  await fastRate.check();
+  const calculatedState = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    return await response.json() as WebState;
+  });
+  expect(calculatedState.project?.descent_rate_fpm).toBe(1000);
+  const calculatedDescent = calculatedState.outcome?.sections.find(
+    (section) => section.phase === "DESCENT",
+  );
+  expect(calculatedDescent?.performance_metadata.descent_rate_fpm).toBe(1000);
+
+  const [statusBox, navLogBox] = await Promise.all([
+    page.locator(".status-rail").boundingBox(),
+    page.getByLabel("計算済みNAV LOG").boundingBox(),
+  ]);
+  if (!statusBox || !navLogBox) {
+    throw new Error("Calculated workflow regions are missing at 1100px");
+  }
+  expect(navLogBox.y).toBeGreaterThanOrEqual(statusBox.y + statusBox.height - 1);
+
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(fastRate).toBeChecked();
+  await expect(page.getByText("計算結果 1000 fpm", { exact: true })).toBeVisible();
+  expect(pageErrors).toEqual([]);
+  expect(
+    consoleErrors.filter((message) => !message.includes("401 (Unauthorized)")),
+  ).toEqual([]);
 });

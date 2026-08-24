@@ -457,6 +457,79 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
 .form-grid .fuel-option-row .checkbox-row { display: flex; }
 .nose-fairing-option { grid-column: 1; }
 
+.descent-rate-control {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.descent-rate-control legend {
+  margin-bottom: 5px;
+  color: #304960;
+  font-size: 11px;
+  font-weight: 700;
+}
+.descent-rate-segments {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--slate-300);
+  border-radius: 8px;
+  background: #fff;
+}
+.descent-rate-segments label {
+  position: relative;
+  cursor: pointer;
+}
+.descent-rate-segments label + label {
+  border-left: 1px solid var(--slate-300);
+}
+.descent-rate-segments input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.descent-rate-segments span {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  color: #304960;
+  font-size: 12px;
+  font-weight: 700;
+}
+.descent-rate-segments small {
+  color: inherit;
+  font-size: 9px;
+}
+.descent-rate-segments input:checked + span {
+  color: #fff;
+  background: var(--teal-700);
+}
+.descent-rate-segments label:has(input:focus-visible) {
+  z-index: 1;
+  outline: 3px solid color-mix(in srgb, var(--teal-700) 35%, transparent);
+  outline-offset: -3px;
+}
+.descent-rate-note {
+  display: block;
+  margin-top: 5px;
+  color: var(--slate-500);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.descent-rate-result {
+  display: block;
+  margin-top: 3px;
+  color: var(--teal-700);
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .flight-plan-section > h2 { margin-bottom: 12px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .flight-date-field,
