@@ -5,7 +5,9 @@
 > 計算結果Snapshot、旧SEA/LOSS互換fieldを廃止しています。現行契約は `README.md`、
 > `docs/architecture.md`、`docs/calculation_rules.md`、生成済みJSON Schemaを参照してください。
 > 以下に残るNotebook、Colab、Google Driveの記述は当時の設計記録であり、
-> 現行の配布・保存経路ではありません。
+> 現行の配布・保存経路ではありません。特に計算・表示・丸めPolicyは
+> `docs/calculation_rules.md`を正本とし、この履歴文書の未丸め表示集計などの旧記述より
+> 優先します。
 
 - 版: 2.10.0
 - 日付: 2026-08-17
@@ -60,7 +62,8 @@
 - 旋回案内の経路長、旋回時間、風偏位を主NAVLOGのTTL DIST・TTL TIME・燃料へ加えない。
 - Route GraphではUMKとOMARUを独立点のまま保持する。NAV LOG主表では、RJFMから
   OMARU到着までの既存Sectionを1つの`RJFM→OMARU`親Legへ集約し、UMK/RCAを子区間境界として
-  内包する。親DIST・ETE・燃料は子区間の未丸め合計、親TC・VAR・MCはRJFMからOMARUへの
+  内包する。親DIST・ETE・燃料は丸め済み子表示値の合計、親REMは表示TOTALから表示RUN UPと
+  各親SECTを順に引いた値とする。内部exact値は未丸めで保持する。親TC・VAR・MCはRJFMからOMARUへの
   WGS84直行測地線値とする。親WIND・WCA・MH・GSは複数の実区間を単一値で表せないため空欄とし、
   子区間には各Sectionの実計算値を残す。
 - RJFM→UMKは`CLIMB`、UMK→OMARUは`CRUISE`、いずれも5,500 ft MSLに固定する。
@@ -239,6 +242,8 @@
 - API応答は `Cache-Control: no-store` とし、CSP、frame拒否、
   MIME sniffing拒否、権限policyを付与する。
 - KML/KMZは既存のbounded parserへ渡し、Web境界ではbase64文字数と展開前10 MiB上限を課す。
+- 数値入力は文字列Draftとして空欄を保持し、確定時だけ検証してAPIへ数値を渡す。
+  モバイルでも全消去後に再入力できることを共通契約とする。
 
 ### D-33 Web画面
 
@@ -265,7 +270,9 @@
   航空法第82条の900 m閾値と地表高未判定の制約を同時表示する。
   法令根拠は[e-Gov 航空法第82条](https://laws.e-gov.go.jp/law/327AC0000000231?occasion_date=20260423)と
   [e-Gov 航空法施行規則第177条](https://laws.e-gov.go.jp/law/327M50000800056?occasion_date=20260316)
-  を参照する。
+  を参照する。候補判定にはNAV LOGへ表示する1°half-up後のMCを使用し、179.5°以上は
+  180°側、359.5°以上は表示360°・判定0°側とする。これは手動飛行で使用する表示MCへ
+  判定を一致させる利用者承認Policyであり、学生訓練実施要領の直接指定とは扱わない。
 - 計算成功後はNAV LOGへscrollしfocusを移す。画面上で「WARNING／警告」を見出しに使わず、
   利用者向けには「確認事項」と表示する。
 - 日本語fontはWeb assetへ同梱し、実行OSのfont有無に依存しない。

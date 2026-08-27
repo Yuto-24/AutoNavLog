@@ -17,7 +17,7 @@ export interface PlanningForm {
   noseFairingEnabled: boolean;
   airConditioningEnabled: boolean;
   descentRateFpm: 500 | 1000;
-  tglCount: number;
+  tglCount: string;
   allLegAltitudeFtMsl: number;
   candidateKey: string;
   routeUseConfirmed: boolean;
@@ -76,6 +76,13 @@ export function usableFuelGal(form: PlanningForm): number | null {
   const entered = Number(form.totalUsableFuelGal);
   if (!Number.isFinite(entered) || entered <= 0 || entered > 200) return null;
   return entered;
+}
+
+export function touchAndGoCount(form: PlanningForm): number | null {
+  const entered = form.tglCount.trim();
+  if (!/^\d+$/.test(entered)) return null;
+  const count = Number(entered);
+  return Number.isInteger(count) && count >= 0 && count <= 20 ? count : null;
 }
 
 export function ftdWeatherSettings(form: PlanningForm): FtdWeatherSettings | null {
@@ -150,7 +157,7 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     noseFairingEnabled: false,
     airConditioningEnabled: true,
     descentRateFpm: 500,
-    tglCount: 0,
+    tglCount: "0",
     allLegAltitudeFtMsl: 3000,
     candidateKey: "",
     routeUseConfirmed: false,
@@ -190,7 +197,7 @@ export function formFromProject(
     noseFairingEnabled: project.nose_fairing_enabled,
     airConditioningEnabled: project.air_conditioning_enabled,
     descentRateFpm: project.descent_rate_fpm,
-    tglCount: project.tgl_count,
+    tglCount: String(project.tgl_count),
     weatherMode: project.weather_mode,
     ftdSurfaceWindDirection: String(
       (project.ftd_weather?.surface_wind.direction_deg_from === 0

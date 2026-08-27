@@ -454,6 +454,7 @@ export type AltitudeInputMode =
 export interface SectionAltitudeGuidance {
   sectionId: string;
   magneticCourseDeg: number;
+  vfrCruisingAltitudeMagneticCourseDeg: number;
   variationDegEast: number;
   candidateAltitudesFtMsl: number[];
   appliesToCruise: boolean;

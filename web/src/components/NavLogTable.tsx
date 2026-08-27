@@ -11,6 +11,8 @@ import {
   VOR_STATIONS,
 } from "../vorRadial";
 import { draftFromSection } from "../navLogEditing";
+import { roundHalfUp } from "../displayRounding";
+import { buildFuelPlanDisplay } from "../fuelPlanDisplay";
 import type {
   NavLogEditDrafts,
   NavLogEditErrors,
@@ -38,94 +40,11 @@ interface FormattedValue {
 
 type NumberFormatter = (value: number) => string;
 
-/**
- * Round half-up with exact decimal semantics matching Python's round_half_up().
- * Replicates: Decimal(str(value)) / Decimal(str(quantum)), quantize with ROUND_HALF_UP.
- *
- * Uses exact integer arithmetic (BigInt) to avoid floating-point precision errors.
- *
- * Examples:
- *   roundHalfUp(0.35, 0.1) => 0.4     // Rounds up (half-up)
- *   roundHalfUp(-0.35, 0.1) => -0.4   // Negative half-up
- *   roundHalfUp(1.005, 0.01) => 1.01  // Rounds up
- *   roundHalfUp(2.5, 1) => 3          // Positive half-way case
- *   roundHalfUp(-2.5, 1) => -3        // Negative half-way case
- *   roundHalfUp(7.125, 1) => 7        // Rounds down
- *   roundHalfUp(7.5, 1) => 8          // Rounds up
- *   roundHalfUp(2.375, 1) => 2        // Rounds down
- *   roundHalfUp(-0.4, 1) => 0         // Normalizes -0 to +0
- */
-function roundHalfUp(value: number, quantum: number): number {
-  // Parse decimal strings into { sign, integer, fraction, scale }
-  const parseDecimal = (str: string) => {
-    const trimmed = str.trim();
-    const sign = trimmed.startsWith("-") ? -1 : 1;
-    const unsigned = trimmed.replace(/^[+-]/, "");
-    const [intPart = "0", fracPart = ""] = unsigned.split(".");
-    return { sign, integer: intPart, fraction: fracPart, scale: fracPart.length };
-  };
-
-  const v = parseDecimal(value.toString());
-  const q = parseDecimal(quantum.toString());
-
-  // Combine integer and fraction parts into exact BigInt representations
-  // Scale both to a common denominator: 10^(max(v.scale, q.scale))
-  const maxScale = Math.max(v.scale, q.scale);
-  const scaleFactor = 10n ** BigInt(maxScale);
-
-  const vInt = BigInt(v.integer + v.fraction.padEnd(maxScale, "0"));
-  const qInt = BigInt(q.integer + q.fraction.padEnd(maxScale, "0"));
-
-  // Perform exact division: scaled = vInt / qInt (with half-up rounding)
-  // Half-up: if remainder >= divisor/2, round up
-  const absVInt = vInt < 0n ? -vInt : vInt;
-  const absQInt = qInt < 0n ? -qInt : qInt;
-
-  const quotient = absVInt / absQInt;
-  const remainder = absVInt % absQInt;
-
-  // Half-up: round up if remainder * 2 >= divisor
-  const roundedQuotient = remainder * 2n >= absQInt ? quotient + 1n : quotient;
-
-  // Apply original signs
-  const resultSign = v.sign * q.sign;
-  const signedQuotient = resultSign < 0 ? -roundedQuotient : roundedQuotient;
-
-  // Convert back: result = signedQuotient * quantum
-  // Build result string from exact integer arithmetic
-  const resultInt = signedQuotient * qInt;
-  const resultStr = resultInt.toString();
-  const resultSign2 = resultStr.startsWith("-") ? "-" : "";
-  const resultUnsigned = resultStr.replace(/^-/, "");
-
-  // Special case: when maxScale === 0, no fractional part exists
-  let resultDecimal: string;
-  if (maxScale === 0) {
-    resultDecimal = resultSign2 + resultUnsigned;
-  } else {
-    const resultPadded = resultUnsigned.padStart(maxScale + 1, "0");
-    const resultIntPart = resultPadded.slice(0, resultPadded.length - maxScale) || "0";
-    const resultFracPart = resultPadded.slice(resultPadded.length - maxScale);
-    resultDecimal = resultFracPart
-      ? resultSign2 + resultIntPart + "." + resultFracPart
-      : resultSign2 + resultIntPart;
-  }
-
-  const result = parseFloat(resultDecimal);
-
-  // Normalize -0 to +0
-  return Object.is(result, -0) ? 0 : result;
-}
-
 function fixedQuantum(quantum: number, fractionDigits: number): NumberFormatter {
   return (value) => roundHalfUp(value, quantum).toFixed(fractionDigits);
 }
 
 const integer = fixedQuantum(1, 0);
-const fuelAmount = fixedQuantum(0.1, 1);
-const CLIMB_PHASES = new Set<string>(["CLIMB"]);
-const CRUISE_PHASES = new Set<string>(["CRUISE"]);
-const DESCENT_PHASES = new Set<string>(["DESCENT", "VISUAL_ARRIVAL"]);
 const BASE_NAV_LOG_WIDTH_PX = 1776;
 const VOR_COLUMN_WIDTH_PX = 96;
 
@@ -274,21 +193,15 @@ function EditableWindCell({
   );
 }
 
-function phaseMinutes(outcome: CalculationOutcome, phases: Set<string>): number | null {
-  const matching = outcome.sections.filter((section) => phases.has(section.phase));
-  const seconds = matching.map((section) => adopted(section.zone_ete_seconds));
-  if (outcome.sections.length === 0 || seconds.some((value) => value === null)) return null;
-  return seconds.reduce<number>((sum, value) => sum + (value ?? 0), 0) / 60;
-}
-
 function FuelTime({ minutes }: { minutes: number | null }) {
   if (minutes === null) return <div className="fuel-time" />;
-  const rounded = roundHalfUp(minutes, 1);
-  const hours = Math.floor(rounded / 60);
-  const remaining = Math.round(rounded % 60);
+  const sign = minutes < 0 ? "-" : "";
+  const absoluteMinutes = Math.abs(minutes);
+  const hours = Math.floor(absoluteMinutes / 60);
+  const remaining = absoluteMinutes % 60;
   return (
     <div className="fuel-time">
-      <span>{hours}</span>
+      <span>{sign}{hours}</span>
       <span>:</span>
       <span>{remaining.toString().padStart(2, "0")}</span>
     </div>
@@ -298,31 +211,20 @@ function FuelTime({ minutes }: { minutes: number | null }) {
 function FuelAmount({ amount }: { amount: number | null }) {
   return (
     <div className="fuel-amount">
-      <span>{amount === null ? "" : fuelAmount(amount)}</span>
+      <span>{amount === null ? "" : amount.toFixed(1)}</span>
       <span>G</span>
     </div>
   );
 }
 
 function FuelPlanTable({ outcome }: { outcome: CalculationOutcome }) {
-  const fuel = outcome.fuel_plan;
-  const climb = phaseMinutes(outcome, CLIMB_PHASES);
-  const cruise = phaseMinutes(outcome, CRUISE_PHASES);
-  const descent = phaseMinutes(outcome, DESCENT_PHASES);
-  const tgl = fuel.tgl_gal / 2 * 7;
-  const required = [fuel.taxi_runup_minutes, climb, cruise, descent, tgl, 10, 45];
-  const minRequired = required.some((value) => value === null)
-    ? null
-    : required.reduce<number>((sum, value) => sum + (value ?? 0), 0);
-  const extra =
-    fuel.extra_endurance_seconds === null ? null : fuel.extra_endurance_seconds / 60;
-  const total = minRequired === null || extra === null ? null : minRequired + extra;
+  const display = buildFuelPlanDisplay(outcome);
   const bofRows = [
-    ["CLIMB", climb, fuel.climb_gal],
-    ["CRUISE", cruise, fuel.cruise_gal],
-    ["DESCENT", descent, fuel.descent_gal],
-    ["TGL", tgl, fuel.tgl_gal],
-    ["ADDITIONAL", 10, fuel.additional_gal],
+    ["CLIMB", display.climbMinutes, display.climbGal],
+    ["CRUISE", display.cruiseMinutes, display.cruiseGal],
+    ["DESCENT", display.descentMinutes, display.descentGal],
+    ["TGL", display.tglMinutes, display.tglGal],
+    ["ADDITIONAL", display.additionalMinutes, display.additionalGal],
   ] as const;
   return (
     <table className="fuel-plan-table">
@@ -332,15 +234,15 @@ function FuelPlanTable({ outcome }: { outcome: CalculationOutcome }) {
           <tr>
             <td className="fuel-gray" />
             <td colSpan={2} className="fuel-strong">TAXI・RUN UP</td>
-            <td><FuelTime minutes={fuel.taxi_runup_minutes} /></td>
-            <td><FuelAmount amount={fuel.taxi_runup_gal} /></td>
+            <td><FuelTime minutes={display.taxiRunupMinutes} /></td>
+            <td><FuelAmount amount={display.taxiRunupGal} /></td>
           </tr>
           {bofRows.map(([label, minutes, amount], index) => (
             <tr key={label}>
               {index === 0 && <td rowSpan={6} className="fuel-gray" />}
               {index === 0 && (
                 <td rowSpan={5} className="fuel-bof">
-                  BOF<br /><small>{fuel.bof_gal === null ? "" : `${fuelAmount(fuel.bof_gal)} G`}</small>
+                  BOF<br /><small>{display.bofGal === null ? "" : `${display.bofGal.toFixed(1)} G`}</small>
                 </td>
               )}
               <td className="fuel-phase">{label}</td>
@@ -350,23 +252,23 @@ function FuelPlanTable({ outcome }: { outcome: CalculationOutcome }) {
           ))}
           <tr className="fuel-reserve-row">
             <td colSpan={2} className="fuel-strong">RESERVE</td>
-            <td><FuelTime minutes={45} /></td>
-            <td><FuelAmount amount={fuel.reserve_gal} /></td>
+            <td><FuelTime minutes={display.reserveMinutes} /></td>
+            <td><FuelAmount amount={display.reserveGal} /></td>
           </tr>
           <tr className="fuel-min-row">
             <td colSpan={3} className="fuel-gray fuel-strong">MIN REQUIRED</td>
-            <td className="fuel-gray"><FuelTime minutes={minRequired} /></td>
-            <td className="fuel-gray"><FuelAmount amount={fuel.min_required_gal} /></td>
+            <td className="fuel-gray"><FuelTime minutes={display.minRequiredMinutes} /></td>
+            <td className="fuel-gray"><FuelAmount amount={display.minRequiredGal} /></td>
           </tr>
           <tr className="fuel-extra-row">
             <td colSpan={3} className="fuel-strong">EXTRA</td>
-            <td><FuelTime minutes={extra} /></td>
-            <td><FuelAmount amount={fuel.extra_gal} /></td>
+            <td><FuelTime minutes={display.extraMinutes} /></td>
+            <td><FuelAmount amount={display.extraGal} /></td>
           </tr>
           <tr>
             <td colSpan={3} className="fuel-strong">TOTAL</td>
-            <td><FuelTime minutes={total} /></td>
-            <td><FuelAmount amount={fuel.total_usable_gal} /></td>
+            <td><FuelTime minutes={display.totalMinutes} /></td>
+            <td><FuelAmount amount={display.totalGal} /></td>
           </tr>
         </tbody>
     </table>

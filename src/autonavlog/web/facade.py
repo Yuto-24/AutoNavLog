@@ -79,6 +79,7 @@ from .cruising_altitude import (
     TERRAIN_LIMITATION_NOTE_JA,
     magnetic_course_deg,
     matches_vfr_cruising_altitude,
+    operational_magnetic_course_deg,
     vfr_cruising_altitude_candidates,
 )
 from .models import (
@@ -1292,6 +1293,9 @@ class AutoNavLogWebApplication:
                 true_course,
                 variation_for_departure_latitude(start.latitude_deg).degrees_east,
             )
+            vfr_cruising_altitude_magnetic_course = operational_magnetic_course_deg(
+                magnetic_course
+            )
             matches = matches_vfr_cruising_altitude(
                 section.planned_altitude_ft_msl,
                 magnetic_course,
@@ -1307,11 +1311,16 @@ class AutoNavLogWebApplication:
                 {
                     "sectionId": str(section.id),
                     "magneticCourseDeg": magnetic_course,
+                    "vfrCruisingAltitudeMagneticCourseDeg": (
+                        vfr_cruising_altitude_magnetic_course
+                    ),
                     "variationDegEast": variation_for_departure_latitude(
                         start.latitude_deg
                     ).degrees_east,
                     "candidateAltitudesFtMsl": list(
-                        vfr_cruising_altitude_candidates(magnetic_course)
+                        vfr_cruising_altitude_candidates(
+                            vfr_cruising_altitude_magnetic_course
+                        )
                     ),
                     "appliesToCruise": section.phase == FlightPhase.CRUISE,
                     "appliesToCruisingAltitudeInput": (

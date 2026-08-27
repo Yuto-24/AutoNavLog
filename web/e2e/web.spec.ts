@@ -1026,7 +1026,9 @@ test("edited VREP altitude reaches the calculation request and NAV LOG", async (
   ).toEqual([]);
 });
 
-test("mobile fuel input allows a temporary blank value", async ({ page }) => {
+test("mobile numeric inputs allow clear then re-entry and TGL is sent as a number", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
@@ -1036,6 +1038,26 @@ test("mobile fuel input allows a temporary blank value", async ({ page }) => {
   await expect(fuel).toHaveValue("");
   await fuel.fill("77.5");
   await expect(fuel).toHaveValue("77.5");
+
+  const tgl = page.getByLabel("TGL");
+  await expect(tgl).toHaveValue("0");
+  await tgl.fill("");
+  await expect(tgl).toHaveValue("");
+
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+  await expect(page.getByText("TGLは0～20の整数で入力してください。")).toBeVisible();
+
+  await tgl.fill("3");
+  await expect(tgl).toHaveValue("3");
+  const confirmRequest = page.waitForRequest(
+    (request) => request.url().endsWith("/api/route/confirm")
+      && request.method() === "POST",
+  );
+  await page.getByRole("button", { name: "経路を確定" }).click();
+  const payload = (await confirmRequest).postDataJSON() as Record<string, unknown>;
+  expect(payload.tgl_count).toBe(3);
 });
 
 test("mobile route confirmation follows the map without scrolling back", async ({ page }) => {

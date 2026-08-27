@@ -13,6 +13,7 @@ import {
 } from "react-leaflet";
 import type { LatLngBoundsExpression } from "leaflet";
 import { patternAltitudeFtMsl } from "../forms";
+import { formatOperationalMagneticCourse } from "../displayRounding";
 import {
   fetchRjfmTrainingAirspace,
   isApprovedRjfmAirspaceReference,
@@ -967,7 +968,9 @@ export function RouteWorkspace({
                               ? altitudeBasisLabels[section.phase] + "・"
                               : ""}
                             VAR {guidance.variationDegEast > 0 ? "+" : ""}{guidance.variationDegEast}°
-                            {" / MC "}{Math.round(guidance.magneticCourseDeg)}
+                            {" / MC "}{formatOperationalMagneticCourse(
+                              guidance.vfrCruisingAltitudeMagneticCourseDeg,
+                            )}
                             {hasAltitudeCandidateWarning ? "・候補外（警告）" : ""}
                           </small>
                         )}

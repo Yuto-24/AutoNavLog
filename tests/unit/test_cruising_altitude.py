@@ -7,6 +7,7 @@ from autonavlog.web.cruising_altitude import (
     TERRAIN_LIMITATION_NOTE_JA,
     magnetic_course_deg,
     matches_vfr_cruising_altitude,
+    operational_magnetic_course_deg,
     vfr_cruising_altitude_candidates,
 )
 
@@ -15,11 +16,15 @@ from autonavlog.web.cruising_altitude import (
     ("magnetic_course", "first_candidate"),
     [
         (0.0, 3500),
-        (179.999, 3500),
+        (179.499, 3500),
+        (179.5, 4500),
+        (179.999, 4500),
         (180.0, 4500),
-        (359.999, 4500),
+        (359.499, 4500),
+        (359.5, 3500),
+        (359.999, 3500),
         (360.0, 3500),
-        (-0.001, 4500),
+        (-0.001, 3500),
     ],
 )
 def test_vfr_candidates_follow_magnetic_course_semicircle(
@@ -45,6 +50,25 @@ def test_candidates_cover_the_full_below_29000_foot_legal_table_when_requested()
 def test_magnetic_course_applies_east_variation_and_wraps() -> None:
     assert magnetic_course_deg(284.0, 8.0) == pytest.approx(292.0)
     assert magnetic_course_deg(356.0, 8.0) == pytest.approx(4.0)
+
+
+@pytest.mark.parametrize(
+    ("exact_course", "operational_course"),
+    [
+        (179.499, 179.0),
+        (179.5, 180.0),
+        (180.499, 180.0),
+        (359.499, 359.0),
+        (359.5, 0.0),
+        (0.499, 0.0),
+        (0.5, 1.0),
+    ],
+)
+def test_operational_course_matches_whole_degree_nav_log_entry(
+    exact_course: float,
+    operational_course: float,
+) -> None:
+    assert operational_magnetic_course_deg(exact_course) == operational_course
 
 
 def test_custom_altitude_match_is_exact_to_display_precision() -> None:

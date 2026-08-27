@@ -263,11 +263,7 @@ export function ImportPlanPanel({
                 max="20"
                 step="1"
                 value={form.tglCount}
-                onChange={(event) => {
-                  if (Number.isFinite(event.target.valueAsNumber)) {
-                    update("tglCount", event.target.valueAsNumber);
-                  }
-                }}
+                onChange={(event) => update("tglCount", event.target.value)}
               />
             </label>
           </div>
