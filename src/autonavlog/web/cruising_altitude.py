@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from math import isclose
 
+from autonavlog.nav.rounding import round_half_up
+
 LEGAL_THRESHOLD_NOTE_JA = (
     "航空法第82条・施行規則第177条のVFR巡航高度は、地表又は水面から900 m以上で適用されます。"
 )
@@ -14,6 +16,12 @@ def magnetic_course_deg(true_course_deg: float, variation_deg_east: float) -> fl
     return (true_course_deg + variation_deg_east) % 360.0
 
 
+def operational_magnetic_course_deg(magnetic_course: float) -> float:
+    """Return the whole-degree MC used for NAV LOG entry and altitude choice."""
+
+    return round_half_up(magnetic_course % 360.0, 1.0) % 360.0
+
+
 def vfr_cruising_altitude_candidates(
     magnetic_course: float,
     *,
@@ -21,7 +29,7 @@ def vfr_cruising_altitude_candidates(
 ) -> tuple[int, ...]:
     """Return Japanese VFR cruising levels up to the supported MSL ceiling."""
 
-    normalized_course = magnetic_course % 360.0
+    normalized_course = operational_magnetic_course_deg(magnetic_course)
     start = 3_500 if normalized_course < 180.0 else 4_500
     return tuple(range(start, maximum_ft_msl + 1, 2_000))
 

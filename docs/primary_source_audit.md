@@ -65,6 +65,7 @@ POHおよび全Supplementに対してそのまま適用可能かは、機体別�
 | 目的地TAF | NOAA Aviation Weather Center [Data API](https://aviationweather.gov/data/api/) | 目的空港ICAOのdecoded TAFと時刻区間別風を取得できる | 到着予定時刻のNAV LOG最終行への表示だけに使用。到着区間計算は常にCALM |
 | WCA符号 | 国土交通省航空局 [航空従事者学科試験問題 A3CC011930](https://www.mlit.go.jp/common/001279240.pdf) pp.25〜26 | WCAはTCからTHへの角度で、TCから右への修正をプラスとする | 右WCA正を裏付け |
 | VFR巡航高度 | 国土交通省航空局 [2023年1月期 航空従事者学科試験問題 A3CC042310](https://www.mlit.go.jp/koku/content/001582752.pdf) p.18 | 地表・水面から900 m以上のVFR巡航高度選定 | 性能表検索用PA Policyとは別規則 |
+| VFR巡航高度の磁方位区分 | [e-Gov 航空法施行規則第177条](https://laws.e-gov.go.jp/law/327M50000800056?occasion_date=20260316) | VFRを磁方位0°以上180°未満の奇数千+500 ftと、180°以上360°未満の偶数千+500 ftに区分する | 区分は裏付け済み。exact MCを1°half-upしたNAV LOG表示MCへ法定区分を適用することは利用者承認の実装Policyであり、CAC-REV19の直接指定ではない |
 | 公開ガイドの限界 | Cirrus Aircraft [2023 Owners and Pilots Quick Reference Guide](https://cirrusaircraft.com/wp-content/uploads/2023/05/SR-Owners-Guide-Digital.pdf) pp.2〜3 | 同ガイドはPOH/AFMではなく、必須運用・性能情報にはPOH等を参照する | 公開ガイドを性能原典として使用しない |
 
 ## なお未確認の実装Policyと適合性
@@ -88,6 +89,8 @@ POHおよび全Supplementに対してそのまま適用可能かは、機体別�
   物理Leg小計/Calculation Zone内訳という表示Policy。
 - 方位1°、距離0.5 nm、時間0.5分という記入単位に対するhalf-upのtie処理、燃料0.1 galの
   一律half-up、および丸めを適用する計算段階。
+- VFR巡航高度の法定磁方位区分に、手動飛行で使用する1°half-up後のNAV LOG表示MCを
+  適用すること。第177条は区分を裏付けるが、この丸め後MC選択はAutoNavLogのPolicyである。
 - SEA・地形機能はv1.4.0の対象外。規程が求める気象・航空情報・経路障害物の確認。
 - 別添8-1原本とのレイアウト一致、校内でのソフトウェア承認、検証済みGolden NAV LOGとの
   end-to-end一致。

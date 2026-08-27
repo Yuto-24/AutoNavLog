@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from autonavlog.nav.rounding import round_half_up
 from autonavlog.version import __version__
 from autonavlog.web.app import create_app
 from autonavlog.web.calculation_jobs import (
@@ -188,6 +189,10 @@ async def test_web_route_calculation_save_and_fail_closed_state(
             item["variationDegEast"] for item in confirmed_state["altitudeGuidance"]["sections"]
         ]
         assert guidance_variations == [7.0, 8.0, 8.0, 8.0]
+        for item in confirmed_state["altitudeGuidance"]["sections"]:
+            assert item["vfrCruisingAltitudeMagneticCourseDeg"] == (
+                round_half_up(item["magneticCourseDeg"], 1.0) % 360.0
+            )
         assert any(
             issue["code"] == "PATTERN_ALTITUDE_REQUIRED"
             for issue in confirmed_state["readiness"]["issues"]

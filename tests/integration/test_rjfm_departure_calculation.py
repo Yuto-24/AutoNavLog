@@ -10,6 +10,7 @@ from autonavlog.application.rjfm_departure_plan import (
 from autonavlog.domain.enums import DisplayCellState, FlightPhase
 from autonavlog.domain.planning import RjfmCoordinate, load_persisted_ui_state
 from autonavlog.nav.geodesy import geodesic_leg
+from autonavlog.nav.rounding import round_half_up
 from autonavlog.weather.fake_provider import FakeWeatherProvider
 
 
@@ -164,6 +165,44 @@ def test_umk_physical_navlog_groups_rjfm_through_omaru_with_direct_parent_course
         sum(result.section_fuel_gal.adopted() or 0.0 for result in controlled_results),
         abs=0.051,
     )
+    assert parent.fuel.text is not None
+    displayed_section, displayed_remaining = (
+        float(value) for value in parent.fuel.text.split(" / ", 1)
+    )
+    assert displayed_section == pytest.approx(
+        sum(float(child.fuel.text or "nan") for child in children),
+        abs=1e-9,
+    )
+    assert displayed_remaining == pytest.approx(
+        round_half_up(working.total_usable_fuel_gal, 0.1)
+        - round_half_up(1.5, 0.1)
+        - displayed_section,
+        abs=1e-9,
+    )
+
+    exact_remaining = working.total_usable_fuel_gal - 1.5
+    for result in outcome.sections:
+        exact_section_fuel = result.section_fuel_gal.adopted()
+        assert exact_section_fuel is not None
+        exact_remaining -= exact_section_fuel
+        assert result.remaining_fuel_gal.adopted() == pytest.approx(
+            exact_remaining,
+            abs=1e-9,
+        )
+
+    prior_display_remaining = round_half_up(working.total_usable_fuel_gal, 0.1) - 1.5
+    for summary in (
+        row for row in outcome.display_rows if row.row_type == "PHYSICAL_LEG_SUMMARY"
+    ):
+        assert summary.fuel.text is not None
+        section_fuel, remaining_fuel = (
+            float(value) for value in summary.fuel.text.split(" / ", 1)
+        )
+        assert remaining_fuel == pytest.approx(
+            prior_display_remaining - section_fuel,
+            abs=1e-9,
+        )
+        prior_display_remaining = remaining_fuel
 
     results_by_sequence = {result.sequence: result for result in outcome.sections}
     for child in children:

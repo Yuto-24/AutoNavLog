@@ -4,6 +4,10 @@
 記録します。一次資料の同定、版、SHA-256および未確認事項は
 [一次資料監査](primary_source_audit.md)を参照してください。
 
+この文書を現行の計算・表示Policyの正本とします。履歴資料の`DESIGN.md`と矛盾する場合は、
+この文書と生成済みSchema、現行実装の順に確認し、`DESIGN.md`の旧記述を現行仕様へ
+持ち込まないでください。
+
 共通NAV LOG計算で参照した公式原典は次の2件です。RJFM大分方面例外の
 原典と利用者Policyは、後述の専用節と[データ来歴](data_provenance.md#rjfm北上umk出発参照パック)で分けて記録します。
 
@@ -116,8 +120,10 @@ R6.5.1改正は、大分方面の北上を5,500 ftとし、Newtabaru CENTER Rout
   通常Legの`DIST = GS × ETE`不変条件に対する、この例外だけのカーブアウトです。
 - `RJFM→OMARU`親行のDIST・ETEは、転記時の可読性を保つため、各子区間を規程の
   0.5 NM・0.5分単位へ丸めた表示値の合計をZONEとして表示し、CUMも表示済みZONEの
-  累計とします。計算・監査用のexact値と燃料計算は未丸め値を保持します。燃料は内包する
-  子区間の未丸め合計です。親行のTC・VAR・MCはRJFMからOMARUへのWGS84直行測地線値を
+  累計とします。親SECT FUELも各子区間を0.1 galへ丸めた表示値の合計とし、表示REMは
+  表示TOTALから表示RUN UPを引いた値を起点に、各親SECT表示値をLeg順に減算します。
+  計算・監査用のexact値、燃料計算、`CalculationOutcome.sections`の燃料・残量は未丸め値を
+  保持します。親行のTC・VAR・MCはRJFMからOMARUへのWGS84直行測地線値を
   表示し、子行には各Sectionの
   実際のTC・VAR・MCを残します。親行のWIND・WCA・MH・GSは複数の実区間を単一値で
   表せないため空欄です。
@@ -170,6 +176,13 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
 - 東偏差を正として`MC = TC + VAR`、右WCAを正として`MH = MC + WCA`とします。
   計算結果には未丸め値を保持します。NAV LOG表示のMHだけは、同じ行へ表示する1°単位のMCと
   WCAを加算して3桁表示し、`291 + (-4) = 287`のように表示欄同士の関係を保ちます。
+- [航空法施行規則第177条](https://laws.e-gov.go.jp/law/327M50000800056?occasion_date=20260316)
+  は、VFRの飛行方向を磁方位0°以上180°未満と180°以上360°未満に分けます。
+  AutoNavLogでは、手動飛行でNAV LOGへ転記するMCと候補判定を一致させるため、exact MCを
+  1°単位へhalf-upした値を候補判定用MCとします。179.5°以上は表示180°側、359.5°以上は
+  表示360°かつ判定0°側です。exact MCは監査用に保持します。この丸め後MCを法令の
+  「磁方位」へ適用する選択は利用者承認の実装Policyであり、学生訓練実施要領が直接指定した
+  方法とは扱いません。
 - NAV LOG計算では`PA = MSL`とし、計画MSL高度をそのままPA、POH性能検索、CAS/TAS換算へ
   使用します。気圧補正用の入力は持ちません。
 - 現行G6上昇表は原表19節点を高度方向に線形補間した500 ft刻みISA行を収録し、
@@ -240,7 +253,9 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
 - `CalculationOutcome.sections`は重複しないCalculation Zoneです。`display_rows`はそこから
   作る表示専用投影です。分割の有無にかかわらず各通常Physical LegへFROM/TOを持つ
   `PHYSICAL_LEG_SUMMARY`と最低1つの`CALCULATION_ZONE`内訳行を置きます。小計の
-  ZONE DIST/ETEは配下Zoneの未丸め合計、CUMは小計行だけに表示します。内訳行のFROMと
+  ZONE DIST/ETEは配下Zoneを表示単位へ丸めた値の合計、CUMは表示済み小計をLeg順に加えた値を
+  小計行だけに表示します。親SECT FUELも配下Zoneの表示済み0.1 gal値の合計、REMは
+  表示TOTALから表示RUN UPを引いた起点から表示SECTをLeg順に引いた値です。内訳行のFROMと
   CUMは空欄です。最終`VISUAL_ARRIVAL`だけは親計算行と`DESTINATION_INFO`行に分け、
   通常内訳行を作りません。各Physical Legグループの後には`LEG_SEPARATOR`を1行置きます。
   `display_rows`の親小計・目的地情報・区切りは表示専用であり、距離・時間・燃料の集計へ
@@ -263,10 +278,21 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
 - 内部値は丸めず、表示時にhalf-upで方位1°、距離0.5 nm、時間0.5分、燃料0.1 galへ
   丸めます。PAは整数、TOATは0.1℃、CAS/TAS/GSは1 kt、TC/MC/MHは3桁、VAR/WCAは
   正値へ`+`を付け（0は`0`）、WINDは`DDD/kt`または`CALM`で表示します。親と子は同じ
-  未丸め値をそれぞれ独立に丸めるため、表示上の子合計と親表示が0.5単位だけ異なる場合が
-  ありますが、内部未丸め小計は必ず一致させます。方位・距離・時間の単位は規程で確認済み
-  ですが、half-upのtie方法、燃料の一律0.1 gal、MH転記値を表示済みMC/WCAから作ること、
-  および丸め時点は実装Policyです。
+  表示済み値をオペランドとして親小計・累計・残量を作るため、画面上の加減算が成立します。
+  内部未丸め小計と`CalculationOutcome.sections`は変更しません。方位・距離・時間の単位は
+  規程で確認済みですが、half-upのtie方法、燃料の一律0.1 gal、表示済み値から小計・残量を
+  作ること、MH転記値を表示済みMC/WCAから作ること、および丸め時点は実装Policyです。
+- Fuel Planの表示はNAV LOGと同じ0.1 gal表示値から再構成します。Phase Fuelは該当する
+  Calculation Zoneの表示燃料の合計、`BOF = CLIMB + CRUISE + DESCENT + TGL + ADDITIONAL`、
+  `MIN REQUIRED = TAXI/RUN UP + BOF + RESERVE`、`EXTRA = TOTAL - MIN REQUIRED`です。
+  表示TOTALはProjectのusable fuelを0.1 galへ丸めた値とし、`TOTAL = MIN REQUIRED + EXTRA`を
+  保ちます。Phase TIMEは該当Zoneのexact ETE合計を1分へhalf-upし、MIN REQUIRED TIMEは
+  その表示済みPhase TIMEと固定表示時間の合計です。EXTRA TIMEは表示EXTRAを16.5 GPHで
+  換算して1分へhalf-upし、TOTAL TIMEは表示MIN REQUIRED TIMEとの和にします。
+  canonicalな`FuelPlan`のexact値は性能計算・監査用として変更しません。
+- Webの数値入力は文字列Draftを保持し、編集中の空欄を許可します。確定・再計算時だけ
+  必須性、整数性、範囲、刻みを検証し、API境界で数値へ変換します。モバイルを含め、
+  「全消去してから再入力」できることを数値入力の共通設計とします。
 - v1.4.0ではSEA・DEM・陸域マスクを計算対象外とします。旧ProjectのSEA fieldは
   schema v4への読込時に破棄し、計算、Issue、fingerprint、status、画面に使用しません。
 - 不明値は後続も未確定とし、0、1013.25 hPa、最近傍気象へ暗黙にフォールバックしません。

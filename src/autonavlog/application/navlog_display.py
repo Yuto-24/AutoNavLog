@@ -174,27 +174,49 @@ def _wind(
     )
 
 
-def _summed_combined(
+def _fuel_tenths(value: float) -> int:
+    return int(round(round_half_up(value, 0.1) * 10))
+
+
+def _display_fuel_combined(
     values: list[AdoptedValue[float]],
-    cumulative: AdoptedValue[float],
-    formatter: Callable[[float], str],
+    remaining: AdoptedValue[float],
     *,
+    prior_display_remaining_tenths: int | None,
     fallback_reason: str,
-) -> NavLogDisplayCell:
+) -> tuple[NavLogDisplayCell, int | None]:
+    """Build SECT/REM from the fuel values visible in the NAV LOG.
+
+    Exact section and remaining fuel stay authoritative in CalculationOutcome.
+    Only this presentation cell uses rounded child operands and sequential REM.
+    """
+
     adopted = [value.adopted() for value in values]
-    cumulative_value = cumulative.adopted()
+    remaining_value = remaining.adopted()
     if any(value is None for value in adopted):
-        return _unavailable(fallback_reason)
-    if cumulative_value is None:
-        return _unavailable(_reason(cumulative, fallback_reason))
-    total = sum(value for value in adopted if value is not None)
-    return _display(
-        f"{formatter(total)} / {formatter(cumulative_value)}",
-        f"{total}/{cumulative_value}",
-        manual=(
-            any(value.adopted_source == AdoptedSource.MANUAL for value in values)
-            or cumulative.adopted_source == AdoptedSource.MANUAL
+        return _unavailable(fallback_reason), None
+    if remaining_value is None:
+        return _unavailable(_reason(remaining, fallback_reason)), None
+    if prior_display_remaining_tenths is None:
+        return _unavailable(fallback_reason), None
+
+    display_section_tenths = sum(
+        _fuel_tenths(value) for value in adopted if value is not None
+    )
+    display_remaining_tenths = (
+        prior_display_remaining_tenths - display_section_tenths
+    )
+    exact_section = sum(value for value in adopted if value is not None)
+    return (
+        _display(
+            f"{display_section_tenths / 10:.1f} / {display_remaining_tenths / 10:.1f}",
+            f"{exact_section}/{remaining_value}",
+            manual=(
+                any(value.adopted_source == AdoptedSource.MANUAL for value in values)
+                or remaining.adopted_source == AdoptedSource.MANUAL
+            ),
         ),
+        display_remaining_tenths,
     )
 
 
@@ -502,6 +524,9 @@ def build_navlog_display_rows(
     departure_weather: WeatherResult | None,
     destination_weather: WeatherResult | None,
     destination_wind: DestinationWindForecast | None,
+    *,
+    total_usable_fuel_gal: float,
+    run_up_included: bool,
 ) -> list[NavLogDisplayRow]:
     """Build the Golden NAV LOG projection without changing calculation totals."""
 
@@ -509,6 +534,10 @@ def build_navlog_display_rows(
     rows: list[NavLogDisplayRow] = []
     display_cumulative_distance_nm: float | None = 0.0
     display_cumulative_ete_seconds: float | None = 0.0
+    display_remaining_fuel_tenths: int | None = (
+        _fuel_tenths(total_usable_fuel_gal)
+        - _fuel_tenths(1.5 if run_up_included else 0.0)
+    )
 
     def append(row: NavLogDisplayRow) -> None:
         rows.append(row.model_copy(update={"sequence": len(rows)}))
@@ -547,10 +576,10 @@ def build_navlog_display_rows(
             prior_display_cumulative=display_cumulative_ete_seconds,
             fallback_reason="DISPLAY_ETE_SUBTOTAL_UNAVAILABLE",
         )
-        fuel_cell = _summed_combined(
+        fuel_cell, display_remaining_fuel_tenths = _display_fuel_combined(
             [zone.section_fuel_gal for zone in zones],
             last.remaining_fuel_gal,
-            _fuel,
+            prior_display_remaining_tenths=display_remaining_fuel_tenths,
             fallback_reason="DISPLAY_FUEL_SUBTOTAL_UNAVAILABLE",
         )
 

@@ -577,6 +577,8 @@ class CalculationService:
                     departure_surface,
                     exact_destination_results[0] if exact_destination_results else None,
                     destination_wind,
+                    total_usable_fuel_gal=working.total_usable_fuel_gal,
+                    run_up_included=working.run_up_included,
                 )
         report(80, "計算結果を検証しています。")
         issues.extend(final.issues)
@@ -2587,6 +2589,8 @@ class CalculationService:
             weather_by_id.get("departure:surface"),
             weather_by_id.get("destination:surface"),
             destination_wind,
+            total_usable_fuel_gal=project.total_usable_fuel_gal,
+            run_up_included=project.run_up_included,
         )
         return _IterationResult(
             sections,

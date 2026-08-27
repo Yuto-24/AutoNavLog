@@ -9,6 +9,7 @@ import {
   ftdWeatherSettings,
   initialPlanningForm,
   patternAltitudeFtMsl,
+  touchAndGoCount,
   usableFuelGal,
   variationForDeparture,
 } from "./forms";
@@ -367,6 +368,11 @@ function App() {
       setError("FUELは0より大きく200 gal以下で入力してください。");
       return;
     }
+    const tglCount = touchAndGoCount(form);
+    if (tglCount === null) {
+      setError("TGLは0～20の整数で入力してください。");
+      return;
+    }
     const candidate = candidateFromKey(state.import.candidates, form.candidateKey);
     if (!candidate) {
       setError("飛行経路候補を選択してください。");
@@ -406,7 +412,7 @@ function App() {
             nose_fairing_enabled: form.noseFairingEnabled,
             air_conditioning_enabled: form.airConditioningEnabled,
             descent_rate_fpm: form.descentRateFpm,
-            tgl_count: form.tglCount,
+            tgl_count: tglCount,
             all_leg_altitude_ft_msl: form.allLegAltitudeFtMsl,
             use_penultimate_as_vrep: form.usePenultimateAsVrep,
           },
@@ -554,6 +560,10 @@ function App() {
     if (fuelGal === null) {
       throw new Error("FUELは0より大きく200 gal以下で入力してください。");
     }
+    const tglCount = touchAndGoCount(form);
+    if (tglCount === null) {
+      throw new Error("TGLは0～20の整数で入力してください。");
+    }
     const plannedAltitudes = new Map(
       payloadSections.map((section) => {
         const guidance = altitudeGuidanceBySection.get(section.id);
@@ -604,7 +614,7 @@ function App() {
       nose_fairing_enabled: form.noseFairingEnabled,
       air_conditioning_enabled: form.airConditioningEnabled,
       descent_rate_fpm: form.descentRateFpm,
-      tgl_count: form.tglCount,
+      tgl_count: tglCount,
       sections: payloadSections.map((section) => {
         const guidance = altitudeGuidanceBySection.get(section.id);
         const fixed = guidance !== undefined && guidance.inputMode !== "EDITABLE";
