@@ -158,6 +158,8 @@ export interface SectionResult {
   to_name: string;
   from_latitude_deg?: number | null;
   from_longitude_deg?: number | null;
+  to_latitude_deg?: number | null;
+  to_longitude_deg?: number | null;
   planned_altitude_ft_msl: AdoptedValue<number>;
   pressure_altitude_planning_ft: AdoptedValue<number>;
   true_course_deg: AdoptedValue<number>;
@@ -209,6 +211,8 @@ export interface NavLogDisplayRow {
   to_name: string;
   from_latitude_deg?: number | null;
   from_longitude_deg?: number | null;
+  to_latitude_deg?: number | null;
+  to_longitude_deg?: number | null;
   pa_display_kind:
     | "NUMERIC"
     | "CLIMB"

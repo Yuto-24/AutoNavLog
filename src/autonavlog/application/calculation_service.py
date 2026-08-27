@@ -2433,6 +2433,8 @@ class CalculationService:
                     to_name=segment.end.label,
                     from_latitude_deg=segment.start.latitude_deg,
                     from_longitude_deg=segment.start.longitude_deg,
+                    to_latitude_deg=segment.end.latitude_deg,
+                    to_longitude_deg=segment.end.longitude_deg,
                     planned_altitude_ft_msl=_automatic(
                         planned_altitude,
                         ValueState.FIXED_RULE,

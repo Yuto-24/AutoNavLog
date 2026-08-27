@@ -722,6 +722,34 @@
         "tc": {
           "$ref": "#/$defs/NavLogDisplayCell"
         },
+        "to_latitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": -90,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Latitude Deg"
+        },
+        "to_longitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 180,
+              "minimum": -180,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Longitude Deg"
+        },
         "to_name": {
           "default": "",
           "title": "To Name",
@@ -1267,6 +1295,34 @@
         },
         "temperature_c": {
           "$ref": "#/$defs/AdoptedValue_float_"
+        },
+        "to_latitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": -90,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Latitude Deg"
+        },
+        "to_longitude_deg": {
+          "anyOf": [
+            {
+              "maximum": 180,
+              "minimum": -180,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Longitude Deg"
         },
         "to_name": {
           "title": "To Name",

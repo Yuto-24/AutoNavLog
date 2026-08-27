@@ -47,6 +47,8 @@ class SectionResult(CalculationModel):
     to_name: str
     from_latitude_deg: float | None = Field(default=None, ge=-90, le=90)
     from_longitude_deg: float | None = Field(default=None, ge=-180, le=180)
+    to_latitude_deg: float | None = Field(default=None, ge=-90, le=90)
+    to_longitude_deg: float | None = Field(default=None, ge=-180, le=180)
     planned_altitude_ft_msl: AdoptedValue[float]
     pressure_altitude_exact_ft: AdoptedValue[float]
     pressure_altitude_planning_ft: AdoptedValue[float]
@@ -161,6 +163,8 @@ class NavLogDisplayRow(CalculationModel):
     to_name: str = ""
     from_latitude_deg: float | None = Field(default=None, ge=-90, le=90)
     from_longitude_deg: float | None = Field(default=None, ge=-180, le=180)
+    to_latitude_deg: float | None = Field(default=None, ge=-90, le=90)
+    to_longitude_deg: float | None = Field(default=None, ge=-180, le=180)
     pa_display_kind: PressureAltitudeDisplayKind = PressureAltitudeDisplayKind.BLANK
     pa: NavLogDisplayCell
     toat: NavLogDisplayCell

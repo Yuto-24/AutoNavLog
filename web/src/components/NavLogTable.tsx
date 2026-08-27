@@ -729,7 +729,7 @@ export function NavLogTable({
                   <select
                     id={`nav-log-vor-station-${column.id}`}
                     aria-label={index === 0 ? "VOR基準局" : `VOR基準局 ${index + 1}`}
-                    title={`AIP ${VOR_DATASET_EFFECTIVE_CYCLE} / 局からFROMへのradial・距離`}
+                    title={`AIP ${VOR_DATASET_EFFECTIVE_CYCLE} / 局からTOへのradial・距離`}
                     value={column.stationIdentifier ?? VOR_AUTO_SELECTION}
                     onChange={(event) => selectVorStation(column.id, event.target.value)}
                   >
@@ -807,8 +807,8 @@ export function NavLogTable({
                       ? "—"
                       : formatVorRadialDistance(
                           station,
-                          row.from_latitude_deg,
-                          row.from_longitude_deg,
+                          row.to_latitude_deg,
+                          row.to_longitude_deg,
                         );
                     return (
                       <td
@@ -816,7 +816,7 @@ export function NavLogTable({
                         key={vorColumns[index]!.id}
                         title={station === null
                           ? "VOR/DME基準局を選択してください。"
-                          : `${station.identifier}からFROMへのradial / 距離（表示専用セル）`}
+                          : `${station.identifier}からTOへのradial / 距離（表示専用セル）`}
                         data-display-text={vorReference}
                         data-vor-column={index + 1}
                       >

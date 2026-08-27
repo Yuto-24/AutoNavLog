@@ -1639,14 +1639,40 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   );
   await expect(vorSelect).toHaveValue("__AUTO__");
   await expect(vorSelect.locator("option:checked")).toHaveText("自動 MZE");
+  await expect(vorSelect).toHaveAttribute("title", /局からTOへのradial・距離/);
+  const vorState = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  const firstParentProjection = vorState.outcome?.display_rows.find(
+    (row) => row.row_type === "PHYSICAL_LEG_SUMMARY",
+  );
+  if (firstParentProjection === undefined) throw new Error("parent NAV LOG row is missing");
+  expect(firstParentProjection.to_latitude_deg).toBeCloseTo(32.4, 6);
+  expect(firstParentProjection.to_longitude_deg).toBeCloseTo(131.5, 6);
   const automaticVorText = await firstParent.locator("td").nth(0).textContent();
-  expect(automaticVorText).toBe("105 / 0.6");
+  expect(automaticVorText).toBe("012 / 31.4");
+  expect(automaticVorText).not.toBe("105 / 0.6");
   expect(automaticVorText).not.toMatch(/°|NM/);
   await vorSelect.selectOption("HKC");
   await expect(vorSelect).toHaveValue("HKC");
   const manualVorText = await firstParent.locator("td").nth(0).textContent();
-  expect(manualVorText).toMatch(/^\d{3} \/ \d+\.\d$/);
+  expect(manualVorText).toBe("055 / 62.9");
   expect(manualVorText).not.toBe(automaticVorText);
+  await expect(firstParent.locator(".vor-reference-cell")).toHaveAttribute(
+    "title",
+    "HKCからTOへのradial / 距離（表示専用セル）",
+  );
+  const destinationProjection = vorState.outcome?.display_rows.find(
+    (row) => row.row_type === "DESTINATION_INFO",
+  );
+  if (destinationProjection === undefined) throw new Error("destination NAV LOG row is missing");
+  expect(destinationProjection.to_latitude_deg).toBeCloseTo(33.4794444444, 6);
+  expect(destinationProjection.to_longitude_deg).toBeCloseTo(131.7372222222, 6);
+  await expect(page.locator(".nav-destination-info-row .vor-reference-cell")).toHaveText(
+    "035 / 121.7",
+  );
   await expect(firstParent.locator("td").nth(7)).toHaveText(/^\d{3}$/);
   await expect(firstParent.locator("td").nth(8)).toHaveText("+7");
   await expect(firstParent.locator("td").nth(9)).toHaveText(/^\d{3}$/);
@@ -1727,6 +1753,17 @@ test("VOR/DME reference columns can be added, configured independently, and remo
   const scroll = page.locator(".nav-log-scroll");
   const firstRow = table.locator(".nav-leg-heading-row").first();
   const initialWidth = (await table.boundingBox())?.width ?? 0;
+  const vorState = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  const firstRowProjection = vorState.outcome?.display_rows.find(
+    (row) => row.row_type === "PHYSICAL_LEG_SUMMARY",
+  );
+  if (firstRowProjection === undefined) throw new Error("parent NAV LOG row is missing");
+  expect(firstRowProjection.to_latitude_deg).toBeCloseTo(32.4, 6);
+  expect(firstRowProjection.to_longitude_deg).toBeCloseTo(131.5, 6);
 
   await expect(page.getByLabel("VOR基準局")).toHaveCount(1);
   await expect(firstRow.locator(".vor-reference-cell")).toHaveCount(1);
@@ -1739,11 +1776,13 @@ test("VOR/DME reference columns can be added, configured independently, and remo
   await expect(addedVor).toHaveValue("");
   await expect(originalVor).toHaveValue("__AUTO__");
   await expect(firstRow.locator(".vor-reference-cell").nth(0)).toHaveText("—");
-  await expect(firstRow.locator(".vor-reference-cell").nth(1)).toHaveText("105 / 0.6");
+  await expect(firstRow.locator(".vor-reference-cell").nth(1)).toHaveText(
+    "012 / 31.4",
+  );
 
   await addedVor.selectOption("HKC");
   await expect(firstRow.locator(".vor-reference-cell").nth(0)).toHaveText(
-    /^\d{3} \/ \d+\.\d$/,
+    "055 / 62.9",
   );
   expect(await firstRow.locator(".vor-reference-cell").nth(0).textContent()).not.toBe(
     await firstRow.locator(".vor-reference-cell").nth(1).textContent(),

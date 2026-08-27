@@ -71,6 +71,19 @@ def test_full_calculation_iteration_and_navlog_projection(
     assert outcome.sections[0].from_longitude_deg == pytest.approx(
         first_route_node.longitude_deg
     )
+    assert outcome.sections[0].to_latitude_deg == pytest.approx(
+        outcome.sections[1].from_latitude_deg
+    )
+    assert outcome.sections[0].to_longitude_deg == pytest.approx(
+        outcome.sections[1].from_longitude_deg
+    )
+    last_route_node = aligned_project.ordered_nodes()[-1]
+    assert outcome.sections[-1].to_latitude_deg == pytest.approx(
+        last_route_node.latitude_deg
+    )
+    assert outcome.sections[-1].to_longitude_deg == pytest.approx(
+        last_route_node.longitude_deg
+    )
     positioned_rows = [
         row
         for row in outcome.display_rows
@@ -79,8 +92,23 @@ def test_full_calculation_iteration_and_navlog_projection(
     assert positioned_rows
     assert all(row.from_latitude_deg is not None for row in positioned_rows)
     assert all(row.from_longitude_deg is not None for row in positioned_rows)
+    assert all(row.to_latitude_deg is not None for row in positioned_rows)
+    assert all(row.to_longitude_deg is not None for row in positioned_rows)
     assert positioned_rows[0].from_latitude_deg == outcome.sections[0].from_latitude_deg
     assert positioned_rows[0].from_longitude_deg == outcome.sections[0].from_longitude_deg
+    first_summary = positioned_rows[0]
+    first_leg_zones = [
+        section for section in outcome.sections if section.section_id == first_summary.section_id
+    ]
+    assert first_summary.to_latitude_deg == first_leg_zones[-1].to_latitude_deg
+    assert first_summary.to_longitude_deg == first_leg_zones[-1].to_longitude_deg
+    for row in positioned_rows:
+        if row.row_type != "CALCULATION_ZONE":
+            continue
+        assert row.source_result_sequence is not None
+        source = outcome.sections[row.source_result_sequence]
+        assert row.to_latitude_deg == source.to_latitude_deg
+        assert row.to_longitude_deg == source.to_longitude_deg
     assert not outcome.blockers
     assert outcome.status == ProjectStatus.READY_FOR_COPY
     assert outcome.derived_points[0].type.value == "RCA"
@@ -187,6 +215,9 @@ def test_failed_exact_destination_surface_query_clears_approximate_temperature(
     destination_row = next(
         row for row in outcome.display_rows if row.row_type == "DESTINATION_INFO"
     )
+    destination = airports.get(visual_project.destination_airport_id)
+    assert destination_row.to_latitude_deg == destination.latitude_deg
+    assert destination_row.to_longitude_deg == destination.longitude_deg
     assert destination_row.toat.state == DisplayCellState.UNAVAILABLE
     assert destination_row.toat.text == "未取得"
     assert any(issue.code == "WEATHER_QUERY_FAILED" for issue in outcome.blockers)
