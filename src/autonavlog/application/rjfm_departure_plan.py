@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from hashlib import sha256
 from hmac import compare_digest
 
+from autonavlog.application.rjfm_coordinate_matcher import (
+    TRIGGER_TOLERANCE_NM,
+    coordinate_distance_nm,
+    coordinate_matches_reference,
+)
 from autonavlog.domain.enums import FlightPhase, RouteNodeRole
 from autonavlog.domain.planning import (
     RJFM_DEPARTURE_RULE_VERSION,
@@ -17,7 +22,6 @@ from autonavlog.domain.planning import (
 from autonavlog.domain.project import NavSection, Project, RouteNode
 from autonavlog.nav.geodesy import geodesic_leg
 
-TRIGGER_TOLERANCE_NM = 1.0
 TARGET_ALTITUDE_FT_MSL = 5500.0
 RJFM_INPUT_MODE_EDITABLE = "EDITABLE"
 RJFM_INPUT_MODE_DEPARTURE_TO_UMK_FIXED = "RJFM_DEPARTURE_TO_UMK_FIXED"
@@ -146,12 +150,12 @@ def apply_rjfm_departure_exception(
 
 
 def _distance_to(node: RouteNode, coordinate: RjfmCoordinate) -> float:
-    return geodesic_leg(
+    return coordinate_distance_nm(
         node.latitude_deg,
         node.longitude_deg,
         coordinate.latitude_deg,
         coordinate.longitude_deg,
-    ).distance_nm
+    )
 
 
 def _matching_node_index(
@@ -164,7 +168,12 @@ def _matching_node_index(
         (
             index
             for index, node in enumerate(nodes[start:], start=start)
-            if _distance_to(node, coordinate) <= TRIGGER_TOLERANCE_NM + 1e-9
+            if coordinate_matches_reference(
+                node.latitude_deg,
+                node.longitude_deg,
+                coordinate.latitude_deg,
+                coordinate.longitude_deg,
+            )
         ),
         None,
     )
@@ -181,7 +190,12 @@ def _matching_user_node_index(
             index
             for index, node in enumerate(nodes[start:], start=start)
             if not _is_synthetic_omaru(node)
-            and _distance_to(node, coordinate) <= TRIGGER_TOLERANCE_NM + 1e-9
+            and coordinate_matches_reference(
+                node.latitude_deg,
+                node.longitude_deg,
+                coordinate.latitude_deg,
+                coordinate.longitude_deg,
+            )
         ),
         None,
     )

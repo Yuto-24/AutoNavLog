@@ -1119,11 +1119,11 @@ async def test_intermediate_line_names_preserve_every_original_coordinate(
         assert len(nodes) == 7
         assert names == [
             "RJFM",
+            "UMK",
+            "OMARU",
             "小丸",
             "日振島",
             "祝島",
-            "ゴルフコース",
-            "WP6",
             "RJFO",
         ]
         assert [(node["latitude_deg"], node["longitude_deg"]) for node in nodes[1:-1]] == [

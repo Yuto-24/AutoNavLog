@@ -16,6 +16,11 @@ from autonavlog.application.checkpoints import project_check_points
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.readiness import ReadinessEvaluation
 from autonavlog.application.readiness_service import ReadinessService
+from autonavlog.application.rjfm_coordinate_matcher import (
+    TRIGGER_TOLERANCE_NM,
+    coordinate_distance_nm,
+    coordinate_matches_reference,
+)
 from autonavlog.application.rjfm_departure_plan import (
     RJFM_INPUT_MODE_EDITABLE,
     TARGET_ALTITUDE_FT_MSL,
@@ -289,6 +294,7 @@ class AutoNavLogWebApplication:
                 (entries[-1][1], entries[-1][2]),
             )
             entries = self._align_route_endpoints(entries, departure.id, destination.id)
+            entries = self._reserve_rjfm_northbound_name_slots(entries, departure.id)
             departure_time = self._departure_datetime(
                 request.flight_date,
                 request.departure_time_jst,
@@ -1568,6 +1574,104 @@ class AutoNavLogWebApplication:
             f"REFERENCE:{destination.source_revision}",
         )
         return deduplicated
+
+    def _reserve_rjfm_northbound_name_slots(
+        self,
+        entries: list[RouteEntry],
+        departure_id: str,
+    ) -> list[RouteEntry]:
+        """Reserve physical UMK/OMARU names before route-node installation.
+
+        KML import stays generic: it supplies the ordered coordinates and its
+        ordinary labels unchanged.  Only the RJFM northbound installation
+        boundary knows that a coordinate matching the reference UMK or OMARU
+        is a named physical route slot.  This deliberately does not create a
+        virtual UMK or a synthetic OMARU; those remain the departure-plan
+        normalizer's graph responsibility.
+        """
+
+        if departure_id.strip().upper() != "RJFM" or len(entries) < 2:
+            return entries
+
+        reserved = list(entries)
+        umk = self.rjfm_reference_pack.points["UMK"].position
+        omaru = self.rjfm_reference_pack.points["OMARU"].position
+        reserved_indices: set[int] = set()
+
+        def distance(index: int, point: Any) -> float:
+            entry = reserved[index]
+            return coordinate_distance_nm(
+                entry[1],
+                entry[2],
+                float(point.latitude_deg),
+                float(point.longitude_deg),
+            )
+
+        def reserve(index: int, name: str) -> None:
+            current = reserved[index]
+            explicit = current[0].strip().upper()
+            # A coordinate-consistent KML UMK/OMARU label is already exact.
+            # A contradictory label is positional data and must not mask the
+            # physical reference slot it happens to occupy.
+            if explicit != name:
+                reserved[index] = (name, current[1], current[2], current[3])
+            reserved_indices.add(index)
+
+        first_umk_gap = distance(1, umk)
+        first_omaru_gap = distance(1, omaru)
+        if min(first_umk_gap, first_omaru_gap) > TRIGGER_TOLERANCE_NM + 1e-9:
+            return entries
+
+        if first_umk_gap <= first_omaru_gap:
+            reserve(1, "UMK")
+            for index in range(2, len(reserved)):
+                entry = reserved[index]
+                if coordinate_matches_reference(
+                    entry[1],
+                    entry[2],
+                    float(omaru.latitude_deg),
+                    float(omaru.longitude_deg),
+                ):
+                    reserve(index, "OMARU")
+                    break
+        else:
+            # OMARU-first routes retain a virtual UMK in the departure plan;
+            # no UMK entry is inserted into this imported physical route.
+            reserve(1, "OMARU")
+
+        # A LineString's segmented title is positional metadata, not an
+        # identity for a coordinate.  Once physical reference slots have been
+        # reserved, continue those ordinary labels over later ordinary route
+        # coordinates in their original order.  KML Point labels remain bound
+        # to their explicit coordinate and therefore are neither moved nor
+        # overwritten.  The coordinate sequence itself is never changed.
+        ordinary_line_entries = [
+            entry
+            for index, entry in enumerate(entries)
+            if (
+                0 < index < len(entries) - 1
+                and entry[3] == "KML/KMZ LineString name"
+                and entry[0].strip().upper() not in {"UMK", "OMARU"}
+            )
+        ]
+        ordinary_targets = [
+            index
+            for index, entry in enumerate(reserved)
+            if (
+                0 < index < len(reserved) - 1
+                and index not in reserved_indices
+                and entry[3] != "KML/KMZ Point"
+            )
+        ]
+        for index, source_entry in zip(ordinary_targets, ordinary_line_entries, strict=False):
+            current = reserved[index]
+            reserved[index] = (
+                source_entry[0],
+                current[1],
+                current[2],
+                source_entry[3],
+            )
+        return reserved
 
     @staticmethod
     def _distance_to_airport(coordinate: tuple[float, float], airport: Any) -> float:
