@@ -147,6 +147,17 @@ class ReplaceCheckPointsRequest(WebRequestModel):
     check_points: list[CheckPointInput] = Field(default_factory=list, max_length=500)
 
 
+class RenameRouteNodeRequest(WebRequestModel):
+    name: str = Field(min_length=1, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def require_nonblank_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("route node name must not be blank")
+        return value.strip()
+
+
 class AcknowledgeRequest(WebRequestModel):
     checked: bool
 

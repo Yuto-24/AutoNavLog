@@ -10,6 +10,12 @@ class RouteNodeRole(StrEnum):
     DESTINATION = "DESTINATION"
 
 
+class RouteNodeNameSource(StrEnum):
+    IMPORTED = "IMPORTED"
+    GENERATED = "GENERATED"
+    USER = "USER"
+
+
 class VisualReferenceRole(StrEnum):
     CHECK_POINT = "CHECK_POINT"
     ABEAM_REFERENCE = "ABEAM_REFERENCE"

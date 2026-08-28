@@ -778,6 +778,100 @@ async def _save_route(client: httpx.AsyncClient, name: str) -> str:
     return str(saved.json()["project"]["id"])
 
 
+def _without_route_labels(value: object) -> object:
+    if isinstance(value, dict):
+        return {
+            key: _without_route_labels(item)
+            for key, item in value.items()
+            if key not in {"from_name", "to_name"}
+        }
+    if isinstance(value, list):
+        return [_without_route_labels(item) for item in value]
+    return value
+
+
+@pytest.mark.anyio
+async def test_route_node_rename_preserves_current_calculation_and_persists(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        assert (
+            await client.post("/api/import", json={"filename": "route.kml", "kml_text": KML})
+        ).status_code == 200
+        confirmed = await client.post("/api/route/confirm", json=_route_payload())
+        assert confirmed.status_code == 200, confirmed.text
+        project = confirmed.json()["project"]
+        assert (await client.post(
+            "/api/destination/confirm",
+            json={"selected_pattern_altitude_ft_msl": 1000},
+        )).status_code == 200
+        calculated = await _calculate(client)
+        before_outcome = calculated["outcome"]
+        assert before_outcome is not None
+        before_destination_wind = calculated["destinationWind"]
+        editable = project["route_nodes"][1]
+
+        blank = await client.put(
+            f"/api/project/route-nodes/{editable['id']}/name",
+            json={"name": "   "},
+        )
+        assert blank.status_code == 422
+        airport = await client.put(
+            f"/api/project/route-nodes/{project['route_nodes'][0]['id']}/name",
+            json={"name": "Nope"},
+        )
+        assert airport.status_code == 409
+        destination = await client.put(
+            f"/api/project/route-nodes/{project['route_nodes'][-1]['id']}/name",
+            json={"name": "Nope"},
+        )
+        assert destination.status_code == 409
+
+        renamed = await client.put(
+            f"/api/project/route-nodes/{editable['id']}/name",
+            json={"name": "  北行き訓練点  "},
+        )
+        assert renamed.status_code == 200, renamed.text
+        renamed_state = renamed.json()
+        renamed_node = next(
+            item for item in renamed_state["project"]["route_nodes"] if item["id"] == editable["id"]
+        )
+        assert renamed_node["name"] == "北行き訓練点"
+        assert renamed_node["name_source"] == "USER"
+        assert renamed_state["readiness"]["calculationIsCurrent"] is True
+        assert renamed_state["destinationWind"] == before_destination_wind
+        assert _without_route_labels(renamed_state["outcome"]) == _without_route_labels(
+            before_outcome
+        )
+        assert any(
+            row["to_node_id"] == editable["id"] and row["to_name"] == "北行き訓練点"
+            for row in renamed_state["outcome"]["display_rows"]
+        )
+
+        saved = await client.post("/api/projects/save", json={})
+        assert saved.status_code == 200, saved.text
+        loaded = await client.post(
+            "/api/projects/load",
+            json={"project_id": saved.json()["project"]["id"]},
+        )
+        assert loaded.status_code == 200, loaded.text
+        loaded_node = next(
+            item for item in loaded.json()["project"]["route_nodes"] if item["id"] == editable["id"]
+        )
+        assert loaded_node["name"] == "北行き訓練点"
+        assert loaded_node["name_source"] == "USER"
+
+
 @pytest.mark.anyio
 async def test_descent_rate_api_validation_and_saved_project_persistence(
     tmp_path: Path,
@@ -1125,6 +1219,15 @@ async def test_intermediate_line_names_preserve_every_original_coordinate(
             "日振島",
             "祝島",
             "RJFO",
+        ]
+        assert [node["name_source"] for node in nodes] == [
+            "GENERATED",
+            "GENERATED",
+            "GENERATED",
+            "IMPORTED",
+            "IMPORTED",
+            "IMPORTED",
+            "GENERATED",
         ]
         assert [(node["latitude_deg"], node["longitude_deg"]) for node in nodes[1:-1]] == [
             (31.98214589070221, 131.4317398539069),

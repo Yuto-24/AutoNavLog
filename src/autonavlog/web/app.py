@@ -38,6 +38,7 @@ from .models import (
     ConfirmRouteRequest,
     ImportRouteRequest,
     LoadProjectRequest,
+    RenameRouteNodeRequest,
     ReplaceCheckPointsRequest,
     SaveProjectRequest,
     UpdateProjectRequest,
@@ -340,6 +341,14 @@ def create_app(
         session: SessionDependency,
     ) -> dict[str, Any]:
         return web.replace_check_points(session, payload)
+
+    @app.put("/api/project/route-nodes/{node_id}/name")
+    def rename_route_node(
+        node_id: UUID,
+        payload: RenameRouteNodeRequest,
+        session: SessionDependency,
+    ) -> dict[str, Any]:
+        return web.rename_route_node(session, node_id, payload.name)
 
     @app.post("/api/project/recalculate")
     def update_and_calculate_project(

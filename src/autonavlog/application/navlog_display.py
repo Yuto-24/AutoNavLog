@@ -9,6 +9,7 @@ from uuid import UUID
 
 from autonavlog.application.vertical_profile import descent_profile_from_metadata
 from autonavlog.domain.calculation import (
+    CalculationOutcome,
     NavLogDisplayCell,
     NavLogDisplayRow,
     SectionResult,
@@ -20,7 +21,7 @@ from autonavlog.domain.enums import (
     FlightPhase,
     PressureAltitudeDisplayKind,
 )
-from autonavlog.domain.project import Airport
+from autonavlog.domain.project import Airport, Project
 from autonavlog.domain.values import AdoptedValue
 from autonavlog.domain.weather import WeatherResult
 from autonavlog.nav.rounding import round_half_up
@@ -35,6 +36,8 @@ class NavLogPhysicalLeg:
     phase: FlightPhase
     start_name: str
     end_name: str
+    start_node_id: UUID | None = None
+    end_node_id: UUID | None = None
     summary_true_course_deg: float | None = None
     summary_variation_deg_east: float | None = None
     summary_magnetic_course_deg: float | None = None
@@ -50,6 +53,57 @@ class NavLogPhysicalLeg:
         """Stable parent-row identity for existing display-row consumers."""
 
         return self.section_ids[0]
+
+
+def reproject_route_node_labels(
+    project: Project,
+    outcome: CalculationOutcome,
+    *,
+    node_id: UUID,
+    previous_name: str,
+) -> CalculationOutcome:
+    """Refresh route-node labels without touching calculated values.
+
+    Only the node being renamed is reprojected. Node IDs are carried only by
+    physical endpoints. Derived RCA/EOC and CP markers intentionally have no
+    route-node identity. The old name is retained as the exact prefix guard so
+    a user-entered slash is never mistaken for a derived-label separator.
+    """
+
+    if outcome.project_id != project.id:
+        raise ValueError("calculation outcome belongs to a different project")
+    node = next((item for item in project.route_nodes if item.id == node_id), None)
+    if node is None:
+        raise ValueError("renamed route node is not in the project")
+
+    def label(current: str, endpoint_node_id: UUID | None) -> str:
+        if endpoint_node_id != node_id or not current:
+            return current
+        if current == previous_name:
+            return node.name
+        if current.startswith(f"{previous_name} / "):
+            return f"{node.name}{current[len(previous_name):]}"
+        return current
+
+    sections = [
+        section.model_copy(
+            update={
+                "from_name": label(section.from_name, section.from_node_id),
+                "to_name": label(section.to_name, section.to_node_id),
+            }
+        )
+        for section in outcome.sections
+    ]
+    display_rows = [
+        row.model_copy(
+            update={
+                "from_name": label(row.from_name, row.from_node_id),
+                "to_name": label(row.to_name, row.to_node_id),
+            }
+        )
+        for row in outcome.display_rows
+    ]
+    return outcome.model_copy(update={"sections": sections, "display_rows": display_rows})
 
 
 def _blank() -> NavLogDisplayCell:
@@ -664,6 +718,8 @@ def build_navlog_display_rows(
                 row_type="PHYSICAL_LEG_SUMMARY",
                 from_name=leg.start_name,
                 to_name=leg.end_name,
+                from_node_id=leg.start_node_id,
+                to_node_id=leg.end_node_id,
                 from_latitude_deg=first.from_latitude_deg,
                 from_longitude_deg=first.from_longitude_deg,
                 to_latitude_deg=last.to_latitude_deg,
@@ -773,6 +829,8 @@ def build_navlog_display_rows(
                         row_type="CALCULATION_ZONE",
                         from_name="",
                         to_name=_strip_checkpoint_prefix(zone.to_name),
+                        from_node_id=zone.from_node_id,
+                        to_node_id=zone.to_node_id,
                         from_latitude_deg=zone.from_latitude_deg,
                         from_longitude_deg=zone.from_longitude_deg,
                         to_latitude_deg=zone.to_latitude_deg,
@@ -826,6 +884,7 @@ def build_navlog_display_rows(
                     row_type="DESTINATION_INFO",
                     from_name="",
                     to_name=destination.icao,
+                    to_node_id=leg.end_node_id,
                     to_latitude_deg=destination.latitude_deg,
                     to_longitude_deg=destination.longitude_deg,
                     pa_display_kind=PressureAltitudeDisplayKind.NUMERIC,

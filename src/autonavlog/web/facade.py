@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from autonavlog.application.arrival import standard_vrep_altitude_ft_msl
 from autonavlog.application.calculation_service import CalculationService
 from autonavlog.application.checkpoints import project_check_points
+from autonavlog.application.navlog_display import reproject_route_node_labels
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.readiness import ReadinessEvaluation
 from autonavlog.application.readiness_service import ReadinessService
@@ -35,6 +36,7 @@ from autonavlog.domain.enums import (
     AdoptedSource,
     FlightPhase,
     IssueSeverity,
+    RouteNodeNameSource,
     RouteNodeRole,
     VisualReferenceRole,
 )
@@ -96,7 +98,7 @@ from .models import (
 )
 
 JST = ZoneInfo("Asia/Tokyo")
-RouteEntry = tuple[str, float, float, str]
+RouteEntry = tuple[str, float, float, str, RouteNodeNameSource]
 ROUTE_EDITOR_VREP_REASON = "経路画面で指定したVREP計画高度"
 
 
@@ -635,6 +637,43 @@ class AutoNavLogWebApplication:
             session.project = materialized.project
             session.outcome = materialized.outcome
             session.readiness = materialized.evaluation
+            return self.present(session)
+
+    def rename_route_node(
+        self,
+        session: WebSession,
+        node_id: UUID,
+        name: str,
+    ) -> dict[str, Any]:
+        with session.lock:
+            if session.project is None:
+                raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
+            node = next(
+                (item for item in session.project.route_nodes if item.id == node_id),
+                None,
+            )
+            if node is None:
+                raise WebApplicationError(
+                    "ROUTE_NODE_NOT_FOUND",
+                    "更新対象の経路点が現在の経路にありません。",
+                    status_code=404,
+                )
+            if node.role in {RouteNodeRole.AIRPORT, RouteNodeRole.DESTINATION}:
+                raise WebApplicationError(
+                    "ROUTE_NODE_RENAME_FORBIDDEN",
+                    "出発・到着空港の表示名は変更できません。",
+                    status_code=409,
+                )
+            previous_name = node.name
+            node.name = name
+            node.name_source = RouteNodeNameSource.USER
+            if session.outcome is not None:
+                session.outcome = reproject_route_node_labels(
+                    session.project,
+                    session.outcome,
+                    node_id=node.id,
+                    previous_name=previous_name,
+                )
             return self.present(session)
 
     def update_and_calculate(
@@ -1431,6 +1470,11 @@ class AutoNavLogWebApplication:
                             else "KML/KMZ LineString"
                         )
                     ),
+                    (
+                        RouteNodeNameSource.IMPORTED
+                        if name
+                        else RouteNodeNameSource.GENERATED
+                    ),
                 )
                 for index, ((lat, lon), name, source) in enumerate(
                     zip(
@@ -1459,12 +1503,22 @@ class AutoNavLogWebApplication:
             entries: list[RouteEntry] = []
             for index, (lat, lon) in enumerate(line.coordinates):
                 line_name = names_by_index[index]
+                point_name = self._nearest_point_name(result, lat, lon)
                 entries.append(
                     (
-                        line_name or self._nearest_point_name(result, lat, lon) or f"WP{index + 1}",
+                        line_name or point_name or f"WP{index + 1}",
                         lat,
                         lon,
-                        ("KML/KMZ LineString name" if line_name else "KML/KMZ LineString"),
+                        (
+                            "KML/KMZ LineString name"
+                            if line_name
+                            else "KML/KMZ LineString"
+                        ),
+                        (
+                            RouteNodeNameSource.IMPORTED
+                            if line_name or point_name
+                            else RouteNodeNameSource.GENERATED
+                        ),
                     )
                 )
             return entries
@@ -1483,7 +1537,13 @@ class AutoNavLogWebApplication:
                     "選択したPolygonが現在のKMLにありません。",
                 ) from error
             return [
-                (f"{polygon.name} {index + 1:02d}", lat, lon, "KML/KMZ Polygon")
+                (
+                    f"{polygon.name} {index + 1:02d}",
+                    lat,
+                    lon,
+                    "KML/KMZ Polygon",
+                    RouteNodeNameSource.GENERATED,
+                )
                 for index, (lat, lon) in enumerate(outer)
             ]
         indices = request.point_indices or list(range(len(result.points)))
@@ -1500,7 +1560,13 @@ class AutoNavLogWebApplication:
                 "選択したPointが現在のKMLにありません。",
             ) from error
         return [
-            (point.name, point.latitude_deg, point.longitude_deg, "KML/KMZ Point")
+            (
+                point.name,
+                point.latitude_deg,
+                point.longitude_deg,
+                "KML/KMZ Point",
+                RouteNodeNameSource.IMPORTED,
+            )
             for point in points
         ]
 
@@ -1566,12 +1632,14 @@ class AutoNavLogWebApplication:
             float(departure.latitude_deg),
             float(departure.longitude_deg),
             f"REFERENCE:{departure.source_revision}",
+            RouteNodeNameSource.GENERATED,
         )
         deduplicated[-1] = (
             destination.icao,
             float(destination.latitude_deg),
             float(destination.longitude_deg),
             f"REFERENCE:{destination.source_revision}",
+            RouteNodeNameSource.GENERATED,
         )
         return deduplicated
 
@@ -1614,7 +1682,13 @@ class AutoNavLogWebApplication:
             # A contradictory label is positional data and must not mask the
             # physical reference slot it happens to occupy.
             if explicit != name:
-                reserved[index] = (name, current[1], current[2], current[3])
+                reserved[index] = (
+                    name,
+                    current[1],
+                    current[2],
+                    current[3],
+                    RouteNodeNameSource.GENERATED,
+                )
             reserved_indices.add(index)
 
         first_umk_gap = distance(1, umk)
@@ -1651,7 +1725,24 @@ class AutoNavLogWebApplication:
             if (
                 0 < index < len(entries) - 1
                 and entry[3] == "KML/KMZ LineString name"
-                and entry[0].strip().upper() not in {"UMK", "OMARU"}
+                and not (
+                    entry[0].strip().upper() == "UMK"
+                    and coordinate_matches_reference(
+                        entry[1],
+                        entry[2],
+                        float(umk.latitude_deg),
+                        float(umk.longitude_deg),
+                    )
+                )
+                and not (
+                    entry[0].strip().upper() == "OMARU"
+                    and coordinate_matches_reference(
+                        entry[1],
+                        entry[2],
+                        float(omaru.latitude_deg),
+                        float(omaru.longitude_deg),
+                    )
+                )
             )
         ]
         ordinary_targets = [
@@ -1670,6 +1761,7 @@ class AutoNavLogWebApplication:
                 current[1],
                 current[2],
                 source_entry[3],
+                source_entry[4],
             )
         return reserved
 
@@ -1708,6 +1800,7 @@ class AutoNavLogWebApplication:
                     )
                 ),
                 source=entry[3],
+                name_source=entry[4],
             )
             for index, entry in enumerate(entries)
         ]

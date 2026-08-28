@@ -51,7 +51,6 @@ def current_calculation_input_fingerprint(
     route_nodes = [
         {
             "id": node.id,
-            "name": node.name,
             "latitude_deg": node.latitude_deg,
             "longitude_deg": node.longitude_deg,
             "role": node.role,

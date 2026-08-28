@@ -641,6 +641,19 @@
           "title": "From Name",
           "type": "string"
         },
+        "from_node_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Node Id"
+        },
         "fuel": {
           "$ref": "#/$defs/NavLogDisplayCell"
         },
@@ -754,6 +767,19 @@
           "default": "",
           "title": "To Name",
           "type": "string"
+        },
+        "to_node_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Node Id"
         },
         "toat": {
           "$ref": "#/$defs/NavLogDisplayCell"
@@ -1246,6 +1272,19 @@
           "title": "From Name",
           "type": "string"
         },
+        "from_node_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Node Id"
+        },
         "ground_speed_kt": {
           "$ref": "#/$defs/AdoptedValue_float_"
         },
@@ -1327,6 +1366,19 @@
         "to_name": {
           "title": "To Name",
           "type": "string"
+        },
+        "to_node_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Node Id"
         },
         "true_course_deg": {
           "$ref": "#/$defs/AdoptedValue_float_",

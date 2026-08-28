@@ -2,6 +2,40 @@
   width: auto;
 }
 
+.route-name-display,
+.route-name-editor {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.route-name-display strong {
+  overflow-wrap: anywhere;
+}
+
+.route-name-editor {
+  flex-wrap: wrap;
+}
+
+.route-name-editor input {
+  min-width: 88px;
+  flex: 1 1 110px;
+}
+
+.route-name-editor small {
+  flex-basis: 100%;
+}
+
+.route-name-edit,
+.route-name-save,
+.route-name-cancel {
+  min-height: 26px;
+  padding: 0 6px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 .route-workspace .route-table-phase-compact th:nth-child(2) {
   width: 250px;
 }

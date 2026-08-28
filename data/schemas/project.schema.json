@@ -233,6 +233,10 @@
           "title": "Name",
           "type": "string"
         },
+        "name_source": {
+          "$ref": "#/$defs/RouteNodeNameSource",
+          "default": "IMPORTED"
+        },
         "role": {
           "$ref": "#/$defs/RouteNodeRole"
         },
@@ -256,6 +260,15 @@
       ],
       "title": "RouteNode",
       "type": "object"
+    },
+    "RouteNodeNameSource": {
+      "enum": [
+        "IMPORTED",
+        "GENERATED",
+        "USER"
+      ],
+      "title": "RouteNodeNameSource",
+      "type": "string"
     },
     "RouteNodeRole": {
       "enum": [

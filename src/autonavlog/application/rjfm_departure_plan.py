@@ -9,7 +9,7 @@ from autonavlog.application.rjfm_coordinate_matcher import (
     coordinate_distance_nm,
     coordinate_matches_reference,
 )
-from autonavlog.domain.enums import FlightPhase, RouteNodeRole
+from autonavlog.domain.enums import FlightPhase, RouteNodeNameSource, RouteNodeRole
 from autonavlog.domain.planning import (
     RJFM_DEPARTURE_RULE_VERSION,
     PersistedUiState,
@@ -243,7 +243,9 @@ def _ensure_omaru_after_umk(
     if len(synthetic) == 1 and synthetic[0][0] == 2:
         node = synthetic[0][1]
         _capture_original_node_override(project, nodes[1], legacy_synthetic=node)
-        node.name = "OMARU"
+        if node.name_source != RouteNodeNameSource.USER:
+            node.name = "OMARU"
+            node.name_source = RouteNodeNameSource.GENERATED
         node.latitude_deg = omaru.latitude_deg
         node.longitude_deg = omaru.longitude_deg
         node.role = RouteNodeRole.ROUTE_POINT
@@ -269,6 +271,7 @@ def _insert_omaru_after_umk(
     new_node = RouteNode(
         sequence=2,
         name="OMARU",
+        name_source=RouteNodeNameSource.GENERATED,
         latitude_deg=omaru.latitude_deg,
         longitude_deg=omaru.longitude_deg,
         role=RouteNodeRole.ROUTE_POINT,

@@ -17,6 +17,7 @@ from pydantic import (
 from .enums import (
     FlightPhase,
     ProjectStatus,
+    RouteNodeNameSource,
     RouteNodeRole,
     VisualReferenceRole,
 )
@@ -44,6 +45,7 @@ class RouteNode(DomainModel):
     id: UUID = Field(default_factory=uuid4)
     sequence: int = Field(ge=0)
     name: str = Field(min_length=1)
+    name_source: RouteNodeNameSource = RouteNodeNameSource.IMPORTED
     latitude_deg: float = Field(ge=-90, le=90)
     longitude_deg: float = Field(ge=-180, le=180)
     role: RouteNodeRole

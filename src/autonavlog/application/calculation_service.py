@@ -1639,9 +1639,11 @@ class CalculationService:
                 source_index=index,
                 source_id=geometry.section.id,
                 start_name=geometry.start.name,
+                start_node_id=geometry.start.id,
                 start_latitude_deg=geometry.start.latitude_deg,
                 start_longitude_deg=geometry.start.longitude_deg,
                 end_name=geometry.end.name,
+                end_node_id=geometry.end.id,
                 end_latitude_deg=geometry.end.latitude_deg,
                 end_longitude_deg=geometry.end.longitude_deg,
                 adopted_distance_nm=geometry.distance_nm,
@@ -2433,6 +2435,8 @@ class CalculationService:
                     phase=segment.phase,
                     from_name=segment.start.label,
                     to_name=segment.end.label,
+                    from_node_id=segment.start.source_node_id,
+                    to_node_id=segment.end.source_node_id,
                     from_latitude_deg=segment.start.latitude_deg,
                     from_longitude_deg=segment.start.longitude_deg,
                     to_latitude_deg=segment.end.latitude_deg,
@@ -2613,7 +2617,9 @@ class CalculationService:
                 section_ids=(geometry.section.id,),
                 phase=geometry.section.phase,
                 start_name=geometry.start.name,
+                start_node_id=geometry.start.id,
                 end_name=geometry.end.name,
+                end_node_id=geometry.end.id,
             )
             for geometry in geometries
         ]
@@ -2650,8 +2656,10 @@ class CalculationService:
         parent = NavLogPhysicalLeg(
             section_ids=tuple(geometry.section.id for geometry in grouped),
             phase=grouped[0].section.phase,
-            start_name="RJFM",
-            end_name="OMARU",
+            start_name=grouped[0].start.name,
+            start_node_id=grouped[0].start.id,
+            end_name=grouped[-1].end.name,
+            end_node_id=grouped[-1].end.id,
             summary_true_course_deg=direct.initial_true_course_deg,
             summary_variation_deg_east=variation,
             summary_magnetic_course_deg=(

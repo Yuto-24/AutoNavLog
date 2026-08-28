@@ -550,6 +550,14 @@ function App() {
     });
   };
 
+  const handleRenameRouteNode = async (nodeId: string, name: string) => {
+    const next = await api.request<WebState>(
+      `/api/project/route-nodes/${encodeURIComponent(nodeId)}/name`,
+      { method: "PUT", body: { name } },
+    );
+    applyState(next, { syncCalculationInputs: false });
+  };
+
   const updatePayload = (sectionOverrides?: NavSection[]) => {
     const payloadSections = sectionOverrides ?? state?.project?.sections ?? [];
     if (!state?.project) throw new Error("Projectがありません。");
@@ -973,6 +981,7 @@ function App() {
             }))
           }
           onSectionChange={handleSectionChange}
+          onRenameRouteNode={handleRenameRouteNode}
           onRouteUseConfirmedChange={(checked) =>
             setTrackedForm((current) => ({ ...current, routeUseConfirmed: checked }))
           }

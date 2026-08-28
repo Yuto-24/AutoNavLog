@@ -37,6 +37,7 @@ def test_display_only_fields_do_not_change_calculation_key(
     changed.name = "Renamed"
     changed.pilot_name = "OTHER"
     changed.ship_identifier = "JA99XX"
+    changed.route_nodes[1].name = "Renamed point"
     assert _calculation_fingerprint(changed, performance_repository) == baseline
 
 

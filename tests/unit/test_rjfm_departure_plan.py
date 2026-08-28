@@ -9,7 +9,7 @@ from autonavlog.application.rjfm_departure_plan import (
     RjfmPlanReferences,
     apply_rjfm_departure_exception,
 )
-from autonavlog.domain.enums import FlightPhase, RouteNodeRole
+from autonavlog.domain.enums import FlightPhase, RouteNodeNameSource, RouteNodeRole
 from autonavlog.domain.planning import (
     RjfmCoordinate,
     RjfmDepartureGuidance,
@@ -131,6 +131,28 @@ def test_umk_trigger_inserts_omaru_once_and_preserves_remainder() -> None:
     apply_rjfm_departure_exception(project, _references())
     assert [node.id for node in project.ordered_nodes()] == first_ids
     assert len(project.sections) == 4
+
+
+def test_synthetic_omaru_keeps_a_user_rename_on_re_normalization() -> None:
+    project = _project(
+        [
+            ("RJFM", 31.877, 131.449),
+            ("UMK-ish", 32.08, 131.50),
+            ("NEXT", 32.50, 131.65),
+            ("RJFO", 33.479, 131.737),
+        ]
+    )
+    assert apply_rjfm_departure_exception(project, _references()) is not None
+    synthetic = project.ordered_nodes()[2]
+    assert synthetic.name_source is RouteNodeNameSource.GENERATED
+
+    synthetic.name = "訓練用OMARU"
+    synthetic.name_source = RouteNodeNameSource.USER
+    assert apply_rjfm_departure_exception(project, _references()) is not None
+
+    preserved = project.ordered_nodes()[2]
+    assert preserved.name == "訓練用OMARU"
+    assert preserved.name_source is RouteNodeNameSource.USER
 
 
 def test_reference_update_reuses_generated_omaru_and_refreshes_provenance() -> None:
