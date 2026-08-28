@@ -975,6 +975,121 @@ def test_eoc_backtracks_one_leg_with_leg_specific_descent_ground_speeds(
     assert wp2_row.pa.text == "(5300)"
 
 
+def test_eoc_wind_dependent_cells_start_a_new_display_context(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    """EOC exposes its first DESCENT zone even when a cell value is unchanged."""
+    routed, sections = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(2.0, 30.0, 10.0),
+        altitudes_ft_msl=(7_000, 6_500, 5_500),
+        manual_courses_deg=(0, 90, 180),
+        descent_winds={
+            1: ManualWind(direction_deg_from=270, speed_kt=20),
+            2: ManualWind(direction_deg_from=270, speed_kt=20),
+        },
+    )
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    cruise = _section_for_source(outcome, sections[1].id, FlightPhase.CRUISE)
+    eoc_descent = _section_for_source(outcome, sections[1].id, FlightPhase.DESCENT)
+    next_descent = _section_for_source(outcome, sections[2].id, FlightPhase.DESCENT)
+    assert eoc_descent.from_name == "EOC"
+    assert cruise.wind_speed_kt.adopted() == 0.0
+    assert eoc_descent.wind_direction_deg_from.adopted() == 270.0
+    assert eoc_descent.wind_speed_kt.adopted() == 20.0
+    assert eoc_descent.wca_deg.adopted() == pytest.approx(cruise.wca_deg.adopted())
+    assert eoc_descent.magnetic_heading_deg.adopted() == pytest.approx(
+        cruise.magnetic_heading_deg.adopted()
+    )
+    assert eoc_descent.ground_speed_kt.adopted() != cruise.ground_speed_kt.adopted()
+    assert next_descent.wca_deg.adopted() != eoc_descent.wca_deg.adopted()
+    assert next_descent.magnetic_heading_deg.adopted() != eoc_descent.magnetic_heading_deg.adopted()
+    assert next_descent.ground_speed_kt.adopted() != eoc_descent.ground_speed_kt.adopted()
+
+    eoc_row = next(
+        row
+        for row in outcome.display_rows
+        if row.row_type == "CALCULATION_ZONE"
+        and row.source_result_sequence == eoc_descent.sequence
+    )
+    assert eoc_row.wind.state == DisplayCellState.DISPLAY_VALUE
+    assert eoc_row.wind.text == "270/20"
+    for name in ("wca", "mh", "gs"):
+        assert getattr(eoc_row, name).state == DisplayCellState.DISPLAY_VALUE
+        assert getattr(eoc_row, name).text is not None
+
+    next_summary = next(
+        row
+        for row in outcome.display_rows
+        if row.row_type == "PHYSICAL_LEG_SUMMARY" and row.section_id == sections[2].id
+    )
+    for name in ("wca", "mh", "gs"):
+        assert getattr(next_summary, name).state == DisplayCellState.DISPLAY_VALUE
+        assert getattr(next_summary, name).effective_value != getattr(eoc_row, name).effective_value
+
+    next_row = next(
+        row
+        for row in outcome.display_rows
+        if row.row_type == "CALCULATION_ZONE"
+        and row.source_result_sequence == next_descent.sequence
+    )
+    assert next_row.wind.state == DisplayCellState.INHERIT
+    assert next_row.wca.state == DisplayCellState.INHERIT
+    assert next_row.mh.state == DisplayCellState.INHERIT
+    assert next_row.gs.state == DisplayCellState.INHERIT
+
+
+def test_snapped_eoc_wind_dependent_cells_do_not_inherit_parent_values(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    """An EOC snapped to a turn still starts a wind-dependent display context."""
+    routed, sections = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(2.0, 6.0, 16.4),
+        altitudes_ft_msl=(7_000, 6_500, 6_500),
+        manual_courses_deg=(0, 90, 180),
+        descent_winds={
+            1: ManualWind(direction_deg_from=270, speed_kt=20),
+            2: ManualWind(direction_deg_from=270, speed_kt=20),
+        },
+    )
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    eoc_descent = _section_for_source(outcome, sections[2].id, FlightPhase.DESCENT)
+    eoc_marker = next(
+        section for section in outcome.sections if section.to_name == "WP2 / EOC"
+    )
+    assert eoc_marker.phase == FlightPhase.CRUISE
+    assert eoc_descent.from_name == "WP2 / EOC"
+    eoc_row = next(
+        row
+        for row in outcome.display_rows
+        if row.row_type == "CALCULATION_ZONE"
+        and row.source_result_sequence == eoc_descent.sequence
+    )
+    for name in ("wind", "wca", "mh", "gs"):
+        assert getattr(eoc_row, name).state == DisplayCellState.DISPLAY_VALUE
+        assert getattr(eoc_row, name).text is not None
+    # Non-wind cells retain ordinary parent/preceding-value inheritance.
+    for name in ("toat", "cas", "tas", "tc", "variation", "mc"):
+        assert getattr(eoc_row, name).state == DisplayCellState.INHERIT
+
+
 def test_eoc_auto_tas_uses_each_crossed_leg_descent_environment(
     airports,
     performance_repository,
