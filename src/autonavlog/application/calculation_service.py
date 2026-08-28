@@ -1018,6 +1018,14 @@ class CalculationService:
         arrival_altitude_ft_msl: float | None,
     ) -> list[_LegEnvironment]:
         environments: list[_LegEnvironment] = []
+        descent_basis_index = next(
+            (
+                index
+                for index, geometry in enumerate(geometries)
+                if geometry.section.phase == FlightPhase.DESCENT
+            ),
+            None,
+        )
         for index, geometry in enumerate(geometries):
             section = geometry.section
             phase_environments: dict[FlightPhase, _PhaseEnvironment] = {}
@@ -1057,7 +1065,10 @@ class CalculationService:
                             metadata={"phase": phase.value},
                         )
                     )
-                if phase != FlightPhase.VISUAL_ARRIVAL and (
+                wind_is_required = (
+                    phase != FlightPhase.DESCENT or index == descent_basis_index
+                )
+                if phase != FlightPhase.VISUAL_ARRIVAL and wind_is_required and (
                     wind_speed is None or (wind_speed > 0 and wind_direction is None)
                 ):
                     issues.append(
@@ -1359,8 +1370,10 @@ class CalculationService:
         # A manual TAS on the selected DESCENT basis Leg is the common user
         # override.  Otherwise each crossed Leg derives TAS from that common
         # descent CAS with its own DESCENT-phase PA/OAT, just as the output
-        # zones do.  TC and wind are always Leg-specific.
+        # zones do.  The selected DESCENT basis Leg supplies one common wind;
+        # TC and the resulting wind triangle remain Leg-specific.
         manual_descent_tas = section.manual_tas_kt
+        descent_wind_environment = descent_environment.for_phase(FlightPhase.DESCENT)
 
         ground_speeds: dict[int, float] = {}
         ground_speed_details: dict[int, dict[str, Any]] = {}
@@ -1391,8 +1404,7 @@ class CalculationService:
             cached = ground_speeds.get(index)
             if cached is not None:
                 return cached
-            phase_environment = environments[index].for_phase(FlightPhase.DESCENT)
-            wind_speed = phase_environment.wind_speed_kt
+            wind_speed = descent_wind_environment.wind_speed_kt
             if wind_speed is None:
                 return None
             descent_tas = descent_tas_for_leg(index)
@@ -1402,7 +1414,7 @@ class CalculationService:
                 solution = solve_wind_triangle(
                     environments[index].geometry.true_course_deg,
                     descent_tas,
-                    phase_environment.wind_direction_deg_from,
+                    descent_wind_environment.wind_direction_deg_from,
                     wind_speed,
                 )
             except WindTriangleError as error:
@@ -1415,8 +1427,9 @@ class CalculationService:
                 "section_id": str(environments[index].geometry.section.id),
                 "true_course_deg": environments[index].geometry.true_course_deg,
                 "tas_kt": descent_tas,
-                "wind_direction_deg_from": phase_environment.wind_direction_deg_from,
+                "wind_direction_deg_from": descent_wind_environment.wind_direction_deg_from,
                 "wind_speed_kt": wind_speed,
+                "wind_source_section_id": str(section.id),
                 "ground_speed_kt": solution.ground_speed_kt,
             }
             return solution.ground_speed_kt
@@ -1620,6 +1633,7 @@ class CalculationService:
                     ground_speed_details[index]
                     for index in range(eoc_leg_index, descent_index + 1)
                 ],
+                "descent_wind_source_section_id": str(section.id),
                 "cruise_cas_kt": cruise_cas,
                 "fuel_flow_gph": 12.0,
                 "boundary_method": "current-leg-first-continuous-backtracking",
@@ -1995,29 +2009,41 @@ class CalculationService:
             if climb_plan is not None
             else None
         )
-        descent_source = (
+        descent_source_environment = (
             next(
                 (
-                    geometry.section
-                    for geometry in geometries
+                    environment
+                    for environment in environments
                     if descent_plan is not None
-                    and geometry.section.id == descent_plan.source_section_id
+                    and environment.geometry.section.id == descent_plan.source_section_id
                 ),
                 None,
             )
             if descent_plan is not None
             else None
         )
+        descent_source = (
+            None
+            if descent_source_environment is None
+            else descent_source_environment.geometry.section
+        )
         for segment in segmentation.segments:
             environment = environments[segment.source_index]
             geometry = environment.geometry
             section = geometry.section
-            # EOC can span physical legs.  Each transformed DESCENT zone uses
-            # its source Leg's DESCENT-phase PA/OAT, TC and wind.  A manual
-            # TAS remains a common override from the selected DESCENT Leg.
+            # EOC can span physical legs.  Each transformed DESCENT zone keeps
+            # its source Leg's PA/OAT and TC, while every zone from EOC through
+            # VREP uses the selected DESCENT basis Leg's common wind.  A manual
+            # TAS on that basis Leg remains a common override too.
             source_phase_environment = environment.for_phase(segment.phase)
             phase_environment = source_phase_environment
             weather = phase_environment.weather
+            wind_environment = (
+                descent_source_environment.for_phase(FlightPhase.DESCENT)
+                if segment.phase == FlightPhase.DESCENT
+                and descent_source_environment is not None
+                else phase_environment
+            )
             segment_geometry = geodesic_leg(
                 segment.start.latitude_deg,
                 segment.start.longitude_deg,
@@ -2082,10 +2108,15 @@ class CalculationService:
                 else (adopted_course + variation_deg_east) % 360
             )
 
-            wind_direction = phase_environment.wind_direction_deg_from
-            wind_speed = phase_environment.wind_speed_kt
-            wind_metadata = phase_environment.weather_metadata
-            wind_warnings = phase_environment.weather_warnings
+            wind_direction = wind_environment.wind_direction_deg_from
+            wind_speed = wind_environment.wind_speed_kt
+            wind_metadata = wind_environment.weather_metadata
+            wind_warnings = wind_environment.weather_warnings
+            if segment.phase == FlightPhase.DESCENT and descent_source is not None:
+                wind_metadata = wind_metadata | {
+                    "wind_adoption_policy": "DESCENT_BASIS_LEG_COMMON",
+                    "wind_source_section_id": str(descent_source.id),
+                }
             temperature = phase_environment.temperature_c
             exact_pa = phase_environment.pressure_altitude_exact_ft
             planning_pa = phase_environment.pressure_altitude_planning_ft
@@ -2382,25 +2413,33 @@ class CalculationService:
             else:
                 cumulative_seconds = None
 
+            wind_weather = wind_environment.weather
+            wind_source_section = (
+                descent_source
+                if segment.phase == FlightPhase.DESCENT and descent_source is not None
+                else section
+            )
             automatic_wind_direction = (
-                None if weather is None else self._numeric(weather, "wind_direction_deg_from")
+                None
+                if wind_weather is None
+                else self._numeric(wind_weather, "wind_direction_deg_from")
             )
             automatic_wind_speed = (
-                None if weather is None else self._numeric(weather, "wind_speed_kt")
+                None if wind_weather is None else self._numeric(wind_weather, "wind_speed_kt")
             )
-            phase_manual_wind = section.manual_wind_by_phase.get(segment.phase)
+            phase_manual_wind = wind_source_section.manual_wind_by_phase.get(segment.phase)
             manual_wind_direction = (
                 phase_manual_wind.direction_deg_from
                 if phase_manual_wind is not None
-                else section.manual_wind_direction_deg
-                if segment.phase == section.phase
+                else wind_source_section.manual_wind_direction_deg
+                if segment.phase == wind_source_section.phase
                 else None
             )
             manual_wind_speed = (
                 phase_manual_wind.speed_kt
                 if phase_manual_wind is not None
-                else section.manual_wind_speed_kt
-                if segment.phase == section.phase
+                else wind_source_section.manual_wind_speed_kt
+                if segment.phase == wind_source_section.phase
                 else None
             )
             wind_state = ValueState.AUTO

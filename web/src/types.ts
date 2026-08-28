@@ -199,6 +199,7 @@ export interface NavLogDisplayCell {
 
 export interface NavLogDisplayRow {
   section_id: string | null;
+  wind_source_section_id: string | null;
   sequence: number;
   source_result_sequence: number | null;
   phase: FlightPhase | null;

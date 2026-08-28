@@ -692,6 +692,7 @@ async function expectDisplayProjectionToMatchWebTable(page: Page): Promise<void>
 async function calculateNavLog(
   page: Page,
   verifyDestinationWind = true,
+  forceBacktrackedEoc = false,
 ): Promise<void> {
   const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
   await openPaste.click();
@@ -764,6 +765,12 @@ async function calculateNavLog(
   await expect(altitudeInputs.last()).toHaveValue("1800");
   await expect(cruiseAltitude).toHaveValue(cruiseCandidate);
   await expect(page.locator(".altitude-warning-row")).toHaveCount(0);
+  if (forceBacktrackedEoc) {
+    const altitudeCount = await altitudeInputs.count();
+    for (let index = 0; index < altitudeCount - 1; index += 1) {
+      await altitudeInputs.nth(index).fill("7500");
+    }
+  }
   let releaseCalculationRequest = () => {};
   const calculationRequestReleased = new Promise<void>((resolve) => {
     releaseCalculationRequest = resolve;
@@ -784,7 +791,7 @@ async function calculateNavLog(
   const firstRow = page.locator(".nav-log-table .nav-leg-detail-row").first();
   await expect(
     page.locator(".nav-log-table").getByLabel(/計画高度$/).first(),
-  ).toHaveValue(firstAltitudeCandidate);
+  ).toHaveValue(forceBacktrackedEoc ? "7500" : firstAltitudeCandidate);
   await expect(page.locator(".nav-log-table .nav-leg-heading-row").first().locator("td").nth(8)).toHaveText("+7");
   const windInputs = firstRow.locator(".nav-log-wind-inputs");
   const windDirectionInput = firstRow.getByLabel(/手動風向$/);
@@ -1974,6 +1981,88 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   await page.screenshot({ path: "/tmp/autonavlog-phase-wind.png", fullPage: false });
   await expect(page.locator(".nav-log-table th").nth(7)).toHaveText("TC");
   await expect(page.locator(".derived-readonly-cell").first()).toHaveAttribute("title", /表示専用セル/);
+});
+
+test("EOC wind edit updates the DESCENT basis Leg common wind", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.goto("/");
+  await expect(page).toHaveTitle(/AutoNavLog/);
+  await calculateNavLog(page, true, true);
+
+  const calculated = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  const eocWindRow = calculated.outcome?.display_rows.find((row) => (
+    row.row_type === "CALCULATION_ZONE"
+    && row.phase === "DESCENT"
+    && row.section_id !== null
+    && row.wind_source_section_id !== null
+    && row.section_id !== row.wind_source_section_id
+  ));
+  expect(eocWindRow).toBeDefined();
+  const sourceSectionId = eocWindRow!.section_id!;
+  const windSourceSectionId = eocWindRow!.wind_source_section_id!;
+  expect(
+    calculated.project?.sections.find((section) => section.id === windSourceSectionId)?.phase,
+  ).toBe("DESCENT");
+
+  const eocRow = page.locator(
+    `.nav-log-table tr[data-row-sequence="${eocWindRow!.sequence}"]`,
+  );
+  const windDirection = eocRow.getByLabel(/手動風向$/);
+  const windSpeed = eocRow.getByLabel(/手動風速$/);
+  await windDirection.fill("184");
+  await expect(windDirection).toHaveAttribute("aria-invalid", "true");
+  const recalculatedResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project/recalculate") && response.ok(),
+  );
+  await windSpeed.fill("8");
+  const response = await recalculatedResponse;
+  const payload = response.request().postDataJSON() as {
+    sections: Array<{
+      section_id: string;
+      manual_wind_direction_deg: number | null;
+      manual_wind_speed_kt: number | null;
+      manual_wind_by_phase: Record<string, { direction_deg_from: number; speed_kt: number }>;
+    }>;
+  };
+  expect(payload.sections.find((section) => section.section_id === windSourceSectionId)).toMatchObject({
+    manual_wind_direction_deg: 184,
+    manual_wind_speed_kt: 8,
+  });
+  expect(
+    payload.sections.find((section) => section.section_id === sourceSectionId)
+      ?.manual_wind_by_phase.DESCENT,
+  ).toBeUndefined();
+
+  await expect(page.getByText("自動再計算しました。", { exact: true })).toBeVisible();
+  await expect(windDirection).toHaveValue("184");
+  await expect(windSpeed).toHaveValue("8");
+  const updated = await response.json() as WebState;
+  const descentResults = updated.outcome?.sections.filter((section) => section.phase === "DESCENT");
+  expect(descentResults?.length).toBeGreaterThan(1);
+  for (const section of descentResults ?? []) {
+    expect(section.wind_direction_deg_from.manual_override).toBe(184);
+    expect(section.wind_speed_kt.manual_override).toBe(8);
+  }
+  await expect(page.getByRole("heading", { name: "NAV LOG" })).toBeVisible();
+  await expect(page.locator("body")).not.toBeEmpty();
+  await expect(
+    page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
+  ).toHaveCount(0);
+  expect(
+    consoleErrors.filter((message) => !message.includes("401 (Unauthorized)")),
+  ).toEqual([]);
+  await page.screenshot({
+    path: process.env.AUTONAVLOG_QA_SCREENSHOT
+      ?? "/tmp/autonavlog-eoc-common-wind.png",
+    fullPage: false,
+  });
 });
 
 test("stale automatic recalculation cannot overwrite newer planning inputs", async ({ page }) => {

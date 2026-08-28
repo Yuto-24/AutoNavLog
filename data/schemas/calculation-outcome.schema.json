@@ -766,6 +766,20 @@
         },
         "wind": {
           "$ref": "#/$defs/NavLogDisplayCell"
+        },
+        "wind_source_section_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Project Section that owns an editable wind value. This may differ from section_id when EOC backtracks into a preceding physical Leg.",
+          "title": "Wind Source Section Id"
         }
       },
       "required": [
