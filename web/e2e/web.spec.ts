@@ -1,6 +1,3 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { expect, test, type Page } from "@playwright/test";
 
 import { parseGsiCivilTrainingAirspaceTile } from "../src/rjfmAirspace";
@@ -12,11 +9,6 @@ import type {
   RjfmMapReference,
   WebState,
 } from "../src/types";
-
-const repositoryRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../..",
-);
 
 const kml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
@@ -883,7 +875,7 @@ test("GSI live tile Polygon contract fails closed on payload drift", () => {
   }
 });
 
-test("desktop workflow renders without the removed A4 output", async ({ page }) => {
+test("desktop workflow renders without the removed A4 output", async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -918,7 +910,7 @@ test("desktop workflow renders without the removed A4 output", async ({ page }) 
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
   ).toHaveCount(0);
   await page.screenshot({
-    path: path.join(repositoryRoot, "docs/web-design/implementation-desktop.png"),
+    path: testInfo.outputPath("implementation-desktop.png"),
     fullPage: false,
   });
 
@@ -929,7 +921,7 @@ test("desktop workflow renders without the removed A4 output", async ({ page }) 
   ).toHaveCount(0);
   await expect(page.getByRole("button", { name: "A4転記補助HTMLを出力" })).toHaveCount(0);
   await page.screenshot({
-    path: path.join(repositoryRoot, "docs/web-design/implementation-calculated.png"),
+    path: testInfo.outputPath("implementation-calculated.png"),
     fullPage: true,
   });
 
@@ -2115,7 +2107,7 @@ test("stale automatic recalculation cannot overwrite newer planning inputs", asy
   expect(recalculationBodies[1]?.total_usable_fuel_gal).toBe(77);
 });
 
-test("calculated mobile layout has no body overflow", async ({ page }) => {
+test("calculated mobile layout has no body overflow", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
@@ -2129,7 +2121,7 @@ test("calculated mobile layout has no body overflow", async ({ page }) => {
   );
   expect(overflow).toBeLessThanOrEqual(1);
   await page.screenshot({
-    path: path.join(repositoryRoot, "docs/web-design/implementation-mobile.png"),
+    path: testInfo.outputPath("implementation-mobile.png"),
     fullPage: true,
   });
 });
