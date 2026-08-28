@@ -138,6 +138,10 @@
 - 子行の親または直前行と同じ計算値は`INHERIT`、継承しない意図的な空欄は`BLANK`とする。
   どちらも完全な空欄であり、`未取得`、`未確定`、`—`を表示しない。本来必要な値の取得・
   算出失敗だけを`UNAVAILABLE`として`未取得`、太字、赤系背景で表示する。
+- EOC後最初の`DESCENT`子行は風依存の継承境界とする。`EOC`および`<TP名> / EOC`を同じ
+  boundary markerとして判定し、`WIND`、`WCA`、`MH`、`GS`は親・直前行との同値でも
+  `DISPLAY_VALUE`または計算済み`UNAVAILABLE`を保持する。その他のセルと以後のZoneは通常の
+  継承規則を維持する。
 - PAは数値と表示状態を分け、`↗`、`↘`、`(<推定通過高度>)`を表現する。
 - Check Point、RCA、EOC、物理終点は未丸めalong-route distance順に並べる。EOCの
   0.5 NM未満snapは物理変針点だけに適用し、Check Pointへ拡張しない。

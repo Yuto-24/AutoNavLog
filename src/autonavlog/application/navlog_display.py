@@ -306,6 +306,20 @@ def _destination_wind_cell(
     return _display(text, text)
 
 
+def _label_markers(label: str) -> set[str]:
+    return {
+        part.strip()
+        for part in label.replace(" / ", "/").split("/")
+        if part.strip()
+    }
+
+
+def _is_eoc_descent_start(zone: SectionResult) -> bool:
+    """Return whether this is the first DESCENT zone after an EOC boundary."""
+
+    return zone.phase == FlightPhase.DESCENT and "EOC" in _label_markers(zone.from_name)
+
+
 def _strip_checkpoint_prefix(label: str) -> str:
     return " / ".join(sub(r"^CP:\s*", "", part.strip()) for part in label.split(" / "))
 
@@ -538,6 +552,7 @@ def build_navlog_display_rows(
         _fuel_tenths(total_usable_fuel_gal)
         - _fuel_tenths(1.5 if run_up_included else 0.0)
     )
+    eoc_boundary_pending = False
 
     def append(row: NavLogDisplayRow) -> None:
         rows.append(row.model_copy(update={"sequence": len(rows)}))
@@ -712,6 +727,10 @@ def build_navlog_display_rows(
                 )
                 context["pa"] = new_pa_context
                 shown: dict[str, NavLogDisplayCell] = {}
+                eoc_wind_boundary = zone.phase == FlightPhase.DESCENT and (
+                    eoc_boundary_pending
+                    or _is_eoc_descent_start(zone)
+                )
                 for name in (
                     "toat",
                     "cas",
@@ -723,16 +742,28 @@ def build_navlog_display_rows(
                     "wca",
                     "mh",
                 ):
-                    shown[name], context[name] = _project_with_inheritance(
-                        candidates[name],
-                        context.get(name),
+                    if eoc_wind_boundary and name in {"wind", "wca", "mh"}:
+                        # EOC changes the applicable wind.  Preserve a calculated
+                        # UNAVAILABLE state too; it must not become an inherited blank.
+                        shown[name] = candidates[name]
+                        context[name] = candidates[name]
+                    else:
+                        shown[name], context[name] = _project_with_inheritance(
+                            candidates[name],
+                            context.get(name),
+                        )
+                if eoc_wind_boundary:
+                    gs_cell = candidates["gs"]
+                else:
+                    gs_cell = (
+                        _inherit(
+                            candidates["gs"].effective_value,
+                            manual=candidates["gs"].manual,
+                        )
+                        if parent_gs_context is not None
+                        and _same_effective(candidates["gs"], parent_gs_context)
+                        else candidates["gs"]
                     )
-                gs_cell = (
-                    _inherit(candidates["gs"].effective_value, manual=candidates["gs"].manual)
-                    if parent_gs_context is not None
-                    and _same_effective(candidates["gs"], parent_gs_context)
-                    else candidates["gs"]
-                )
                 append(
                     NavLogDisplayRow(
                         section_id=zone.section_id,
@@ -778,6 +809,11 @@ def build_navlog_display_rows(
                         ),
                     )
                 )
+
+                if eoc_wind_boundary:
+                    eoc_boundary_pending = False
+                elif "EOC" in _label_markers(zone.to_name):
+                    eoc_boundary_pending = True
 
         if is_final_visual:
             destination_pa = float(destination.elevation_ft_msl)
