@@ -113,11 +113,12 @@ def test_umk_trigger_inserts_omaru_once_and_preserves_remainder() -> None:
     assert plan.main_route_mode == RjfmMainRouteMode.UMK_PHYSICAL
     assert [node.name for node in project.ordered_nodes()] == [
         "RJFM",
-        "unnamed first point",
+        "UMK",
         "OMARU",
         "NEXT",
         "RJFO",
     ]
+    assert project.ordered_nodes()[1].name_source is RouteNodeNameSource.GENERATED
     sections = project.ordered_sections()
     assert [section.phase for section in sections[:3]] == [
         FlightPhase.CLIMB,
@@ -153,6 +154,27 @@ def test_synthetic_omaru_keeps_a_user_rename_on_re_normalization() -> None:
     preserved = project.ordered_nodes()[2]
     assert preserved.name == "訓練用OMARU"
     assert preserved.name_source is RouteNodeNameSource.USER
+
+
+def test_physical_reference_name_keeps_explicit_and_user_labels() -> None:
+    project = _project(
+        [
+            ("RJFM", 31.877, 131.449),
+            ("UMK", 32.08, 131.50),
+            ("NEXT", 32.50, 131.65),
+            ("RJFO", 33.479, 131.737),
+        ]
+    )
+    assert apply_rjfm_departure_exception(project, _references()) is not None
+    physical_umk = project.ordered_nodes()[1]
+    assert physical_umk.name_source is RouteNodeNameSource.IMPORTED
+
+    physical_umk.name = "訓練用UMK"
+    physical_umk.name_source = RouteNodeNameSource.USER
+    assert apply_rjfm_departure_exception(project, _references()) is not None
+
+    assert project.ordered_nodes()[1].name == "訓練用UMK"
+    assert project.ordered_nodes()[1].name_source is RouteNodeNameSource.USER
 
 
 def test_reference_update_reuses_generated_omaru_and_refreshes_provenance() -> None:
@@ -462,10 +484,15 @@ def test_existing_later_omaru_is_not_moved_or_duplicated() -> None:
 
     assert [node.name for node in project.ordered_nodes()] == [
         "RJFM",
-        "UMK-ish",
+        "UMK",
         "KEEP",
-        "OMARU-ish",
+        "OMARU",
         "RJFO",
+    ]
+    assert [node.name_source for node in project.ordered_nodes()[1:4]] == [
+        RouteNodeNameSource.GENERATED,
+        RouteNodeNameSource.IMPORTED,
+        RouteNodeNameSource.GENERATED,
     ]
     assert all(
         section.planned_altitude_ft_msl == 5500
@@ -488,6 +515,8 @@ def test_omaru_first_uses_virtual_umk_without_inserting_node() -> None:
     assert plan.trigger == RjfmDepartureTrigger.OMARU
     assert plan.main_route_mode == RjfmMainRouteMode.OMARU_VIRTUAL_UMK
     assert len(project.route_nodes) == 3
+    assert project.ordered_nodes()[1].name == "OMARU"
+    assert project.ordered_nodes()[1].name_source is RouteNodeNameSource.GENERATED
     assert project.ordered_sections()[0].planned_altitude_ft_msl == 5500
     state = load_persisted_ui_state(project.metadata["ui_state"])
     assert state.rjfm_departure_plan == plan

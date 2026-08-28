@@ -77,6 +77,10 @@ def apply_rjfm_departure_exception(
         if umk_gap <= omaru_gap
         else RjfmDepartureTrigger.OMARU
     )
+    _normalize_physical_reference_name(
+        first,
+        "UMK" if trigger == RjfmDepartureTrigger.UMK else "OMARU",
+    )
     umk = _kml_coordinate(nodes, references.umk, "KML:UMK")
     omaru = _kml_coordinate(nodes, references.omaru, "KML:OMARU")
 
@@ -201,6 +205,17 @@ def _matching_user_node_index(
     )
 
 
+def _normalize_physical_reference_name(node: RouteNode, name: str) -> None:
+    """Normalize a matched physical slot without overwriting a user label."""
+
+    if node.name_source == RouteNodeNameSource.USER:
+        return
+    if node.name.strip().upper() == name:
+        return
+    node.name = name
+    node.name_source = RouteNodeNameSource.GENERATED
+
+
 def _kml_coordinate(
     nodes: list[RouteNode],
     fallback: RjfmCoordinate,
@@ -228,6 +243,7 @@ def _ensure_omaru_after_umk(
     nodes = project.ordered_nodes()
     user_index = _matching_user_node_index(nodes, omaru, start=2)
     if user_index is not None:
+        _normalize_physical_reference_name(nodes[user_index], "OMARU")
         _remove_synthetic_omarus(project)
         _restore_original_node_override(project)
         matched = _matching_user_node_index(project.ordered_nodes(), omaru, start=2)
