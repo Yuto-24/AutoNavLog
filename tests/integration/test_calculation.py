@@ -908,12 +908,12 @@ def test_selectable_descent_rate_recalculates_eoc_time_profile_and_fuel(
         ) == pytest.approx(12.0 * planned_seconds / 3600.0)
 
 
-def test_eoc_backtracks_one_leg_with_leg_specific_descent_ground_speeds(
+def test_eoc_backtracks_with_common_descent_wind_and_leg_specific_ground_speeds(
     airports,
     performance_repository,
     project,
 ) -> None:
-    """Case B: use one continuous profile and each physical leg's GS."""
+    """Case B: use one basis-Leg wind while solving each physical Leg's GS."""
     routed, sections = _eoc_backtracking_project(
         project,
         leg_distances_nm=(2.0, 30.0, 10.0),
@@ -933,11 +933,20 @@ def test_eoc_backtracks_one_leg_with_leg_specific_descent_ground_speeds(
     assert not outcome.blockers
     eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
     # 6,500 -> 2,800 ft at 500 fpm plus one minute requires 504 seconds.
-    # The basis leg contributes 360 s, then 144 s at 140 kt in the prior leg.
-    assert eoc.along_route_distance_nm == pytest.approx(26.4)
+    # The basis leg contributes 360 s, then 144 s with the same 180/20 wind
+    # solved against the preceding Leg's different course.
+    preceding_ground_speed = (120.0**2 - 20.0**2) ** 0.5
+    assert eoc.along_route_distance_nm == pytest.approx(
+        32.0 - preceding_ground_speed * 144.0 / 3600.0
+    )
     descent = _section_for_source(outcome, sections[1].id, FlightPhase.DESCENT)
-    assert descent.ground_speed_kt.adopted() == pytest.approx(140.0)
+    assert descent.wind_direction_deg_from.adopted() == pytest.approx(180.0)
+    assert descent.wind_speed_kt.adopted() == pytest.approx(20.0)
+    assert descent.wind_speed_kt.adopted_source == AdoptedSource.MANUAL
+    assert descent.ground_speed_kt.adopted() == pytest.approx(preceding_ground_speed)
     descent_basis = _section_for_source(outcome, sections[2].id, FlightPhase.DESCENT)
+    assert descent_basis.wind_direction_deg_from.adopted() == pytest.approx(180.0)
+    assert descent_basis.wind_speed_kt.adopted() == pytest.approx(20.0)
     assert descent_basis.ground_speed_kt.adopted() == pytest.approx(100.0)
     metadata = descent.performance_metadata
     assert metadata["eoc_source_section_id"] == str(sections[1].id)
@@ -956,9 +965,13 @@ def test_eoc_backtracks_one_leg_with_leg_specific_descent_ground_speeds(
         str(sections[2].id),
     ]
     assert [detail["ground_speed_kt"] for detail in metadata["ground_speeds"]] == [
-        pytest.approx(140.0),
+        pytest.approx(preceding_ground_speed),
         pytest.approx(100.0),
     ]
+    assert metadata["descent_wind_source_section_id"] == str(sections[2].id)
+    assert {
+        detail["wind_source_section_id"] for detail in metadata["ground_speeds"]
+    } == {str(sections[2].id)}
     profile = descent_profile_from_metadata(metadata)
     assert profile is not None
     assert profile.altitude_at_elapsed(120.0) == pytest.approx(5_500.0)
@@ -987,7 +1000,7 @@ def test_eoc_wind_dependent_cells_start_a_new_display_context(
         altitudes_ft_msl=(7_000, 6_500, 5_500),
         manual_courses_deg=(0, 90, 180),
         descent_winds={
-            1: ManualWind(direction_deg_from=270, speed_kt=20),
+            1: ManualWind(direction_deg_from=180, speed_kt=20),
             2: ManualWind(direction_deg_from=270, speed_kt=20),
         },
     )
@@ -1022,6 +1035,8 @@ def test_eoc_wind_dependent_cells_start_a_new_display_context(
     )
     assert eoc_row.wind.state == DisplayCellState.DISPLAY_VALUE
     assert eoc_row.wind.text == "270/20"
+    assert eoc_row.section_id == sections[1].id
+    assert eoc_row.wind_source_section_id == sections[2].id
     for name in ("wca", "mh", "gs"):
         assert getattr(eoc_row, name).state == DisplayCellState.DISPLAY_VALUE
         assert getattr(eoc_row, name).text is not None
@@ -1031,6 +1046,7 @@ def test_eoc_wind_dependent_cells_start_a_new_display_context(
         for row in outcome.display_rows
         if row.row_type == "PHYSICAL_LEG_SUMMARY" and row.section_id == sections[2].id
     )
+    assert next_summary.wind_source_section_id == sections[2].id
     for name in ("wca", "mh", "gs"):
         assert getattr(next_summary, name).state == DisplayCellState.DISPLAY_VALUE
         assert getattr(next_summary, name).effective_value != getattr(eoc_row, name).effective_value
@@ -1045,6 +1061,53 @@ def test_eoc_wind_dependent_cells_start_a_new_display_context(
     assert next_row.wca.state == DisplayCellState.INHERIT
     assert next_row.mh.state == DisplayCellState.INHERIT
     assert next_row.gs.state == DisplayCellState.INHERIT
+
+
+def test_eoc_common_wind_does_not_require_preceding_leg_descent_wind(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    """Only the basis Leg supplies wind; crossed Legs still supply DESCENT temperature."""
+    routed, sections = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(2.0, 30.0, 10.0),
+        altitudes_ft_msl=(7_000, 6_500, 5_500),
+        manual_courses_deg=(0, 90, 180),
+        descent_winds={
+            2: ManualWind(direction_deg_from=180, speed_kt=20),
+        },
+    )
+    preceding_descent_request_id = f"section:{sections[1].id}:descent"
+
+    def preceding_descent_temperature_only(request):
+        values = (
+            {"temperature_c": 15.0}
+            if request.request_id == preceding_descent_request_id
+            else {
+                "temperature_c": 15.0,
+                "wind_direction_deg_from": 360.0,
+                "wind_speed_kt": 0.0,
+            }
+        )
+        return WeatherResult(
+            request_id=request.request_id,
+            availability=Availability.AVAILABLE,
+            kind=request.kind,
+            values=values,
+        )
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(result_factory=preceding_descent_temperature_only),
+    )
+
+    assert not any(issue.code == "WIND_UNAVAILABLE" for issue in outcome.issues)
+    assert not outcome.blockers
+    eoc_descent = _section_for_source(outcome, sections[1].id, FlightPhase.DESCENT)
+    assert eoc_descent.wind_direction_deg_from.adopted() == pytest.approx(180.0)
+    assert eoc_descent.wind_speed_kt.adopted() == pytest.approx(20.0)
+    assert eoc_descent.temperature_c.adopted() == pytest.approx(15.0)
 
 
 def test_snapped_eoc_wind_dependent_cells_do_not_inherit_parent_values(
@@ -1340,8 +1403,15 @@ def test_eoc_backtracks_through_multiple_legs_with_one_global_deceleration_minut
     assert not outcome.blockers
     eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
     # The 5,500 and 6,500 candidates are short.  A single 7,500 -> 2,800 ft
-    # profile needs 624 seconds and starts 7.2 NM before the first turn.
-    assert eoc.along_route_distance_nm == pytest.approx(22.8)
+    # profile needs 624 seconds.  The common 180/20 wind produces a different
+    # GS on each course and places EOC in the first Leg.
+    middle_ground_speed = (120.0**2 - 20.0**2) ** 0.5
+    first_leg_seconds = 624.0 - 8.0 / 100.0 * 3600.0 - (
+        4.666666666666667 / middle_ground_speed * 3600.0
+    )
+    assert eoc.along_route_distance_nm == pytest.approx(
+        30.0 - 140.0 * first_leg_seconds / 3600.0
+    )
     descent = _section_for_source(outcome, sections[0].id, FlightPhase.DESCENT)
     metadata = descent.performance_metadata
     assert metadata["eoc_source_section_id"] == str(sections[0].id)
@@ -1362,8 +1432,8 @@ def test_eoc_backtracks_through_multiple_legs_with_one_global_deceleration_minut
         for transition in metadata["constraint_transitions"]
     ] == [(7_500.0, 2_800.0, 564.0)]
     assert [detail["ground_speed_kt"] for detail in metadata["ground_speeds"]] == [
-        pytest.approx(120.0),
         pytest.approx(140.0),
+        pytest.approx(middle_ground_speed),
         pytest.approx(100.0),
     ]
     profile = descent_profile_from_metadata(metadata)
@@ -1375,9 +1445,10 @@ def test_eoc_backtracks_through_multiple_legs_with_one_global_deceleration_minut
         _section_for_source(outcome, section.id, FlightPhase.DESCENT)
         for section in sections[:3]
     ]
+    middle_leg_seconds = 4.666666666666667 / middle_ground_speed * 3600.0
     assert [section.zone_ete_seconds.adopted() for section in descent_sections] == [
-        pytest.approx(216.0),
-        pytest.approx(120.0),
+        pytest.approx(first_leg_seconds),
+        pytest.approx(middle_leg_seconds),
         pytest.approx(288.0),
     ]
     assert all(

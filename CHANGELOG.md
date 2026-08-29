@@ -6,6 +6,8 @@ AutoNavLog の利用者に影響する変更を記録します。
 
 ### 修正
 
+- EOCが前の物理Legへ移動する場合も、EOCからVREPまではDESCENT基準Legの風を共通適用し、
+  各LegのTCに応じてWCA、MH、GS、EOC位置、ETEを再計算するよう修正しました。
 - EOC直後のDESCENT Zoneでは、風の切替を明確にするためWIND、WCA、MH、GSを明示表示するよう
   修正しました。物理Leg途中と変針点へsnapしたEOCの両方に適用し、以後の通常継承は維持します。
 

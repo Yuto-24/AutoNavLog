@@ -84,14 +84,11 @@ metrics, badges, and unrelated navigation are prohibited.
 - Verification execution date: 2026-08-13 (`Asia/Tokyo`).
 - Implementation renders: Playwright Chromium against the built FastAPI-served SPA.
 - Native desktop viewport: 1440 × 1000.
-- Native mobile viewport: 390 × 844; the stored mobile image is a full-page capture.
-- Evidence: `implementation-desktop.png`, `implementation-calculated.png`,
-  and `implementation-mobile.png`.
+- Native mobile viewport: 390 × 844; the mobile image is a full-page capture.
+- Screenshot evidence is written to the Playwright test output and is not
+  version-controlled in this directory.
 - The requested `agent-browser` binary was not installed, so the documented Playwright
-  Chromium fallback was used. The environment-provided `view_image` filesystem namespace
-  could not resolve the workspace path even though shell inspection confirmed the files.
-  Images were therefore decoded from the workspace with ImageMagick and inspected as image
-  payloads at native aspect ratio.
+  Chromium fallback was used. Its screenshot artifacts were inspected at native aspect ratio.
 
 ### Concept-to-implementation comparison
 

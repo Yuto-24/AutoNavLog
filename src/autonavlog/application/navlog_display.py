@@ -320,6 +320,16 @@ def _is_eoc_descent_start(zone: SectionResult) -> bool:
     return zone.phase == FlightPhase.DESCENT and "EOC" in _label_markers(zone.from_name)
 
 
+def _wind_source_section_id(zone: SectionResult) -> UUID:
+    raw = zone.performance_metadata.get("descent_wind_source_section_id")
+    if raw is None:
+        return zone.section_id
+    try:
+        return UUID(str(raw))
+    except ValueError:
+        return zone.section_id
+
+
 def _strip_checkpoint_prefix(label: str) -> str:
     return " / ".join(sub(r"^CP:\s*", "", part.strip()) for part in label.split(" / "))
 
@@ -658,6 +668,7 @@ def build_navlog_display_rows(
         append(
             NavLogDisplayRow(
                 section_id=leg.section_id,
+                wind_source_section_id=_wind_source_section_id(first),
                 sequence=0,
                 source_result_sequence=first.sequence,
                 phase=first.phase,
@@ -767,6 +778,7 @@ def build_navlog_display_rows(
                 append(
                     NavLogDisplayRow(
                         section_id=zone.section_id,
+                        wind_source_section_id=_wind_source_section_id(zone),
                         sequence=0,
                         source_result_sequence=zone.sequence,
                         phase=zone.phase,

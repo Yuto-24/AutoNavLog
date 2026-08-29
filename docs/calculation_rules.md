@@ -217,9 +217,10 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
   各変針点の計画高度は中間制約にしません。追加した前Legの高度が次Legより低い場合は
   `DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` Blockerとし、経路始点からでも不足する場合も
   同Blockerとします。metadataには開始高度からVREPまでの1件の遷移、通過Leg、Leg別GSを残します。
-- EOC位置を逆算するときは、対象の各物理LegについてDESCENT phaseのTAS、Wind、TCから
-  Wind Triangleを解き、そのLeg固有のGSを使います。phase-specific wind overrideも同じ経路で
-  採用します。`deceleration_duration_seconds = 60`は全プロファイルで1回だけであり、
+- EOC位置を逆算するときは、DESCENT基準LegのDESCENT phaseで採用した風をEOCからVREPまで
+  共通して使います。対象の各物理Legについて、その共通風とLeg固有のTAS・TCからWind Triangleを
+  解き、Leg固有のGSを求めます。基準Legのphase-specific wind overrideも同じ経路で採用します。
+  `deceleration_duration_seconds = 60`は全プロファイルで1回だけであり、
   EOCから直ちに選択降下率でVREP高度まで連続降下し、level off後の最後の1分を減速に使います。
 - 目視位置通報点以降はCAS 121 kt・12 GPH、CALM固定で、WCA=0、GS=TASとします。
   CAS、標準の500 fpm、燃料流量、到着区間CALMは規程で裏付け済みです。
@@ -273,7 +274,8 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
   または`<TP名> / EOC`へsnapした変針点のいずれも）は、親・直前行と実効値が同じでも
   `WIND`、`WCA`、`MH`、`GS`を候補セルのまま明示表示します。候補が`UNAVAILABLE`なら
   その状態を維持します。`TOAT`、`CAS`、`TAS`、`TC`、`VAR`、`MC`、PAなどは従来どおり
-  継承し、以後のZoneは通常の継承規則へ戻ります。
+  継承し、以後のZoneは通常の継承規則へ戻ります。DESCENT ZoneのWIND編集は、EOCが前Legへ
+  移動した行から操作した場合もDESCENT基準Legの共通風overrideへ反映します。
 - PA表示は計算高度値とは別の表示種別を持ち、数値、上昇`↗`、降下`↘`、推定通過高度
   `(<高度>)`、空欄、未取得を区別します。推定通過高度は高度制約ではなく、EOC後の経過時間と
   計算metadataに保存した選択降下率から求める表示用結果です。

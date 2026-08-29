@@ -141,6 +141,13 @@ class NavLogDisplayRow(CalculationModel):
         default=None,
         description="Physical source Leg identifier; null for a pure separator row.",
     )
+    wind_source_section_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Project Section that owns an editable wind value. This may differ "
+            "from section_id when EOC backtracks into a preceding physical Leg."
+        ),
+    )
     sequence: int = Field(ge=0)
     source_result_sequence: int | None = Field(
         default=None,

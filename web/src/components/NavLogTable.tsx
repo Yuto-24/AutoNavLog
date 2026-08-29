@@ -312,6 +312,7 @@ function DisplayResultCells({
   row,
   source,
   inputSection,
+  windInputSection,
   altitudeFixed,
   drafts,
   editErrors,
@@ -320,6 +321,7 @@ function DisplayResultCells({
   row: NavLogDisplayRow;
   source?: SectionResult;
   inputSection?: NavSection;
+  windInputSection?: NavSection;
   altitudeFixed: boolean;
   drafts: NavLogEditDrafts;
   editErrors: NavLogEditErrors;
@@ -335,7 +337,16 @@ function DisplayResultCells({
     ? undefined
     : drafts[inputSection.id] ?? draftFromSection(inputSection);
   const errors = inputSection === undefined ? {} : editErrors[inputSection.id] ?? {};
+  const windDraft = windInputSection === undefined
+    ? undefined
+    : drafts[windInputSection.id] ?? draftFromSection(windInputSection);
+  const windErrors = windInputSection === undefined
+    ? {}
+    : editErrors[windInputSection.id] ?? {};
   const isVisualArrival = row.phase === "VISUAL_ARRIVAL";
+  const windEditable = source !== undefined
+    && windInputSection !== undefined
+    && row.phase !== null;
   const altitudeEditable = editable
     && !altitudeFixed
     && row.phase === "CRUISE"
@@ -345,6 +356,11 @@ function DisplayResultCells({
   const change = (field: NavLogEditableField, value: string) => {
     if (inputSection !== undefined && row.phase !== null) {
       onEdit(inputSection.id, row.phase, field, value);
+    }
+  };
+  const changeWind = (field: NavLogEditableField, value: string) => {
+    if (windInputSection !== undefined && row.phase !== null) {
+      onEdit(windInputSection.id, row.phase, field, value);
     }
   };
   return (
@@ -404,18 +420,18 @@ function DisplayResultCells({
       <DisplayCell cell={row.tc} />
       <DisplayCell cell={row.variation} />
       <DisplayCell cell={row.mc} />
-      {isVisualArrival || !editable || source === undefined || draft === undefined || !isVisibleCell(row.wind) ? (
+      {isVisualArrival || !windEditable || source === undefined || windDraft === undefined || !isVisibleCell(row.wind) ? (
         <DisplayCell cell={row.wind} />
       ) : (
         <EditableWindCell
           direction={source.wind_direction_deg_from}
           speed={source.wind_speed_kt}
-          directionValue={draft.windDirectionByPhase[row.phase!] ?? ""}
-          speedValue={draft.windSpeedByPhase[row.phase!] ?? ""}
+          directionValue={windDraft.windDirectionByPhase[row.phase!] ?? ""}
+          speedValue={windDraft.windSpeedByPhase[row.phase!] ?? ""}
           label={inputLabel}
-          errors={errors}
+          errors={windErrors}
           displayText={row.wind.text ?? undefined}
-          onChange={change}
+          onChange={changeWind}
         />
       )}
       <DisplayCell cell={row.wca} />
@@ -692,6 +708,9 @@ export function NavLogTable({
               const inputSection = row.section_id === null
                 ? undefined
                 : inputSections.get(row.section_id);
+              const windInputSection = row.wind_source_section_id === null
+                ? inputSection
+                : inputSections.get(row.wind_source_section_id);
               const rowClass = row.row_type === "PHYSICAL_LEG_SUMMARY"
                 ? "nav-leg-heading-row"
                 : row.row_type === "DESTINATION_INFO"
@@ -742,6 +761,7 @@ export function NavLogTable({
                     row={row}
                     source={source}
                     inputSection={inputSection}
+                    windInputSection={windInputSection}
                     altitudeFixed={
                       inputSection !== undefined
                       && altitudeGuidanceBySection.get(inputSection.id)?.inputMode !== undefined
