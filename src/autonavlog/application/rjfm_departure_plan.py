@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from hashlib import sha256
 from hmac import compare_digest
 
-from autonavlog.domain.enums import FlightPhase, RouteNodeRole
+from autonavlog.application.rjfm_coordinate_matcher import (
+    TRIGGER_TOLERANCE_NM,
+    coordinate_distance_nm,
+    coordinate_matches_reference,
+)
+from autonavlog.domain.enums import FlightPhase, RouteNodeNameSource, RouteNodeRole
 from autonavlog.domain.planning import (
     RJFM_DEPARTURE_RULE_VERSION,
     PersistedUiState,
@@ -17,7 +22,6 @@ from autonavlog.domain.planning import (
 from autonavlog.domain.project import NavSection, Project, RouteNode
 from autonavlog.nav.geodesy import geodesic_leg
 
-TRIGGER_TOLERANCE_NM = 1.0
 TARGET_ALTITUDE_FT_MSL = 5500.0
 RJFM_INPUT_MODE_EDITABLE = "EDITABLE"
 RJFM_INPUT_MODE_DEPARTURE_TO_UMK_FIXED = "RJFM_DEPARTURE_TO_UMK_FIXED"
@@ -72,6 +76,10 @@ def apply_rjfm_departure_exception(
         RjfmDepartureTrigger.UMK
         if umk_gap <= omaru_gap
         else RjfmDepartureTrigger.OMARU
+    )
+    _normalize_physical_reference_name(
+        first,
+        "UMK" if trigger == RjfmDepartureTrigger.UMK else "OMARU",
     )
     umk = _kml_coordinate(nodes, references.umk, "KML:UMK")
     omaru = _kml_coordinate(nodes, references.omaru, "KML:OMARU")
@@ -146,12 +154,12 @@ def apply_rjfm_departure_exception(
 
 
 def _distance_to(node: RouteNode, coordinate: RjfmCoordinate) -> float:
-    return geodesic_leg(
+    return coordinate_distance_nm(
         node.latitude_deg,
         node.longitude_deg,
         coordinate.latitude_deg,
         coordinate.longitude_deg,
-    ).distance_nm
+    )
 
 
 def _matching_node_index(
@@ -164,7 +172,12 @@ def _matching_node_index(
         (
             index
             for index, node in enumerate(nodes[start:], start=start)
-            if _distance_to(node, coordinate) <= TRIGGER_TOLERANCE_NM + 1e-9
+            if coordinate_matches_reference(
+                node.latitude_deg,
+                node.longitude_deg,
+                coordinate.latitude_deg,
+                coordinate.longitude_deg,
+            )
         ),
         None,
     )
@@ -181,10 +194,26 @@ def _matching_user_node_index(
             index
             for index, node in enumerate(nodes[start:], start=start)
             if not _is_synthetic_omaru(node)
-            and _distance_to(node, coordinate) <= TRIGGER_TOLERANCE_NM + 1e-9
+            and coordinate_matches_reference(
+                node.latitude_deg,
+                node.longitude_deg,
+                coordinate.latitude_deg,
+                coordinate.longitude_deg,
+            )
         ),
         None,
     )
+
+
+def _normalize_physical_reference_name(node: RouteNode, name: str) -> None:
+    """Normalize a matched physical slot without overwriting a user label."""
+
+    if node.name_source == RouteNodeNameSource.USER:
+        return
+    if node.name.strip().upper() == name:
+        return
+    node.name = name
+    node.name_source = RouteNodeNameSource.GENERATED
 
 
 def _kml_coordinate(
@@ -214,6 +243,7 @@ def _ensure_omaru_after_umk(
     nodes = project.ordered_nodes()
     user_index = _matching_user_node_index(nodes, omaru, start=2)
     if user_index is not None:
+        _normalize_physical_reference_name(nodes[user_index], "OMARU")
         _remove_synthetic_omarus(project)
         _restore_original_node_override(project)
         matched = _matching_user_node_index(project.ordered_nodes(), omaru, start=2)
@@ -229,7 +259,9 @@ def _ensure_omaru_after_umk(
     if len(synthetic) == 1 and synthetic[0][0] == 2:
         node = synthetic[0][1]
         _capture_original_node_override(project, nodes[1], legacy_synthetic=node)
-        node.name = "OMARU"
+        if node.name_source != RouteNodeNameSource.USER:
+            node.name = "OMARU"
+            node.name_source = RouteNodeNameSource.GENERATED
         node.latitude_deg = omaru.latitude_deg
         node.longitude_deg = omaru.longitude_deg
         node.role = RouteNodeRole.ROUTE_POINT
@@ -255,6 +287,7 @@ def _insert_omaru_after_umk(
     new_node = RouteNode(
         sequence=2,
         name="OMARU",
+        name_source=RouteNodeNameSource.GENERATED,
         latitude_deg=omaru.latitude_deg,
         longitude_deg=omaru.longitude_deg,
         role=RouteNodeRole.ROUTE_POINT,

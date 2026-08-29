@@ -60,6 +60,7 @@ interface RouteWorkspaceProps {
     changes: Partial<NavSection>,
     invalidate?: boolean,
   ) => void;
+  onRenameRouteNode: (nodeId: string, name: string) => Promise<void>;
   onRouteUseConfirmedChange: (checked: boolean) => void;
   onPolygonRouteConfirmedChange: (checked: boolean) => void;
   onConfirmRoute: () => void;
@@ -173,6 +174,7 @@ export function RouteWorkspace({
   onAltitudeInputChange,
   onDestinationPatternAltitudeChange,
   onSectionChange,
+  onRenameRouteNode,
   onRouteUseConfirmedChange,
   onPolygonRouteConfirmedChange,
   onConfirmRoute,
@@ -181,6 +183,10 @@ export function RouteWorkspace({
   const [mapHeight, setMapHeight] = useState(425);
   const [pickingCheckPoint, setPickingCheckPoint] = useState(false);
   const [phaseEditing, setPhaseEditing] = useState(false);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [nodeNameDraft, setNodeNameDraft] = useState("");
+  const [nodeNameError, setNodeNameError] = useState<string | null>(null);
+  const [nodeNameSaving, setNodeNameSaving] = useState(false);
   const [pickedCoordinate, setPickedCoordinate] = useState<{
     latitude: number;
     longitude: number;
@@ -218,7 +224,37 @@ export function RouteWorkspace({
   );
   useEffect(() => {
     setPhaseEditing(false);
+    setEditingNodeId(null);
+    setNodeNameDraft("");
+    setNodeNameError(null);
   }, [project?.id]);
+  const cancelNodeNameEdit = () => {
+    if (nodeNameSaving) return;
+    setEditingNodeId(null);
+    setNodeNameDraft("");
+    setNodeNameError(null);
+  };
+  const saveNodeNameEdit = async () => {
+    if (!editingNodeId || nodeNameSaving) return;
+    const name = nodeNameDraft.trim();
+    if (!name) {
+      setNodeNameError("名称を入力してください。");
+      return;
+    }
+    setNodeNameSaving(true);
+    setNodeNameError(null);
+    try {
+      await onRenameRouteNode(editingNodeId, name);
+      setEditingNodeId(null);
+      setNodeNameDraft("");
+    } catch (reason) {
+      setNodeNameError(
+        reason instanceof Error ? reason.message : "名称を保存できませんでした。",
+      );
+    } finally {
+      setNodeNameSaving(false);
+    }
+  };
   const isPhaseLocked = useCallback(
     (section: NavSection): boolean => {
       const guidance = guidanceBySection.get(section.id);
@@ -906,7 +942,62 @@ export function RouteWorkspace({
                 >
                   <td>
                     <span className="point-index">{index}</span>
-                    <strong>{node.name}</strong>
+                    {editingNodeId === node.id ? (
+                      <div className="route-name-editor">
+                        <input
+                          aria-label={`${node.name}の名称`}
+                          autoFocus
+                          disabled={busy || nodeNameSaving}
+                          value={nodeNameDraft}
+                          onChange={(event) => setNodeNameDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              void saveNodeNameEdit();
+                            }
+                            if (event.key === "Escape") {
+                              event.preventDefault();
+                              cancelNodeNameEdit();
+                            }
+                          }}
+                        />
+                        <button
+                          className="route-name-save"
+                          type="button"
+                          disabled={busy || nodeNameSaving}
+                          onClick={() => void saveNodeNameEdit()}
+                        >
+                          {nodeNameSaving ? "保存中" : "保存"}
+                        </button>
+                        <button
+                          className="route-name-cancel"
+                          type="button"
+                          disabled={busy || nodeNameSaving}
+                          onClick={cancelNodeNameEdit}
+                        >
+                          取消
+                        </button>
+                        {nodeNameError && <small className="field-error">{nodeNameError}</small>}
+                      </div>
+                    ) : (
+                      <div className="route-name-display">
+                        <strong>{node.name}</strong>
+                        {node.role !== "AIRPORT" && node.role !== "DESTINATION" && (
+                          <button
+                            className="route-name-edit"
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setEditingNodeId(node.id);
+                              setNodeNameDraft(node.name);
+                              setNodeNameError(null);
+                            }}
+                          >
+                            編集
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className={hasAltitudeCandidateWarning ? "altitude-warning-cell" : ""}>
                     {section && fixedLabels ? (

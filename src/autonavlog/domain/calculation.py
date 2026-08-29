@@ -45,6 +45,8 @@ class SectionResult(CalculationModel):
     phase: FlightPhase
     from_name: str
     to_name: str
+    from_node_id: UUID | None = None
+    to_node_id: UUID | None = None
     from_latitude_deg: float | None = Field(default=None, ge=-90, le=90)
     from_longitude_deg: float | None = Field(default=None, ge=-180, le=180)
     to_latitude_deg: float | None = Field(default=None, ge=-90, le=90)
@@ -168,6 +170,8 @@ class NavLogDisplayRow(CalculationModel):
     )
     from_name: str = ""
     to_name: str = ""
+    from_node_id: UUID | None = None
+    to_node_id: UUID | None = None
     from_latitude_deg: float | None = Field(default=None, ge=-90, le=90)
     from_longitude_deg: float | None = Field(default=None, ge=-180, le=180)
     to_latitude_deg: float | None = Field(default=None, ge=-90, le=90)

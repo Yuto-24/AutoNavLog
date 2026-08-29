@@ -1089,6 +1089,142 @@ test("mobile route confirmation follows the map without scrolling back", async (
   expect(overflow).toBeLessThanOrEqual(1);
 });
 
+test("route-node inline rename reprojects the current table, map, and NAV LOG", async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  const consoleErrors: string[] = [];
+  const calculationRequests: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  page.on("request", (request) => {
+    if (request.url().includes("/api/calculation")) calculationRequests.push(request.url());
+  });
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.goto("/");
+  await calculateNavLog(page, false);
+  calculationRequests.length = 0;
+
+  const before = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  const vrep = before.project?.route_nodes.find(
+    (node) => node.role === "VISUAL_REPORTING_POINT",
+  );
+  if (vrep === undefined || before.outcome === null) {
+    throw new Error("Calculated VREP route node is missing");
+  }
+  const routeRow = page.locator(".route-table tbody tr.vrep-row");
+  const nameInput = routeRow.locator(".route-name-editor input");
+
+  await routeRow.getByRole("button", { name: "編集" }).click();
+  await nameInput.fill("取り消す名称");
+  await nameInput.press("Escape");
+  await expect(nameInput).toHaveCount(0);
+  await expect(routeRow.locator("strong")).toHaveText(vrep.name);
+
+  await routeRow.getByRole("button", { name: "編集" }).click();
+  await nameInput.fill("   ");
+  await nameInput.press("Enter");
+  await expect(routeRow.getByText("名称を入力してください。", { exact: true })).toBeVisible();
+  await routeRow.getByRole("button", { name: "取消" }).click();
+
+  let releaseRename = () => {};
+  const renameHeld = new Promise<void>((resolve) => {
+    releaseRename = resolve;
+  });
+  await page.route("**/api/project/route-nodes/*/name", async (route) => {
+    await renameHeld;
+    await route.continue();
+  }, { times: 1 });
+  await routeRow.getByRole("button", { name: "編集" }).click();
+  const renamedName = "訓練 / VREP";
+  const response = page.waitForResponse(
+    (item) => item.request().method() === "PUT"
+      && item.url().includes(`/api/project/route-nodes/${vrep.id}/name`),
+  );
+  await nameInput.fill(renamedName);
+  await nameInput.press("Enter");
+  await expect(nameInput).toBeDisabled();
+  await expect(routeRow.getByRole("button", { name: "保存中" })).toBeDisabled();
+  await expect(routeRow.getByRole("button", { name: "取消" })).toBeDisabled();
+  releaseRename();
+  expect((await response).ok()).toBe(true);
+  await expect(routeRow.locator("strong")).toHaveText(renamedName);
+
+  const renamed = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  if (renamed.outcome === null) throw new Error("renamed outcome is missing");
+  const withoutLabels = (outcome: NonNullable<WebState["outcome"]>) => {
+    const copy = structuredClone(outcome);
+    for (const section of copy.sections) {
+      delete section.from_name;
+      delete section.to_name;
+    }
+    for (const row of copy.display_rows) {
+      delete row.from_name;
+      delete row.to_name;
+    }
+    return copy;
+  };
+  expect(withoutLabels(renamed.outcome)).toEqual(withoutLabels(before.outcome));
+  expect(renamed.readiness.calculationIsCurrent).toBe(true);
+  expect(calculationRequests).toEqual([]);
+  await expect(
+    page.locator("#route-map-frame .leaflet-tooltip").filter({
+      hasText: `${renamedName} (VREP)`,
+    }),
+  ).toBeVisible();
+  const navLogLabels = renamed.outcome.display_rows
+    .filter((row) => row.to_node_id === vrep.id)
+    .map((row) => row.to_name)
+    .filter((name) => name === renamedName || name.startsWith(`${renamedName} / `));
+  expect(navLogLabels.length).toBeGreaterThan(0);
+  for (const label of navLogLabels) {
+    await expect(
+      page.locator(".nav-log-table .route-to-cell", { hasText: label }).first(),
+    ).toHaveText(label);
+  }
+
+  for (const width of [390, 1100, 1440] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    const [input, route, status, navLog] = await Promise.all([
+      page.locator(".input-rail").boundingBox(),
+      page.locator(".route-workspace").boundingBox(),
+      page.locator(".status-rail").boundingBox(),
+      page.getByLabel("計算済みNAV LOG").boundingBox(),
+    ]);
+    if (!input || !route || !status || !navLog) {
+      throw new Error(`Route-name workflow layout is missing at ${width}px`);
+    }
+    if (width <= 1240) {
+      expect(route.y).toBeGreaterThanOrEqual(input.y + input.height - 1);
+      expect(status.y).toBeGreaterThanOrEqual(route.y + route.height - 1);
+      expect(navLog.y).toBeGreaterThanOrEqual(status.y + status.height - 1);
+    } else {
+      expect(route.x).toBeGreaterThanOrEqual(input.x + input.width - 1);
+      expect(status.x).toBeGreaterThanOrEqual(route.x + route.width - 1);
+      expect(Math.abs(route.y - input.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(status.y - input.y)).toBeLessThanOrEqual(1);
+    }
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+    ).toBeLessThanOrEqual(1);
+  }
+  await page.screenshot({ path: "/tmp/autonavlog-route-node-rename.png", fullPage: false });
+  expect(pageErrors).toEqual([]);
+  expect(
+    consoleErrors.filter((message) => !message.includes("401 (Unauthorized)")),
+  ).toEqual([]);
+});
+
 test("responsive workflow keeps a one-way order at intermediate width", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));

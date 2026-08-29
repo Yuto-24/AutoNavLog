@@ -57,6 +57,7 @@ export interface RouteNode {
   id: string;
   sequence: number;
   name: string;
+  name_source: "IMPORTED" | "GENERATED" | "USER";
   latitude_deg: number;
   longitude_deg: number;
   role: string;
@@ -156,6 +157,8 @@ export interface SectionResult {
   phase: FlightPhase;
   from_name: string;
   to_name: string;
+  from_node_id: string | null;
+  to_node_id: string | null;
   from_latitude_deg?: number | null;
   from_longitude_deg?: number | null;
   to_latitude_deg?: number | null;
@@ -210,6 +213,8 @@ export interface NavLogDisplayRow {
     | "LEG_SEPARATOR";
   from_name: string;
   to_name: string;
+  from_node_id: string | null;
+  to_node_id: string | null;
   from_latitude_deg?: number | null;
   from_longitude_deg?: number | null;
   to_latitude_deg?: number | null;

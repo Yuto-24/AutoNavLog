@@ -38,6 +38,8 @@ class PhysicalRouteLeg:
     end_latitude_deg: float
     end_longitude_deg: float
     adopted_distance_nm: float
+    start_node_id: UUID | None = None
+    end_node_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,7 @@ class SegmentPoint:
     longitude_deg: float
     along_route_distance_nm: float
     source_name: str | None = None
+    source_node_id: UUID | None = None
     markers: tuple[str, ...] = ()
 
 
@@ -401,16 +404,19 @@ def _point_at_distance(
         None,
     )
     source_name: str | None = None
+    source_node_id: UUID | None = None
     if physical_index is not None:
         if physical_index == 0:
             latitude = legs[0].start_latitude_deg
             longitude = legs[0].start_longitude_deg
             source_name = legs[0].start_name
+            source_node_id = legs[0].start_node_id
         else:
             leg = legs[physical_index - 1]
             latitude = leg.end_latitude_deg
             longitude = leg.end_longitude_deg
             source_name = leg.end_name
+            source_node_id = leg.end_node_id
     else:
         leg_index = min(
             bisect_right(starts, distance_nm) - 1,
@@ -452,6 +458,7 @@ def _point_at_distance(
         longitude_deg=longitude,
         along_route_distance_nm=distance_nm,
         source_name=source_name,
+        source_node_id=source_node_id,
         markers=marker_tuple,
     )
 
