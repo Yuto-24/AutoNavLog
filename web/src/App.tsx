@@ -43,6 +43,17 @@ interface PendingKmz {
 type ActiveOperation = "calculate" | null;
 const ROUTE_EDITOR_VREP_REASON = "経路画面で指定したVREP計画高度";
 
+function patternRequestBasis(next: WebState): string | null {
+  const project = next.project;
+  if (!project) return null;
+  return [
+    project.id,
+    project.destination_airport_id,
+    project.route_nodes.map((node) => node.id + ":" + node.sequence).join(","),
+    project.metadata.ui_state?.arrival_plan?.visual_reporting_point_node_id ?? "",
+  ].join("|");
+}
+
 function App() {
   const api = useMemo(() => new ApiClient(), []);
   const [state, setState] = useState<WebState | null>(null);
@@ -79,6 +90,12 @@ function App() {
   const navLogDraftsRef = useRef<NavLogEditDrafts>({});
   const projectIdRef = useRef<string | null | undefined>(undefined);
   const navLogRecalculationRef = useRef<Promise<void>>(Promise.resolve());
+  const destinationPatternGenerationRef = useRef(0);
+  const destinationPatternBasisRef = useRef<string | null | undefined>(undefined);
+  const destinationPatternRecalculationRef = useRef<Promise<void>>(Promise.resolve());
+  const updatePayloadRef = useRef<(
+    sectionOverrides?: NavSection[], selectedPatternAltitudeFtMsl?: number,
+  ) => Record<string, unknown>>(() => ({}));
   const altitudeGuidanceBySection = useMemo(
     () => new Map(
       (state?.altitudeGuidance.sections ?? []).map((guidance) => [
@@ -98,6 +115,11 @@ function App() {
     return calculationInputGenerationRef.current;
   };
 
+  const invalidateDestinationPatternRequests = () => {
+    destinationPatternGenerationRef.current += 1;
+    return destinationPatternGenerationRef.current;
+  };
+
   const cancelPendingRecalculation = () => {
     calculationInputGenerationRef.current += 1;
     navLogEditPendingRef.current = false;
@@ -113,16 +135,22 @@ function App() {
     options: { syncCalculationInputs?: boolean; freshImport?: boolean } = {},
   ) => {
     const nextProjectId = next.project?.id ?? null;
+    const nextPatternBasis = patternRequestBasis(next);
+    const patternBasisChanged = destinationPatternBasisRef.current !== nextPatternBasis;
     const initialState = projectIdRef.current === undefined;
     const projectChanged =
       !initialState && projectIdRef.current !== nextProjectId;
     const syncCalculationInputs =
       options.syncCalculationInputs || initialState || projectChanged;
+    if (syncCalculationInputs || patternBasisChanged) {
+      invalidateDestinationPatternRequests();
+    }
     if (syncCalculationInputs) {
       setCalculationInputsAreLocallyCurrent(true);
     }
     if (projectChanged) cancelPendingRecalculation();
     projectIdRef.current = nextProjectId;
+    destinationPatternBasisRef.current = nextPatternBasis;
     if (projectChanged || initialState) {
       setProjectName(next.project?.name ?? "未保存の新規作業");
     }
@@ -317,6 +345,7 @@ function App() {
     contentBase64: string,
     kmzDocument?: string,
   ) => {
+    invalidateDestinationPatternRequests();
     try {
       const next = await api.request<WebState>("/api/import", {
         method: "POST",
@@ -348,6 +377,7 @@ function App() {
   };
 
   const handlePasteImport = async () => {
+    invalidateDestinationPatternRequests();
     const imported = await run(
       async () =>
         api.request<WebState>("/api/import", {
@@ -392,6 +422,7 @@ function App() {
       return;
     }
     cancelPendingRecalculation();
+    invalidateDestinationPatternRequests();
     const confirmed = await run(
       () =>
         api.request<WebState>("/api/route/confirm", {
@@ -417,7 +448,7 @@ function App() {
             use_penultimate_as_vrep: form.usePenultimateAsVrep,
           },
         }),
-      "経路を確定しました。目的空港と場周経路高度を確認してください。",
+      "経路を確定し、目的空港の場周経路高度を適用しました。",
       { syncCalculationInputs: true },
     );
     if (confirmed?.project) {
@@ -431,39 +462,6 @@ function App() {
           ]),
         ),
       );
-    }
-  };
-
-  const handleConfirmDestination = async () => {
-    if (!state?.project) return;
-    const selectedPatternAltitude = patternAltitudeFtMsl(
-      form.destinationPatternAltitudeFtMsl,
-    );
-    if (selectedPatternAltitude === null) {
-      setError("場周経路高度は100～25,000 ftの範囲で100 ft単位にしてください。");
-      return;
-    }
-    cancelPendingRecalculation();
-    const confirmed = await run(
-      () =>
-        api.request<WebState>("/api/destination/confirm", {
-          method: "POST",
-          body: {
-            selected_pattern_altitude_ft_msl: selectedPatternAltitude,
-          },
-        }),
-      "目的空港と今回採用する場周経路高度を確定しました。",
-    );
-    const confirmedProject = confirmed?.project;
-    if (confirmedProject) {
-      setAltitudeInputs((current) => ({
-        ...current,
-        ...Object.fromEntries(
-          confirmedProject.sections
-            .filter((section) => section.phase === "VISUAL_ARRIVAL")
-            .map((section) => [section.id, String(section.planned_altitude_ft_msl)]),
-        ),
-      }));
     }
   };
 
@@ -558,7 +556,10 @@ function App() {
     applyState(next, { syncCalculationInputs: false });
   };
 
-  const updatePayload = (sectionOverrides?: NavSection[]) => {
+  const updatePayload = (
+    sectionOverrides?: NavSection[],
+    selectedPatternAltitudeFtMsl?: number,
+  ) => {
     const payloadSections = sectionOverrides ?? state?.project?.sections ?? [];
     if (!state?.project) throw new Error("Projectがありません。");
     const canonicalSections = new Map(
@@ -641,11 +642,89 @@ function App() {
         };
       }),
       visual_reporting_point_node_id: arrival?.visual_reporting_point_node_id ?? fallbackVrep,
+      selected_pattern_altitude_ft_msl: selectedPatternAltitudeFtMsl,
       arrival_altitude_mode: arrival?.altitude_mode ?? "STANDARD_DISTANCE_RULE",
       manual_vrep_altitude_ft_msl: arrival?.manual_vrep_altitude_ft_msl ?? null,
       manual_vrep_reason: arrival?.manual_override_reason ?? null,
     };
   };
+
+  updatePayloadRef.current = updatePayload;
+
+  const destinationPatternProjectBasis = state ? patternRequestBasis(state) : null;
+  const destinationPatternProjectId = state?.project?.id ?? null;
+  const destinationPatternDestinationId = state?.project?.destination_airport_id ?? null;
+  const destinationPatternApplied = state?.project?.metadata.ui_state?.arrival_plan
+    ?.selected_pattern_altitude_ft_msl ?? null;
+  const destinationPatternElevation = state?.airports.find(
+    (airport) => airport.id === destinationPatternDestinationId,
+  )?.elevationFtMsl ?? null;
+  const destinationPatternRecalculates = Boolean(state?.outcome);
+
+  useEffect(() => {
+    const selectedPattern = patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl);
+    if (
+      destinationPatternProjectBasis === null ||
+      destinationPatternProjectId === null ||
+      destinationPatternDestinationId === null ||
+      selectedPattern === null ||
+      (destinationPatternElevation !== null && selectedPattern <= destinationPatternElevation) ||
+      selectedPattern === destinationPatternApplied
+    ) return;
+    const requestGeneration = destinationPatternGenerationRef.current;
+    const requestBasis = destinationPatternProjectBasis;
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      destinationPatternRecalculationRef.current =
+        destinationPatternRecalculationRef.current.then(async () => {
+          if (
+            cancelled ||
+            requestGeneration !== destinationPatternGenerationRef.current ||
+            requestBasis !== destinationPatternBasisRef.current
+          ) return;
+          try {
+            const next = await api.request<WebState>(
+              destinationPatternRecalculates ? "/api/project/recalculate" : "/api/project",
+              {
+                method: destinationPatternRecalculates ? "POST" : "PUT",
+                body: updatePayloadRef.current(undefined, selectedPattern),
+              },
+            );
+            if (
+              cancelled ||
+              requestGeneration !== destinationPatternGenerationRef.current ||
+              requestBasis !== destinationPatternBasisRef.current ||
+              patternRequestBasis(next) !== requestBasis
+            ) return;
+            applyState(next, { syncCalculationInputs: true });
+          } catch (reason) {
+            if (
+              cancelled ||
+              requestGeneration !== destinationPatternGenerationRef.current ||
+              requestBasis !== destinationPatternBasisRef.current
+            ) return;
+            setError(
+              reason instanceof Error
+                ? reason.message
+                : "場周経路高度を更新できませんでした。",
+            );
+          }
+        });
+    }, 600);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [
+    api,
+    destinationPatternApplied,
+    destinationPatternDestinationId,
+    destinationPatternElevation,
+    destinationPatternProjectBasis,
+    destinationPatternProjectId,
+    destinationPatternRecalculates,
+    form.destinationPatternAltitudeFtMsl,
+  ]);
 
   const handleNavLogEdit = (
     sectionId: string,
@@ -798,6 +877,7 @@ function App() {
   const handleLoad = async () => {
     if (!selectedProjectId) return;
     cancelPendingRecalculation();
+    invalidateDestinationPatternRequests();
     await run(
       () =>
         api.request<WebState>("/api/projects/load", {
@@ -816,6 +896,7 @@ function App() {
       return;
     }
     cancelPendingRecalculation();
+    invalidateDestinationPatternRequests();
     const deleted = await runTask(
       () => api.request<WebState>(`/api/projects/${encodeURIComponent(selectedProjectId)}`, {
         method: "DELETE",
@@ -833,6 +914,7 @@ function App() {
       return;
     }
     cancelPendingRecalculation();
+    invalidateDestinationPatternRequests();
     const reset = await runTask(
       async () => {
         await api.resetSession();
@@ -884,16 +966,27 @@ function App() {
     (airport) => airport.id === form.departureAirportId,
   ) ?? null;
   const selectedArrival = state.project?.metadata.ui_state?.arrival_plan ?? null;
-  const destinationConfirmed = Boolean(
+  const destinationPatternAltitude = patternAltitudeFtMsl(
+    form.destinationPatternAltitudeFtMsl,
+  );
+  const validDestinationPatternAltitude = (
+    destinationPatternAltitude !== null &&
+    (selectedDestinationAirport === null ||
+      destinationPatternAltitude > selectedDestinationAirport.elevationFtMsl)
+  ) ? destinationPatternAltitude : null;
+  const destinationApplied = Boolean(
     state.project &&
       selectedArrival?.selected_pattern_altitude_ft_msl !== null &&
       selectedArrival?.selected_pattern_altitude_ft_msl !== undefined &&
       selectedArrival.selected_pattern_altitude_source &&
       state.project.destination_airport_id === form.destinationAirportId &&
       state.project.departure_airport_id === form.departureAirportId &&
-      selectedArrival.selected_pattern_altitude_ft_msl ===
-        patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl),
+      selectedArrival.selected_pattern_altitude_ft_msl === validDestinationPatternAltitude,
   );
+  const hasCalculationBlocker = state.readiness.issues.some(
+    (issue) => issue.severity === "BLOCKER" && issue.code !== "RECALCULATION_REQUIRED",
+  );
+  const canCalculate = destinationApplied && !hasCalculationBlocker;
   const validFtdWeather = ftdWeatherSettings(form);
   const canConfirmRoute = Boolean(
     selectedCandidate &&
@@ -974,12 +1067,13 @@ function App() {
           polygonRouteConfirmed={form.polygonRouteConfirmed}
           canConfirmRoute={canConfirmRoute}
           onAltitudeInputChange={handleAltitudeInputChange}
-          onDestinationPatternAltitudeChange={(value) =>
+          onDestinationPatternAltitudeChange={(value) => {
+            invalidateDestinationPatternRequests();
             setTrackedForm((current) => ({
               ...current,
               destinationPatternAltitudeFtMsl: value,
-            }))
-          }
+            }));
+          }}
           onSectionChange={handleSectionChange}
           onRenameRouteNode={handleRenameRouteNode}
           onRouteUseConfirmedChange={(checked) =>
@@ -999,14 +1093,11 @@ function App() {
           readiness={state.readiness}
           projectExists={Boolean(state.project)}
           weatherMode={state.project?.weather_mode ?? form.weatherMode}
-          canCalculate={destinationConfirmed}
-          destinationConfirmed={destinationConfirmed}
-          destinationReady={patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl) !== null}
+          canCalculate={canCalculate}
           outcomeExists={Boolean(state.outcome)}
           busy={busy}
           activeOperation={activeOperation}
           onCalculate={handleCalculate}
-          onConfirmDestination={handleConfirmDestination}
           onAcknowledge={handleAcknowledge}
         />
       </main>
