@@ -119,7 +119,8 @@ async def test_web_import_exposes_four_connected_candidates_and_records_selectio
         assert len(project["route_nodes"]) == 8
         assert project["route_nodes"][0]["name"] == "RJFM"
         assert project["route_nodes"][-1]["name"] == "RJFO"
-        assert project["route_nodes"][1]["name"].startswith("変針点 UMK")
+        assert project["route_nodes"][1]["name"] == "UMK"
+        assert project["route_nodes"][1]["name_source"] == "GENERATED"
         assert project["route_nodes"][1]["source"] == "KML/KMZ Point"
         assert project["metadata"]["web_import_container_path"] == [
             "大分経路",
