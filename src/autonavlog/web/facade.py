@@ -1108,7 +1108,7 @@ class AutoNavLogWebApplication:
             generation = self._projects_generation
         owned = [
             summary
-            for summary in self.project_service.delete_expired_projects()
+            for summary in self.project_service.list_projects()
             if isinstance(summary.web_owner_id, str)
             and _owner_ids_match(summary.web_owner_id, session.owner_id)
         ]

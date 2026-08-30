@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from autonavlog.domain.calculation import CalculationOutcome
@@ -11,14 +10,8 @@ from autonavlog.storage.repository import ProjectRepository, ProjectSummary, Sav
 
 
 class ProjectService:
-    def __init__(
-        self,
-        repository: ProjectRepository,
-        *,
-        clock: Callable[[], datetime] | None = None,
-    ):
+    def __init__(self, repository: ProjectRepository):
         self.repository = repository
-        self._clock = clock or (lambda: datetime.now(UTC))
 
     def create(
         self,
@@ -50,25 +43,6 @@ class ProjectService:
 
     def list_projects(self) -> list[ProjectSummary]:
         return self.repository.list_projects()
-
-    def delete_expired_projects(self) -> list[ProjectSummary]:
-        now = self._clock()
-        if now.tzinfo is None:
-            raise ValueError("clock must return a timezone-aware datetime")
-        active: list[ProjectSummary] = []
-        for summary in self.repository.list_projects():
-            try:
-                project = self.repository.load(summary.id)
-            except (FileNotFoundError, ValueError):
-                continue
-            if project.planned_departure_time_jst < now:
-                try:
-                    self.repository.delete(summary.id)
-                except FileNotFoundError:
-                    pass
-            else:
-                active.append(summary)
-        return active
 
     def delete(self, project_id: UUID) -> None:
         self.repository.delete(project_id)
