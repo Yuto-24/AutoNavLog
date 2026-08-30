@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from math import isfinite
 from secrets import compare_digest, token_urlsafe
 from threading import RLock
 from typing import Any
@@ -43,7 +42,6 @@ from autonavlog.domain.enums import (
 from autonavlog.domain.planning import (
     ArrivalAltitudeMode,
     ArrivalPlan,
-    PatternAltitudeValidationStatus,
     PersistedUiState,
     ReferenceDataSnapshot,
     load_persisted_ui_state,
@@ -90,7 +88,6 @@ from .cruising_altitude import (
     vfr_cruising_altitude_candidates,
 )
 from .models import (
-    ConfirmDestinationRequest,
     ConfirmRouteRequest,
     ReplaceCheckPointsRequest,
     SaveProjectRequest,
@@ -105,7 +102,7 @@ ROUTE_EDITOR_VREP_REASON = "経路画面で指定したVREP計画高度"
 ISSUE_ACTIONS: dict[str, str] = {
     "AIRPORT_DATA_UNAVAILABLE": "参照データとFROM/TOを確認してください。",
     "PATTERN_ALTITUDE_REQUIRED": (
-        "目的空港のmaster値を確認し、今回採用する場周経路高度を確定してください。"
+        "目的空港のmaster値と今回採用する場周経路高度を確認してください。"
     ),
     "PERFORMANCE_DATA_UNAVAILABLE": "検証済み性能データを読み込んでください。",
     "PERFORMANCE_DATA_UNVERIFIED": "性能データの版とSHA-256を確認してください。",
@@ -357,8 +354,9 @@ class AutoNavLogWebApplication:
                     destination_airport=destination,
                 ),
                 arrival_plan=(
-                    ArrivalPlan(
-                        visual_reporting_point_node_id=project.ordered_nodes()[-2].id,
+                    self._automatic_arrival_plan(
+                        project.ordered_nodes()[-2].id,
+                        destination,
                     )
                     if request.use_penultimate_as_vrep and len(project.route_nodes) >= 3
                     else None
@@ -371,193 +369,6 @@ class AutoNavLogWebApplication:
             materialized = session.readiness_service.evaluate(project, None)
             session.project = materialized.project
             session.outcome = materialized.outcome
-            session.readiness = materialized.evaluation
-            return self.present(session)
-
-    def confirm_destination(
-        self,
-        session: WebSession,
-        request: ConfirmDestinationRequest,
-    ) -> dict[str, Any]:
-        with session.lock:
-            if session.project is None:
-                raise WebApplicationError(
-                    "PROJECT_REQUIRED",
-                    "先に経路を確定してください。",
-                )
-            try:
-                departure = self.reference_catalog.airports[
-                    session.project.departure_airport_id
-                ]
-                destination = self.reference_catalog.airports[
-                    session.project.destination_airport_id
-                ]
-            except KeyError as error:
-                raise WebApplicationError(
-                    "AIRPORT_NOT_FOUND",
-                    "選択空港がactive参照データにありません。",
-                ) from error
-            if (
-                destination.pattern_altitude_validation_status
-                != PatternAltitudeValidationStatus.VERIFIED
-            ):
-                raise WebApplicationError(
-                    "PATTERN_ALTITUDE_REQUIRED",
-                    "目的空港のmaster場周経路高度が未検証です。",
-                )
-            selected_pattern = request.selected_pattern_altitude_ft_msl
-            if selected_pattern <= destination.elevation_ft_msl:
-                raise WebApplicationError(
-                    "PATTERN_ALTITUDE_REQUIRED",
-                    "採用場周経路高度は目的空港標高より高くしてください。",
-                )
-            working = session.project.model_copy(deep=True)
-            ordered = working.ordered_nodes()
-            if len(ordered) < 3:
-                raise WebApplicationError(
-                    "ROUTE_INCOMPLETE",
-                    "VREPを含む3点以上の経路を先に確定してください。",
-                )
-            departure_endpoint = ordered[0]
-            original_departure_coordinate = working.metadata.get(
-                "web_original_departure_coordinate"
-            )
-            if (
-                isinstance(original_departure_coordinate, list)
-                and len(original_departure_coordinate) == 2
-                and all(
-                    type(value) in (int, float) and isfinite(float(value))
-                    for value in original_departure_coordinate
-                )
-                and -90 <= float(original_departure_coordinate[0]) <= 90
-                and -180 <= float(original_departure_coordinate[1]) <= 180
-            ):
-                route_departure = (
-                    float(original_departure_coordinate[0]),
-                    float(original_departure_coordinate[1]),
-                )
-            else:
-                route_departure = (
-                    departure_endpoint.latitude_deg,
-                    departure_endpoint.longitude_deg,
-                )
-                working.metadata["web_original_departure_coordinate"] = list(route_departure)
-            endpoint = ordered[-1]
-            original_coordinate = working.metadata.get("web_original_destination_coordinate")
-            if (
-                isinstance(original_coordinate, list)
-                and len(original_coordinate) == 2
-                and all(
-                    type(value) in (int, float) and isfinite(float(value))
-                    for value in original_coordinate
-                )
-                and -90 <= float(original_coordinate[0]) <= 90
-                and -180 <= float(original_coordinate[1]) <= 180
-            ):
-                route_endpoint = (
-                    float(original_coordinate[0]),
-                    float(original_coordinate[1]),
-                )
-            else:
-                # v2.7.2以前のProjectには元KML終点がないため、保存済みRoute終点を
-                # 移行元として記録し、5 NM検証を省略しない。
-                route_endpoint = (endpoint.latitude_deg, endpoint.longitude_deg)
-                working.metadata["web_original_destination_coordinate"] = list(route_endpoint)
-            if self._distance_to_airport(route_departure, departure) > 5:
-                raise WebApplicationError(
-                    "ROUTE_AIRPORT_ENDPOINT_MISMATCH",
-                    "KML始点から5 NM以内の出発空港を選択してください。",
-                )
-            if self._distance_to_airport(route_endpoint, destination) > 5:
-                raise WebApplicationError(
-                    "ROUTE_AIRPORT_ENDPOINT_MISMATCH",
-                    "KML終点から5 NM以内の目的空港を選択してください。",
-                )
-            state = self.project_service.ui_state(working)
-            snapshot = state.reference_data_snapshot
-            if snapshot is None:
-                raise WebApplicationError(
-                    "AIRPORT_DATA_UNAVAILABLE",
-                    "FROM/TOの参照snapshotを再作成してください。",
-                )
-            endpoint.name = destination.icao
-            endpoint.latitude_deg = destination.latitude_deg
-            departure_endpoint.name = departure.icao
-            departure_endpoint.latitude_deg = departure.latitude_deg
-            departure_endpoint.longitude_deg = departure.longitude_deg
-            departure_endpoint.role = RouteNodeRole.AIRPORT
-            departure_endpoint.source = f"REFERENCE:{departure.source_revision}"
-            endpoint.longitude_deg = destination.longitude_deg
-            endpoint.role = RouteNodeRole.DESTINATION
-            endpoint.source = f"REFERENCE:{destination.source_revision}"
-            current_plan = state.arrival_plan
-            vrep = ordered[-2]
-            vrep.role = RouteNodeRole.VISUAL_REPORTING_POINT
-            selected_source = (
-                AdoptedSource.AUTOMATIC
-                if selected_pattern == destination.pattern_altitude_ft_msl
-                else AdoptedSource.MANUAL
-            )
-            plan = ArrivalPlan(
-                visual_reporting_point_node_id=vrep.id,
-                selected_pattern_altitude_ft_msl=selected_pattern,
-                selected_pattern_altitude_source=selected_source,
-                altitude_mode=(
-                    current_plan.altitude_mode
-                    if current_plan is not None
-                    else ArrivalAltitudeMode.STANDARD_DISTANCE_RULE
-                ),
-                manual_vrep_altitude_ft_msl=(
-                    None if current_plan is None else current_plan.manual_vrep_altitude_ft_msl
-                ),
-                manual_override_reason=(
-                    None if current_plan is None else current_plan.manual_override_reason
-                ),
-            )
-            updated_snapshot = snapshot.model_copy(
-                deep=True,
-                update={
-                    "departure_airport": departure,
-                    "destination_airport": destination,
-                },
-            )
-            self.project_service.set_ui_state(
-                working,
-                state.model_copy(
-                    update={
-                        "arrival_plan": plan,
-                        "reference_data_snapshot": updated_snapshot,
-                    }
-                ),
-                reconfirmed=True,
-            )
-            self._normalize_rjfm_departure(working)
-            if working.sections:
-                distance_nm = geodesic_leg(
-                    vrep.latitude_deg,
-                    vrep.longitude_deg,
-                    destination.latitude_deg,
-                    destination.longitude_deg,
-                ).distance_nm
-                working.sections[-1].phase = FlightPhase.VISUAL_ARRIVAL
-                if plan.altitude_mode == ArrivalAltitudeMode.MANUAL_NON_STANDARD_ENTRY:
-                    manual_altitude = plan.manual_vrep_altitude_ft_msl
-                    if manual_altitude is None:
-                        raise WebApplicationError(
-                            "PROJECT_STATE_INVALID",
-                            "変則EntryのVREP高度を再入力してください。",
-                        )
-                    working.sections[-1].planned_altitude_ft_msl = manual_altitude
-                else:
-                    working.sections[-1].planned_altitude_ft_msl = standard_vrep_altitude_ft_msl(
-                        distance_nm, selected_pattern
-                    )
-            if len(working.sections) >= 2:
-                working.sections[-2].phase = FlightPhase.DESCENT
-            materialized = session.readiness_service.evaluate(working, None)
-            session.project = materialized.project
-            session.outcome = None
-            session.destination_wind = None
             session.readiness = materialized.evaluation
             return self.present(session)
 
@@ -850,7 +661,7 @@ class AutoNavLogWebApplication:
         ):
             raise WebApplicationError(
                 "PATTERN_ALTITUDE_REQUIRED",
-                "目的空港と今回採用する場周経路高度を先に確定してください。",
+                "目的空港のmaster値と今回採用する場周経路高度を確認してください。",
                 status_code=409,
             )
         if project.weather_mode == "FTD":
@@ -1774,6 +1585,26 @@ class AutoNavLogWebApplication:
             float(airport.longitude_deg),
         ).distance_nm
 
+
+    def _automatic_arrival_plan(
+        self,
+        vrep_id: UUID,
+        destination: Any,
+    ) -> ArrivalPlan:
+        master = float(destination.pattern_altitude_ft_msl)
+        selected_pattern = (
+            int(master)
+            if master.is_integer() and 100 <= master <= 25_000 and int(master) % 100 == 0
+            else None
+        )
+        return ArrivalPlan(
+            visual_reporting_point_node_id=vrep_id,
+            selected_pattern_altitude_ft_msl=selected_pattern,
+            selected_pattern_altitude_source=(
+                AdoptedSource.AUTOMATIC if selected_pattern is not None else None
+            ),
+        )
+
     def _install_route(
         self,
         project: Project,
@@ -1810,16 +1641,19 @@ class AutoNavLogWebApplication:
         visual_altitude = altitude_ft_msl
         if use_penultimate_as_vrep and len(project.route_nodes) >= 3:
             vrep = project.route_nodes[-2]
-            vrep_distance_nm = geodesic_leg(
-                vrep.latitude_deg,
-                vrep.longitude_deg,
-                float(destination.latitude_deg),
-                float(destination.longitude_deg),
-            ).distance_nm
-            visual_altitude = standard_vrep_altitude_ft_msl(
-                vrep_distance_nm,
-                float(destination.pattern_altitude_ft_msl),
-            )
+            plan = self._automatic_arrival_plan(vrep.id, destination)
+            selected_pattern = plan.selected_pattern_altitude_ft_msl
+            if selected_pattern is not None:
+                vrep_distance_nm = geodesic_leg(
+                    vrep.latitude_deg,
+                    vrep.longitude_deg,
+                    float(destination.latitude_deg),
+                    float(destination.longitude_deg),
+                ).distance_nm
+                visual_altitude = standard_vrep_altitude_ft_msl(
+                    vrep_distance_nm,
+                    selected_pattern,
+                )
         project.sections = [
             NavSection(
                 sequence=index,
@@ -1864,7 +1698,15 @@ class AutoNavLogWebApplication:
     ) -> None:
         state = project.metadata.get("ui_state")
         current = PersistedUiState() if state is None else self.project_service.ui_state(project)
-        vrep_id = request.visual_reporting_point_node_id
+        vrep_id = (
+            request.visual_reporting_point_node_id
+            if request.visual_reporting_point_node_id is not None
+            else (
+                None
+                if current.arrival_plan is None
+                else current.arrival_plan.visual_reporting_point_node_id
+            )
+        )
         for index, node in enumerate(project.route_nodes):
             if node.role == RouteNodeRole.VISUAL_REPORTING_POINT:
                 node.role = RouteNodeRole.ROUTE_POINT
@@ -1885,58 +1727,83 @@ class AutoNavLogWebApplication:
                 project.sections[-1].phase = FlightPhase.VISUAL_ARRIVAL
             if len(project.sections) >= 2:
                 project.sections[-2].phase = FlightPhase.DESCENT
+
+            snapshot = current.reference_data_snapshot
             current_plan = current.arrival_plan
+            selected_pattern = request.selected_pattern_altitude_ft_msl
+            destination = None if snapshot is None else snapshot.destination_airport
+            if selected_pattern is None and current_plan is not None:
+                selected_pattern = current_plan.selected_pattern_altitude_ft_msl
+            if selected_pattern is None and destination is not None:
+                selected_pattern = self._automatic_arrival_plan(
+                    vrep_id,
+                    destination,
+                ).selected_pattern_altitude_ft_msl
+            if destination is None:
+                selected_pattern = None
+                selected_source = None
+            else:
+                if (
+                    selected_pattern is not None
+                    and selected_pattern <= destination.elevation_ft_msl
+                ):
+                    raise WebApplicationError(
+                        "PATTERN_ALTITUDE_REQUIRED",
+                        "採用場周経路高度は目的空港標高より高くしてください。",
+                    )
+                selected_source = (
+                    None
+                    if selected_pattern is None
+                    else (
+                        AdoptedSource.AUTOMATIC
+                        if selected_pattern == destination.pattern_altitude_ft_msl
+                        else AdoptedSource.MANUAL
+                    )
+                )
+
             altitude_mode = request.arrival_altitude_mode
             manual_vrep_altitude = request.manual_vrep_altitude_ft_msl
             manual_vrep_reason = request.manual_vrep_reason
-            if altitude_mode == ArrivalAltitudeMode.STANDARD_DISTANCE_RULE:
-                snapshot = current.reference_data_snapshot
-                selected_pattern = (
-                    None
-                    if current_plan is None
-                    else current_plan.selected_pattern_altitude_ft_msl
+            visual_section = project.ordered_sections()[-1] if project.sections else None
+            if (
+                destination is not None
+                and selected_pattern is not None
+                and visual_section is not None
+            ):
+                distance_nm = geodesic_leg(
+                    ordered[-2].latitude_deg,
+                    ordered[-2].longitude_deg,
+                    destination.latitude_deg,
+                    destination.longitude_deg,
+                ).distance_nm
+                automatic_altitude = standard_vrep_altitude_ft_msl(
+                    distance_nm,
+                    selected_pattern,
                 )
-                if selected_pattern is None and snapshot is not None:
-                    selected_pattern = int(snapshot.destination_airport.pattern_altitude_ft_msl)
-                visual_section = project.ordered_sections()[-1] if project.sections else None
-                if (
-                    snapshot is not None
-                    and selected_pattern is not None
-                    and visual_section is not None
-                ):
-                    destination = snapshot.destination_airport
-                    distance_nm = geodesic_leg(
-                        ordered[-2].latitude_deg,
-                        ordered[-2].longitude_deg,
-                        destination.latitude_deg,
-                        destination.longitude_deg,
-                    ).distance_nm
-                    automatic_altitude = standard_vrep_altitude_ft_msl(
-                        distance_nm,
-                        selected_pattern,
-                    )
-                    route_altitude = float(visual_section.planned_altitude_ft_msl)
-                    if abs(route_altitude - automatic_altitude) > 1e-9:
-                        rounded_route_altitude = round(route_altitude)
-                        if (
-                            abs(route_altitude - rounded_route_altitude) > 1e-9
-                            or rounded_route_altitude % 100 != 0
-                        ):
-                            raise WebApplicationError(
-                                "VREP_ALTITUDE_INVALID",
-                                "VREP高度は100 ft単位で入力してください。",
-                            )
-                        altitude_mode = ArrivalAltitudeMode.MANUAL_NON_STANDARD_ENTRY
-                        manual_vrep_altitude = rounded_route_altitude
-                        manual_vrep_reason = ROUTE_EDITOR_VREP_REASON
+                if altitude_mode == ArrivalAltitudeMode.MANUAL_NON_STANDARD_ENTRY:
+                    if manual_vrep_altitude is not None:
+                        visual_section.planned_altitude_ft_msl = manual_vrep_altitude
+                elif request.selected_pattern_altitude_ft_msl is not None:
+                    visual_section.planned_altitude_ft_msl = automatic_altitude
+                else:
+                        route_altitude = float(visual_section.planned_altitude_ft_msl)
+                        if abs(route_altitude - automatic_altitude) > 1e-9:
+                            rounded_route_altitude = round(route_altitude)
+                            if (
+                                abs(route_altitude - rounded_route_altitude) > 1e-9
+                                or rounded_route_altitude % 100 != 0
+                            ):
+                                raise WebApplicationError(
+                                    "VREP_ALTITUDE_INVALID",
+                                    "VREP高度は100 ft単位で入力してください。",
+                                )
+                            altitude_mode = ArrivalAltitudeMode.MANUAL_NON_STANDARD_ENTRY
+                            manual_vrep_altitude = rounded_route_altitude
+                            manual_vrep_reason = ROUTE_EDITOR_VREP_REASON
             plan = ArrivalPlan(
                 visual_reporting_point_node_id=vrep_id,
-                selected_pattern_altitude_ft_msl=(
-                    None if current_plan is None else current_plan.selected_pattern_altitude_ft_msl
-                ),
-                selected_pattern_altitude_source=(
-                    None if current_plan is None else current_plan.selected_pattern_altitude_source
-                ),
+                selected_pattern_altitude_ft_msl=selected_pattern,
+                selected_pattern_altitude_source=selected_source,
                 altitude_mode=altitude_mode,
                 manual_vrep_altitude_ft_msl=manual_vrep_altitude,
                 manual_override_reason=manual_vrep_reason,

@@ -196,9 +196,17 @@ export function RouteWorkspace({
     status: "idle",
     polygons: [],
   });
-  const validPatternAltitude = patternAltitudeFtMsl(
+  const parsedPatternAltitude = patternAltitudeFtMsl(
     destinationPatternAltitudeFtMsl,
   );
+  const patternAltitudeBelowAirport = (
+    parsedPatternAltitude !== null &&
+    destinationAirport !== null &&
+    parsedPatternAltitude <= destinationAirport.elevationFtMsl
+  );
+  const validPatternAltitude = patternAltitudeBelowAirport
+    ? null
+    : parsedPatternAltitude;
   const nodes = useMemo(
     () => [...(project?.route_nodes ?? [])].sort((a, b) => a.sequence - b.sequence),
     [project],
@@ -1106,7 +1114,9 @@ export function RouteWorkspace({
                             : "目的地空港のmaster値を確認してください。"}
                           <br />
                           {validPatternAltitude === null
-                            ? "100～25,000 ftの範囲で100 ft単位の整数を入力してください。"
+                            ? patternAltitudeBelowAirport
+                              ? "採用場周経路高度は飛行場標高より高くしてください。"
+                              : "100～25,000 ftの範囲で100 ft単位の整数を入力してください。"
                             : "運用差がある場合は、今回使用するMSL高度へ編集してください。"}
                         </small>
                       </div>

@@ -325,13 +325,16 @@
 
 
 ### D-35 目的空港・採用場周高度と既定値確認UI
-- 経路確定前のTOは端点照合用の候補とし、経路確定後に目的空港を最終確認する。
-  確定後だけ100 ft単位の「今回採用する場周経路高度（ft MSL）」Inputを表示し、
-  master値を初期表示する。〔目的空港・場周高度を確定〕で `ArrivalPlan` の
-  `selected_pattern_altitude_ft_msl` と `selected_pattern_altitude_source` を保存する。
-  master一致は `AUTOMATIC`、編集値は `MANUAL` とする。
-- 採用場周高度を確定するまでNAV LOG計算を許可しない。目的空港またはInputを変更したら
-  再確定を要求する。保存Project読込時は確定値と採用元を復元する。
+- 経路確定前のTOは端点照合用の候補とし、経路確定時に目的空港を最終適用する。同一transactionで
+  Airport snapshot、目的地endpoint、VREP、採用場周高度、VREP標準高度、DESCENT phase、Readinessを更新する。
+  有効なmaster値は `ArrivalPlan.selected_pattern_altitude_ft_msl` へ `AUTOMATIC` として直ちに保存する。
+- 確定後だけ100 ft単位の「今回採用する場周経路高度（ft MSL）」Inputを表示する。これはcontrolled local draftであり、
+  100～25,000 ft、100 ft単位、かつ飛行場標高より高い値だけを入力停止後に保存する。master一致は
+  `AUTOMATIC`、編集値は `MANUAL` とする。計算済みProjectは保存と再計算を単一操作で行い、未計算Projectは
+  ProjectとReadinessだけを更新する。
+- 空欄・不正値・範囲外・入力中のdraftは保存も再計算も行わず、直前の正常なProject/Outcomeを表示し続ける。
+  連続編集は最新requestだけを反映する。目的空港が変わると、古い手動場周高度は引き継がず、新しい目的空港の
+  master値を `AUTOMATIC` として適用する。
 - 「ALT・Phase・FUEL・VAR・TGLを原資料と照合しました」および同義の既定値一括確認
   Checkbox／記録ButtonはWeb・Colabの双方から削除する。各入力値は画面で直接確認し、
   変更時の再計算は計算入力fingerprintで保証する。`defaults_review_fingerprint` と
@@ -348,8 +351,8 @@
   複数の連結候補がある場合は未選択から始まり、選択した候補だけが地図・FROM/TO・
   確定後のRouteNodeへ反映される。
 - **W-3**: 390×844で計算後の主要操作とNAV LOGが存在し、document bodyに水平overflowがない。
-- **W-4**: 未確定の採用場周高度は `PATTERN_ALTITUDE_REQUIRED` で計算を止める。
-  確定後は同Issueを解消し、開発用気象のBlockerによりA4転記補助HTMLを止める。
+- **W-4**: 目的空港のmaster場周高度が未検証・不正なら `PATTERN_ALTITUDE_REQUIRED` で計算を止める。
+  有効なmaster値は経路確定時に直ちに採用し、開発用気象のBlockerによりA4転記補助HTMLを止める。
 - **W-5**: Cloudflare Published applicationのService URLを
   `http://localhost:8123` としたとき、同一オリジンのSPA/APIとして動作する。
 - **W-6**: Docker image build、Compose config、Python統合テスト、ruff、mypy、
@@ -1025,7 +1028,14 @@ Loss Timeは機上で事前計算結果を修正する値とし、地上計画�
 
 ### FR-40 VREP通過高度 【必須】
 
-経路確定後に目的空港を最終確認し、master場周経路高度を100 ft単位のInputへ初期表示する。東西場周等の運用差がある場合は今回採用するMSL高度へ編集し、確定値を `ArrivalPlan` へ保存する。目的空港ARP座標からVREPまでのWGS84距離と採用場周高度から第6.6節の式でVREP計画高度を求める。5 NMでは採用場周高度+500 ft、以遠は超過整数NM×200 ftとし、降下目標、EOC、降下・到着区間の気象代表高度および転記補助ALTへ一貫して使用する。未確定なら計算を許可しない。
+経路確定時に目的空港を最終適用し、master場周経路高度を100 ft単位のInputへ表示して、`ArrivalPlan`へ
+`AUTOMATIC`として保存する。同じtransactionで目的地endpoint、VREP、VREP標準高度、DESCENT phase、
+Readinessを更新する。東西場周等の運用差がある場合、利用者は今回採用するMSL高度を直接編集できる。
+有効な編集値は直ちに依存計算へ反映し、計算済みなら再計算する。不正なdraftはlocal表示だけに留め、
+直前の正常な状態を維持する。目的空港変更時は手動高度を引き継がず、新目的地masterを`AUTOMATIC`で採用する。
+目的空港ARP座標からVREPまでのWGS84距離と採用場周高度から第6.6節の式でVREP計画高度を求める。
+5 NMでは採用場周高度+500 ft、以遠は超過整数NM×200 ftとし、降下目標、EOC、降下・到着区間の
+気象代表高度および転記補助ALTへ一貫して使用する。masterが未検証・不正・利用不能な場合だけ計算を止める。
 
 ### FR-41 経路外Check Pointのabeam処理 【必須】
 
@@ -1208,7 +1218,7 @@ planned_endpoint_time_utc = planned_departure_time_jst + planned_elapsed_seconds
 
 #### 入力と計算式
 
-目的空港として使用するAirport snapshotは、MSLの `elevation_ft_msl` とmasterの `pattern_altitude_ft_msl` を必須で持つ。経路を確定するまで目的空港・場周高度Inputは無効とし、確定後に目的空港を選択するとmaster値を初期表示する。利用者は東西場周、機種、管制調整その他の当該運用に応じて100 ft単位で編集できる。〔目的空港・場周高度を確定〕で `ArrivalPlan.selected_pattern_altitude_ft_msl` と `selected_pattern_altitude_source`（masterと一致なら `AUTOMATIC`、異なれば `MANUAL`）へ保存する。
+目的空港として使用するAirport snapshotは、MSLの `elevation_ft_msl` とmasterの `pattern_altitude_ft_msl` を必須で持つ。経路確定時に目的空港のmaster値を `ArrivalPlan.selected_pattern_altitude_ft_msl` と `selected_pattern_altitude_source=AUTOMATIC` へ直ちに保存し、VREP高度とDESCENTを更新する。利用者は東西場周、機種、管制調整その他の当該運用に応じて100 ft単位で直接編集できる。masterと異なる有効値は `MANUAL` として保存し、無効なlocal draftは保存しない。目的空港の変更では古い手動値を引き継がず、新masterを `AUTOMATIC` として採用する。
 
 距離計算ではARPのWGS84座標 `arp_coordinate` を使用する。高度計算ではArrivalPlanで確定した `selected_pattern_altitude_ft_msl` を `selected_pattern_altitude_ft_msl` とし、これへ500 ftを加えて5 NM基準高度とする。空港標高の100 ft half-up + 1,000 ftは、資料で明示値を確認できない場合にmaster初期値を作るフォールバックに限って使用し、確定済みの実運用高度を上書きしない。
 

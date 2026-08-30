@@ -2,7 +2,6 @@ import {
   AlertTriangle,
   Calculator,
   CloudSun,
-  CheckCircle2,
   Database,
   XCircle,
 } from "lucide-react";
@@ -14,13 +13,10 @@ interface StatusPanelProps {
   projectExists: boolean;
   weatherMode: "FORECAST" | "FTD";
   canCalculate: boolean;
-  destinationConfirmed: boolean;
-  destinationReady: boolean;
   outcomeExists: boolean;
   busy: boolean;
   activeOperation: "calculate" | null;
   onCalculate: () => void;
-  onConfirmDestination: () => void;
   onAcknowledge: (ackKey: string, checked: boolean) => void;
 }
 
@@ -30,13 +26,10 @@ export function StatusPanel({
   projectExists,
   weatherMode,
   canCalculate,
-  destinationConfirmed,
-  destinationReady,
   outcomeExists,
   busy,
   activeOperation,
   onCalculate,
-  onConfirmDestination,
   onAcknowledge,
 }: StatusPanelProps) {
   const blockers = readiness.issues.filter((issue) => issue.severity === "BLOCKER");
@@ -75,25 +68,6 @@ export function StatusPanel({
         </div>
       )}
 
-      {projectExists && (
-        <div className="destination-confirmation-action">
-          {destinationConfirmed ? (
-            <p className="destination-confirmed-state">
-              <CheckCircle2 aria-hidden="true" size={18} />
-              目的空港・場周高度は確定済みです
-            </p>
-          ) : (
-            <button
-              className="primary-button full-width"
-              type="button"
-              onClick={onConfirmDestination}
-              disabled={!destinationReady || busy}
-            >
-              目的空港・場周高度を確定
-            </button>
-          )}
-        </div>
-      )}
 
       <div className="issue-summary">
         <span>ブロッカー {blockers.length}</span>

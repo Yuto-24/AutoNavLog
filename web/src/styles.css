@@ -1038,21 +1038,6 @@ tbody tr:last-child td { border-bottom: 0; }
 .demo-weather-warning p, .demo-weather-warning strong { display: block; margin: 0; }
 .demo-weather-warning p { font-size: 11px; line-height: 1.5; }
 
-.destination-confirmation-action { margin: 12px 0; }
-.destination-confirmed-state {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 0;
-  padding: 10px;
-  color: var(--green-700);
-  background: #effaf5;
-  border: 1px solid #83bfa6;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 700;
-}
-
 .issue-summary {
   display: flex;
   justify-content: space-between;

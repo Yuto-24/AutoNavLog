@@ -65,14 +65,6 @@ class ConfirmRouteRequest(WebRequestModel):
         return self
 
 
-class ConfirmDestinationRequest(WebRequestModel):
-    selected_pattern_altitude_ft_msl: int = Field(
-        ge=100,
-        le=25_000,
-        multiple_of=100,
-    )
-
-
 class SectionUpdate(WebRequestModel):
     section_id: UUID
     planned_altitude_ft_msl: float = Field(gt=0, le=25_000)
@@ -118,6 +110,12 @@ class UpdateProjectRequest(WebRequestModel):
     tgl_count: int = Field(default=0, ge=0, le=20)
     sections: list[SectionUpdate] = Field(default_factory=list, max_length=500)
     visual_reporting_point_node_id: UUID | None = None
+    selected_pattern_altitude_ft_msl: int | None = Field(
+        default=None,
+        ge=100,
+        le=25_000,
+        multiple_of=100,
+    )
     arrival_altitude_mode: ArrivalAltitudeMode = ArrivalAltitudeMode.STANDARD_DISTANCE_RULE
     manual_vrep_altitude_ft_msl: int | None = Field(
         default=None,

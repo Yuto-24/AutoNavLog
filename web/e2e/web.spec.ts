@@ -736,22 +736,24 @@ async function calculateNavLog(
   await cruiseAltitude.selectOption(cruiseCandidate);
   const patternAltitude = page.getByLabel("今回採用する場周経路高度");
   const arrivalRow = page.locator(".destination-row");
-  const confirmDestination = page.getByRole("button", {
-    name: "目的空港・場周高度を確定",
-  });
   await expect(page.locator(".input-rail").getByLabel("今回採用する場周経路高度")).toHaveCount(0);
   await expect(arrivalRow.getByLabel("今回採用する場周経路高度")).toBeVisible();
   await expect(arrivalRow.getByText("飛行場標高", { exact: true })).toBeVisible();
   await expect(arrivalRow.getByText("17 ft MSL", { exact: true })).toBeVisible();
   await expect(arrivalRow).toContainText("master 1,000 ft MSL（標高差 983 ft）");
   await expect(patternAltitude).toHaveValue("1000");
+  await expect(page.getByRole("button", { name: "目的空港・場周高度を確定" })).toHaveCount(0);
   await patternAltitude.fill("");
-  await expect(confirmDestination).toBeDisabled();
+  await expect(patternAltitude).toHaveAttribute("aria-invalid", "true");
   await patternAltitude.fill("1000");
-  await expect(confirmDestination).toBeEnabled();
+  await expect(patternAltitude).toHaveAttribute("aria-invalid", "false");
+  const patternUpdate = page.waitForRequest(
+    (request) => request.url().endsWith("/api/project")
+      && request.method() === "PUT",
+  );
   await patternAltitude.fill("1300");
-  await expect(patternAltitude).toHaveValue("1300");
-  await confirmDestination.click();
+  const patternPayload = (await patternUpdate).postDataJSON() as Record<string, unknown>;
+  expect(patternPayload.selected_pattern_altitude_ft_msl).toBe(1300);
   await expect(patternAltitude).toHaveValue("1300");
   await expect(altitudeInputs.first()).toHaveValue(firstAltitudeCandidate);
   await expect(altitudeInputs.last()).toHaveValue("1800");
@@ -985,7 +987,6 @@ test("edited VREP altitude reaches the calculation request and NAV LOG", async (
   await importKmlCandidate(page);
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
-  await page.getByRole("button", { name: "目的空港・場周高度を確定" }).click();
 
   const routeAltitudes = page.locator(".route-table tbody .table-number-input");
   for (let index = 0; index < await routeAltitudes.count() - 1; index += 1) {
@@ -1023,6 +1024,157 @@ test("edited VREP altitude reaches the calculation request and NAV LOG", async (
   expect(
     consoleErrors.filter((message) => !message.includes("401 (Unauthorized)")),
   ).toEqual([]);
+});
+
+test("destination altitude drafts validate locally and latest valid edit recalculates", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await calculateNavLog(page, false);
+
+  const recalculationPayloads: Record<string, unknown>[] = [];
+  page.on("request", (request) => {
+    if (
+      request.url().endsWith("/api/project/recalculate") &&
+      request.method() === "POST"
+    ) {
+      recalculationPayloads.push(request.postDataJSON() as Record<string, unknown>);
+    }
+  });
+  const patternAltitude = page.getByLabel("今回採用する場周経路高度");
+  await patternAltitude.focus();
+  await page.keyboard.press("Control+A");
+  await page.keyboard.press("Backspace");
+  await expect(patternAltitude).toHaveAttribute("aria-invalid", "true");
+  await page.waitForTimeout(750);
+  expect(recalculationPayloads).toHaveLength(0);
+
+  const recalculated = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project/recalculate")
+      && response.request().method() === "POST",
+  );
+  await page.keyboard.type("1400");
+  await page.waitForTimeout(100);
+  await page.keyboard.press("Control+A");
+  await page.keyboard.type("1500");
+  expect((await recalculated).status()).toBe(200);
+  await expect.poll(() => recalculationPayloads.length).toBe(1);
+  expect(recalculationPayloads[0]?.selected_pattern_altitude_ft_msl).toBe(1500);
+  await expect(patternAltitude).toHaveValue("1500");
+  await expect(page.locator(".route-table tbody .table-number-input").last()).toHaveValue("2000");
+});
+
+test("stale destination pattern response cannot overwrite a loaded project or duplicate on rerender", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await calculateNavLog(page, false);
+
+  const currentState = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: `);
+    return await response.json() as WebState;
+  });
+  if (!currentState.project) throw new Error("calculated project is missing");
+  const arrivalPlan = currentState.project.metadata.ui_state?.arrival_plan;
+  if (!arrivalPlan) throw new Error("arrival plan is missing");
+  const replacementProjectId = "loaded-rjfk-project";
+  const replacementState: WebState = {
+    ...currentState,
+    savedProjects: [{
+      id: replacementProjectId,
+      name: "RJFK replacement",
+      status: "DRAFT",
+      revision: 1,
+      updatedAt: "2099-08-10T00:00:00+00:00",
+    }],
+    project: {
+      ...currentState.project,
+      id: replacementProjectId,
+      name: "RJFK replacement",
+      destination_airport_id: "RJFK",
+      route_nodes: currentState.project.route_nodes.map((node, index, nodes) => (
+        index === nodes.length - 1 ? { ...node, name: "RJFK" } : node
+      )),
+      sections: currentState.project.sections.map((section) => (
+        section.phase === "VISUAL_ARRIVAL"
+          ? { ...section, planned_altitude_ft_msl: 2400 }
+          : section
+      )),
+      metadata: {
+        ...currentState.project.metadata,
+        ui_state: {
+          ...currentState.project.metadata.ui_state,
+          arrival_plan: {
+            ...arrivalPlan,
+            selected_pattern_altitude_ft_msl: 1900,
+            selected_pattern_altitude_source: "AUTOMATIC",
+            altitude_mode: "STANDARD_DISTANCE_RULE",
+            manual_vrep_altitude_ft_msl: null,
+            manual_override_reason: null,
+          },
+        },
+      },
+    },
+    outcome: null,
+    destinationWind: null,
+    readiness: {
+      ...currentState.readiness,
+      calculationIsCurrent: false,
+    },
+  };
+  await page.route("**/api/state", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(currentState),
+    });
+  }, { times: 1 });
+  await page.reload();
+
+  let releaseFirstResponse = () => {};
+  let markFirstResponseReady = () => {};
+  const firstResponseReady = new Promise<void>((resolve) => {
+    markFirstResponseReady = resolve;
+  });
+  const firstResponseReleased = new Promise<void>((resolve) => {
+    releaseFirstResponse = resolve;
+  });
+  const recalculationBodies: Array<Record<string, unknown>> = [];
+  await page.route("**/api/project/recalculate", async (route) => {
+    recalculationBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    if (recalculationBodies.length === 1) {
+      const response = await route.fetch();
+      markFirstResponseReady();
+      await firstResponseReleased;
+      await route.fulfill({ response });
+      return;
+    }
+    await route.continue();
+  });
+
+  const patternAltitude = page.getByLabel("今回採用する場周経路高度");
+  await patternAltitude.fill("1400");
+  await firstResponseReady;
+  await page.getByLabel("FUEL gal").fill("89");
+  await page.waitForTimeout(700);
+  expect(recalculationBodies).toHaveLength(1);
+
+  await page.route("**/api/projects/load", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(replacementState),
+    });
+  }, { times: 1 });
+  await page.getByLabel("保存済み").selectOption(replacementProjectId);
+  await page.getByRole("button", { name: "保存済みProjectを開く" }).click();
+  await expect(patternAltitude).toHaveValue("1900");
+  await expect(page.getByLabel("TO")).toHaveValue(/RJFK/);
+
+  releaseFirstResponse();
+  await page.waitForTimeout(900);
+  await expect(patternAltitude).toHaveValue("1900");
+  await expect(page.getByLabel("TO")).toHaveValue(/RJFK/);
+  expect(recalculationBodies).toHaveLength(1);
 });
 
 test("mobile numeric inputs allow clear then re-entry and TGL is sent as a number", async ({
@@ -1325,6 +1477,27 @@ test("responsive workflow keeps a one-way order at intermediate width", async ({
   expect(wideEndpoints[1]!.x + wideEndpoints[1]!.width).toBeLessThanOrEqual(
     wide[0]!.x + wide[0]!.width,
   );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobile = await Promise.all([
+    input.boundingBox(),
+    route.boundingBox(),
+    status.boundingBox(),
+    navLog.boundingBox(),
+    guidance.boundingBox(),
+  ]);
+  if (mobile.some((box) => box === null)) {
+    throw new Error("Mobile workflow regions are missing");
+  }
+  for (let index = 1; index < mobile.length; index += 1) {
+    expect(mobile[index]!.y).toBeGreaterThanOrEqual(
+      mobile[index - 1]!.y + mobile[index - 1]!.height - 1,
+    );
+  }
+  const mobileOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(mobileOverflow).toBeLessThanOrEqual(1);
   expect(pageErrors).toEqual([]);
 });
 
