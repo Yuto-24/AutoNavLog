@@ -1196,6 +1196,49 @@ async def test_sessions_and_saved_projects_are_owner_isolated(tmp_path: Path) ->
 
 
 @pytest.mark.anyio
+async def test_expired_saved_project_remains_listed_and_persisted(tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage"
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=storage_root,
+            weather_mode="fake",
+        )
+    )
+    app.state.web_application.access_verifier = StubAccessVerifier(
+        {"owner-token": "owner@example.com"}
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="https://test",
+        headers={"Cf-Access-Jwt-Assertion": "owner-token"},
+    ) as client:
+        assert (await client.post("/api/session")).status_code == 200
+        assert (
+            await client.post("/api/import", json={"filename": "route.kml", "kml_text": KML})
+        ).status_code == 200
+        confirmed = await client.post(
+            "/api/route/confirm",
+            json=_route_payload()
+            | {
+                "flight_date": "2000-01-01",
+                "departure_time_jst": "09:00",
+            },
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        saved = await client.post("/api/projects/save", json={"name": "expired-route"})
+        assert saved.status_code == 200, saved.text
+        project_id = saved.json()["project"]["id"]
+
+        state = await client.get("/api/state")
+        assert state.status_code == 200, state.text
+        assert [item["name"] for item in state.json()["savedProjects"]] == ["expired-route"]
+        assert (storage_root / "projects" / project_id / "project.json").exists()
+
+
+@pytest.mark.anyio
 async def test_session_capacity_evicts_the_least_recent_session(tmp_path: Path) -> None:
     app = create_app(
         WebRuntimeConfig(
