@@ -43,6 +43,17 @@ interface PendingKmz {
 type ActiveOperation = "calculate" | null;
 const ROUTE_EDITOR_VREP_REASON = "経路画面で指定したVREP計画高度";
 
+function inboundMetric(value: number | null, digits = 1): string {
+  return value === null ? "—" : value.toFixed(digits);
+}
+
+function inboundPoint(latitude: number | null | undefined, longitude: number | null | undefined): string {
+  if (latitude === null || latitude === undefined || longitude === null || longitude === undefined) {
+    return "—";
+  }
+  return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+}
+
 function patternRequestBasis(next: WebState): string | null {
   const project = next.project;
   if (!project) return null;
@@ -1002,6 +1013,9 @@ function App() {
   const currentRjfmGuidance = calculationIsCurrent
     ? state.outcome?.rjfm_departure_guidance ?? null
     : null;
+  const currentRjfmInboundGuidance = calculationIsCurrent
+    ? state.outcome?.rjfm_inbound_guidance ?? null
+    : null;
 
   return (
     <div className="app-shell">
@@ -1122,7 +1136,7 @@ function App() {
           />
         </div>
       )}
-      {state.outcome?.rjfm_inbound_guidance && (
+      {currentRjfmInboundGuidance && (
         <aside className="rjfm-inbound-guidance" aria-label="RJFM帰路の経路延長案内">
           <div className="rjfm-guidance-heading">
             <div>
@@ -1130,10 +1144,23 @@ function App() {
               <h3>UMK後の経路延長</h3>
             </div>
             <span className="rjfm-inbound-guidance-status" role="status">
-              {state.outcome.rjfm_inbound_guidance.status}
+              {currentRjfmInboundGuidance.status}
             </span>
           </div>
-          <p className="rjfm-guidance-intro">{state.outcome.rjfm_inbound_guidance.message}</p>
+          <p className="rjfm-guidance-intro">{currentRjfmInboundGuidance.message}</p>
+          {currentRjfmInboundGuidance.status === "AVAILABLE" && (
+            <dl className="rjfm-inbound-guidance-metrics" data-testid="rjfm-inbound-guidance-diagnostics">
+              <div><dt>推奨 MZE DME</dt><dd>{inboundMetric(currentRjfmInboundGuidance.rounded_dme_nm)} NM</dd></div>
+              <div><dt>丸め後延長距離</dt><dd>{inboundMetric(currentRjfmInboundGuidance.extra_distance_nm)} NM</dd></div>
+              <div><dt>丸め後予測ETE</dt><dd>{inboundMetric(currentRjfmInboundGuidance.predicted_ete_min)} min</dd></div>
+              <div><dt>最小KS4-3余裕</dt><dd>{inboundMetric(currentRjfmInboundGuidance.minimum_boundary_clearance_nm)} NM</dd></div>
+              <div><dt>Raw DME / 延長距離</dt><dd>{inboundMetric(currentRjfmInboundGuidance.raw_dme_nm)} NM / {inboundMetric(currentRjfmInboundGuidance.raw_extra_distance_nm)} NM</dd></div>
+              <div><dt>Raw ETE / 余裕</dt><dd>{inboundMetric(currentRjfmInboundGuidance.raw_predicted_ete_min)} min / {inboundMetric(currentRjfmInboundGuidance.raw_minimum_boundary_clearance_nm)} NM</dd></div>
+              <div><dt>Raw / 丸め後Turn高度</dt><dd>{inboundMetric(currentRjfmInboundGuidance.raw_turn_altitude_ft_msl)} ft / {inboundMetric(currentRjfmInboundGuidance.rounded_turn_altitude_ft_msl)} ft</dd></div>
+              <div><dt>探索方位 / 実方位</dt><dd>{inboundMetric(currentRjfmInboundGuidance.bearing_magnetic_deg, 2)}°M / {inboundMetric(currentRjfmInboundGuidance.actual_bearing_magnetic_deg, 2)}°M</dd></div>
+              <div><dt>Raw / 丸め後Turn Point</dt><dd>{inboundPoint(currentRjfmInboundGuidance.raw_turn_point?.latitude_deg, currentRjfmInboundGuidance.raw_turn_point?.longitude_deg)} / {inboundPoint(currentRjfmInboundGuidance.rounded_turn_point?.latitude_deg, currentRjfmInboundGuidance.rounded_turn_point?.longitude_deg)}</dd></div>
+            </dl>
+          )}
           <p className="rjfm-inbound-guidance-note">
             この案内はwarningのみです。NAV LOGの物理経路・距離・針路を変更しません。
           </p>

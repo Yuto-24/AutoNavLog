@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "status": "UNAVAILABLE",
+  "revision": "2026-08-31-rjfm-inbound-west-guidance-v1",
+  "policy": {
+    "source_id": "user-decision-rjfm-inbound-west-sector-2026-08-31",
+    "magnetic_bearing_min_deg": 250.0,
+    "magnetic_bearing_max_deg": 290.0,
+    "coarse_bearing_step_deg": 5.0,
+    "dme_rounding_increment_nm": 0.5
+  },
+  "mze": {
+    "source_id": "aip-rjfm-ad2-9-public-mirror-2018-11-08",
+    "latitude_deg": 31.87872777777778,
+    "longitude_deg": 131.43746666666667,
+    "elevation_ft_msl": 54.0
+  },
+  "sources": [
+    {
+      "id": "user-decision-rjfm-inbound-west-sector-2026-08-31",
+      "distribution": "USER_DECISION",
+      "title": "RJFM inbound west extension sector",
+      "effective_date": "2026-08-31",
+      "retrieved_date": "2026-08-31",
+      "sha256": null,
+      "notes": "Magnetic sector 250-290 degrees, 5-degree coarse scan, and outward 0.5 NM DME rounding are implementation policy approved by the AutoNavLog user."
+    },
+    {
+      "id": "mlit-ks4-3-altitude-notice-2026-08-31",
+      "distribution": "OFFICIAL_MLIT",
+      "title": "Civil training/test airspace KS4-3 altitude notice",
+      "url": "https://www.mlit.go.jp/koku/content/001913941.pdf",
+      "effective_date": null,
+      "retrieved_date": "2026-08-31",
+      "sha256": "b4b8b81a851a724d5b94cc59a0882a91c2e9f1a76987258f479a25abc9a3911a",
+      "notes": "Page 38 identifies KS4-3-30/45/60 vertical limits SFC-6000 ft but does not provide a solver-eligible horizontal boundary."
+    },
+    {
+      "id": "aip-rjfm-ad2-9-public-mirror-2018-11-08",
+      "distribution": "PUBLIC_AIP_MIRROR",
+      "title": "AIP Japan RJFM AD 2.19 MZE reference",
+      "url": "https://nagodede.github.io/aip/japan/documents/RJFM_full.pdf",
+      "effective_date": "2018-11-08",
+      "retrieved_date": "2026-08-31",
+      "sha256": "e493984c5cbd0340a421b2e049077e1bd5cafeb0b5a21d456ea7c65bb8d318d6",
+      "notes": "The public AIP mirror is byte-identical to the retrieved artifact. It supplies the MZE position and 54 ft DME elevation; this is not asserted to be a newly obtained official source.",
+      "publisher": "AIP Japan public mirror",
+      "document_id": "AIP JAPAN RJFM AD 2.19",
+      "revision": "2018-11-08",
+      "position": {
+        "latitude_deg": 31.87872777777778,
+        "longitude_deg": 131.43746666666667
+      },
+      "elevation_ft_msl": 54.0
+    }
+  ],
+  "unavailable": {
+    "reason_code": "KS43_HORIZONTAL_BOUNDARY_UNVERIFIED",
+    "message": "KS4-3 horizontal boundary has no verified, versioned solver reference; west-extension guidance is unavailable.",
+    "evidence_source_ids": [
+      "mlit-ks4-3-altitude-notice-2026-08-31"
+    ]
+  }
+}

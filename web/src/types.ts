@@ -423,10 +423,38 @@ export interface RjfmDepartureGuidance {
   limitations: string[];
 }
 
+export interface RjfmInboundGuidancePoint {
+  latitude_deg: number;
+  longitude_deg: number;
+}
+
 export interface RjfmInboundGuidance {
-  status: "WARNING" | "UNAVAILABLE";
+  status:
+    | "AVAILABLE"
+    | "WARNING"
+    | "UNAVAILABLE"
+    | "ADVERSE_WIND"
+    | "NO_SOLUTION"
+    | "CONVERGENCE_FAILURE";
   message: string;
-  reason_code: string;
+  reason_code: string | null;
+  generated_against_fingerprint: string | null;
+  reference_revision: string | null;
+  reference_content_fingerprint: string | null;
+  raw_turn_point: RjfmInboundGuidancePoint | null;
+  rounded_turn_point: RjfmInboundGuidancePoint | null;
+  bearing_magnetic_deg: number | null;
+  actual_bearing_magnetic_deg: number | null;
+  raw_extra_distance_nm: number | null;
+  extra_distance_nm: number | null;
+  raw_predicted_ete_min: number | null;
+  predicted_ete_min: number | null;
+  raw_dme_nm: number | null;
+  rounded_dme_nm: number | null;
+  raw_turn_altitude_ft_msl: number | null;
+  rounded_turn_altitude_ft_msl: number | null;
+  raw_minimum_boundary_clearance_nm: number | null;
+  minimum_boundary_clearance_nm: number | null;
 }
 
 export interface CalculationOutcome {

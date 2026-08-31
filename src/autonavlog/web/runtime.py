@@ -13,6 +13,10 @@ from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.storage.airports import AirportRepository
 from autonavlog.storage.local import LocalProjectRepository
 from autonavlog.storage.reference_data import ReferenceDataCatalogRepository
+from autonavlog.storage.rjfm_inbound_reference import (
+    RjfmInboundGuidanceReference,
+    RjfmInboundReferenceError,
+)
 from autonavlog.storage.rjfm_reference import RjfmReferencePack
 from autonavlog.weather.destination_taf import (
     AviationWeatherTafProvider,
@@ -169,6 +173,16 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
     airports = AirportRepository.from_reference_catalog(reference_catalog)
     performance = PerformanceRepository.from_directory_for_application(performance_root)
     rjfm_reference_pack = RjfmReferencePack.from_directory(rjfm_reference_root)
+    inbound_guidance_root = data_root / "reference" / "rjfm-inbound-guidance"
+    try:
+        rjfm_inbound_guidance_reference = RjfmInboundGuidanceReference.from_directory(
+            inbound_guidance_root
+        )
+    except RjfmInboundReferenceError as error:
+        # This supplemental solver pack is not part of NAV LOG authority. A
+        # missing/corrupt pack disables only west-extension diagnostics.
+        LOGGER.warning("RJFM inbound guidance reference unavailable: %s", error)
+        rjfm_inbound_guidance_reference = None
     project_service = ProjectService(LocalProjectRepository(storage_root))
     weather_factory, weather_label, development_weather = _weather_factory(config)
     weather_prewarmer = None
@@ -195,6 +209,7 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
         airports=airports,
         performance=performance,
         rjfm_reference_pack=rjfm_reference_pack,
+        rjfm_inbound_guidance_reference=rjfm_inbound_guidance_reference,
         reference_repository=reference_repository,
         trusted_local_identity=config.trusted_local_identity,
         reference_catalog=reference_catalog,

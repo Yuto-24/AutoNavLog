@@ -7,11 +7,40 @@ from typing import Any, cast
 import httpx
 import pytest
 
+from autonavlog.domain.calculation import RjfmInboundGuidance
 from autonavlog.web.app import create_app
 from autonavlog.web.runtime import WebRuntimeConfig
 
 ROOT = Path(__file__).resolve().parents[2]
-INBOUND_KML = '''<?xml version="1.0" encoding="UTF-8"?>
+
+
+def _synthetic_available_inbound_guidance(*_args: object, **_kwargs: object) -> RjfmInboundGuidance:
+    """API contract fixture; production still loads the unavailable signed pack."""
+
+    return RjfmInboundGuidance(
+        status="AVAILABLE",
+        message="Synthetic west-extension guidance.",
+        generated_against_fingerprint="a" * 64,
+        reference_revision="synthetic-primary-v1",
+        reference_content_fingerprint="b" * 64,
+        raw_turn_point={"latitude_deg": 32.0, "longitude_deg": 131.0},
+        rounded_turn_point={"latitude_deg": 32.01, "longitude_deg": 131.01},
+        bearing_magnetic_deg=270.0,
+        actual_bearing_magnetic_deg=270.1,
+        raw_extra_distance_nm=5.1,
+        extra_distance_nm=5.5,
+        raw_predicted_ete_min=8.2,
+        predicted_ete_min=8.4,
+        raw_dme_nm=12.2,
+        rounded_dme_nm=12.5,
+        raw_turn_altitude_ft_msl=3200.0,
+        rounded_turn_altitude_ft_msl=3190.0,
+        raw_minimum_boundary_clearance_nm=1.2,
+        minimum_boundary_clearance_nm=1.1,
+    )
+
+
+INBOUND_KML = """<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document>
   <Placemark><name>RJFO→RJFM inbound</name><LineString><coordinates>
     131.7371201529664,33.47949406702627,0
@@ -20,7 +49,7 @@ INBOUND_KML = '''<?xml version="1.0" encoding="UTF-8"?>
     131.3535165268158,31.94977931375614,0
     131.4484517490447,31.87712141761355,0
   </coordinates></LineString></Placemark>
-</Document></kml>'''
+</Document></kml>"""
 
 
 @pytest.fixture
@@ -46,7 +75,12 @@ async def _wait_for_calculation(client: httpx.AsyncClient) -> dict[str, Any]:
 @pytest.mark.anyio
 async def test_real_inbound_route_calculation_and_project_roundtrip(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "autonavlog.web.facade.build_rjfm_inbound_guidance",
+        _synthetic_available_inbound_guidance,
+    )
     app = create_app(
         WebRuntimeConfig(
             data_root=ROOT / "data",
@@ -108,7 +142,8 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         )
         assert inbound["planned_altitude_ft_msl"] == 4500
         fixed = next(
-            item for item in confirmed_state["altitudeGuidance"]["sections"]
+            item
+            for item in confirmed_state["altitudeGuidance"]["sections"]
             if item["sectionId"] == inbound["id"]
         )
         assert fixed["inputMode"] == "RJFM_INBOUND_OMARU_TO_UMK_FIXED"
@@ -131,13 +166,18 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         )
         assert calculated_inbound["planned_altitude_ft_msl"] == 4500
         navlog_inbound = next(
-            row for row in calculated["outcome"]["display_rows"]
+            row
+            for row in calculated["outcome"]["display_rows"]
             if row["row_type"] == "PHYSICAL_LEG_SUMMARY"
             and row["from_node_id"] == physical_node_ids[1]
             and row["to_node_id"] == physical_node_ids[2]
         )
         assert navlog_inbound["pa"]["text"] == "4500"
-        assert calculated["outcome"]["rjfm_inbound_guidance"] is not None
+        inbound_guidance = calculated["outcome"]["rjfm_inbound_guidance"]
+        assert inbound_guidance is not None
+        assert inbound_guidance["status"] == "AVAILABLE"
+        assert inbound_guidance["rounded_dme_nm"] == 12.5
+        assert inbound_guidance["reference_revision"] == "synthetic-primary-v1"
         eoc = [point for point in calculated["outcome"]["derived_points"] if point["type"] == "EOC"]
         assert len(eoc) == 1
         assert eoc[0]["latitude_deg"] == pytest.approx(31.985137767624444)
@@ -154,9 +194,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         assert saved.status_code == 200, saved.text
         saved_project = saved.json()["project"]
         assert saved_project["weather_mode"] == "FTD"
-        loaded = await client.post(
-            "/api/projects/load", json={"project_id": saved_project["id"]}
-        )
+        loaded = await client.post("/api/projects/load", json={"project_id": saved_project["id"]})
         assert loaded.status_code == 200, loaded.text
         loaded_state = loaded.json()
         loaded_project = loaded_state["project"]
@@ -195,4 +233,74 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         assert changed_state["project"]["metadata"]["ui_state"]["rjfm_inbound_plan"] == plan
 
 
-
+@pytest.mark.anyio
+async def test_production_reference_returns_nonblocking_unavailable_guidance(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "production-storage",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        imported = await client.post(
+            "/api/import",
+            json={"filename": "rjfo-rjfm-inbound.kml", "kml_text": INBOUND_KML},
+        )
+        assert imported.status_code == 200, imported.text
+        confirmed = await client.post(
+            "/api/route/confirm",
+            json={
+                "candidate_kind": "line",
+                "candidate_index": 0,
+                "route_use_confirmed": True,
+                "flight_date": "2026-08-31",
+                "departure_time_jst": "09:00",
+                "total_usable_fuel_gal": 90,
+                "default_variation_deg_east": 8,
+                "weather_mode": "FTD",
+                "ftd_weather": {
+                    "surface_wind": {"direction_deg_from": 360, "speed_kt": 15},
+                    "wind_at_5000_ft": {"direction_deg_from": 270, "speed_kt": 30},
+                },
+                "all_leg_altitude_ft_msl": 5000,
+                "defaults_confirmed": True,
+            },
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        calculated = await _wait_for_calculation(client)
+        outcome = calculated["outcome"]
+        assert outcome["rjfm_inbound_guidance"] == {
+            "status": "UNAVAILABLE",
+            "reason_code": "KS43_HORIZONTAL_BOUNDARY_UNVERIFIED",
+            "message": (
+                "KS4-3 horizontal boundary has no verified, versioned solver reference; "
+                "west-extension guidance is unavailable."
+            ),
+            "generated_against_fingerprint": outcome["rjfm_inbound_guidance"][
+                "generated_against_fingerprint"
+            ],
+            "reference_revision": "2026-08-31-rjfm-inbound-west-guidance-v1",
+            "reference_content_fingerprint": outcome["rjfm_inbound_guidance"][
+                "reference_content_fingerprint"
+            ],
+            "raw_turn_point": None,
+            "rounded_turn_point": None,
+            "bearing_magnetic_deg": None,
+            "actual_bearing_magnetic_deg": None,
+            "raw_extra_distance_nm": None,
+            "extra_distance_nm": None,
+            "raw_predicted_ete_min": None,
+            "predicted_ete_min": None,
+            "raw_dme_nm": None,
+            "rounded_dme_nm": None,
+            "raw_turn_altitude_ft_msl": None,
+            "rounded_turn_altitude_ft_msl": None,
+            "raw_minimum_boundary_clearance_nm": None,
+            "minimum_boundary_clearance_nm": None,
+        }
+        assert outcome["blockers"] == [] if "blockers" in outcome else True

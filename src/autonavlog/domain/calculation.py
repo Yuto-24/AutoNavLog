@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 from .enums import (
     DerivedPointType,
@@ -202,10 +202,41 @@ class NavLogDisplayRow(CalculationModel):
     fuel: NavLogDisplayCell
 
 
+class RjfmInboundGuidancePoint(CalculationModel):
+    latitude_deg: FiniteFloat = Field(ge=-90, le=90)
+    longitude_deg: FiniteFloat = Field(ge=-180, le=180)
+
+
 class RjfmInboundGuidance(CalculationModel):
-    status: Literal["WARNING", "UNAVAILABLE"] = "UNAVAILABLE"
+    """Transient west-extension diagnostic; it is never persisted with a project."""
+
+    status: Literal[
+        "AVAILABLE",
+        "WARNING",
+        "UNAVAILABLE",
+        "ADVERSE_WIND",
+        "NO_SOLUTION",
+        "CONVERGENCE_FAILURE",
+    ] = "UNAVAILABLE"
     message: str
-    reason_code: str
+    reason_code: str | None = None
+    generated_against_fingerprint: str | None = None
+    reference_revision: str | None = None
+    reference_content_fingerprint: str | None = None
+    raw_turn_point: RjfmInboundGuidancePoint | None = None
+    rounded_turn_point: RjfmInboundGuidancePoint | None = None
+    bearing_magnetic_deg: FiniteFloat | None = None
+    actual_bearing_magnetic_deg: FiniteFloat | None = None
+    raw_extra_distance_nm: FiniteFloat | None = Field(default=None, ge=0)
+    extra_distance_nm: FiniteFloat | None = Field(default=None, ge=0)
+    raw_predicted_ete_min: FiniteFloat | None = Field(default=None, ge=0)
+    predicted_ete_min: FiniteFloat | None = Field(default=None, ge=0)
+    raw_dme_nm: FiniteFloat | None = Field(default=None, ge=0)
+    rounded_dme_nm: FiniteFloat | None = Field(default=None, ge=0)
+    raw_turn_altitude_ft_msl: FiniteFloat | None = Field(default=None, ge=0)
+    rounded_turn_altitude_ft_msl: FiniteFloat | None = Field(default=None, ge=0)
+    raw_minimum_boundary_clearance_nm: FiniteFloat | None = Field(default=None, ge=0)
+    minimum_boundary_clearance_nm: FiniteFloat | None = Field(default=None, ge=0)
 
 
 class FuelPlan(CalculationModel):
