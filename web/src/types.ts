@@ -423,6 +423,12 @@ export interface RjfmDepartureGuidance {
   limitations: string[];
 }
 
+export interface RjfmInboundGuidance {
+  status: "WARNING" | "UNAVAILABLE";
+  message: string;
+  reason_code: string;
+}
+
 export interface CalculationOutcome {
   selected_forecast_run_id: string | null;
   sections: SectionResult[];
@@ -431,6 +437,7 @@ export interface CalculationOutcome {
   check_point_projections: CheckPointProjection[];
   fuel_plan: FuelPlan;
   rjfm_departure_guidance?: RjfmDepartureGuidance | null;
+  rjfm_inbound_guidance?: RjfmInboundGuidance | null;
   status: string;
 }
 
@@ -455,7 +462,8 @@ export type AltitudeInputMode =
   | "EDITABLE"
   | "RJFM_DEPARTURE_TO_UMK_FIXED"
   | "RJFM_UMK_TO_OMARU_FIXED"
-  | "RJFM_PARENT_CONTAINS_UMK_FIXED";
+  | "RJFM_PARENT_CONTAINS_UMK_FIXED"
+  | "RJFM_INBOUND_OMARU_TO_UMK_FIXED";
 
 export interface SectionAltitudeGuidance {
   sectionId: string;

@@ -234,7 +234,7 @@ def test_ui_state_v3_migration_discards_sea_state() -> None:
     }
     migrated = load_persisted_ui_state(raw)
     assert isinstance(migrated, PersistedUiState)
-    assert migrated.state_schema_version == 6
+    assert migrated.state_schema_version == 7
     assert "sea" not in migrated.model_dump_json().lower()
 
 
@@ -250,7 +250,7 @@ def test_ui_state_v4_migrates_with_empty_rjfm_state() -> None:
         }
     )
 
-    assert migrated.state_schema_version == 6
+    assert migrated.state_schema_version == 7
     assert migrated.rjfm_departure_plan is None
     assert migrated.rjfm_departure_guidance is None
 
@@ -260,3 +260,17 @@ def test_ui_state_rejects_unknown_versions_and_fields() -> None:
         load_persisted_ui_state({"state_schema_version": 2})
     with pytest.raises(ValidationError):
         load_persisted_ui_state({"state_schema_version": 4, "unknown": "unsafe"})
+
+
+def test_ui_state_v6_migration_adds_empty_inbound_plan() -> None:
+    migrated = load_persisted_ui_state({
+        "state_schema_version": 6,
+        "calculated_against_fingerprint": None,
+        "defaults_review_fingerprint": None,
+        "arrival_plan": None,
+        "reference_data_snapshot": None,
+        "rjfm_departure_plan": None,
+        "rjfm_departure_guidance": None,
+    })
+    assert migrated.state_schema_version == 7
+    assert migrated.rjfm_inbound_plan is None

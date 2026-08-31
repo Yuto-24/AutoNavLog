@@ -709,9 +709,10 @@ async function calculateNavLog(
   await page.getByRole("button", { name: "経路を確定" }).click();
 
   await expect(page.locator(".route-table tbody tr.vrep-row")).toHaveCount(1);
-  const altitudeInputs = page.locator(".table-number-input");
+  const altitudeInputs = page.locator(".route-table tbody tr:not(.vrep-row) .table-number-input");
+  const vrepAltitudeInput = page.locator(".route-table tbody tr.vrep-row .table-number-input");
   await expect(altitudeInputs.first()).toHaveValue("");
-  await expect(altitudeInputs.last()).toHaveValue("1500");
+  await expect(vrepAltitudeInput).toHaveValue("1500");
   for (let index = 0; index < await altitudeInputs.count(); index += 1) {
     await altitudeInputs.nth(index).fill("4500");
   }
@@ -756,12 +757,12 @@ async function calculateNavLog(
   expect(patternPayload.selected_pattern_altitude_ft_msl).toBe(1300);
   await expect(patternAltitude).toHaveValue("1300");
   await expect(altitudeInputs.first()).toHaveValue(firstAltitudeCandidate);
-  await expect(altitudeInputs.last()).toHaveValue("1800");
+  await expect(vrepAltitudeInput).toHaveValue("1800");
   await expect(cruiseAltitude).toHaveValue(cruiseCandidate);
   await expect(page.locator(".altitude-warning-row")).toHaveCount(0);
   if (forceBacktrackedEoc) {
     const altitudeCount = await altitudeInputs.count();
-    for (let index = 0; index < altitudeCount - 1; index += 1) {
+    for (let index = 0; index < altitudeCount; index += 1) {
       await altitudeInputs.nth(index).fill("7500");
     }
   }
@@ -988,8 +989,10 @@ test("edited VREP altitude reaches the calculation request and NAV LOG", async (
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
 
-  const routeAltitudes = page.locator(".route-table tbody .table-number-input");
-  for (let index = 0; index < await routeAltitudes.count() - 1; index += 1) {
+  await expect(page.locator(".route-table tbody tr.vrep-row")).toHaveCount(1);
+  const routeAltitudes = page.locator(".route-table tbody tr:not(.vrep-row) .table-number-input");
+  await expect(routeAltitudes).toHaveCount(3);
+  for (let index = 0; index < await routeAltitudes.count(); index += 1) {
     await routeAltitudes.nth(index).fill("3500");
   }
   const vrepAltitude = page.locator(".route-table tbody tr.vrep-row .table-number-input");
@@ -1165,7 +1168,7 @@ test("stale destination pattern response cannot overwrite a loaded project or du
       body: JSON.stringify(replacementState),
     });
   }, { times: 1 });
-  await page.getByLabel("保存済み").selectOption(replacementProjectId);
+  await page.getByLabel("保存済み", { exact: true }).selectOption(replacementProjectId);
   await page.getByRole("button", { name: "保存済みProjectを開く" }).click();
   await expect(patternAltitude).toHaveValue("1900");
   await expect(page.getByLabel("TO")).toHaveValue(/RJFK/);
@@ -1499,6 +1502,57 @@ test("responsive workflow keeps a one-way order at intermediate width", async ({
   );
   expect(mobileOverflow).toBeLessThanOrEqual(1);
   expect(pageErrors).toEqual([]);
+});
+
+test("RJFM inbound guidance remains below NAV LOG at intermediate and wide widths", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await calculateNavLog(page);
+  const state = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    return await response.json() as WebState;
+  });
+  if (!state.outcome) throw new Error("calculated outcome is missing");
+  const inboundState: WebState = {
+    ...state,
+    outcome: {
+      ...state.outcome,
+      rjfm_inbound_guidance: {
+        status: "WARNING",
+        reason_code: "DIRECT_DISTANCE_SHORTFALL",
+        message: "UMK通過後の経路延長が必要です。",
+      },
+    },
+  };
+  await page.route("**/api/state", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inboundState) });
+  }, { times: 1 });
+  await page.reload();
+  const navLog = page.getByLabel("計算済みNAV LOG");
+  const guidance = page.getByLabel("RJFM帰路の経路延長案内");
+  await expect(guidance).toContainText("warningのみ");
+  const wide = await Promise.all([navLog.boundingBox(), guidance.boundingBox()]);
+  if (wide.some((box) => box === null)) throw new Error("inbound guidance layout is missing");
+  expect(wide[1]!.y).toBeGreaterThanOrEqual(wide[0]!.y + wide[0]!.height - 1);
+  const wideWorkspace = await Promise.all([
+    page.locator(".input-rail").boundingBox(),
+    page.locator(".route-workspace").boundingBox(),
+    page.locator(".status-rail").boundingBox(),
+  ]);
+  if (wideWorkspace.some((box) => box === null)) throw new Error("wide workspace regions are missing");
+  expect(wideWorkspace[0]!.x).toBeLessThan(wideWorkspace[1]!.x);
+  expect(wideWorkspace[1]!.x).toBeLessThan(wideWorkspace[2]!.x);
+  await page.setViewportSize({ width: 1100, height: 1000 });
+  const narrow = await Promise.all([
+    page.locator(".input-rail").boundingBox(),
+    page.locator(".route-workspace").boundingBox(),
+    page.locator(".status-rail").boundingBox(),
+    navLog.boundingBox(), guidance.boundingBox(),
+  ]);
+  if (narrow.some((box) => box === null)) throw new Error("intermediate workflow regions are missing");
+  for (let index = 1; index < narrow.length; index += 1) {
+    expect(narrow[index]!.y).toBeGreaterThanOrEqual(narrow[index - 1]!.y + narrow[index - 1]!.height - 1);
+  }
 });
 
 test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays editable", async ({ page }) => {

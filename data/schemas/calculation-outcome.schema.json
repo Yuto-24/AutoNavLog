@@ -1051,6 +1051,34 @@
       "title": "RjfmGuidanceStatus",
       "type": "string"
     },
+    "RjfmInboundGuidance": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "status": {
+          "default": "UNAVAILABLE",
+          "enum": [
+            "WARNING",
+            "UNAVAILABLE"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "reason_code"
+      ],
+      "title": "RjfmInboundGuidance",
+      "type": "object"
+    },
     "RjfmRunwayGuidance": {
       "additionalProperties": false,
       "properties": {
@@ -1537,6 +1565,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/RjfmDepartureGuidance"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "rjfm_inbound_guidance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RjfmInboundGuidance"
         },
         {
           "type": "null"

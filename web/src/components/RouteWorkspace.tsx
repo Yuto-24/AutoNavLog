@@ -104,6 +104,13 @@ function fixedAltitudeLabels(
       phase: "巡航（固定）",
     };
   }
+  if (inputMode === "RJFM_INBOUND_OMARU_TO_UMK_FIXED") {
+    return {
+      primary: `${altitude} ft 固定`,
+      detail: "RJFM帰路 OMARU→UMKの到達高度",
+      phase: "巡航（固定）",
+    };
+  }
   return {
     primary: `UMK ${altitude} ft HIT`,
     detail: `RJFM→OMARU親Leg内・OMARUまで${altitude} ft固定`,

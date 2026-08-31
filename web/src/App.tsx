@@ -1122,6 +1122,23 @@ function App() {
           />
         </div>
       )}
+      {state.outcome?.rjfm_inbound_guidance && (
+        <aside className="rjfm-inbound-guidance" aria-label="RJFM帰路の経路延長案内">
+          <div className="rjfm-guidance-heading">
+            <div>
+              <span className="rjfm-guidance-eyebrow">RJFM INBOUND OPERATIONAL GUIDANCE</span>
+              <h3>UMK後の経路延長</h3>
+            </div>
+            <span className="rjfm-inbound-guidance-status" role="status">
+              {state.outcome.rjfm_inbound_guidance.status}
+            </span>
+          </div>
+          <p className="rjfm-guidance-intro">{state.outcome.rjfm_inbound_guidance.message}</p>
+          <p className="rjfm-inbound-guidance-note">
+            この案内はwarningのみです。NAV LOGの物理経路・距離・針路を変更しません。
+          </p>
+        </aside>
+      )}
 
       <footer className="app-footer">
         <span>AutoNavLogは非公式の地上準備支援ツールです。</span>

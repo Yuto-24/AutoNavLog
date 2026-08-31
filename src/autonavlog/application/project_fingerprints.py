@@ -4,6 +4,7 @@ from autonavlog.domain.enums import VisualReferenceRole
 from autonavlog.domain.planning import (
     CP_PROJECTION_POLICY_VERSION,
     RJFM_DEPARTURE_RULE_VERSION,
+    RJFM_INBOUND_RULE_VERSION,
     PersistedUiState,
     ReferenceDataSnapshot,
 )
@@ -137,6 +138,15 @@ def current_calculation_input_fingerprint(
             "rjfm_departure_rule_version": (
                 RJFM_DEPARTURE_RULE_VERSION
                 if ui_state.rjfm_departure_plan is not None
+                else None
+            ),
+            "rjfm_inbound_plan": (
+                None if ui_state.rjfm_inbound_plan is None
+                else ui_state.rjfm_inbound_plan.model_dump(mode="python")
+            ),
+            "rjfm_inbound_rule_version": (
+                RJFM_INBOUND_RULE_VERSION
+                if ui_state.rjfm_inbound_plan is not None
                 else None
             ),
             "rjfm_reference_content_fingerprint": (

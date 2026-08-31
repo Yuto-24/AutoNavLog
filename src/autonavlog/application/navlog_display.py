@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from math import isclose
+from math import floor, isclose
 from re import sub
 from typing import Any
 from uuid import UUID
@@ -230,6 +230,62 @@ def _wind(
 
 def _fuel_tenths(value: float) -> int:
     return int(round(round_half_up(value, 0.1) * 10))
+
+
+def _inbound_ete_display_seconds(
+    sections: list[SectionResult],
+) -> dict[int, int]:
+    """Allocate the once-rounded inbound profile in 30-second units."""
+    candidates = [
+        section
+        for section in sections
+        if section.performance_metadata.get("type")
+        == "rjfm_inbound_operational_descent"
+    ]
+    values = [(section, section.zone_ete_seconds.adopted()) for section in candidates]
+    if not values or any(value is None for _, value in values):
+        return {}
+    exact_units = [float(value) / 30.0 for _, value in values if value is not None]
+    target_units = int(round_half_up(sum(exact_units), 1.0))
+    base_units = [floor(value) for value in exact_units]
+    remaining = max(0, target_units - sum(base_units))
+    order = sorted(
+        range(len(values)),
+        key=lambda index: (-(exact_units[index] - base_units[index]), index),
+    )
+    allocated = list(base_units)
+    for index in order[:remaining]:
+        allocated[index] += 1
+    return {
+        section.sequence: units * 30
+        for (section, _), units in zip(values, allocated, strict=True)
+    }
+
+
+def _display_fixed_ete_combined(
+    zones: list[SectionResult],
+    prior_display_cumulative: float | None,
+    allocations: dict[int, int],
+) -> tuple[NavLogDisplayCell, float | None]:
+    if prior_display_cumulative is None or any(
+        zone.sequence not in allocations for zone in zones
+    ):
+        return _unavailable("DISPLAY_ETE_SUBTOTAL_UNAVAILABLE"), None
+    display_total = sum(allocations[zone.sequence] for zone in zones)
+    display_cumulative = prior_display_cumulative + display_total
+    exact_total = sum(
+        value for zone in zones if (value := zone.zone_ete_seconds.adopted()) is not None
+    )
+    exact_cumulative = zones[-1].cumulative_ete_seconds.adopted()
+    if exact_cumulative is None:
+        return _unavailable("DISPLAY_ETE_SUBTOTAL_UNAVAILABLE"), None
+    return (
+        _display(
+            f"{_duration(display_total)} / {_duration(display_cumulative)}",
+            f"{exact_total}/{exact_cumulative}",
+        ),
+        display_cumulative,
+    )
 
 
 def _display_fuel_combined(
@@ -533,6 +589,8 @@ def _zone_pa(
     if "RCA" in markers:
         return PressureAltitudeDisplayKind.CLIMB, _symbol("↗", "CLIMB")
     if "EOC" in markers:
+        if zone.performance_metadata.get("rjfm_inbound_fixed_altitude") is True:
+            return PressureAltitudeDisplayKind.NUMERIC, _numeric_pa(zone)
         return PressureAltitudeDisplayKind.DESCENT, _symbol("↘", "DESCENT")
     if zone.phase == FlightPhase.CLIMB:
         return PressureAltitudeDisplayKind.CLIMB, _symbol("↗", "CLIMB")
@@ -609,6 +667,7 @@ def build_navlog_display_rows(
     """Build the Golden NAV LOG projection without changing calculation totals."""
 
     estimated_altitudes = _estimated_descent_altitudes(sections)
+    inbound_ete_display_seconds = _inbound_ete_display_seconds(sections)
     rows: list[NavLogDisplayRow] = []
     display_cumulative_distance_nm: float | None = 0.0
     display_cumulative_ete_seconds: float | None = 0.0
@@ -646,15 +705,24 @@ def build_navlog_display_rows(
             prior_display_cumulative=display_cumulative_distance_nm,
             fallback_reason="DISPLAY_DISTANCE_SUBTOTAL_UNAVAILABLE",
         )
-        ete_cell, display_cumulative_ete_seconds = _display_rounded_combined(
-            [zone.zone_ete_seconds for zone in zones],
-            last.cumulative_ete_seconds,
-            _duration,
-            quantum=0.5,
-            unit_scale=60.0,
-            prior_display_cumulative=display_cumulative_ete_seconds,
-            fallback_reason="DISPLAY_ETE_SUBTOTAL_UNAVAILABLE",
-        )
+        if inbound_ete_display_seconds and any(
+            zone.sequence in inbound_ete_display_seconds for zone in zones
+        ):
+            ete_cell, display_cumulative_ete_seconds = _display_fixed_ete_combined(
+                zones,
+                display_cumulative_ete_seconds,
+                inbound_ete_display_seconds,
+            )
+        else:
+            ete_cell, display_cumulative_ete_seconds = _display_rounded_combined(
+                [zone.zone_ete_seconds for zone in zones],
+                last.cumulative_ete_seconds,
+                _duration,
+                quantum=0.5,
+                unit_scale=60.0,
+                prior_display_cumulative=display_cumulative_ete_seconds,
+                fallback_reason="DISPLAY_ETE_SUBTOTAL_UNAVAILABLE",
+            )
         fuel_cell, display_remaining_fuel_tenths = _display_fuel_combined(
             [zone.section_fuel_gal for zone in zones],
             last.remaining_fuel_gal,
@@ -864,10 +932,17 @@ def build_navlog_display_rows(
                             fallback_reason="ZONE_DISTANCE_UNAVAILABLE",
                         ),
                         gs=gs_cell,
-                        ete=_from_adopted(
-                            zone.zone_ete_seconds,
-                            _duration,
-                            fallback_reason="ZONE_ETE_UNAVAILABLE",
+                        ete=(
+                            _display(
+                                _duration(inbound_ete_display_seconds[zone.sequence]),
+                                inbound_ete_display_seconds[zone.sequence],
+                            )
+                            if zone.sequence in inbound_ete_display_seconds
+                            else _from_adopted(
+                                zone.zone_ete_seconds,
+                                _duration,
+                                fallback_reason="ZONE_ETE_UNAVAILABLE",
+                            )
                         ),
                         eto=_blank(),
                         ato=_blank(),

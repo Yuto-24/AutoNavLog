@@ -725,6 +725,30 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
   outline-offset: 2px;
 }
 
+.rjfm-inbound-guidance {
+  max-width: 1530px;
+  margin: 14px auto 0;
+  padding: 14px;
+  border: 1px solid #e4bf72;
+  border-left: 4px solid var(--amber-700);
+  border-radius: var(--radius-sm);
+  background: #fffdf6;
+}
+.rjfm-inbound-guidance-status {
+  padding: 3px 7px;
+  color: #77500e;
+  background: var(--amber-100);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+.rjfm-inbound-guidance-note {
+  margin: 8px 0 0;
+  color: #42596f;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .rjfm-guidance {
   margin: 14px 0;
   padding: 14px;

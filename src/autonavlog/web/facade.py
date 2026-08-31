@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from autonavlog.application.arrival import standard_vrep_altitude_ft_msl
+from autonavlog.application.arrival import calculate_arrival_altitude, standard_vrep_altitude_ft_msl
 from autonavlog.application.calculation_service import CalculationService
 from autonavlog.application.checkpoints import project_check_points
 from autonavlog.application.navlog_display import reproject_route_node_labels
@@ -30,6 +30,15 @@ from autonavlog.application.rjfm_departure_service import (
     build_rjfm_departure_guidance,
     normalize_rjfm_departure_plan,
 )
+from autonavlog.application.rjfm_inbound_plan import (
+    RJFM_INPUT_MODE_OMARU_TO_UMK_FIXED,
+    RjfmInboundReferences,
+    apply_rjfm_inbound_exception,
+    rjfm_inbound_section_input_modes,
+)
+from autonavlog.application.rjfm_inbound_plan import (
+    TARGET_ALTITUDE_FT_MSL as RJFM_INBOUND_TARGET_ALTITUDE_FT_MSL,
+)
 from autonavlog.domain.calculation import CalculationOutcome, Issue
 from autonavlog.domain.enums import (
     AdoptedSource,
@@ -44,6 +53,7 @@ from autonavlog.domain.planning import (
     ArrivalPlan,
     PersistedUiState,
     ReferenceDataSnapshot,
+    RjfmCoordinate,
     load_persisted_ui_state,
 )
 from autonavlog.domain.project import NavSection, Project, RouteNode, VisualReference
@@ -724,6 +734,31 @@ class AutoNavLogWebApplication:
 
     def _normalize_rjfm_departure(self, project: Project) -> None:
         normalize_rjfm_departure_plan(project, self.rjfm_reference_pack)
+        state = self.project_service.ui_state(project)
+        arrival = calculate_arrival_altitude(project, state).result
+        points = self.rjfm_reference_pack.points
+        apply_rjfm_inbound_exception(
+            project,
+            RjfmInboundReferences(
+                revision=self.rjfm_reference_pack.revision,
+                content_fingerprint=self.rjfm_reference_pack.content_fingerprint,
+                umk=RjfmCoordinate(
+                    latitude_deg=points["UMK"].position.latitude_deg,
+                    longitude_deg=points["UMK"].position.longitude_deg,
+                    source=f"RJFM_REFERENCE:{self.rjfm_reference_pack.revision}:UMK",
+                    estimated_error_nm=0.35,
+                ),
+                omaru=RjfmCoordinate(
+                    latitude_deg=points["OMARU"].position.latitude_deg,
+                    longitude_deg=points["OMARU"].position.longitude_deg,
+                    source=f"RJFM_REFERENCE:{self.rjfm_reference_pack.revision}:OMARU",
+                    estimated_error_nm=0.35,
+                ),
+            ),
+            adopted_vrep_altitude_ft_msl=(
+                None if arrival is None else arrival.adopted_altitude_ft_msl
+            ),
+        )
 
     def _with_rjfm_guidance(
         self,
@@ -1133,6 +1168,10 @@ class AutoNavLogWebApplication:
                     project,
                     ui_state.rjfm_departure_plan,
                 )
+            if ui_state is not None and ui_state.rjfm_inbound_plan is not None:
+                input_modes.update(rjfm_inbound_section_input_modes(
+                    project, ui_state.rjfm_inbound_plan
+                ))
         guidance: list[dict[str, Any]] = []
         for section in project.ordered_sections():
             start = nodes.get(section.from_node_id)
@@ -1189,7 +1228,9 @@ class AutoNavLogWebApplication:
                     ),
                     "inputMode": input_mode,
                     "fixedAltitudeFtMsl": (
-                        TARGET_ALTITUDE_FT_MSL if fixed_by_rjfm else None
+                        RJFM_INBOUND_TARGET_ALTITUDE_FT_MSL
+                        if input_mode == RJFM_INPUT_MODE_OMARU_TO_UMK_FIXED
+                        else TARGET_ALTITUDE_FT_MSL if fixed_by_rjfm else None
                     ),
                 }
             )
