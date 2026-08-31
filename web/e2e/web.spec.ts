@@ -685,6 +685,7 @@ async function calculateNavLog(
   page: Page,
   verifyDestinationWind = true,
   forceBacktrackedEoc = false,
+  useFtdWeather = false,
 ): Promise<void> {
   const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
   await openPaste.click();
@@ -702,6 +703,14 @@ async function calculateNavLog(
   await openPaste.click();
   await textbox.fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+
+  if (useFtdWeather) {
+    await page.getByLabel("気象モード").selectOption("FTD");
+    await page.getByLabel("地上風向 ° FROM").fill("360");
+    await page.getByLabel("地上風速 kt").fill("15");
+    await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
+    await page.getByLabel("5,000 ft風速 kt").fill("30");
+  }
 
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
@@ -1082,13 +1091,16 @@ test("stale destination pattern response cannot overwrite a loaded project or du
   const replacementProjectId = "loaded-rjfk-project";
   const replacementState: WebState = {
     ...currentState,
-    savedProjects: [{
-      id: replacementProjectId,
-      name: "RJFK replacement",
-      status: "DRAFT",
-      revision: 1,
-      updatedAt: "2099-08-10T00:00:00+00:00",
-    }],
+    savedProjects: [
+      ...currentState.savedProjects,
+      {
+        id: replacementProjectId,
+        name: "RJFK replacement",
+        status: "DRAFT",
+        revision: 1,
+        updatedAt: "2099-08-10T00:00:00+00:00",
+      },
+    ],
     project: {
       ...currentState.project,
       id: replacementProjectId,
@@ -1128,7 +1140,7 @@ test("stale destination pattern response cannot overwrite a loaded project or du
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(currentState),
+      body: JSON.stringify({ ...currentState, savedProjects: replacementState.savedProjects }),
     });
   }, { times: 1 });
   await page.reload();
@@ -1996,7 +2008,7 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   });
 
   await page.goto("/");
-  await calculateNavLog(page);
+  await calculateNavLog(page, false, false, true);
 
   await expect(
     page.getByLabel("ALT・Phase・FUEL・VAR・TGLを原資料と照合しました"),
@@ -2250,7 +2262,7 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
-  await calculateNavLog(page);
+  await calculateNavLog(page, false, false, true);
 
   const recalculationRequests: string[] = [];
   page.on("request", (request) => {
