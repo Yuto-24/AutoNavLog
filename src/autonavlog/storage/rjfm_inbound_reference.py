@@ -6,9 +6,11 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date
-from math import isfinite
+from math import ceil, isfinite
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, cast
+
+from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
 
 
 class RjfmInboundReferenceError(ValueError):
@@ -35,6 +37,7 @@ class AirspaceBoundary:
     revision: str
     checksum_sha256: str
     polygon_vertices: tuple[GeoPoint, ...]
+    maximum_model_error_nm: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -81,7 +84,8 @@ def _parse(
     fingerprint: str,
     directory: Path | None = None,
 ) -> RjfmInboundGuidanceReference:
-    if data.get("schema_version") != 1:
+    schema_version = data.get("schema_version")
+    if schema_version not in {1, 2} or isinstance(schema_version, bool):
         raise RjfmInboundReferenceError("unsupported inbound reference schema")
     status = cast(Literal["AVAILABLE", "UNAVAILABLE"], _string(data.get("status"), "status"))
     if status not in {"AVAILABLE", "UNAVAILABLE"}:
@@ -117,7 +121,7 @@ def _parse(
     elevation = _number(mze.get("elevation_ft_msl"), "MZE elevation")
     if elevation < -1000:
         raise RjfmInboundReferenceError("MZE elevation is invalid")
-    _validate_mze_source(mze_source, mze_position, elevation)
+    _validate_mze_source(mze_source, mze_position, elevation, directory)
     revision = _string(data.get("revision"), "revision")
 
     if status == "UNAVAILABLE":
@@ -154,19 +158,29 @@ def _parse(
         raise RjfmInboundReferenceError("solver boundary source identity is missing")
     checksum = _sha256(boundary_data.get("checksum_sha256"), "boundary checksum")
     revision_value = _string(boundary_data.get("revision"), "boundary revision")
-    vertices = boundary_data.get("polygon_vertices")
-    if not isinstance(vertices, list):
-        raise RjfmInboundReferenceError("solver boundary polygon is invalid")
-    points = _validate_polygon(vertices)
-    _validate_primary_boundary_source(
-        source,
-        source_id,
-        revision_value,
-        checksum,
-        points,
-        data,
-        directory,
-    )
+    if schema_version == 2:
+        points, maximum_model_error_nm = _validate_primary_boundary_source_v2(
+            source,
+            source_id,
+            revision_value,
+            checksum,
+            boundary_data,
+            data,
+            directory,
+            mze_position,
+        )
+    else:
+        points = _validate_primary_boundary_source(
+            source,
+            source_id,
+            revision_value,
+            checksum,
+            boundary_data,
+            data,
+            directory,
+            mze_position,
+        )
+        maximum_model_error_nm = 0.0
     return RjfmInboundGuidanceReference(
         revision,
         fingerprint,
@@ -174,7 +188,13 @@ def _parse(
         policy,
         mze_position,
         elevation,
-        AirspaceBoundary(source_id, revision_value, checksum, points),
+        AirspaceBoundary(
+            source_id,
+            revision_value,
+            checksum,
+            points,
+            maximum_model_error_nm,
+        ),
     )
 
 
@@ -242,7 +262,7 @@ def _safe_file(root: Path, relative: PurePosixPath, context: str) -> Path:
 
 
 def _validate_mze_source(
-    source: dict[str, Any], position: GeoPoint, elevation_ft_msl: float
+    source: dict[str, Any], position: GeoPoint, elevation_ft_msl: float, directory: Path | None
 ) -> None:
     if source.get("distribution") not in {
         "PUBLIC_AIP_MIRROR",
@@ -272,11 +292,30 @@ def _validate_mze_source(
     declared_elevation = source.get("elevation_ft_msl")
     if declared_elevation is None:
         raise RjfmInboundReferenceError("MZE source elevation is missing")
-    if abs(
-        _number(declared_elevation, "MZE source elevation") - elevation_ft_msl
-    ) > 0.1:
+    if abs(_number(declared_elevation, "MZE source elevation") - elevation_ft_msl) > 0.1:
         raise RjfmInboundReferenceError("MZE elevation does not match source")
 
+
+
+    if source.get("distribution") == "OFFICIAL_PRIMARY":
+        if directory is None:
+            raise RjfmInboundReferenceError("MZE primary source artifact is missing")
+        if not isinstance(source.get("pdf_page"), int) or isinstance(source.get("pdf_page"), bool):
+            raise RjfmInboundReferenceError("MZE primary source PDF page is invalid")
+        checksum = _sha256(source.get("sha256"), "MZE source checksum")
+        if checksum != _sha256(source.get("artifact_sha256"), "MZE source artifact checksum"):
+            raise RjfmInboundReferenceError("MZE primary source checksum mismatch")
+        artifact = _safe_file(
+            directory,
+            _relative_path(source.get("artifact_path"), "MZE source artifact path"),
+            "MZE source artifact",
+        )
+        try:
+            raw = artifact.read_bytes()
+        except OSError as error:
+            raise RjfmInboundReferenceError("MZE primary source artifact is missing") from error
+        if hashlib.sha256(raw).hexdigest() != checksum:
+            raise RjfmInboundReferenceError("MZE primary source artifact SHA-256 mismatch")
 
 def _validate_source_dates(
     source: dict[str, Any], context: str, *, require_effective: bool = False
@@ -286,15 +325,315 @@ def _validate_source_dates(
     if require_effective and effective is None:
         raise RjfmInboundReferenceError(f"{context} effective date is invalid")
     effective_text = (
-        _date(effective, f"{context} effective date")
-        if effective is not None
-        else None
+        _date(effective, f"{context} effective date") if effective is not None else None
     )
     retrieved_text = _date(retrieved, f"{context} retrieved date")
-    if effective_text is not None and date.fromisoformat(
-        effective_text
-    ) > date.fromisoformat(retrieved_text):
+    if effective_text is not None and date.fromisoformat(effective_text) > date.fromisoformat(
+        retrieved_text
+    ):
         raise RjfmInboundReferenceError(f"{context} dates are invalid")
+
+
+def _validate_primary_boundary_source_v2(
+    source: dict[str, Any],
+    source_id: str,
+    boundary_revision: str,
+    boundary_checksum: str,
+    boundary_data: dict[str, Any],
+    payload: dict[str, Any],
+    directory: Path | None,
+    mze_position: GeoPoint,
+) -> tuple[tuple[GeoPoint, ...], float]:
+    if source.get("id") != source_id:
+        raise RjfmInboundReferenceError("solver boundary source identity mismatch")
+    if source.get("source_category") != "PRIMARY_HORIZONTAL_BOUNDARY":
+        raise RjfmInboundReferenceError("solver boundary requires a primary horizontal source")
+    if source.get("distribution") != "OFFICIAL_PRIMARY":
+        raise RjfmInboundReferenceError("solver boundary source is not primary")
+    if source.get("data_use") not in {"SOLVER_PRIMARY", "ATTACHED_OFFICIAL_PRIMARY"}:
+        raise RjfmInboundReferenceError("solver boundary source use is invalid")
+    if source.get("availability") not in {"AVAILABLE", "VERIFIED"}:
+        raise RjfmInboundReferenceError("solver boundary source is unavailable")
+    for key in ("publisher", "document_id", "revision", "effective_date", "retrieved_date"):
+        _string(source.get(key), f"boundary source {key}")
+    if source.get("url") is not None and not str(source["url"]).startswith(("https://", "http://")):
+        raise RjfmInboundReferenceError("boundary source URL is invalid")
+    _validate_source_dates(source, "boundary source", require_effective=True)
+    if not isinstance(source.get("pdf_page"), int) or isinstance(source.get("pdf_page"), bool):
+        raise RjfmInboundReferenceError("boundary source PDF page is invalid")
+    if boundary_revision != source["revision"]:
+        raise RjfmInboundReferenceError("solver boundary revision does not match source")
+    if source.get("synthetic") is True or payload.get("synthetic_fixture") is True:
+        raise RjfmInboundReferenceError("synthetic boundary sources are not solver references")
+    if directory is None:
+        raise RjfmInboundReferenceError("verified boundary source artifact is missing")
+
+    source_checksum = _sha256(source.get("sha256"), "boundary source checksum")
+    source_artifact_checksum = _sha256(
+        source.get("artifact_sha256"), "boundary source artifact checksum"
+    )
+    if source_checksum != source_artifact_checksum:
+        raise RjfmInboundReferenceError("primary source checksum does not match source artifact")
+    source_artifact = _safe_file(
+        directory,
+        _relative_path(source.get("artifact_path"), "boundary source artifact path"),
+        "boundary source artifact",
+    )
+    try:
+        source_raw = source_artifact.read_bytes()
+    except OSError as error:
+        raise RjfmInboundReferenceError("boundary source artifact is missing") from error
+    if hashlib.sha256(source_raw).hexdigest() != source_checksum:
+        raise RjfmInboundReferenceError("boundary source artifact SHA-256 mismatch")
+
+    if set(boundary_data) != {
+        "source_id",
+        "revision",
+        "checksum_sha256",
+        "normalized_artifact_path",
+        "normalized_artifact_sha256",
+    }:
+        raise RjfmInboundReferenceError("normalized solver boundary schema is invalid")
+    normalized_checksum = _sha256(
+        boundary_data.get("normalized_artifact_sha256"), "normalized boundary artifact checksum"
+    )
+    normalized_artifact = _safe_file(
+        directory,
+        _relative_path(
+            boundary_data.get("normalized_artifact_path"),
+            "normalized boundary artifact path",
+        ),
+        "normalized boundary artifact",
+    )
+    try:
+        normalized_raw = normalized_artifact.read_bytes()
+    except OSError as error:
+        raise RjfmInboundReferenceError("normalized boundary artifact is missing") from error
+    if hashlib.sha256(normalized_raw).hexdigest() != normalized_checksum:
+        raise RjfmInboundReferenceError("normalized boundary artifact SHA-256 mismatch")
+    points, maximum_model_error_nm = _normalized_ks43_v2_polygon(
+        _object(normalized_raw, "normalized boundary artifact"),
+        source,
+        mze_position,
+        source_checksum,
+    )
+    if boundary_checksum != _polygon_checksum(points):
+        raise RjfmInboundReferenceError(
+            "solver boundary checksum does not match normalized artifact"
+        )
+    _validate_coordinate_metadata(source.get("coordinate_validation"), points)
+    return points, maximum_model_error_nm
+
+
+def _normalized_ks43_v2_polygon(
+    artifact: dict[str, Any],
+    source: dict[str, Any],
+    mze_position: GeoPoint,
+    source_checksum: str,
+) -> tuple[tuple[GeoPoint, ...], float]:
+    required = {
+        "format_version",
+        "source_id",
+        "source_page",
+        "crs",
+        "vertices",
+        "segments",
+        "algorithm",
+        "polygon_vertices",
+    }
+    if set(artifact) != required or artifact.get("format_version") != 1:
+        raise RjfmInboundReferenceError("normalized boundary artifact schema is invalid")
+    if artifact.get("source_id") != source["id"] or artifact.get("crs") != "WGS84":
+        raise RjfmInboundReferenceError("normalized boundary source identity is invalid")
+    expected_page = {
+        "sha256": source_checksum,
+        "document_id": source["document_id"],
+        "pdf_page": source["pdf_page"],
+        "effective_date": source["effective_date"],
+    }
+    if _mapping(artifact.get("source_page"), "normalized boundary source page") != expected_page:
+        raise RjfmInboundReferenceError("normalized boundary source provenance mismatch")
+    vertices = _normalized_vertices_v2(artifact.get("vertices"))
+    algorithm = _mapping(artifact.get("algorithm"), "normalized boundary algorithm")
+    if (
+        set(algorithm)
+        != {
+            "id",
+            "max_arc_step_deg",
+            "endpoint_policy",
+            "maximum_model_error_nm",
+        }
+        or algorithm.get("id") != "WGS84_DIRECT_MINOR_ARC_V1"
+        or algorithm.get("endpoint_policy") != "PUBLISHED_DMS"
+    ):
+        raise RjfmInboundReferenceError("normalized boundary algorithm is invalid")
+    max_step_deg = _number(algorithm.get("max_arc_step_deg"), "normalized boundary arc step")
+    maximum_model_error_nm = _number(
+        algorithm.get("maximum_model_error_nm"), "normalized boundary model error"
+    )
+    if not (0.0 < max_step_deg <= 2.0) or not (0.0 < maximum_model_error_nm <= 0.05):
+        raise RjfmInboundReferenceError("normalized boundary algorithm is invalid")
+    generated, required_error_nm = _generate_ks43_polygon_v2(
+        vertices,
+        artifact.get("segments"),
+        mze_position,
+        max_step_deg,
+    )
+    if maximum_model_error_nm + 1e-12 < required_error_nm:
+        raise RjfmInboundReferenceError("normalized boundary model error is insufficient")
+    supplied = artifact.get("polygon_vertices")
+    if not isinstance(supplied, list):
+        raise RjfmInboundReferenceError("normalized boundary polygon is invalid")
+    supplied_points = _validate_polygon(supplied)
+    if len(supplied_points) != len(generated) or any(
+        abs(actual.latitude_deg - expected.latitude_deg) > 1e-10
+        or abs(actual.longitude_deg - expected.longitude_deg) > 1e-10
+        for actual, expected in zip(supplied_points, generated, strict=True)
+    ):
+        raise RjfmInboundReferenceError(
+            "normalized boundary polygon does not match deterministic arc"
+        )
+    return generated, maximum_model_error_nm
+
+
+def _normalized_vertices_v2(value: object) -> dict[str, GeoPoint]:
+    if not isinstance(value, list) or len(value) != 8:
+        raise RjfmInboundReferenceError("normalized boundary vertices are invalid")
+    result: dict[str, GeoPoint] = {}
+    for item in value:
+        vertex = _mapping(item, "normalized boundary vertex")
+        if set(vertex) != {"id", "latitude_dms", "longitude_dms", "latitude_deg", "longitude_deg"}:
+            raise RjfmInboundReferenceError("normalized boundary vertex is invalid")
+        identifier = _string(vertex.get("id"), "normalized boundary vertex ID")
+        if identifier in result:
+            raise RjfmInboundReferenceError("normalized boundary vertex IDs are invalid")
+        point = GeoPoint(
+            _dms_coordinate(vertex.get("latitude_dms"), latitude=True),
+            _dms_coordinate(vertex.get("longitude_dms"), latitude=False),
+        )
+        declared = _point(vertex, "normalized boundary vertex")
+        if (
+            abs(point.latitude_deg - declared.latitude_deg) > 1e-10
+            or abs(point.longitude_deg - declared.longitude_deg) > 1e-10
+        ):
+            raise RjfmInboundReferenceError("normalized boundary DMS coordinates drift")
+        result[identifier] = point
+    if set(result) != {f"p{index}" for index in range(1, 9)}:
+        raise RjfmInboundReferenceError("normalized boundary vertex IDs are invalid")
+    return result
+
+
+def _generate_ks43_polygon_v2(
+    vertices: dict[str, GeoPoint],
+    segments_value: object,
+    center: GeoPoint,
+    max_step_deg: float,
+) -> tuple[tuple[GeoPoint, ...], float]:
+    if not isinstance(segments_value, list) or len(segments_value) != 8:
+        raise RjfmInboundReferenceError("normalized boundary segments are invalid")
+    result: list[GeoPoint] = [vertices["p1"]]
+    current = "p1"
+    required_error_nm = 0.0
+    for index, item in enumerate(segments_value, start=1):
+        segment = _mapping(item, "normalized boundary segment")
+        end = f"p{index + 1}" if index < 8 else "p1"
+        if segment.get("from") != current or segment.get("to") != end:
+            raise RjfmInboundReferenceError("normalized boundary segment order is invalid")
+        if current == "p3":
+            expected = {
+                "type",
+                "from",
+                "to",
+                "center_source_id",
+                "radius_nm",
+                "direction",
+            }
+            if set(segment) != expected or segment.get("type") != "MINOR_GEODESIC_CIRCLE_ARC":
+                raise RjfmInboundReferenceError("normalized boundary arc definition is invalid")
+            if segment.get("center_source_id") != "MZE" or segment.get("direction") != "SHORTEST":
+                raise RjfmInboundReferenceError("normalized boundary arc definition is invalid")
+            radius_nm = _number(segment.get("radius_nm"), "normalized boundary arc radius")
+            if radius_nm != 10.0:
+                raise RjfmInboundReferenceError("normalized boundary arc parameters are invalid")
+            start_leg = geodesic_leg(
+                center.latitude_deg,
+                center.longitude_deg,
+                vertices[current].latitude_deg,
+                vertices[current].longitude_deg,
+            )
+            end_leg = geodesic_leg(
+                center.latitude_deg,
+                center.longitude_deg,
+                vertices[end].latitude_deg,
+                vertices[end].longitude_deg,
+            )
+            endpoint_error = max(
+                abs(start_leg.distance_nm - radius_nm), abs(end_leg.distance_nm - radius_nm)
+            )
+            if endpoint_error > 0.01:
+                raise RjfmInboundReferenceError(
+                    "normalized boundary arc endpoints do not match radius"
+                )
+            delta = (
+                end_leg.initial_true_course_deg - start_leg.initial_true_course_deg + 540.0
+            ) % 360.0 - 180.0
+            if abs(delta) < 1e-9:
+                raise RjfmInboundReferenceError("normalized boundary arc is degenerate")
+            count = ceil(abs(delta) / max_step_deg)
+            required_error_nm = max(
+                required_error_nm,
+                endpoint_error
+                + radius_nm * (1.0 - _cos_degrees(abs(delta) / (2.0 * count))),
+            )
+            for arc_index in range(1, count):
+                latitude, longitude = point_along_leg(
+                    center.latitude_deg,
+                    center.longitude_deg,
+                    (start_leg.initial_true_course_deg + delta * arc_index / count) % 360.0,
+                    radius_nm,
+                )
+                result.append(GeoPoint(latitude, longitude))
+            result.append(vertices[end])
+        else:
+            if set(segment) != {"type", "from", "to"} or segment.get("type") != "LINE":
+                raise RjfmInboundReferenceError("normalized boundary line segment is invalid")
+            result.append(vertices[end])
+        current = end
+    if result[-1] != result[0]:
+        raise RjfmInboundReferenceError("normalized boundary ring is not closed")
+    return _validate_points(result), required_error_nm
+
+
+def _cos_degrees(value: float) -> float:
+    from math import cos, radians
+
+    return cos(radians(value))
+
+
+def _polygon_checksum(points: tuple[GeoPoint, ...]) -> str:
+    canonical = json.dumps(
+        [[f"{point.latitude_deg:.12f}", f"{point.longitude_deg:.12f}"] for point in points],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode("ascii")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _dms_coordinate(value: object, *, latitude: bool) -> float:
+    text = _string(value, "normalized boundary DMS coordinate")
+    expected_length = 7 if latitude else 8
+    hemispheres = "NS" if latitude else "EW"
+    if len(text) != expected_length or text[-1] not in hemispheres or not text[:-1].isdigit():
+        raise RjfmInboundReferenceError("normalized boundary DMS coordinate is invalid")
+    degree_digits = 2 if latitude else 3
+    degrees = int(text[:degree_digits])
+    minutes = int(text[degree_digits : degree_digits + 2])
+    seconds = int(text[degree_digits + 2 : -1])
+    maximum = 90 if latitude else 180
+    if degrees > maximum or minutes >= 60 or seconds >= 60:
+        raise RjfmInboundReferenceError("normalized boundary DMS coordinate is invalid")
+    coordinate = degrees + minutes / 60.0 + seconds / 3600.0
+    return -coordinate if text[-1] in "SW" else coordinate
 
 
 def _validate_primary_boundary_source(
@@ -302,10 +641,11 @@ def _validate_primary_boundary_source(
     source_id: str,
     boundary_revision: str,
     boundary_checksum: str,
-    points: tuple[GeoPoint, ...],
+    boundary_data: dict[str, Any],
     payload: dict[str, Any],
     directory: Path | None,
-) -> None:
+    _mze_position: GeoPoint,
+) -> tuple[GeoPoint, ...]:
     if source.get("id") != source_id:
         raise RjfmInboundReferenceError("solver boundary source identity mismatch")
     category = source.get("source_category", source.get("category"))
@@ -345,7 +685,12 @@ def _validate_primary_boundary_source(
         raise RjfmInboundReferenceError("boundary source artifact SHA-256 mismatch")
     if source.get("synthetic") is True or payload.get("synthetic_fixture") is True:
         raise RjfmInboundReferenceError("synthetic boundary sources are not solver references")
+    vertices = boundary_data.get("polygon_vertices")
+    if not isinstance(vertices, list):
+        raise RjfmInboundReferenceError("solver boundary polygon is invalid")
+    points = _validate_polygon(vertices)
     _validate_coordinate_metadata(source.get("coordinate_validation"), points)
+    return points
 
 
 def _validate_coordinate_metadata(value: object, points: tuple[GeoPoint, ...]) -> None:
@@ -363,6 +708,15 @@ def _validate_coordinate_metadata(value: object, points: tuple[GeoPoint, ...]) -
     for key, expected in required.items():
         if metadata.get(key) != expected:
             raise RjfmInboundReferenceError("boundary coordinate validation is invalid")
+
+
+def _validate_points(points: list[GeoPoint]) -> tuple[GeoPoint, ...]:
+    return _validate_polygon(
+        [
+            {"latitude_deg": point.latitude_deg, "longitude_deg": point.longitude_deg}
+            for point in points
+        ]
+    )
 
 
 def _validate_polygon(value: list[object]) -> tuple[GeoPoint, ...]:
@@ -455,9 +809,7 @@ def _segments_intersect(a: GeoPoint, b: GeoPoint, c: GeoPoint, d: GeoPoint) -> b
 def _on_segment(start: GeoPoint, point: GeoPoint, end: GeoPoint) -> bool:
     cross = (end.longitude_deg - start.longitude_deg) * (
         point.latitude_deg - start.latitude_deg
-    ) - (end.latitude_deg - start.latitude_deg) * (
-        point.longitude_deg - start.longitude_deg
-    )
+    ) - (end.latitude_deg - start.latitude_deg) * (point.longitude_deg - start.longitude_deg)
     if abs(cross) > 1e-12:
         return False
     return min(start.latitude_deg, end.latitude_deg) <= point.latitude_deg <= max(

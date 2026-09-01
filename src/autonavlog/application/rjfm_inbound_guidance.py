@@ -48,6 +48,7 @@ class InboundGuidanceRequest:
     bearing_min_magnetic_deg: float = 250.0
     bearing_max_magnetic_deg: float = 290.0
     boundary: tuple[GeoPoint, ...] = ()
+    boundary_model_error_nm: float = 0.0
     reference_revision: str = "synthetic"
     dme_increment_nm: float = 0.5
     coarse_bearing_step_deg: float = 5.0
@@ -888,7 +889,11 @@ def _round_up(value: float, increment: float) -> float:
 def _request_geometry_supported(request: InboundGuidanceRequest) -> bool:
     try:
         direct_points = sample_geodesic_points(request.umk, request.vrep)
-        polyline_boundary_metrics(direct_points, request.boundary)
+        polyline_boundary_metrics(
+            direct_points,
+            request.boundary,
+            boundary_model_error_nm=request.boundary_model_error_nm,
+        )
     except GeometryUnsupportedError:
         return False
     return True
@@ -907,10 +912,12 @@ def _route_metrics(
         first_intersects, first_clearance = polyline_boundary_metrics(
             sample_geodesic_points(request.umk, turn),
             request.boundary,
+            boundary_model_error_nm=request.boundary_model_error_nm,
         )
         second_intersects, second_clearance = polyline_boundary_metrics(
             sample_geodesic_points(turn, request.vrep),
             request.boundary,
+            boundary_model_error_nm=request.boundary_model_error_nm,
         )
     except GeometryUnsupportedError:
         # A turn candidate can leave the reviewed local geometry domain. It is
@@ -967,6 +974,7 @@ def _valid(request: InboundGuidanceRequest) -> bool:
         request.bearing_tolerance_deg,
         request.distance_tolerance_nm,
         request.max_extension_distance_nm,
+        request.boundary_model_error_nm,
     )
     if not all(isfinite(value) for value in scalar_values):
         return False
@@ -1003,6 +1011,7 @@ def _valid(request: InboundGuidanceRequest) -> bool:
         and request.bearing_tolerance_deg > 0
         and request.distance_tolerance_nm > 0
         and request.max_extension_distance_nm > 0
+        and request.boundary_model_error_nm >= 0
         and request.max_bearing_evaluations >= _MIN_BEARING_EVALUATIONS
         and request.max_distance_evaluations >= _MIN_DISTANCE_EVALUATIONS
         and 0.0 <= request.bearing_min_magnetic_deg <= request.bearing_max_magnetic_deg <= 360.0

@@ -195,7 +195,7 @@ def test_service_uses_authoritative_operational_descent_and_keeps_core_unchanged
     assert outcome.model_dump(mode="json") == core_before
 
 
-def test_production_unavailable_reference_never_calls_solver(
+def test_production_available_reference_passes_validated_boundary_to_solver(
     airports,
     performance_repository,
 ) -> None:
@@ -203,23 +203,22 @@ def test_production_unavailable_reference_never_calls_solver(
     reference = RjfmInboundGuidanceReference.from_directory(
         ROOT / "data" / "reference" / "rjfm-inbound-guidance"
     )
+    captured: list[InboundGuidanceRequest] = []
 
-    def solver(_: InboundGuidanceRequest) -> InboundGuidanceSolution:
-        raise AssertionError("unavailable reference must not invoke the solver")
+    def solver(request: InboundGuidanceRequest) -> InboundGuidanceSolution:
+        captured.append(request)
+        return _available_solution(reference)
 
     guidance = build_rjfm_inbound_guidance(
-        project,
-        outcome,
-        state,
-        reference,
-        generated_against_fingerprint="f" * 64,
-        solver=solver,
+        project, outcome, state, reference, generated_against_fingerprint="f" * 64, solver=solver
     )
 
     assert guidance is not None
-    assert guidance.status == "UNAVAILABLE"
-    assert guidance.reason_code == "KS43_HORIZONTAL_BOUNDARY_UNVERIFIED"
-    _assert_no_numeric_diagnostics(guidance)
+    assert guidance.status == "AVAILABLE"
+    assert captured
+    assert len(captured[0].boundary) == 49
+    assert captured[0].boundary_model_error_nm == pytest.approx(0.02)
+    assert guidance.reference_revision == reference.revision
 
 
 @pytest.mark.parametrize(

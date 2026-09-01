@@ -156,3 +156,24 @@ def test_polyline_boundary_metrics_rejects_antimeridian_combined_extent() -> Non
 
     with pytest.raises(GeometryUnsupportedError, match="local domain"):
         polyline_boundary_metrics(points, boundary)
+
+
+def test_boundary_model_error_blocks_a_route_clear_of_numeric_guard_only() -> None:
+    origin = GeoPoint(0.0, 0.0)
+    points = sample_geodesic_points(origin, _point_on_course(origin, 270.0, 30.0))
+    boundary = (
+        GeoPoint(0.0003, -0.55),
+        GeoPoint(0.0003, -0.45),
+        GeoPoint(0.0004, -0.45),
+        GeoPoint(0.0004, -0.55),
+    )
+
+    clear, numeric_clearance_nm = polyline_boundary_metrics(points, boundary)
+    blocked, guarded_clearance_nm = polyline_boundary_metrics(
+        points, boundary, boundary_model_error_nm=0.02
+    )
+
+    assert not clear
+    assert numeric_clearance_nm > 0.0
+    assert blocked
+    assert guarded_clearance_nm == 0.0

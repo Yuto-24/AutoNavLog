@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from autonavlog.domain.calculation import RjfmInboundGuidance
+from autonavlog.storage.rjfm_inbound_reference import RjfmInboundReferenceError
 from autonavlog.web.app import create_app
 from autonavlog.web.runtime import WebRuntimeConfig
 
@@ -15,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _synthetic_available_inbound_guidance(*_args: object, **_kwargs: object) -> RjfmInboundGuidance:
-    """API contract fixture; production still loads the unavailable signed pack."""
+    """API contract fixture; production reference tests use the signed v2 pack."""
 
     return RjfmInboundGuidance(
         status="AVAILABLE",
@@ -61,13 +62,14 @@ async def _wait_for_calculation(client: httpx.AsyncClient) -> dict[str, Any]:
     created = await client.post("/api/calculation-jobs")
     assert created.status_code == 202, created.text
     job = created.json()
-    for _ in range(100):
+    deadline = asyncio.get_running_loop().time() + 90.0
+    while asyncio.get_running_loop().time() < deadline:
         response = await client.get(f"/api/calculation-jobs/{job['job_id']}")
         assert response.status_code == 200, response.text
         job = response.json()
         if job["status"] in {"succeeded", "failed"}:
             break
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.2)
     assert job["status"] == "succeeded", job
     return cast(dict[str, Any], job["state"])
 
@@ -234,7 +236,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
 
 
 @pytest.mark.anyio
-async def test_production_reference_returns_nonblocking_unavailable_guidance(
+async def test_production_available_reference_returns_numeric_v2_guidance(
     tmp_path: Path,
 ) -> None:
     app = create_app(
@@ -274,33 +276,104 @@ async def test_production_reference_returns_nonblocking_unavailable_guidance(
         assert confirmed.status_code == 200, confirmed.text
         calculated = await _wait_for_calculation(client)
         outcome = calculated["outcome"]
-        assert outcome["rjfm_inbound_guidance"] == {
-            "status": "UNAVAILABLE",
-            "reason_code": "KS43_HORIZONTAL_BOUNDARY_UNVERIFIED",
-            "message": (
-                "KS4-3 horizontal boundary has no verified, versioned solver reference; "
-                "west-extension guidance is unavailable."
-            ),
-            "generated_against_fingerprint": outcome["rjfm_inbound_guidance"][
-                "generated_against_fingerprint"
-            ],
-            "reference_revision": "2026-08-31-rjfm-inbound-west-guidance-v1",
-            "reference_content_fingerprint": outcome["rjfm_inbound_guidance"][
-                "reference_content_fingerprint"
-            ],
-            "raw_turn_point": None,
-            "rounded_turn_point": None,
-            "bearing_magnetic_deg": None,
-            "actual_bearing_magnetic_deg": None,
-            "raw_extra_distance_nm": None,
-            "extra_distance_nm": None,
-            "raw_predicted_ete_min": None,
-            "predicted_ete_min": None,
-            "raw_dme_nm": None,
-            "rounded_dme_nm": None,
-            "raw_turn_altitude_ft_msl": None,
-            "rounded_turn_altitude_ft_msl": None,
-            "raw_minimum_boundary_clearance_nm": None,
-            "minimum_boundary_clearance_nm": None,
-        }
+        guidance = outcome["rjfm_inbound_guidance"]
+        assert guidance is not None
+        assert guidance["status"] == "AVAILABLE"
+        assert guidance["reason_code"] is None
+        assert guidance["reference_revision"] == "2026-08-31-rjfm-inbound-west-guidance-v2"
+        assert guidance["reference_content_fingerprint"]
+        for key in (
+            "raw_turn_point",
+            "rounded_turn_point",
+            "bearing_magnetic_deg",
+            "actual_bearing_magnetic_deg",
+            "raw_extra_distance_nm",
+            "extra_distance_nm",
+            "raw_predicted_ete_min",
+            "predicted_ete_min",
+            "raw_dme_nm",
+            "rounded_dme_nm",
+            "raw_turn_altitude_ft_msl",
+            "rounded_turn_altitude_ft_msl",
+            "raw_minimum_boundary_clearance_nm",
+            "minimum_boundary_clearance_nm",
+        ):
+            assert guidance[key] is not None
+        assert guidance["rounded_dme_nm"] >= guidance["raw_dme_nm"]
+        assert guidance["extra_distance_nm"] >= guidance["raw_extra_distance_nm"]
+        assert guidance["predicted_ete_min"] >= guidance["raw_predicted_ete_min"]
+        assert guidance["minimum_boundary_clearance_nm"] > 0.0
+        assert outcome["blockers"] == [] if "blockers" in outcome else True
+
+
+@pytest.mark.anyio
+async def test_corrupt_production_reference_is_nonblocking_and_suppresses_numerics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def corrupt_reference(_: Path) -> object:
+        raise RjfmInboundReferenceError("synthetic corrupt primary reference")
+
+    monkeypatch.setattr(
+        "autonavlog.web.runtime.RjfmInboundGuidanceReference.from_directory",
+        corrupt_reference,
+    )
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "corrupt-reference-storage",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        imported = await client.post(
+            "/api/import", json={"filename": "rjfo-rjfm-inbound.kml", "kml_text": INBOUND_KML}
+        )
+        assert imported.status_code == 200, imported.text
+        confirmed = await client.post(
+            "/api/route/confirm",
+            json={
+                "candidate_kind": "line",
+                "candidate_index": 0,
+                "route_use_confirmed": True,
+                "flight_date": "2026-08-31",
+                "departure_time_jst": "09:00",
+                "total_usable_fuel_gal": 90,
+                "default_variation_deg_east": 8,
+                "weather_mode": "FTD",
+                "ftd_weather": {
+                    "surface_wind": {"direction_deg_from": 360, "speed_kt": 15},
+                    "wind_at_5000_ft": {"direction_deg_from": 270, "speed_kt": 30},
+                },
+                "all_leg_altitude_ft_msl": 5000,
+                "defaults_confirmed": True,
+            },
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        outcome = (await _wait_for_calculation(client))["outcome"]
+        guidance = outcome["rjfm_inbound_guidance"]
+        assert guidance is not None
+        assert guidance["status"] == "UNAVAILABLE"
+        assert guidance["reason_code"] == "REFERENCE_LOAD_FAILED"
+        assert guidance["reference_revision"] is None
+        assert guidance["reference_content_fingerprint"] is None
+        for key in (
+            "raw_turn_point",
+            "rounded_turn_point",
+            "bearing_magnetic_deg",
+            "actual_bearing_magnetic_deg",
+            "raw_extra_distance_nm",
+            "extra_distance_nm",
+            "raw_predicted_ete_min",
+            "predicted_ete_min",
+            "raw_dme_nm",
+            "rounded_dme_nm",
+            "raw_turn_altitude_ft_msl",
+            "rounded_turn_altitude_ft_msl",
+            "raw_minimum_boundary_clearance_nm",
+            "minimum_boundary_clearance_nm",
+        ):
+            assert guidance[key] is None
         assert outcome["blockers"] == [] if "blockers" in outcome else True

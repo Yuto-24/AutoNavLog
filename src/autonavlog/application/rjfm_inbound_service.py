@@ -157,6 +157,7 @@ def _build_rjfm_inbound_guidance(
                 bearing_min_magnetic_deg=reference.policy.magnetic_bearing_min_deg,
                 bearing_max_magnetic_deg=reference.policy.magnetic_bearing_max_deg,
                 boundary=reference.boundary.polygon_vertices,
+                boundary_model_error_nm=reference.boundary.maximum_model_error_nm,
                 reference_revision=reference.revision,
                 dme_increment_nm=reference.policy.dme_rounding_increment_nm,
                 coarse_bearing_step_deg=reference.policy.coarse_bearing_step_deg,

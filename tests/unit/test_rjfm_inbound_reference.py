@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -127,12 +128,14 @@ def _invalid_pack(tmp_path: Path, mutate) -> None:
         RjfmInboundGuidanceReference.from_directory(tmp_path)
 
 
-def test_reference_pack_is_fail_closed_and_unavailable() -> None:
+def test_production_reference_pack_is_available_and_validated() -> None:
     ref = RjfmInboundGuidanceReference.from_directory(ROOT / "data/reference/rjfm-inbound-guidance")
-    assert ref.status == "UNAVAILABLE"
-    assert not ref.available_for_solver
-    assert ref.boundary is None
-    assert ref.reason_code == "KS43_HORIZONTAL_BOUNDARY_UNVERIFIED"
+    assert ref.status == "AVAILABLE"
+    assert ref.available_for_solver
+    assert ref.boundary is not None
+    assert len(ref.boundary.polygon_vertices) == 49
+    assert ref.boundary.maximum_model_error_nm == pytest.approx(0.02)
+    assert ref.boundary.revision == "2024-02-22"
 
 
 def test_valid_synthetic_available_pack_requires_and_verifies_primary_artifact(
@@ -296,17 +299,17 @@ def test_available_reference_rejects_coordinate_metadata_drift(tmp_path: Path) -
 
 
 def test_unavailable_payload_rejects_any_solver_polygon() -> None:
-    payload = json.loads(
-        (
-            ROOT / "data/reference/rjfm-inbound-guidance/rjfm-inbound-guidance-reference.json"
-        ).read_text()
-    )
-    payload["boundary"] = {"polygon_vertices": [_point(0, 0), _point(0, 1), _point(1, 1)]}
+    payload = _available_payload()
+    payload["status"] = "UNAVAILABLE"
+    payload["unavailable"] = {
+        "reason_code": "KS43_REFERENCE_UNAVAILABLE",
+        "message": "fixture only",
+        "evidence_source_ids": [payload["sources"][2]["id"]],
+    }
     with pytest.raises(RjfmInboundReferenceError, match="unavailable reference"):
         from autonavlog.storage.rjfm_inbound_reference import _parse
 
         _parse(payload, "0" * 64)
-
 
 @pytest.mark.parametrize(
     "mutate",
@@ -409,3 +412,77 @@ def test_available_reference_rejects_invalid_mze_provenance(tmp_path: Path, muta
     _write_pack(tmp_path, payload)
     with pytest.raises(RjfmInboundReferenceError):
         RjfmInboundGuidanceReference.from_directory(tmp_path)
+
+
+def _copy_production_pack(destination: Path) -> None:
+    shutil.copytree(ROOT / "data/reference/rjfm-inbound-guidance", destination)
+
+
+def _refresh_pack_manifest(pack: Path) -> None:
+    payload_path = pack / "rjfm-inbound-guidance-reference.json"
+    manifest_path = pack / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["payload"]["sha256"] = hashlib.sha256(payload_path.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_v2_reference_rejects_normalized_artifact_hash_mismatch(tmp_path: Path) -> None:
+    pack = tmp_path / "pack"
+    _copy_production_pack(pack)
+    normalized = pack / "artifacts/ks4-3-enr-5-3-21-normalized.json"
+    normalized.write_bytes(normalized.read_bytes() + b" ")
+
+    with pytest.raises(
+        RjfmInboundReferenceError, match="normalized boundary artifact SHA-256 mismatch"
+    ):
+        RjfmInboundGuidanceReference.from_directory(pack)
+
+
+def test_v2_reference_rejects_deterministic_arc_drift_after_rehash(tmp_path: Path) -> None:
+    pack = tmp_path / "pack"
+    _copy_production_pack(pack)
+    normalized_path = pack / "artifacts/ks4-3-enr-5-3-21-normalized.json"
+    normalized = json.loads(normalized_path.read_text())
+    normalized["polygon_vertices"][3]["latitude_deg"] += 0.001
+    normalized_path.write_text(json.dumps(normalized), encoding="utf-8")
+    payload_path = pack / "rjfm-inbound-guidance-reference.json"
+    payload = json.loads(payload_path.read_text())
+    payload["boundary"]["normalized_artifact_sha256"] = hashlib.sha256(
+        normalized_path.read_bytes()
+    ).hexdigest()
+    payload_path.write_text(json.dumps(payload), encoding="utf-8")
+    _refresh_pack_manifest(pack)
+
+    with pytest.raises(RjfmInboundReferenceError, match="does not match deterministic arc"):
+        RjfmInboundGuidanceReference.from_directory(pack)
+
+
+def test_v2_reference_rejects_underdeclared_combined_arc_model_error(tmp_path: Path) -> None:
+    pack = tmp_path / "pack"
+    _copy_production_pack(pack)
+    normalized_path = pack / "artifacts/ks4-3-enr-5-3-21-normalized.json"
+    normalized = json.loads(normalized_path.read_text())
+    normalized["algorithm"]["maximum_model_error_nm"] = 0.01
+    normalized_path.write_text(json.dumps(normalized), encoding="utf-8")
+    payload_path = pack / "rjfm-inbound-guidance-reference.json"
+    payload = json.loads(payload_path.read_text())
+    payload["boundary"]["normalized_artifact_sha256"] = hashlib.sha256(
+        normalized_path.read_bytes()
+    ).hexdigest()
+    payload_path.write_text(json.dumps(payload), encoding="utf-8")
+    _refresh_pack_manifest(pack)
+
+    with pytest.raises(RjfmInboundReferenceError, match="model error is insufficient"):
+        RjfmInboundGuidanceReference.from_directory(pack)
+
+
+def test_v2_reference_rejects_primary_pdf_hash_mismatch(tmp_path: Path) -> None:
+    pack = tmp_path / "pack"
+    _copy_production_pack(pack)
+    artifact = pack / "artifacts/ks4-3-enr-5-3-21.pdf"
+    artifact.write_bytes(artifact.read_bytes() + b"x")
+
+    with pytest.raises(
+        RjfmInboundReferenceError, match="MZE primary source artifact SHA-256 mismatch"
+    ):
+        RjfmInboundGuidanceReference.from_directory(pack)

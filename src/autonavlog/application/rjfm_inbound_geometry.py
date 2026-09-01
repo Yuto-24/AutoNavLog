@@ -102,15 +102,24 @@ def sample_geodesic_points(start: GeoPoint, end: GeoPoint) -> tuple[GeoPoint, ..
 
 
 def polyline_boundary_metrics(
-    points: tuple[GeoPoint, ...], polygon: tuple[GeoPoint, ...]
+    points: tuple[GeoPoint, ...],
+    polygon: tuple[GeoPoint, ...],
+    *,
+    boundary_model_error_nm: float = 0.0,
 ) -> tuple[bool, float]:
     """Return conservative intersection and minimum clearance for a route.
 
     Polygon edges are interpreted as straight latitude/longitude edges. Route
     pieces are WGS84 geodesics approximated by <=0.5 NM chords. The returned
-    clearance is reduced by the documented conservative numeric guard.
+    clearance is reduced by the documented conservative numeric guard and the
+    declared maximum error of the normalized source-boundary model.
     """
-    if len(points) < 2 or not all(_valid_point(point) for point in points):
+    if (
+        not isfinite(boundary_model_error_nm)
+        or boundary_model_error_nm < 0.0
+        or len(points) < 2
+        or not all(_valid_point(point) for point in points)
+    ):
         raise GeometryUnsupportedError("route samples are outside the supported domain")
     normalized_polygon = _normalized_polygon(polygon)
     if len(normalized_polygon) < 3 or not all(
@@ -131,7 +140,7 @@ def polyline_boundary_metrics(
         if _segment_intersects_polygon(start, end, normalized_polygon):
             return True, 0.0
         raw_clearance_nm = _segment_clearance_nm(start, end, normalized_polygon)
-        guard_nm = _chord_clearance_guard_nm(distance_nm)
+        guard_nm = _chord_clearance_guard_nm(distance_nm) + boundary_model_error_nm
         conservative_clearance_nm = raw_clearance_nm - guard_nm
         if conservative_clearance_nm <= 0.0:
             return True, 0.0

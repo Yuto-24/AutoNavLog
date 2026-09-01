@@ -395,6 +395,22 @@ const gsiAirspaceTile104Fixture: GsiAirspaceCollectionFixture = {
   )),
 };
 
+function gsiTile103WithFirstPolygonRing(
+  ring: unknown,
+): GsiAirspaceCollectionFixture {
+  return {
+    ...gsiAirspaceTile103Fixture,
+    features: gsiAirspaceTile103Fixture.features.map((feature, index) => (
+      index === 0
+        ? {
+            ...feature,
+            geometry: { ...feature.geometry, coordinates: [ring] },
+          }
+        : feature
+    )),
+  };
+}
+
 type GsiFixtureMode =
   | "valid"
   | "malformed"
@@ -885,6 +901,44 @@ test("GSI live tile Polygon contract fails closed on payload drift", () => {
       tile,
     )).toThrow();
   }
+});
+
+test("GSI live tile accepts 2D and finite 3D positions only", () => {
+  const tile = rjfmMapReferenceFixture.civilTrainingTestAirspace.tiles[0];
+  const twoDimensional = parseGsiCivilTrainingAirspaceTile(
+    gsiAirspaceTile103Fixture,
+    tile,
+  );
+  expect(twoDimensional[0]?.positions[0]?.[0]).toEqual([32.12, 131.25]);
+
+  const threeDimensionalRing = gsiTile103Ring.map(
+    ([longitude, latitude]) => [longitude, latitude, 0],
+  );
+  const threeDimensional = parseGsiCivilTrainingAirspaceTile(
+    gsiTile103WithFirstPolygonRing(threeDimensionalRing),
+    tile,
+  );
+  expect(threeDimensional[0]?.positions[0]?.[0]).toEqual([32.12, 131.25]);
+
+  for (const invalidAltitude of ["0", Number.NaN, Number.POSITIVE_INFINITY]) {
+    const invalidAltitudeRing = gsiTile103Ring.map(
+      ([longitude, latitude]) => [longitude, latitude, invalidAltitude],
+    );
+    expect(() => parseGsiCivilTrainingAirspaceTile(
+      gsiTile103WithFirstPolygonRing(invalidAltitudeRing),
+      tile,
+    )).toThrow("GSI Polygon coordinate altitude is not finite");
+  }
+
+  const extraElementRing = gsiTile103Ring.map(
+    ([longitude, latitude]) => [longitude, latitude, 0, 1],
+  );
+  expect(() => parseGsiCivilTrainingAirspaceTile(
+    gsiTile103WithFirstPolygonRing(extraElementRing),
+    tile,
+  )).toThrow(
+    "GSI Polygon coordinate must contain longitude, latitude, and optional altitude",
+  );
 });
 
 test("desktop workflow renders without the removed A4 output", async ({ page }, testInfo) => {

@@ -7,7 +7,7 @@ AutoNavLog の利用者に影響する変更を記録します。
 ### 追加
 
 - RJFM帰路で物理座標のOMARU→UMK→最終VREPを認識した場合、OMARU→UMKを4,500 ft固定・編集不可にし、UMKをEOCとして扱う運用降下profileを追加しました。物理DIST/TC/MC/CUM DISTは変更せず、UMK→VREPのETEと12 GPH燃料だけを選択降下率による運用時間へ置き換えます。
-- UMK後の西方経路延長solverとMZE DME案内を追加しました。丸め前後のTurn Point、DME、追加距離、予測ETE、KS4-3余裕を現在の計算結果だけに表示し、案内失敗・未検証参照はNAV LOGを止めないwarning-only扱いにします。KS4-3水平境界の計算用一次参照が未検証な同梱版では、数値案内を出さず理由を表示します。
+- UMK後の西方経路延長solverとMZE DME案内を追加しました。丸め前後のTurn Point、DME、追加距離、予測ETE、KS4-3余裕を現在の計算結果だけに表示し、案内失敗・参照検証失敗はNAV LOGを止めないwarning-only扱いにします。同梱したAIP Japan ENR 5.3-21の一次水平境界は、元PDF SHA-256、PDFページ、公開DMS頂点、決定的なWGS84 arc正規化、最大モデル誤差を検証してからsolverに渡します。
 
 ### 修正
 
