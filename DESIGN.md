@@ -1022,6 +1022,10 @@ Web版のProject保存はD-32どおり既存の `LocalProjectRepository` を使�
 `CalculationOutcome.derived_points`（`DerivedPointType.RCA` / `EOC`）を結果テーブルおよび地図上に表示する。`RCA_OUTSIDE_ROUTE` はBlocker、`RCA_BEYOND_FIRST_TURN` は承認可能なWarningとして提示し、承認は `acknowledged_warning_codes` へ記録する。
 
 EOCはDESCENT基準Legの計画高度から探索し、必要時間が同Leg内に収まらない場合は経路始点方向の前Legを候補へ加える。候補ごとに、そのLegの計画高度からVREPまでProjectの`descent_rate_fpm`（500または1000）で連続降下し、VREPでlevel off後に60秒だけ減速する必要時間を再計算する。500 fpmを標準とし、1000 fpmは明示選択時だけ採用する。中間変針点の計画高度は制約にしない。新たに加えた前Legの高度が次Legより低い場合、または経路始点からでも不足する場合は`DESCENT_ALTITUDE_CONSTRAINT_INFEASIBLE` BlockerとしてEOCを生成しない。このため現行EOC探索は `EOC_OUTSIDE_ROUTE` を生成しない。
+
+RJFMを目的地とする物理座標順 `OMARU → UMK → final VREP` は、**2026-08-31 USER_DECISION（帰路でUMKを4,500 ftで通過し、その後に必要なら延長して降下する運用）**として一般EOCから除外する。OMARU→UMKは4,500 ft固定・編集不可、EOCは物理UMKであり、UMKより前へ降下区間を生成しない。UMK→VREPのNAV LOG ETEは `(4500 - adopted VREP altitude) / selected descent rate × 60 + 60` 秒を一度だけ採用し、複数物理sectionは未丸めのwind-adjusted直行時間で按分する。DIST/TC/MC/CUM DIST/GSは物理routeの値を維持し、fuelは按分されたoperational ETEと12 GPHで計算する。直線routeの時間不足とPR Bのextension guidance未計算はwarning-onlyであり、NAV LOG calculationをblockしない。
+The inbound display keeps exact section calculations authoritative. It rounds the combined operational ETE once to 30-second units and allocates the rounded units by largest remainder, keeping parent and child display totals equal. A stale persisted plan is a blocker with guidance suppressed; guidance-only warnings remain nonblocking.
+
 ### FR-39 ETO / Loss Timeと地上準備欄 【必須】
 
 Loss Timeは機上で事前計算結果を修正する値とし、地上計画のZONE/CUM ETE・TTL TIME・Forecast・燃料へ一切加えない。LOSS入力UIを提供しない。別添8-1へ転記するETO欄は空欄とし、ETD基準の内部計画時刻をETOとして印字してはならない。詳細は第6.5節。

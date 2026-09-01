@@ -2,7 +2,12 @@
 
 AutoNavLog の利用者に影響する変更を記録します。
 
-## Unreleased
+## 1.7.0 - 2026-08-31
+
+### 追加
+
+- RJFM帰路で物理座標のOMARU→UMK→最終VREPを認識した場合、OMARU→UMKを4,500 ft固定・編集不可にし、UMKをEOCとして扱う運用降下profileを追加しました。物理DIST/TC/MC/CUM DISTは変更せず、UMK→VREPのETEと12 GPH燃料だけを選択降下率による運用時間へ置き換えます。
+- 経路延長solverは未実装のため、直線経路が短い場合はNAV LOGを止めず、別のwarning-only案内として表示します。
 
 ### 修正
 

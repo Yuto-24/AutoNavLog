@@ -24,6 +24,7 @@ Sha256Hex = Annotated[
 ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"
 CP_PROJECTION_POLICY_VERSION = "CP_ABEAM_WGS84_V1"
 RJFM_DEPARTURE_RULE_VERSION = "RJFM_NORTHBOUND_R6_5_1_V2"
+RJFM_INBOUND_RULE_VERSION = "RJFM_INBOUND_OMARU_UMK_VREP_V1"
 
 
 class PlanningModel(BaseModel):
@@ -54,6 +55,10 @@ class RjfmDepartureTrigger(StrEnum):
 class RjfmMainRouteMode(StrEnum):
     UMK_PHYSICAL = "UMK_PHYSICAL"
     OMARU_VIRTUAL_UMK = "OMARU_VIRTUAL_UMK"
+
+
+class RjfmInboundApplicationStatus(StrEnum):
+    APPLIED = "APPLIED"
 
 
 class RjfmGuidanceStatus(StrEnum):
@@ -94,6 +99,27 @@ class RjfmDeparturePlan(PlanningModel):
     omaru: RjfmCoordinate
     virtual_rca_distance_nm: FiniteFloat = Field(gt=0)
     route_application_key: str = Field(min_length=1)
+    reference_revision: str = Field(min_length=1)
+    reference_content_fingerprint: Sha256Hex
+
+
+class RjfmInboundPlan(PlanningModel):
+    """Persisted, coordinate-triggered RJFM return profile."""
+
+    rule_version: Literal["RJFM_INBOUND_OMARU_UMK_VREP_V1"] = "RJFM_INBOUND_OMARU_UMK_VREP_V1"
+    application_status: RjfmInboundApplicationStatus = RjfmInboundApplicationStatus.APPLIED
+    application_reason: str = Field(min_length=1)
+    omaru_node_id: UUID
+    umk_node_id: UUID
+    vrep_node_id: UUID
+    controlled_section_id: UUID
+    # All physical sections from OMARU through UMK.  The singular field is
+    # retained for persisted V1 plans and identifies the first section.
+    controlled_section_ids: tuple[UUID, ...] = ()
+    omaru_coordinate: RjfmCoordinate
+    umk_coordinate: RjfmCoordinate
+    adopted_vrep_altitude_ft_msl: int | None = Field(default=None, multiple_of=100)
+    descent_rate_fpm: Literal[500, 1000]
     reference_revision: str = Field(min_length=1)
     reference_content_fingerprint: Sha256Hex
 
@@ -304,7 +330,18 @@ class ArrivalPlan(PlanningModel):
 
 
 class PersistedUiState(PlanningModel):
-    state_schema_version: Literal[6] = 6
+    state_schema_version: Literal[7] = 7
+    calculated_against_fingerprint: Sha256Hex | None = None
+    defaults_review_fingerprint: Sha256Hex | None = None
+    arrival_plan: ArrivalPlan | None = None
+    reference_data_snapshot: ReferenceDataSnapshot | None = None
+    rjfm_departure_plan: RjfmDeparturePlan | None = None
+    rjfm_departure_guidance: RjfmDepartureGuidance | None = None
+    rjfm_inbound_plan: RjfmInboundPlan | None = None
+
+
+class _PersistedUiStateV6(PlanningModel):
+    state_schema_version: Literal[6]
     calculated_against_fingerprint: Sha256Hex | None = None
     defaults_review_fingerprint: Sha256Hex | None = None
     arrival_plan: ArrivalPlan | None = None
@@ -353,8 +390,18 @@ def load_persisted_ui_state(raw: Any) -> PersistedUiState:
         separators=(",", ":"),
         allow_nan=False,
     )
-    if version == 6:
+    if version == 7:
         return PersistedUiState.model_validate_json(payload)
+    if version == 6:
+        legacy_v6 = _PersistedUiStateV6.model_validate_json(payload)
+        return PersistedUiState(
+            calculated_against_fingerprint=legacy_v6.calculated_against_fingerprint,
+            defaults_review_fingerprint=legacy_v6.defaults_review_fingerprint,
+            arrival_plan=legacy_v6.arrival_plan,
+            reference_data_snapshot=legacy_v6.reference_data_snapshot,
+            rjfm_departure_plan=legacy_v6.rjfm_departure_plan,
+            rjfm_departure_guidance=legacy_v6.rjfm_departure_guidance,
+        )
     if version == 5:
         legacy_v5 = _PersistedUiStateV5.model_validate_json(payload)
         return PersistedUiState(

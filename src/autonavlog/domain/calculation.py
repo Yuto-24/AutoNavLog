@@ -202,6 +202,12 @@ class NavLogDisplayRow(CalculationModel):
     fuel: NavLogDisplayCell
 
 
+class RjfmInboundGuidance(CalculationModel):
+    status: Literal["WARNING", "UNAVAILABLE"] = "UNAVAILABLE"
+    message: str
+    reason_code: str
+
+
 class FuelPlan(CalculationModel):
     total_usable_gal: float
     taxi_runup_minutes: int = 10
@@ -239,6 +245,7 @@ class CalculationOutcome(CalculationModel):
     arrival_altitude: ArrivalAltitudeResult | None = None
     check_point_projections: list[CheckPointProjection] = Field(default_factory=list)
     rjfm_departure_guidance: RjfmDepartureGuidance | None = None
+    rjfm_inbound_guidance: RjfmInboundGuidance | None = None
     fuel_plan: FuelPlan
     issues: list[Issue] = Field(default_factory=list)
     converged: bool = False
