@@ -10,6 +10,8 @@ AutoNavLog の利用者に影響する変更を記録します。
   Leaflet surface に限定して `touch-action: none` を適用し、frame の scroll chaining を
   `overscroll-behavior: contain` で抑制しました。ページ全体の zoom 制限や JavaScript の
   gesture 抑制は追加していません。
+- RJFM帰路の production reference で使う境界判定と測地 sampling を、探索予算、0.5 NM
+  sampling、guard/model-error、数値結果を変えずに高速化しました。
 
 ### 配布
 

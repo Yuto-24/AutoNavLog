@@ -236,7 +236,6 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
 
 
 @pytest.mark.anyio
-@pytest.mark.no_cover
 async def test_production_available_reference_returns_numeric_v2_guidance(
     tmp_path: Path,
 ) -> None:
