@@ -8,10 +8,16 @@ from math import ceil, hypot, isfinite
 
 from autonavlog.application.rjfm_inbound_geometry import (
     GeometryUnsupportedError,
+    _polyline_boundary_metrics_for_sampled_route,
+    _sampled_geodesic_route,
+    _validate_sampled_route_boundary_domain,
     polyline_boundary_metrics,
     sample_geodesic_points,
 )
-from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
+from autonavlog.nav.geodesy import (
+    _geodesic_distance_nm_and_initial_true_course_deg,
+    point_along_leg,
+)
 from autonavlog.nav.wind_triangle import WindTriangleError, solve_wind_triangle
 from autonavlog.storage.rjfm_inbound_reference import GeoPoint
 
@@ -150,12 +156,12 @@ def solve_rjfm_inbound_west_extension(request: InboundGuidanceRequest) -> Inboun
             reference_revision=request.reference_revision,
         )
 
-    direct_distance_nm = geodesic_leg(
+    direct_distance_nm, _ = _geodesic_distance_nm_and_initial_true_course_deg(
         request.umk.latitude_deg,
         request.umk.longitude_deg,
         request.vrep.latitude_deg,
         request.vrep.longitude_deg,
-    ).distance_nm
+    )
     evaluations: dict[float, _BearingSearchResult] = {}
     for bearing in coarse_bearings:
         evaluations[bearing] = _search_bearing(request, bearing, direct_distance_nm)
@@ -635,15 +641,13 @@ def _meaningfully_less(left: float | None, right: float | None, tolerance: float
 
 
 def _direct_bearing_magnetic_deg(request: InboundGuidanceRequest) -> float:
-    return (
-        geodesic_leg(
-            request.umk.latitude_deg,
-            request.umk.longitude_deg,
-            request.vrep.latitude_deg,
-            request.vrep.longitude_deg,
-        ).initial_true_course_deg
-        + request.magnetic_variation_deg_east
-    ) % 360.0
+    _, initial_true_course_deg = _geodesic_distance_nm_and_initial_true_course_deg(
+        request.umk.latitude_deg,
+        request.umk.longitude_deg,
+        request.vrep.latitude_deg,
+        request.vrep.longitude_deg,
+    )
+    return (initial_true_course_deg + request.magnetic_variation_deg_east) % 360.0
 
 
 def _focus_interval_width(
@@ -700,7 +704,11 @@ def _evaluate_distance(
     true_course_deg = (bearing_magnetic_deg - request.magnetic_variation_deg_east) % 360.0
     raw_turn = _point_on_ray(request.umk, true_course_deg, raw_distance_nm)
     raw_first_leg = _leg(request.umk, raw_turn, request)
-    raw_metrics, adverse_raw = _route_metrics(request, raw_turn)
+    raw_metrics, adverse_raw = (
+        (None, True)
+        if raw_first_leg is None
+        else _route_metrics(request, raw_turn, first_leg=raw_first_leg)
+    )
 
     raw_turn_altitude = None
     raw_dme_nm = None
@@ -741,14 +749,18 @@ def _evaluate_distance(
     rounded_feasible = False
     if rounded_turn is not None and rounded_first_leg is not None:
         rounded_turn_altitude = _turn_altitude_for_first_leg(request, rounded_first_leg[1])
-        rounded_metrics, adverse_rounded = _route_metrics(request, rounded_turn)
+        rounded_metrics, adverse_rounded = _route_metrics(
+            request,
+            rounded_turn,
+            first_leg=rounded_first_leg,
+        )
         actual_bearing = (
-            geodesic_leg(
+            _geodesic_distance_nm_and_initial_true_course_deg(
                 request.umk.latitude_deg,
                 request.umk.longitude_deg,
                 rounded_turn.latitude_deg,
                 rounded_turn.longitude_deg,
-            ).initial_true_course_deg
+            )[1]
             + request.magnetic_variation_deg_east
         ) % 360.0
         if rounded_metrics is not None:
@@ -872,12 +884,12 @@ def _slant_dme_nm(
     point: GeoPoint,
     turn_altitude_ft_msl: float,
 ) -> float:
-    horizontal_nm = geodesic_leg(
+    horizontal_nm, _ = _geodesic_distance_nm_and_initial_true_course_deg(
         request.mze.latitude_deg,
         request.mze.longitude_deg,
         point.latitude_deg,
         point.longitude_deg,
-    ).distance_nm
+    )
     vertical_nm = abs(turn_altitude_ft_msl - request.mze_elevation_ft_msl) / _VERTICAL_FEET_PER_NM
     return hypot(horizontal_nm, vertical_nm)
 
@@ -902,20 +914,38 @@ def _request_geometry_supported(request: InboundGuidanceRequest) -> bool:
 def _route_metrics(
     request: InboundGuidanceRequest,
     turn: GeoPoint,
+    *,
+    first_leg: tuple[float, float] | None = None,
 ) -> tuple[_RouteMetrics | None, bool]:
-    first = _leg(request.umk, turn, request)
+    first = first_leg if first_leg is not None else _leg(request.umk, turn, request)
     second = _leg(turn, request.vrep, request)
     if first is None or second is None:
         return None, True
 
     try:
-        first_intersects, first_clearance = polyline_boundary_metrics(
-            sample_geodesic_points(request.umk, turn),
+        first_samples = _sampled_geodesic_route(request.umk, turn)
+        second_samples = _sampled_geodesic_route(turn, request.vrep)
+        first_intersects, first_clearance = _polyline_boundary_metrics_for_sampled_route(
+            first_samples,
             request.boundary,
             boundary_model_error_nm=request.boundary_model_error_nm,
         )
-        second_intersects, second_clearance = polyline_boundary_metrics(
-            sample_geodesic_points(turn, request.vrep),
+        if first_intersects:
+            _validate_sampled_route_boundary_domain(
+                second_samples.points,
+                tuple(request.boundary),
+            )
+            return (
+                _RouteMetrics(
+                    total_distance_nm=first[0] + second[0],
+                    total_ete_min=first[1] + second[1],
+                    minimum_clearance_nm=0.0,
+                    intersects_boundary=True,
+                ),
+                False,
+            )
+        second_intersects, second_clearance = _polyline_boundary_metrics_for_sampled_route(
+            second_samples,
             request.boundary,
             boundary_model_error_nm=request.boundary_model_error_nm,
         )
@@ -940,17 +970,22 @@ def _leg(
     end: GeoPoint,
     request: InboundGuidanceRequest,
 ) -> tuple[float, float] | None:
-    leg = geodesic_leg(start.latitude_deg, start.longitude_deg, end.latitude_deg, end.longitude_deg)
+    distance_nm, initial_true_course_deg = _geodesic_distance_nm_and_initial_true_course_deg(
+        start.latitude_deg,
+        start.longitude_deg,
+        end.latitude_deg,
+        end.longitude_deg,
+    )
     try:
         wind = solve_wind_triangle(
-            leg.initial_true_course_deg,
+            initial_true_course_deg,
             request.descent_tas_kt,
             request.wind_direction_deg_true_from,
             request.wind_speed_kt,
         )
     except WindTriangleError:
         return None
-    return leg.distance_nm, leg.distance_nm / wind.ground_speed_kt * 60.0
+    return distance_nm, distance_nm / wind.ground_speed_kt * 60.0
 
 
 def _bearing_within_range(value: float, request: InboundGuidanceRequest) -> bool:

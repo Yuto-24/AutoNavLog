@@ -1977,6 +1977,9 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   const activeMapPicker = editor.getByRole("button", { name: "地図上の地点をクリック" });
   await expect(activeMapPicker).toHaveAttribute("aria-pressed", "true");
   await expect(mapFrame).toHaveClass(/is-picking-checkpoint/);
+  await expect(mapFrame).toHaveCSS("touch-action", "none");
+  await expect(mapFrame).toHaveCSS("overscroll-behavior", "contain");
+  await expect(routePanel.locator(".route-map")).toHaveCSS("touch-action", "none");
   expect(await mapFrame.evaluate((element) => getComputedStyle(element).boxShadow)).toContain(
     "rgba(11, 31, 51, 0.58)",
   );

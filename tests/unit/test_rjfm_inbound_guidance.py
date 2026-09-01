@@ -5,6 +5,8 @@ from math import ceil, hypot, isclose
 
 import pytest
 
+import autonavlog.application.rjfm_inbound_geometry as geometry_module
+import autonavlog.application.rjfm_inbound_guidance as guidance_module
 from autonavlog.application.rjfm_inbound_guidance import (
     InboundGuidanceRequest,
     InboundGuidanceStatus,
@@ -240,6 +242,136 @@ def test_solver_accepts_collinear_but_disjoint_polygon_edge() -> None:
     assert result.status is InboundGuidanceStatus.AVAILABLE
     assert result.minimum_boundary_clearance_nm is not None
     assert result.minimum_boundary_clearance_nm > 40.0
+
+
+def test_route_metrics_skips_second_boundary_when_first_leg_intersects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _request(
+        _point_on_course(GeoPoint(0.0, 0.0), 270.0, 30.0),
+        umk=GeoPoint(0.0, 0.0),
+    )
+    turn = _point_on_course(request.umk, 270.0, 5.0)
+    boundary_calls = 0
+
+    def fake_polyline_boundary_metrics(
+        sampled_route: object,
+        polygon: tuple[GeoPoint, ...],
+        *,
+        boundary_model_error_nm: float = 0.0,
+    ) -> tuple[bool, float]:
+        del sampled_route, polygon, boundary_model_error_nm
+        nonlocal boundary_calls
+        boundary_calls += 1
+        return True, 0.0
+
+    monkeypatch.setattr(
+        guidance_module,
+        "_polyline_boundary_metrics_for_sampled_route",
+        fake_polyline_boundary_metrics,
+    )
+
+    metrics, geometry_unsupported = guidance_module._route_metrics(request, turn)
+
+    assert not geometry_unsupported
+    assert metrics is not None
+    assert metrics.intersects_boundary
+    assert metrics.minimum_clearance_nm == 0.0
+    assert boundary_calls == 1
+
+
+def test_route_metrics_reuses_precomputed_first_leg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _request(
+        _point_on_course(GeoPoint(0.0, 0.0), 270.0, 30.0),
+        umk=GeoPoint(0.0, 0.0),
+    )
+    turn = _point_on_course(request.umk, 270.0, 5.0)
+    precomputed_first_leg = (5.0, 2.5)
+    leg_calls: list[tuple[GeoPoint, GeoPoint]] = []
+
+    def counting_leg(
+        start: GeoPoint,
+        end: GeoPoint,
+        leg_request: InboundGuidanceRequest,
+    ) -> tuple[float, float]:
+        del leg_request
+        leg_calls.append((start, end))
+        return (10.0, 5.0)
+
+    monkeypatch.setattr(guidance_module, "_leg", counting_leg)
+
+    metrics, geometry_unsupported = guidance_module._route_metrics(
+        request,
+        turn,
+        first_leg=precomputed_first_leg,
+    )
+
+    assert not geometry_unsupported
+    assert metrics is not None
+    assert metrics.total_distance_nm == pytest.approx(precomputed_first_leg[0] + 10.0)
+    assert metrics.total_ete_min == pytest.approx(precomputed_first_leg[1] + 5.0)
+    assert leg_calls == [(turn, request.vrep)]
+
+
+def test_route_metrics_preserves_unsupported_second_leg_even_when_first_leg_intersects() -> None:
+    request = _request(
+        _point_on_course(GeoPoint(0.0, 0.0), 90.0, 30.0),
+        umk=GeoPoint(0.0, 0.0),
+        boundary=(
+            GeoPoint(-0.05, -0.25),
+            GeoPoint(-0.05, -0.15),
+            GeoPoint(0.05, -0.15),
+            GeoPoint(0.05, -0.25),
+        ),
+        bearing_min_magnetic_deg=270.0,
+        bearing_max_magnetic_deg=270.0,
+        max_extension_distance_nm=240.0,
+    )
+    turn = _point_on_course(request.umk, 270.0, 225.0)
+
+    metrics, geometry_unsupported = guidance_module._route_metrics(request, turn)
+
+    assert metrics is None
+    assert not geometry_unsupported
+
+
+def test_route_metrics_rejects_invalid_second_sample_even_when_first_leg_intersects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _request(
+        _point_on_course(GeoPoint(0.0, 0.0), 270.0, 30.0),
+        umk=GeoPoint(0.0, 0.0),
+        boundary=(
+            GeoPoint(-0.05, -0.25),
+            GeoPoint(-0.05, -0.15),
+            GeoPoint(0.05, -0.15),
+            GeoPoint(0.05, -0.25),
+        ),
+        bearing_min_magnetic_deg=270.0,
+        bearing_max_magnetic_deg=270.0,
+    )
+    turn = _point_on_course(request.umk, 270.0, 5.0)
+    valid_first = guidance_module._sampled_geodesic_route(request.umk, turn)
+    invalid_second = geometry_module._KnownValidSampledRoute(
+        (GeoPoint(46.0, 0.0), GeoPoint(46.0, 0.001)),
+        _sentinel=geometry_module._SAMPLED_ROUTE_SENTINEL,
+    )
+
+    def fake_sampled_geodesic_route(start: GeoPoint, end: GeoPoint):
+        if start == request.umk and end == turn:
+            return valid_first
+        if start == turn and end == request.vrep:
+            return invalid_second
+        raise AssertionError("unexpected leg")
+
+    monkeypatch.setattr(guidance_module, "_sampled_geodesic_route", fake_sampled_geodesic_route)
+
+    metrics, geometry_unsupported = guidance_module._route_metrics(request, turn)
+
+    assert metrics is None
+    assert not geometry_unsupported
 
 
 def test_solver_reconstructs_outward_half_dme_on_selected_umk_ray() -> None:

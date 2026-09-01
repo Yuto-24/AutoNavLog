@@ -2,6 +2,21 @@
 
 AutoNavLog の利用者に影響する変更を記録します。
 
+## 1.7.1 - 2026-09-01
+
+### 修正
+
+- Safari で地図内の pinch gesture がページ全体の拡大へ渡らないよう、経路地図 frame と
+  Leaflet surface に限定して `touch-action: none` を適用し、frame の scroll chaining を
+  `overscroll-behavior: contain` で抑制しました。ページ全体の zoom 制限や JavaScript の
+  gesture 抑制は追加していません。
+- RJFM帰路の production reference で使う境界判定と測地 sampling を、探索予算、0.5 NM
+  sampling、guard/model-error、数値結果を変えずに高速化しました。
+
+### 配布
+
+- Python・Web のバージョンを `1.7.1` に更新しました。
+
 ## 1.7.0 - 2026-08-31
 
 ### 追加

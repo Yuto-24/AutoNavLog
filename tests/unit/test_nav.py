@@ -8,7 +8,13 @@ from autonavlog.nav.airspeed import (
     pressure_altitude_planning_ft,
     tas_from_cas,
 )
-from autonavlog.nav.geodesy import geodesic_leg, point_along_route
+from autonavlog.nav.geodesy import (
+    _geodesic_distance_nm_and_initial_true_course_deg,
+    _points_along_leg,
+    geodesic_leg,
+    point_along_leg,
+    point_along_route,
+)
 from autonavlog.nav.rounding import DisplayRoundingPolicy, round_half_up
 from autonavlog.nav.wind_triangle import WindTriangleError, solve_wind_triangle
 
@@ -23,6 +29,88 @@ def test_wgs84_distance_course_and_route_projection() -> None:
     )
     assert projection is not None
     assert projection.section_index == 0
+
+
+@pytest.mark.parametrize(
+    ("origin", "course_deg", "distances_nm"),
+    [
+        ((0.0, 0.0), 0.0, (0.0, 0.5, 12.5)),
+        ((31.8787, 131.4374), 257.4, (0.0, 0.25, 8.0, 30.0)),
+        ((0.0, 179.9), 90.0, (0.0, 3.0, 12.0, 24.0)),
+        ((-5.0, -45.0), 315.0, (0.0, 1.0, 15.0, 60.0)),
+    ],
+)
+def test_points_along_leg_matches_point_along_leg_parity(
+    origin: tuple[float, float],
+    course_deg: float,
+    distances_nm: tuple[float, ...],
+) -> None:
+    batch = _points_along_leg(
+        origin[0],
+        origin[1],
+        course_deg,
+        distances_nm,
+    )
+    direct = tuple(
+        point_along_leg(
+            origin[0],
+            origin[1],
+            course_deg,
+            distance_nm,
+        )
+        for distance_nm in distances_nm
+    )
+
+    assert len(batch) == len(direct)
+    for actual, expected in zip(batch, direct, strict=True):
+        assert actual[0] == pytest.approx(expected[0], abs=1e-12)
+        assert actual[1] == pytest.approx(expected[1], abs=1e-12)
+
+
+def test_points_along_leg_matches_leg_endpoints_and_midpoint() -> None:
+    start = (31.877, 131.449)
+    end = (33.479, 131.737)
+    leg = geodesic_leg(start[0], start[1], end[0], end[1])
+    distances_nm = (0.0, leg.distance_nm / 2.0, leg.distance_nm)
+
+    points = _points_along_leg(
+        start[0],
+        start[1],
+        leg.initial_true_course_deg,
+        distances_nm,
+    )
+
+    assert points[0][0] == pytest.approx(start[0], abs=1e-12)
+    assert points[0][1] == pytest.approx(start[1], abs=1e-12)
+    assert points[1][0] == pytest.approx(leg.midpoint_latitude_deg, abs=1e-12)
+    assert points[1][1] == pytest.approx(leg.midpoint_longitude_deg, abs=1e-12)
+    assert points[2][0] == pytest.approx(end[0], abs=1e-9)
+    assert points[2][1] == pytest.approx(end[1], abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        ((31.877, 131.449), (33.479, 131.737)),
+        ((0.0, 179.9), (0.0, -179.9)),
+        ((-5.0, -45.0), (12.0, -12.0)),
+        ((31.8787, 131.4374), (31.75, 130.82)),
+    ],
+)
+def test_geodesic_distance_course_helper_matches_geodesic_leg(
+    start: tuple[float, float],
+    end: tuple[float, float],
+) -> None:
+    distance_nm, initial_true_course_deg = _geodesic_distance_nm_and_initial_true_course_deg(
+        start[0],
+        start[1],
+        end[0],
+        end[1],
+    )
+    leg = geodesic_leg(start[0], start[1], end[0], end[1])
+
+    assert distance_nm == pytest.approx(leg.distance_nm, abs=1e-12)
+    assert initial_true_course_deg == pytest.approx(leg.initial_true_course_deg, abs=1e-12)
 
 
 @pytest.mark.parametrize(

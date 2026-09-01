@@ -55,6 +55,24 @@ def geodesic_leg(
     )
 
 
+def _geodesic_distance_nm_and_initial_true_course_deg(
+    from_latitude_deg: float,
+    from_longitude_deg: float,
+    to_latitude_deg: float,
+    to_longitude_deg: float,
+) -> tuple[float, float]:
+    inverse = Geodesic.WGS84.Inverse(
+        from_latitude_deg,
+        from_longitude_deg,
+        to_latitude_deg,
+        to_longitude_deg,
+    )
+    return (
+        float(inverse["s12"]) / METERS_PER_NM,
+        normalize_degrees(float(inverse["azi1"])),
+    )
+
+
 def point_along_leg(
     from_latitude_deg: float,
     from_longitude_deg: float,
@@ -68,6 +86,29 @@ def point_along_leg(
         distance_nm * METERS_PER_NM,
     )
     return float(result["lat2"]), float(result["lon2"])
+
+
+def _points_along_leg(
+    from_latitude_deg: float,
+    from_longitude_deg: float,
+    true_course_deg: float,
+    distances_nm: Sequence[float],
+) -> tuple[tuple[float, float], ...]:
+    line = Geodesic.WGS84.Line(
+        from_latitude_deg,
+        from_longitude_deg,
+        true_course_deg,
+    )
+    return tuple(
+        (
+            float(position["lat2"]),
+            float(position["lon2"]),
+        )
+        for position in (
+            line.Position(distance_nm * METERS_PER_NM, Geodesic.LATITUDE | Geodesic.LONGITUDE)
+            for distance_nm in distances_nm
+        )
+    )
 
 
 def point_along_route(
