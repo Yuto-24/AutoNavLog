@@ -20,6 +20,7 @@ The solver derives its duration, TAS, wind, UMK, VREP, selected descent rate, an
 - With calm air and fixed TAS, a time constraint is equivalent to a total-distance lower bound, so the raw-minimum bearing is not unique; tests that require a unique bearing must use a non-degenerate wind or obstacle fixture.
 - GSI live geometry may encode coordinates as [longitude, latitude, altitude], while older fixtures use two elements. The display parser accepts finite two- or three-element tuples, discards altitude, and remains independent of solver input because GSI is DISPLAY_ONLY_LIVE_REFERENCE.
 - The primary 49-vertex KS4-3 ring is checked exactly as 0.5 NM WGS84 chords. The repeated geodesic inverses make the local real-reference API calculation about 50 seconds; do not shorten it by reducing the search budget or clearance/model-error margins. Only the real RJFO inbound E2E fixture has a 90-second completion wait; product UI timeouts and mock/general waits remain unchanged.
+- CI pauses coverage tracing only for `test_production_available_reference_returns_numeric_v2_guidance`, the real-reference acceptance that exercises the full imported KS4-3 boundary and search budget. Solver and geometry coverage still comes from the faster unit and focused integration fixtures, so this exemption is not a product-code coverage gap.
 
 ## Geometry domain and conservative clearance
 
