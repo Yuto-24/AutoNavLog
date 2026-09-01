@@ -1,0 +1,322 @@
+{
+  "format_version": 1,
+  "source_id": "aip-japan-enr-5-3-21-2024-02-22",
+  "source_page": {
+    "sha256": "91eba1411e896d1b62451fac298e0afa6131194a95736a181be251b91942c90a",
+    "document_id": "AIP Japan ENR 5.3-21",
+    "pdf_page": 747,
+    "effective_date": "2024-02-22"
+  },
+  "crs": "WGS84",
+  "vertices": [
+    {
+      "id": "p1",
+      "latitude_dms": "320446N",
+      "longitude_dms": "1305925E",
+      "latitude_deg": 32.07944444444445,
+      "longitude_deg": 130.99027777777778
+    },
+    {
+      "id": "p2",
+      "latitude_dms": "320438N",
+      "longitude_dms": "1310422E",
+      "latitude_deg": 32.077222222222225,
+      "longitude_deg": 131.0727777777778
+    },
+    {
+      "id": "p3",
+      "latitude_dms": "320111N",
+      "longitude_dms": "1311958E",
+      "latitude_deg": 32.01972222222222,
+      "longitude_deg": 131.33277777777778
+    },
+    {
+      "id": "p4",
+      "latitude_dms": "314819N",
+      "longitude_dms": "1311542E",
+      "latitude_deg": 31.80527777777778,
+      "longitude_deg": 131.26166666666666
+    },
+    {
+      "id": "p5",
+      "latitude_dms": "314646N",
+      "longitude_dms": "1311200E",
+      "latitude_deg": 31.779444444444444,
+      "longitude_deg": 131.2
+    },
+    {
+      "id": "p6",
+      "latitude_dms": "315108N",
+      "longitude_dms": "1310234E",
+      "latitude_deg": 31.852222222222224,
+      "longitude_deg": 131.0427777777778
+    },
+    {
+      "id": "p7",
+      "latitude_dms": "315026N",
+      "longitude_dms": "1305832E",
+      "latitude_deg": 31.840555555555554,
+      "longitude_deg": 130.97555555555556
+    },
+    {
+      "id": "p8",
+      "latitude_dms": "315940N",
+      "longitude_dms": "1305850E",
+      "latitude_deg": 31.994444444444447,
+      "longitude_deg": 130.98055555555555
+    }
+  ],
+  "segments": [
+    {
+      "type": "LINE",
+      "from": "p1",
+      "to": "p2"
+    },
+    {
+      "type": "LINE",
+      "from": "p2",
+      "to": "p3"
+    },
+    {
+      "type": "MINOR_GEODESIC_CIRCLE_ARC",
+      "from": "p3",
+      "to": "p4",
+      "center_source_id": "MZE",
+      "radius_nm": 10.0,
+      "direction": "SHORTEST"
+    },
+    {
+      "type": "LINE",
+      "from": "p4",
+      "to": "p5"
+    },
+    {
+      "type": "LINE",
+      "from": "p5",
+      "to": "p6"
+    },
+    {
+      "type": "LINE",
+      "from": "p6",
+      "to": "p7"
+    },
+    {
+      "type": "LINE",
+      "from": "p7",
+      "to": "p8"
+    },
+    {
+      "type": "LINE",
+      "from": "p8",
+      "to": "p1"
+    }
+  ],
+  "algorithm": {
+    "id": "WGS84_DIRECT_MINOR_ARC_V1",
+    "max_arc_step_deg": 2.0,
+    "endpoint_policy": "PUBLISHED_DMS",
+    "maximum_model_error_nm": 0.02
+  },
+  "polygon_vertices": [
+    {
+      "latitude_deg": 32.07944444444445,
+      "longitude_deg": 130.99027777777778
+    },
+    {
+      "latitude_deg": 32.077222222222225,
+      "longitude_deg": 131.0727777777778
+    },
+    {
+      "latitude_deg": 32.01972222222222,
+      "longitude_deg": 131.33277777777778
+    },
+    {
+      "latitude_deg": 32.016648626453865,
+      "longitude_deg": 131.32699117348807
+    },
+    {
+      "latitude_deg": 32.01328607698382,
+      "longitude_deg": 131.3214295100267
+    },
+    {
+      "latitude_deg": 32.009760495568614,
+      "longitude_deg": 131.31600890393196
+    },
+    {
+      "latitude_deg": 32.00607616749436,
+      "longitude_deg": 131.31073592761402
+    },
+    {
+      "latitude_deg": 32.00223757047916,
+      "longitude_deg": 131.30561697175244
+    },
+    {
+      "latitude_deg": 31.998249369163563,
+      "longitude_deg": 131.30065823752054
+    },
+    {
+      "latitude_deg": 31.99411640937369,
+      "longitude_deg": 131.29586572905416
+    },
+    {
+      "latitude_deg": 31.989843712164593,
+      "longitude_deg": 131.29124524617427
+    },
+    {
+      "latitude_deg": 31.985436467651496,
+      "longitude_deg": 131.28680237737197
+    },
+    {
+      "latitude_deg": 31.980900028636764,
+      "longitude_deg": 131.28254249306477
+    },
+    {
+      "latitude_deg": 31.97623990404082,
+      "longitude_deg": 131.27847073913185
+    },
+    {
+      "latitude_deg": 31.971461752145412,
+      "longitude_deg": 131.274592030736
+    },
+    {
+      "latitude_deg": 31.96657137365773,
+      "longitude_deg": 131.27091104643947
+    },
+    {
+      "latitude_deg": 31.96157470460441,
+      "longitude_deg": 131.2674322226208
+    },
+    {
+      "latitude_deg": 31.9564778090642,
+      "longitude_deg": 131.2641597481983
+    },
+    {
+      "latitude_deg": 31.95128687174864,
+      "longitude_deg": 131.26109755966675
+    },
+    {
+      "latitude_deg": 31.946008190440075,
+      "longitude_deg": 131.25824933645276
+    },
+    {
+      "latitude_deg": 31.940648168296555,
+      "longitude_deg": 131.25561849659303
+    },
+    {
+      "latitude_deg": 31.935213306033162,
+      "longitude_deg": 131.25320819274128
+    },
+    {
+      "latitude_deg": 31.929710193989806,
+      "longitude_deg": 131.25102130850678
+    },
+    {
+      "latitude_deg": 31.924145504095076,
+      "longitude_deg": 131.24906045512924
+    },
+    {
+      "latitude_deg": 31.918525981736476,
+      "longitude_deg": 131.2473279684922
+    },
+    {
+      "latitude_deg": 31.9128584375469,
+      "longitude_deg": 131.24582590647847
+    },
+    {
+      "latitude_deg": 31.907149739117614,
+      "longitude_deg": 131.2445560466697
+    },
+    {
+      "latitude_deg": 31.901406802648108,
+      "longitude_deg": 131.24351988439176
+    },
+    {
+      "latitude_deg": 31.89563658454275,
+      "longitude_deg": 131.24271863110738
+    },
+    {
+      "latitude_deg": 31.889846072965064,
+      "longitude_deg": 131.24215321315722
+    },
+    {
+      "latitude_deg": 31.88404227935949,
+      "longitude_deg": 131.2418242708496
+    },
+    {
+      "latitude_deg": 31.878232229951237,
+      "longitude_deg": 131.2417321578992
+    },
+    {
+      "latitude_deg": 31.87242295723464,
+      "longitude_deg": 131.24187694121412
+    },
+    {
+      "latitude_deg": 31.866621491460087,
+      "longitude_deg": 131.24225840103074
+    },
+    {
+      "latitude_deg": 31.86083485213002,
+      "longitude_deg": 131.24287603139516
+    },
+    {
+      "latitude_deg": 31.855070039514334,
+      "longitude_deg": 131.2437290409893
+    },
+    {
+      "latitude_deg": 31.849334026195045,
+      "longitude_deg": 131.24481635430007
+    },
+    {
+      "latitude_deg": 31.84363374865084,
+      "longitude_deg": 131.24613661312878
+    },
+    {
+      "latitude_deg": 31.837976098891133,
+      "longitude_deg": 131.24768817843835
+    },
+    {
+      "latitude_deg": 31.832367916149853,
+      "longitude_deg": 131.24946913253464
+    },
+    {
+      "latitude_deg": 31.826815978648856,
+      "longitude_deg": 131.25147728157884
+    },
+    {
+      "latitude_deg": 31.821326995440565,
+      "longitude_deg": 131.2537101584265
+    },
+    {
+      "latitude_deg": 31.815907598339532,
+      "longitude_deg": 131.25616502578924
+    },
+    {
+      "latitude_deg": 31.810564333952595,
+      "longitude_deg": 131.25883887971438
+    },
+    {
+      "latitude_deg": 31.80527777777778,
+      "longitude_deg": 131.26166666666666
+    },
+    {
+      "latitude_deg": 31.779444444444444,
+      "longitude_deg": 131.2
+    },
+    {
+      "latitude_deg": 31.852222222222224,
+      "longitude_deg": 131.0427777777778
+    },
+    {
+      "latitude_deg": 31.840555555555554,
+      "longitude_deg": 130.97555555555556
+    },
+    {
+      "latitude_deg": 31.994444444444447,
+      "longitude_deg": 130.98055555555555
+    },
+    {
+      "latitude_deg": 32.07944444444445,
+      "longitude_deg": 130.99027777777778
+    }
+  ]
+}

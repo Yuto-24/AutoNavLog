@@ -89,10 +89,15 @@ function requireDisplayText(
 type ApprovedTile = (typeof APPROVED_TILES)[number];
 
 function parsePosition(value: unknown, tile: ApprovedTile): [number, number] {
-  if (!Array.isArray(value) || value.length !== 2) {
-    throw new Error("GSI Polygon coordinate must contain longitude and latitude");
+  if (
+    !Array.isArray(value)
+    || (value.length !== 2 && value.length !== 3)
+  ) {
+    throw new Error(
+      "GSI Polygon coordinate must contain longitude, latitude, and optional altitude",
+    );
   }
-  const [longitude, latitude] = value;
+  const [longitude, latitude, altitude] = value;
   if (
     typeof longitude !== "number"
     || !Number.isFinite(longitude)
@@ -104,6 +109,12 @@ function parsePosition(value: unknown, tile: ApprovedTile): [number, number] {
     || latitude > 90
   ) {
     throw new Error("GSI Polygon coordinate is outside finite WGS84 bounds");
+  }
+  if (
+    value.length === 3
+    && (typeof altitude !== "number" || !Number.isFinite(altitude))
+  ) {
+    throw new Error("GSI Polygon coordinate altitude is not finite");
   }
   if (
     latitude < tile.minimumLatitude - TILE_BOUNDARY_EPSILON_DEG

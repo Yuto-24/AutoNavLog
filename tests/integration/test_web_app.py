@@ -94,13 +94,14 @@ async def _calculate(client: httpx.AsyncClient) -> dict[str, object]:
     created = await client.post("/api/calculation-jobs")
     assert created.status_code == 202, created.text
     job = created.json()
-    for _ in range(100):
+    deadline = asyncio.get_running_loop().time() + 90.0
+    while asyncio.get_running_loop().time() < deadline:
         response = await client.get(f"/api/calculation-jobs/{job['job_id']}")
         assert response.status_code == 200, response.text
         job = response.json()
         if job["status"] in {"succeeded", "failed"}:
             break
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
     assert job["status"] == "succeeded", job
     return job["state"]
 

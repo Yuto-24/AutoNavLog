@@ -1053,30 +1053,277 @@
     },
     "RjfmInboundGuidance": {
       "additionalProperties": false,
+      "description": "Transient west-extension diagnostic; it is never persisted with a project.",
       "properties": {
+        "actual_bearing_magnetic_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual Bearing Magnetic Deg"
+        },
+        "bearing_magnetic_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bearing Magnetic Deg"
+        },
+        "extra_distance_nm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extra Distance Nm"
+        },
+        "generated_against_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generated Against Fingerprint"
+        },
         "message": {
           "title": "Message",
           "type": "string"
         },
+        "minimum_boundary_clearance_nm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum Boundary Clearance Nm"
+        },
+        "predicted_ete_min": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Predicted Ete Min"
+        },
+        "raw_dme_nm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Dme Nm"
+        },
+        "raw_extra_distance_nm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Extra Distance Nm"
+        },
+        "raw_minimum_boundary_clearance_nm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Minimum Boundary Clearance Nm"
+        },
+        "raw_predicted_ete_min": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Predicted Ete Min"
+        },
+        "raw_turn_altitude_ft_msl": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Turn Altitude Ft Msl"
+        },
+        "raw_turn_point": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RjfmInboundGuidancePoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "reason_code": {
-          "title": "Reason Code",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "reference_content_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reference Content Fingerprint"
+        },
+        "reference_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reference Revision"
+        },
+        "rounded_dme_nm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rounded Dme Nm"
+        },
+        "rounded_turn_altitude_ft_msl": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rounded Turn Altitude Ft Msl"
+        },
+        "rounded_turn_point": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RjfmInboundGuidancePoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "status": {
           "default": "UNAVAILABLE",
           "enum": [
+            "AVAILABLE",
             "WARNING",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "ADVERSE_WIND",
+            "NO_SOLUTION",
+            "CONVERGENCE_FAILURE"
           ],
           "title": "Status",
           "type": "string"
         }
       },
       "required": [
-        "message",
-        "reason_code"
+        "message"
       ],
       "title": "RjfmInboundGuidance",
+      "type": "object"
+    },
+    "RjfmInboundGuidancePoint": {
+      "additionalProperties": false,
+      "properties": {
+        "latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude Deg",
+          "type": "number"
+        },
+        "longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude Deg",
+          "type": "number"
+        }
+      },
+      "required": [
+        "latitude_deg",
+        "longitude_deg"
+      ],
+      "title": "RjfmInboundGuidancePoint",
       "type": "object"
     },
     "RjfmRunwayGuidance": {

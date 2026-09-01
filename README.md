@@ -182,6 +182,8 @@ MAP内の経路線と凡例は残ります。画面幅1,240 px以下では「入
 NAV LOG → RJFM案内」の1列順となり、上下に往復せず確認できます。適用条件と制限は
 [計算規則](docs/calculation_rules.md#rjfm大分方面のumkrca例外)を参照してください。
 
+RJFM帰路でOMARU→UMK→最終VREPの座標条件を満たす場合、OMARU→UMKは4,500 ft固定です。UMK以降の運用降下ETE・燃料は選択降下率とlevel off後60秒から求め、物理DIST/TC/MC/CUM DISTは変えません。NAV LOG下の西方延長案内は別のwarning-only診断であり、現在の計算結果だけに表示します。同梱したAIP Japan ENR 5.3-21のKS4-3水平境界と、ENR 4.1-15のMZE DMEを、固定ハッシュ・ページ・正規化手順でfail-closed検証して数値案内に使います。根拠と制限は[RJFM inbound guidance](docs/rjfm_inbound_guidance.md)を参照してください。
+
 RJFMのMAPには宮崎特別管制区（PCA）の水平境界と9 km中心除外円を同梱参照値から描画します。
 民間訓練試験空域KS4は、国土交通省が案内する国土地理院GeoJSONを表示時に取得します。
 ライブGeoJSON本文は参照パックのSHA-256対象外で、NAV LOG計算、出発経路ソルバ、PCA判定には

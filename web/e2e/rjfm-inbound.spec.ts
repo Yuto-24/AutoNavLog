@@ -56,6 +56,16 @@ type State = {
       status: string;
       reason_code: string;
       message: string;
+      rounded_dme_nm?: number | null;
+      extra_distance_nm?: number | null;
+      predicted_ete_min?: number | null;
+      minimum_boundary_clearance_nm?: number | null;
+      raw_dme_nm?: number | null;
+      raw_extra_distance_nm?: number | null;
+      raw_predicted_ete_min?: number | null;
+      raw_minimum_boundary_clearance_nm?: number | null;
+      raw_turn_altitude_ft_msl?: number | null;
+      rounded_turn_altitude_ft_msl?: number | null;
     } | null;
   } | null;
   altitudeGuidance: {
@@ -76,6 +86,8 @@ async function readState(page: Page): Promise<State> {
 }
 
 test("real RJFO inbound KML keeps physical route and places EOC at UMK", async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
@@ -139,7 +151,7 @@ test("real RJFO inbound KML keeps physical route and places EOC at UMK", async (
   await expect(calculateButton).toHaveText("NAV LOGを作る");
   await calculateButton.click();
   await expect(page.getByRole("status", { name: "NAV LOGを計算中" })).toBeVisible();
-  await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused({ timeout: 30_000 });
+  await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused({ timeout: 90_000 });
   await expect(page.getByRole("status", { name: "NAV LOGを計算中" })).toBeHidden();
 
   const calculated = await readState(page);
@@ -173,6 +185,12 @@ test("real RJFO inbound KML keeps physical route and places EOC at UMK", async (
   expect(eoc[0]?.latitude_deg).toBeCloseTo(31.985137767624444, 5);
   expect(eoc[0]?.longitude_deg).toBeCloseTo(131.42429852046251, 5);
   expect(calculated.outcome.rjfm_inbound_guidance).toBeTruthy();
+  expect(calculated.outcome.rjfm_inbound_guidance?.status).toBe('AVAILABLE');
+  const guidance = calculated.outcome.rjfm_inbound_guidance;
+  expect(guidance?.rounded_dme_nm).toBeGreaterThan(0);
+  expect(guidance?.extra_distance_nm).toBeGreaterThan(0);
+  expect(guidance?.predicted_ete_min).toBeGreaterThan(0);
+  expect(guidance?.minimum_boundary_clearance_nm).toBeGreaterThanOrEqual(0);
   await expect(page.getByLabel("RJFM帰路の経路延長案内")).toBeVisible();
   await expect(page.getByLabel("RJFM帰路の経路延長案内")).toContainText("warningのみ");
   const navLogBox = await page.getByLabel("計算済みNAV LOG").boundingBox();

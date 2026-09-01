@@ -39,6 +39,7 @@ from autonavlog.application.rjfm_inbound_plan import (
 from autonavlog.application.rjfm_inbound_plan import (
     TARGET_ALTITUDE_FT_MSL as RJFM_INBOUND_TARGET_ALTITUDE_FT_MSL,
 )
+from autonavlog.application.rjfm_inbound_service import build_rjfm_inbound_guidance
 from autonavlog.domain.calculation import CalculationOutcome, Issue
 from autonavlog.domain.enums import (
     AdoptedSource,
@@ -77,6 +78,7 @@ from autonavlog.storage.reference_data import (
     ReferenceDataCatalogRepository,
 )
 from autonavlog.storage.repository import ProjectSummary
+from autonavlog.storage.rjfm_inbound_reference import RjfmInboundGuidanceReference
 from autonavlog.storage.rjfm_reference import RjfmReferencePack
 from autonavlog.version import __version__
 from autonavlog.weather.destination_taf import (
@@ -181,6 +183,7 @@ class AutoNavLogWebApplication:
         access_verifier: AccessTokenVerifier | None = None,
         weather_prewarmer: WeatherPrewarmer | None = None,
         destination_wind_provider: DestinationWindProvider | None = None,
+        rjfm_inbound_guidance_reference: RjfmInboundGuidanceReference | None = None,
     ) -> None:
         if maximum_sessions < 1:
             raise ValueError("maximum_sessions must be positive")
@@ -188,6 +191,7 @@ class AutoNavLogWebApplication:
         self.airports = airports
         self.performance = performance
         self.rjfm_reference_pack = rjfm_reference_pack
+        self.rjfm_inbound_guidance_reference = rjfm_inbound_guidance_reference
         self.reference_repository = reference_repository
         self.reference_catalog = reference_catalog
         self.weather_factory = weather_factory
@@ -784,9 +788,24 @@ class AutoNavLogWebApplication:
             self.rjfm_reference_pack,
             generated_against_fingerprint=fingerprint,
         )
+        inbound_guidance = build_rjfm_inbound_guidance(
+            project,
+            outcome,
+            state,
+            self.rjfm_inbound_guidance_reference,
+            generated_against_fingerprint=fingerprint,
+        )
+        # Inbound guidance is intentionally transient. Saving solver diagnostics
+        # could resurrect a turn point after route, wind, altitude, or reference
+        # inputs change. Departure guidance has different persisted semantics.
         updated_state = state.model_copy(update={"rjfm_departure_guidance": guidance})
         self.project_service.set_ui_state(project, updated_state)
-        return outcome.model_copy(update={"rjfm_departure_guidance": guidance})
+        return outcome.model_copy(
+            update={
+                "rjfm_departure_guidance": guidance,
+                "rjfm_inbound_guidance": inbound_guidance,
+            }
+        )
 
     @staticmethod
     def _destination_wind_signature(

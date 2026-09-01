@@ -1,0 +1,102 @@
+{
+  "schema_version": 2,
+  "status": "AVAILABLE",
+  "revision": "2026-08-31-rjfm-inbound-west-guidance-v2",
+  "policy": {
+    "source_id": "user-decision-rjfm-inbound-west-sector-2026-08-31",
+    "magnetic_bearing_min_deg": 250.0,
+    "magnetic_bearing_max_deg": 290.0,
+    "coarse_bearing_step_deg": 5.0,
+    "dme_rounding_increment_nm": 0.5
+  },
+  "mze": {
+    "source_id": "aip-japan-enr-4-1-15-2025-09-04",
+    "latitude_deg": 31.87872777777778,
+    "longitude_deg": 131.43746666666667,
+    "elevation_ft_msl": 54.0
+  },
+  "sources": [
+    {
+      "id": "user-decision-rjfm-inbound-west-sector-2026-08-31",
+      "distribution": "USER_DECISION",
+      "title": "RJFM inbound west extension sector",
+      "effective_date": "2026-08-31",
+      "retrieved_date": "2026-08-31",
+      "sha256": null,
+      "notes": "Magnetic sector 250-290 degrees, 5-degree coarse scan, and outward 0.5 NM DME rounding are implementation policy approved by the AutoNavLog user."
+    },
+    {
+      "id": "aip-japan-enr-4-1-15-2025-09-04",
+      "distribution": "OFFICIAL_PRIMARY",
+      "title": "AIP Japan ENR 4.1-15 MZE DME reference",
+      "url": "https://aisjapan.mlit.go.jp/",
+      "effective_date": "2025-09-04",
+      "retrieved_date": "2026-08-31",
+      "sha256": "91eba1411e896d1b62451fac298e0afa6131194a95736a181be251b91942c90a",
+      "notes": "Coordinates and 54 ft elevation were transcribed from PDF page 531. The vendored artifact hash confirms the reviewed bytes; this record does not claim a separately verified publisher signature chain.",
+      "publisher": "Civil Aviation Bureau, Ministry of Land, Infrastructure, Transport and Tourism",
+      "document_id": "AIP Japan ENR 4.1-15",
+      "revision": "2025-09-04",
+      "pdf_page": 531,
+      "artifact_path": "artifacts/ks4-3-enr-5-3-21.pdf",
+      "artifact_sha256": "91eba1411e896d1b62451fac298e0afa6131194a95736a181be251b91942c90a",
+      "position": {
+        "latitude_deg": 31.87872777777778,
+        "longitude_deg": 131.43746666666667
+      },
+      "elevation_ft_msl": 54.0
+    },
+    {
+      "id": "aip-japan-enr-5-3-21-2024-02-22",
+      "distribution": "OFFICIAL_PRIMARY",
+      "source_category": "PRIMARY_HORIZONTAL_BOUNDARY",
+      "data_use": "ATTACHED_OFFICIAL_PRIMARY",
+      "availability": "AVAILABLE",
+      "title": "AIP Japan ENR 5.3-21 KS4-3 horizontal boundary",
+      "publisher": "Civil Aviation Bureau, Ministry of Land, Infrastructure, Transport and Tourism",
+      "document_id": "AIP Japan ENR 5.3-21",
+      "revision": "2024-02-22",
+      "effective_date": "2024-02-22",
+      "retrieved_date": "2026-08-31",
+      "pdf_page": 747,
+      "sha256": "91eba1411e896d1b62451fac298e0afa6131194a95736a181be251b91942c90a",
+      "artifact_path": "artifacts/ks4-3-enr-5-3-21.pdf",
+      "artifact_sha256": "91eba1411e896d1b62451fac298e0afa6131194a95736a181be251b91942c90a",
+      "coordinate_validation": {
+        "finite": true,
+        "in_bounds": true,
+        "non_collinear": true,
+        "no_duplicate_vertices": true,
+        "no_self_intersections": true,
+        "nonzero_area": true,
+        "ring_closed": true,
+        "vertex_count": 49
+      }
+    },
+    {
+      "id": "gsi-ks4-3-geojson-cross-check-2026-08-31",
+      "distribution": "OFFICIAL_MLIT",
+      "source_category": "CROSS_CHECK_ONLY",
+      "data_use": "DISPLAY_ONLY_LIVE_REFERENCE",
+      "title": "GSI KS4-3 GeoJSON tile cross-check",
+      "publisher": "Geospatial Information Authority of Japan",
+      "retrieved_date": "2026-08-31",
+      "tiles": [
+        {"path": "data/cache/source-audit-20260831/gsi-z8-x221-y103.geojson", "sha256": "3b1f6e847c08cb605ded09f9a17ba44dfd5179f9370e42391edc2f71f03b78ed"},
+        {"path": "data/cache/source-audit-20260831/gsi-z8-x221-y104.geojson", "sha256": "a9580ba5bbd27501fc1c17e8322a5d1d16fea5b67fa2fe852a8833ec4cb1dcd4"}
+      ],
+      "cross_check": {
+        "maximum_hausdorff_nm": 0.03,
+        "enr_to_gsi_nm": 0.01856,
+        "gsi_to_enr_nm": 0.00834
+      }
+    }
+  ],
+  "boundary": {
+    "source_id": "aip-japan-enr-5-3-21-2024-02-22",
+    "revision": "2024-02-22",
+    "checksum_sha256": "4715385384ba95902723d26a3205673d36ffbb8a96c36f0e2190ef552cb147d4",
+    "normalized_artifact_path": "artifacts/ks4-3-enr-5-3-21-normalized.json",
+    "normalized_artifact_sha256": "2d148f9f371446160cc03b91e6eca1b383599d2c7c910e6fbd33f7f17c4927c6"
+  }
+}

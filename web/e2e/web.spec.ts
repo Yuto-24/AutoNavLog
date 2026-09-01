@@ -395,6 +395,22 @@ const gsiAirspaceTile104Fixture: GsiAirspaceCollectionFixture = {
   )),
 };
 
+function gsiTile103WithFirstPolygonRing(
+  ring: unknown,
+): GsiAirspaceCollectionFixture {
+  return {
+    ...gsiAirspaceTile103Fixture,
+    features: gsiAirspaceTile103Fixture.features.map((feature, index) => (
+      index === 0
+        ? {
+            ...feature,
+            geometry: { ...feature.geometry, coordinates: [ring] },
+          }
+        : feature
+    )),
+  };
+}
+
 type GsiFixtureMode =
   | "valid"
   | "malformed"
@@ -885,6 +901,44 @@ test("GSI live tile Polygon contract fails closed on payload drift", () => {
       tile,
     )).toThrow();
   }
+});
+
+test("GSI live tile accepts 2D and finite 3D positions only", () => {
+  const tile = rjfmMapReferenceFixture.civilTrainingTestAirspace.tiles[0];
+  const twoDimensional = parseGsiCivilTrainingAirspaceTile(
+    gsiAirspaceTile103Fixture,
+    tile,
+  );
+  expect(twoDimensional[0]?.positions[0]?.[0]).toEqual([32.12, 131.25]);
+
+  const threeDimensionalRing = gsiTile103Ring.map(
+    ([longitude, latitude]) => [longitude, latitude, 0],
+  );
+  const threeDimensional = parseGsiCivilTrainingAirspaceTile(
+    gsiTile103WithFirstPolygonRing(threeDimensionalRing),
+    tile,
+  );
+  expect(threeDimensional[0]?.positions[0]?.[0]).toEqual([32.12, 131.25]);
+
+  for (const invalidAltitude of ["0", Number.NaN, Number.POSITIVE_INFINITY]) {
+    const invalidAltitudeRing = gsiTile103Ring.map(
+      ([longitude, latitude]) => [longitude, latitude, invalidAltitude],
+    );
+    expect(() => parseGsiCivilTrainingAirspaceTile(
+      gsiTile103WithFirstPolygonRing(invalidAltitudeRing),
+      tile,
+    )).toThrow("GSI Polygon coordinate altitude is not finite");
+  }
+
+  const extraElementRing = gsiTile103Ring.map(
+    ([longitude, latitude]) => [longitude, latitude, 0, 1],
+  );
+  expect(() => parseGsiCivilTrainingAirspaceTile(
+    gsiTile103WithFirstPolygonRing(extraElementRing),
+    tile,
+  )).toThrow(
+    "GSI Polygon coordinate must contain longitude, latitude, and optional altitude",
+  );
 });
 
 test("desktop workflow renders without the removed A4 output", async ({ page }, testInfo) => {
@@ -1530,9 +1584,26 @@ test("RJFM inbound guidance remains below NAV LOG at intermediate and wide width
     outcome: {
       ...state.outcome,
       rjfm_inbound_guidance: {
-        status: "WARNING",
-        reason_code: "DIRECT_DISTANCE_SHORTFALL",
-        message: "UMK通過後の経路延長が必要です。",
+        status: "AVAILABLE",
+        reason_code: null,
+        message: "UMK通過後の合成経路延長案内です。",
+        generated_against_fingerprint: "a".repeat(64),
+        reference_revision: "synthetic-primary-v1",
+        reference_content_fingerprint: "b".repeat(64),
+        raw_turn_point: { latitude_deg: 32.0, longitude_deg: 131.0 },
+        rounded_turn_point: { latitude_deg: 32.01, longitude_deg: 131.01 },
+        bearing_magnetic_deg: 270.0,
+        actual_bearing_magnetic_deg: 270.1,
+        raw_extra_distance_nm: 5.1,
+        extra_distance_nm: 5.5,
+        raw_predicted_ete_min: 8.2,
+        predicted_ete_min: 8.4,
+        raw_dme_nm: 12.2,
+        rounded_dme_nm: 12.5,
+        raw_turn_altitude_ft_msl: 3200.0,
+        rounded_turn_altitude_ft_msl: 3190.0,
+        raw_minimum_boundary_clearance_nm: 1.2,
+        minimum_boundary_clearance_nm: 1.1,
       },
     },
   };
@@ -1543,6 +1614,7 @@ test("RJFM inbound guidance remains below NAV LOG at intermediate and wide width
   const navLog = page.getByLabel("計算済みNAV LOG");
   const guidance = page.getByLabel("RJFM帰路の経路延長案内");
   await expect(guidance).toContainText("warningのみ");
+  await expect(guidance.getByTestId("rjfm-inbound-guidance-diagnostics")).toContainText("12.5 NM");
   const wide = await Promise.all([navLog.boundingBox(), guidance.boundingBox()]);
   if (wide.some((box) => box === null)) throw new Error("inbound guidance layout is missing");
   expect(wide[1]!.y).toBeGreaterThanOrEqual(wide[0]!.y + wide[0]!.height - 1);
@@ -1565,6 +1637,20 @@ test("RJFM inbound guidance remains below NAV LOG at intermediate and wide width
   for (let index = 1; index < narrow.length; index += 1) {
     expect(narrow[index]!.y).toBeGreaterThanOrEqual(narrow[index - 1]!.y + narrow[index - 1]!.height - 1);
   }
+
+  const staleState: WebState = {
+    ...inboundState,
+    readiness: { ...inboundState.readiness, calculationIsCurrent: false },
+  };
+  await page.route("**/api/state", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(staleState),
+    });
+  }, { times: 1 });
+  await page.reload();
+  await expect(guidance).toHaveCount(0);
 });
 
 test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays editable", async ({ page }) => {
