@@ -9,6 +9,42 @@ from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
 from autonavlog.weather.fake_provider import FakeWeatherProvider
 
 
+def _displayed_parent_distance_totals(outcome) -> list[float]:
+    return [
+        float(row.distance.text.split(" / ")[0])
+        for row in outcome.display_rows
+        if row.row_type == "PHYSICAL_LEG_SUMMARY" and row.distance.text is not None
+    ]
+
+
+def _displayed_ttl_distance(outcome) -> float:
+    parent_rows = [
+        row for row in outcome.display_rows if row.row_type == "PHYSICAL_LEG_SUMMARY"
+    ]
+    assert parent_rows
+    assert parent_rows[-1].distance.text is not None
+    return float(parent_rows[-1].distance.text.split(" / ")[1])
+
+
+def _assert_display_distance_invariants(outcome) -> None:
+    parent_rows = [
+        row for row in outcome.display_rows if row.row_type == "PHYSICAL_LEG_SUMMARY"
+    ]
+    assert parent_rows
+    displayed_parent_total = 0.0
+    for parent in parent_rows:
+        assert parent.distance.text is not None
+        parent_total = float(parent.distance.text.split(" / ")[0])
+        group = [row for row in outcome.display_rows if row.section_id == parent.section_id]
+        detail_rows = [row for row in group if row.row_type == "CALCULATION_ZONE"]
+        if detail_rows:
+            assert sum(float(row.distance.text or "nan") for row in detail_rows) == pytest.approx(
+                parent_total
+            )
+        displayed_parent_total += parent_total
+    assert displayed_parent_total == pytest.approx(_displayed_ttl_distance(outcome))
+
+
 def test_checkpoint_abeam_splits_calculation_without_changing_route_totals(
     airports,
     performance_repository,
@@ -71,4 +107,12 @@ def test_checkpoint_abeam_splits_calculation_without_changing_route_totals(
             section_result.section_fuel_gal.adopted() or 0.0 for section_result in baseline.sections
         ),
         abs=1e-9,
+    )
+    _assert_display_distance_invariants(baseline)
+    _assert_display_distance_invariants(outcome)
+    assert _displayed_parent_distance_totals(outcome) == _displayed_parent_distance_totals(
+        baseline
+    )
+    assert _displayed_ttl_distance(outcome) == pytest.approx(
+        _displayed_ttl_distance(baseline)
     )

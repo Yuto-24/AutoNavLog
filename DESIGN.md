@@ -9,8 +9,8 @@
 > `docs/calculation_rules.md`を正本とし、この履歴文書の未丸め表示集計などの旧記述より
 > 優先します。
 
-- 版: 2.10.0
-- 日付: 2026-08-17
+- 版: 2.10.1
+- 日付: 2026-09-02
 - 対象: AutoNavLog 1.1.0 / jma-msm-wind 0.2.1 / Docker Web service + Cloudflare Tunnel
 - 実装担当: 別エージェント
 
@@ -31,6 +31,17 @@
   1,240 px超は入力・経路・準備状況の3列を維持する。
 
 以下の旧版記述と矛盾する場合は本節を優先する。
+
+## v2.10.1 Issue #106 DIST表示集計
+
+- Physical LegのDISTは、通常Legでは採用済み`Geometry.distance_nm`、RJFM→OMARU集約親では
+  配下Geometryの採用距離合計をcanonical値として、先に0.5 NM単位へ丸める。
+- 分割されたCalculation ZoneのDIST表示は、canonical親DISTの0.5 NM tickをexact Zone距離比で
+  最大剰余法により配賦する。floor後の残tickは小数部の大きい順、同値なら経路順で与える。
+- 親ZONE/CUM DISTは表示済み親DISTから算術的に累積し、子`distance.text`の合計と一致する。
+  子effective valueとCalculationOutcomeのexact値、ETE、燃料、REM、表示構造は変更しない。
+- 採用距離の欠損、非有限値、または子Zone exact距離合計との不整合は、DISTセルを`UNAVAILABLE`
+  として表示し、見かけの丸め値を作らない。最終`VISUAL_ARRIVAL`は従来どおり子行を作らない。
 
 ## v2.9.0 RJFM北行き UMK/RCA例外
 
