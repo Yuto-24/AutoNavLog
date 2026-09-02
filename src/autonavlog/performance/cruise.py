@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from math import isfinite
 
 from autonavlog.nav.wind_triangle import WindTriangleError, solve_wind_triangle
@@ -38,6 +39,33 @@ class PowerInterpolationCorner:
     source_pages: tuple[str, ...]
 
 
+class BoundaryAxis(StrEnum):
+    """Performance-table dimensions that may need a nearest-boundary selection."""
+
+    POWER_PERCENT = "POWER_PERCENT"
+    PRESSURE_ALTITUDE_FT = "PRESSURE_ALTITUDE_FT"
+    ISA_DEVIATION_C = "ISA_DEVIATION_C"
+
+
+@dataclass(frozen=True)
+class BoundaryProvenance:
+    """Auditable record of one table-boundary choice.
+
+    ``pressure_altitude_ft`` and ``isa_deviation_c`` identify a power-table
+    corner when the bounded axis is ``POWER_PERCENT``.  They remain optional so
+    altitude and ISA boundary handling can use the same contract later.
+    """
+
+    axis: BoundaryAxis
+    requested_value: float
+    available_min: float
+    available_max: float
+    adopted_value: float
+    pressure_altitude_ft: float | None = None
+    isa_deviation_c: float | None = None
+    source_pages: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class CruiseInterpolationTrace:
     method: str
@@ -45,6 +73,7 @@ class CruiseInterpolationTrace:
     isa_deviation: AxisBracket
     power_percent: float
     corners: tuple[PowerInterpolationCorner, ...]
+    boundary_provenance: tuple[BoundaryProvenance, ...] = ()
 
 
 def _candidate_axis(values: list[float], target: float) -> tuple[float, ...]:
@@ -116,6 +145,7 @@ class CruisePerformanceSelectionPolicy:
         ) or distance_nm < 0:
             raise CruisePerformanceError("cruise route inputs must be finite and non-negative")
         warnings: list[str] = []
+        boundary_provenance: list[BoundaryProvenance] = []
         evaluated_altitude = pressure_altitude_ft
         evaluated_isa_deviation = isa_deviation_c
         if self.use_table_boundaries:
@@ -131,8 +161,26 @@ class CruisePerformanceSelectionPolicy:
             )
             if altitude_bounded:
                 warnings.append("CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED")
+                boundary_provenance.append(
+                    BoundaryProvenance(
+                        axis=BoundaryAxis.PRESSURE_ALTITUDE_FT,
+                        requested_value=pressure_altitude_ft,
+                        available_min=min(row.pressure_altitude_ft for row in self.rows),
+                        available_max=max(row.pressure_altitude_ft for row in self.rows),
+                        adopted_value=evaluated_altitude,
+                    )
+                )
             if isa_bounded:
                 warnings.append("CRUISE_ISA_DEVIATION_TABLE_BOUNDARY_USED")
+                boundary_provenance.append(
+                    BoundaryProvenance(
+                        axis=BoundaryAxis.ISA_DEVIATION_C,
+                        requested_value=isa_deviation_c,
+                        available_min=min(row.isa_deviation_c for row in self.rows),
+                        available_max=max(row.isa_deviation_c for row in self.rows),
+                        adopted_value=evaluated_isa_deviation,
+                    )
+                )
         altitude = _axis_bracket(
             [row.pressure_altitude_ft for row in self.rows],
             evaluated_altitude,
@@ -164,8 +212,23 @@ class CruisePerformanceSelectionPolicy:
                     power_percent,
                     "65% power",
                 )
-                if power_bounded:
+                if power_bounded and field == "ktas":
                     warnings.append("CRUISE_POWER_TABLE_BOUNDARY_USED")
+                    indexed_pages = tuple(
+                        dict.fromkeys(row.source_page for row in rows)
+                    )
+                    boundary_provenance.append(
+                        BoundaryProvenance(
+                            axis=BoundaryAxis.POWER_PERCENT,
+                            requested_value=power_percent,
+                            available_min=min(row.power_percent for row in rows),
+                            available_max=max(row.power_percent for row in rows),
+                            adopted_value=evaluated_power,
+                            pressure_altitude_ft=pressure_altitude,
+                            isa_deviation_c=temperature,
+                            source_pages=indexed_pages,
+                        )
+                    )
             power = _axis_bracket(
                 [row.power_percent for row in rows],
                 evaluated_power,
@@ -225,6 +288,7 @@ class CruisePerformanceSelectionPolicy:
             isa_deviation=isa_deviation,
             power_percent=power_percent,
             corners=tuple(corner_traces),
+            boundary_provenance=tuple(boundary_provenance),
         )
         source_pages = tuple(
             dict.fromkeys(page for corner in corner_traces for page in corner.source_pages)

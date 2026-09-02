@@ -942,6 +942,7 @@ class AutoNavLogWebApplication:
                             code,
                             "入力・原資料・表示値を確認してから再計算してください。",
                         ),
+                        **self._boundary_issue_details(session.outcome, item.issue),
                     }
                 )
         project_payload = (
@@ -1024,6 +1025,89 @@ class AutoNavLogWebApplication:
                 "nextAction": self._next_action(session, issues),
                 "issues": issues,
             },
+        }
+
+    @staticmethod
+    def _boundary_issue_details(
+        outcome: CalculationOutcome | None,
+        issue: Issue,
+    ) -> dict[str, Any]:
+        """Expose power-boundary evidence with human-readable route context.
+
+        The stored Issue keeps only stable calculation identifiers.  Labels and
+        zone order are resolved from the current result at presentation time so
+        the API never needs to expose a UUID as a user-facing fallback.
+        """
+
+        raw_provenance = issue.metadata.get("boundary_provenance")
+        if not isinstance(raw_provenance, list):
+            return {}
+        provenance: list[dict[str, Any]] = []
+        for item in raw_provenance:
+            if not isinstance(item, dict):
+                continue
+            provenance.append(
+                {
+                    "axis": item.get("axis"),
+                    "requestedValue": item.get("requested_value"),
+                    "availableMin": item.get("available_min"),
+                    "availableMax": item.get("available_max"),
+                    "adoptedValue": item.get("adopted_value"),
+                    "pressureAltitudeFt": item.get("pressure_altitude_ft"),
+                    "isaDeviationC": item.get("isa_deviation_c"),
+                    "sourcePages": item.get("source_pages", []),
+                }
+            )
+        if not provenance:
+            return {}
+        details: dict[str, Any] = {"boundaryProvenance": provenance}
+        location = AutoNavLogWebApplication._boundary_issue_location(outcome, issue)
+        if location is not None:
+            details["location"] = location
+        return details
+
+    @staticmethod
+    def _boundary_issue_location(
+        outcome: CalculationOutcome | None,
+        issue: Issue,
+    ) -> dict[str, Any] | None:
+        if (
+            outcome is None
+            or issue.section_id is None
+            or issue.segment_sequence is None
+        ):
+            return None
+        zones = sorted(
+            (section for section in outcome.sections if section.section_id == issue.section_id),
+            key=lambda section: section.sequence,
+        )
+        zone_index = next(
+            (
+                index
+                for index, zone in enumerate(zones)
+                if zone.sequence == issue.segment_sequence
+            ),
+            None,
+        )
+        if zone_index is None:
+            return None
+        zone = zones[zone_index]
+        parent = next(
+            (
+                row
+                for row in outcome.display_rows
+                if row.row_type == "PHYSICAL_LEG_SUMMARY" and row.section_id == issue.section_id
+            ),
+            None,
+        )
+        return {
+            "fromName": zone.from_name if parent is None else parent.from_name,
+            "toName": zone.to_name if parent is None else parent.to_name,
+            "phase": zone.phase.value,
+            "zoneOrdinal": zone_index + 1,
+            "zoneCount": len(zones),
+            "zoneFromName": zone.from_name,
+            "zoneToName": zone.to_name,
         }
 
     @staticmethod

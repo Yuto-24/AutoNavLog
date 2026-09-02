@@ -157,6 +157,64 @@ def test_full_calculation_iteration_and_navlog_projection(
     assert all(run_id == "20260728000000" for run_id, _ in provider.query_history)
 
 
+def test_cruise_power_boundary_issues_keep_each_zone_provenance(airports, project) -> None:
+    from autonavlog.performance.repository import PerformanceRepository
+
+    boundary_project = project.model_copy(deep=True)
+    original_destination = boundary_project.ordered_nodes()[-1]
+    middle = RouteNode(
+        sequence=2,
+        name="TP2",
+        latitude_deg=33.0,
+        longitude_deg=131.6,
+        role=RouteNodeRole.TURN_POINT,
+    )
+    original_destination.sequence = 3
+    boundary_project.route_nodes.append(middle)
+    first, second = boundary_project.sections
+    first.phase = FlightPhase.CRUISE
+    first.planned_altitude_ft_msl = 13_020
+    first.manual_temperature_c_by_phase = {FlightPhase.CRUISE: 4.0}
+    second.sequence = 2
+    second.from_node_id = middle.id
+    second.phase = FlightPhase.CRUISE
+    second.planned_altitude_ft_msl = 13_020
+    second.manual_temperature_c_by_phase = {FlightPhase.CRUISE: 4.0}
+    boundary_project.sections.insert(
+        1,
+        NavSection(
+            sequence=1,
+            from_node_id=first.to_node_id,
+            to_node_id=middle.id,
+            phase=FlightPhase.CRUISE,
+            planned_altitude_ft_msl=13_020,
+            manual_temperature_c_by_phase={FlightPhase.CRUISE: 4.0},
+        ),
+    )
+
+    outcome = CalculationService(
+        airports,
+        PerformanceRepository.from_directory(Path("data/performance")),
+    ).calculate(boundary_project, FakeWeatherProvider())
+
+    warnings = [
+        issue
+        for issue in outcome.issues
+        if issue.code == "CRUISE_POWER_TABLE_BOUNDARY_USED"
+    ]
+    assert len(warnings) == 3
+    assert {(issue.section_id, issue.segment_sequence) for issue in warnings} == {
+        (section.id, index) for index, section in enumerate(boundary_project.sections)
+    }
+    assert all(len(issue.metadata["boundary_provenance"]) == 3 for issue in warnings)
+    assert all(
+        provenance["axis"] == "POWER_PERCENT"
+        and provenance["requested_value"] == 65.0
+        for issue in warnings
+        for provenance in issue.metadata["boundary_provenance"]
+    )
+
+
 def test_destination_surface_temperature_uses_calculated_arrival_time(
     airports,
     performance_repository,

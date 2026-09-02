@@ -91,6 +91,31 @@ export function StatusPanel({
             <div>
               <strong>{issue.code}</strong>
               <p>{issue.message}</p>
+              {issue.code === "CRUISE_POWER_TABLE_BOUNDARY_USED" &&
+                issue.boundaryProvenance && (
+                  <div className="boundary-provenance" aria-label="巡航出力表端の採用詳細">
+                    {issue.location && (
+                      <p className="boundary-location">
+                        <strong>{issue.location.fromName} → {issue.location.toName}</strong>
+                        {issue.location.zoneCount > 1 && (
+                          <> · 巡航 Zone {issue.location.zoneOrdinal}/{issue.location.zoneCount}</>
+                        )}
+                        {(issue.location.zoneFromName !== issue.location.fromName ||
+                          issue.location.zoneToName !== issue.location.toName) && (
+                          <>（{issue.location.zoneFromName} → {issue.location.zoneToName}）</>
+                        )}
+                      </p>
+                    )}
+                    {issue.boundaryProvenance.map((corner) => (
+                      <dl key={`${corner.pressureAltitudeFt}-${corner.isaDeviationC}`}>
+                        <div><dt>Corner</dt><dd>PA {corner.pressureAltitudeFt?.toLocaleString()} ft / ISA {corner.isaDeviationC}°C</dd></div>
+                        <div><dt>Requested</dt><dd>{corner.requestedValue}%</dd></div>
+                        <div><dt>Available</dt><dd>{corner.availableMin}–{corner.availableMax}%</dd></div>
+                        <div><dt>Adopted</dt><dd>{corner.adoptedValue}%</dd></div>
+                      </dl>
+                    ))}
+                  </div>
+                )}
               <small>次の操作: {issue.action}</small>
               {issue.acknowledgementRequired && (
                 <label className="checkbox-row issue-acknowledgement">

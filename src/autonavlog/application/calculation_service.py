@@ -2500,6 +2500,22 @@ class CalculationService:
                                     section_id=section.id,
                                     segment_sequence=segment.sequence,
                                     acknowledgement_required=True,
+                                    metadata=(
+                                        {
+                                            "boundary_provenance": [
+                                                asdict(provenance)
+                                                for provenance in (
+                                                    selected.interpolation.boundary_provenance
+                                                )
+                                                if provenance.axis == "POWER_PERCENT"
+                                            ]
+                                        }
+                                        if (
+                                            warning == "CRUISE_POWER_TABLE_BOUNDARY_USED"
+                                            and selected.interpolation is not None
+                                        )
+                                        else {}
+                                    ),
                                 )
                             )
                     except CruisePerformanceError as error:

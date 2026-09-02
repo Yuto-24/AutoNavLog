@@ -522,6 +522,29 @@ export interface EffectiveIssue {
   ackKey: string;
   acknowledged: boolean;
   action: string;
+  boundaryProvenance?: BoundaryProvenance[];
+  location?: BoundaryIssueLocation;
+}
+
+export interface BoundaryProvenance {
+  axis: "POWER_PERCENT" | "PRESSURE_ALTITUDE_FT" | "ISA_DEVIATION_C";
+  requestedValue: number;
+  availableMin: number;
+  availableMax: number;
+  adoptedValue: number;
+  pressureAltitudeFt: number | null;
+  isaDeviationC: number | null;
+  sourcePages: string[];
+}
+
+export interface BoundaryIssueLocation {
+  fromName: string;
+  toName: string;
+  phase: string;
+  zoneOrdinal: number;
+  zoneCount: number;
+  zoneFromName: string;
+  zoneToName: string;
 }
 
 export interface ReadinessState {

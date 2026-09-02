@@ -334,9 +334,53 @@ def test_cruise_boundary_policy_uses_nearest_power_without_extrapolation() -> No
         wind_speed_kt=0,
     )
 
-    assert result.row.ktas > 0
-    assert result.row.gph > 0
+    assert result.row.ktas == 167.0
+    assert result.row.gph == 17.0
     assert "CRUISE_POWER_TABLE_BOUNDARY_USED" in result.warnings
+    assert result.interpolation is not None
+    assert len(result.interpolation.boundary_provenance) == 1
+    provenance = result.interpolation.boundary_provenance[0]
+    assert provenance.axis == "POWER_PERCENT"
+    assert provenance.requested_value == 65.0
+    assert provenance.available_min == 72.0
+    assert provenance.available_max == 98.0
+    assert provenance.adopted_value == 72.0
+    assert provenance.pressure_altitude_ft == 2_000
+    assert provenance.isa_deviation_c == 0
+
+
+def test_cruise_boundary_provenance_records_each_affected_corner_once() -> None:
+    repository = PerformanceRepository.from_directory(Path("data/performance"))
+
+    result = CruisePerformanceSelectionPolicy(
+        repository.cruise_rows,
+        use_table_boundaries=True,
+    ).select(
+        13_000,
+        15,
+        distance_nm=100,
+        true_course_deg=0,
+        wind_direction_deg_from=None,
+        wind_speed_kt=0,
+    )
+
+    assert (result.row.ktas, result.row.gph) == (176.0, 14.9)
+    assert result.interpolation is not None
+    assert [
+        (
+            item.pressure_altitude_ft,
+            item.isa_deviation_c,
+            item.available_min,
+            item.available_max,
+            item.adopted_value,
+            item.source_pages,
+        )
+        for item in result.interpolation.boundary_provenance
+    ] == [
+        (12_000.0, 30.0, 45.0, 64.0, 64.0, ("5-33",)),
+        (14_000.0, 0.0, 47.0, 62.0, 62.0, ("5-33",)),
+        (14_000.0, 30.0, 45.0, 59.0, 59.0, ("5-33",)),
+    ]
 
 
 def test_issue_15_climb_table_contains_500ft_workbook_points() -> None:

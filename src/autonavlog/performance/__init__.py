@@ -1,5 +1,10 @@
 from .climb import ClimbCalculator, ClimbPerformance
-from .cruise import CruisePerformanceSelectionPolicy, CruiseSelection
+from .cruise import (
+    BoundaryAxis,
+    BoundaryProvenance,
+    CruisePerformanceSelectionPolicy,
+    CruiseSelection,
+)
 from .repository import PerformanceRepository
 from .schemas import (
     ClimbRow,
@@ -18,6 +23,8 @@ __all__ = [
     "CruiseInterpolatedRow",
     "CruiseInterpolationPolicy",
     "CruisePerformanceSelectionPolicy",
+    "BoundaryAxis",
+    "BoundaryProvenance",
     "CruiseRow",
     "CruiseSelection",
     "PerformanceManifest",

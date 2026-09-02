@@ -1446,6 +1446,125 @@ test("route-node inline rename reprojects the current table, map, and NAV LOG", 
   ).toEqual([]);
 });
 
+test("cruise power boundary cards show every corner and acknowledge independently", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await calculateNavLog(page, false);
+
+  const currentState = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    return await response.json() as WebState;
+  });
+  const boundaryIssues = [1, 2, 3].map((zoneOrdinal) => ({
+    code: "CRUISE_POWER_TABLE_BOUNDARY_USED",
+    severity: "WARNING" as const,
+    message: "65%を挟む性能行がないため、最寄りの表端出力を採用しました。",
+    sectionId: null,
+    segmentSequence: zoneOrdinal - 1,
+    acknowledgementRequired: true,
+    ackKey: `boundary-ack-${zoneOrdinal}`,
+    acknowledged: false,
+    action: "性能表の表端採用を確認してください。",
+    boundaryProvenance: [
+      {
+        axis: "POWER_PERCENT" as const,
+        requestedValue: 65,
+        availableMin: 45 + zoneOrdinal,
+        availableMax: 64,
+        adoptedValue: 64,
+        pressureAltitudeFt: 12_000 + zoneOrdinal * 1_000,
+        isaDeviationC: zoneOrdinal === 2 ? 0 : 30,
+        sourcePages: ["5-33"],
+      },
+    ],
+    location: {
+      fromName: "TP1",
+      toName: "RJFO",
+      phase: "CRUISE",
+      zoneOrdinal,
+      zoneCount: 3,
+      zoneFromName: `ZONE-${zoneOrdinal}-FROM`,
+      zoneToName: `ZONE-${zoneOrdinal}-TO`,
+    },
+  }));
+  let boundaryState: WebState = {
+    ...currentState,
+    readiness: {
+      ...currentState.readiness,
+      issues: boundaryIssues,
+      calculationIsCurrent: true,
+    },
+  };
+  await page.route("**/api/state", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(boundaryState),
+    });
+  }, { times: 1 });
+  await page.route("**/api/acknowledgements/**", async (route) => {
+    const ackKey = decodeURIComponent(route.request().url().split("/").pop() ?? "");
+    boundaryState = {
+      ...boundaryState,
+      readiness: {
+        ...boundaryState.readiness,
+        issues: boundaryState.readiness.issues.map((issue) => (
+          issue.ackKey === ackKey ? { ...issue, acknowledged: true } : issue
+        )),
+      },
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(boundaryState),
+    });
+  });
+  await page.reload();
+
+  const cards = page.locator(".issue-item", { hasText: "CRUISE_POWER_TABLE_BOUNDARY_USED" });
+  await expect(cards).toHaveCount(3);
+  await expect(page.locator(".boundary-provenance")).toHaveCount(3);
+  for (const zoneOrdinal of [1, 2, 3]) {
+    const card = cards.nth(zoneOrdinal - 1);
+    await expect(card).toContainText(`TP1 → RJFO · 巡航 Zone ${zoneOrdinal}/3`);
+    await expect(card).toContainText(`ZONE-${zoneOrdinal}-FROM → ZONE-${zoneOrdinal}-TO`);
+    await expect(card).toContainText("Requested");
+    await expect(card).toContainText("Available");
+    await expect(card).toContainText("Adopted");
+  }
+
+  await cards.first().getByRole("checkbox").click();
+  await expect(cards.first().getByRole("checkbox")).toBeChecked();
+  await expect(cards.nth(1).getByRole("checkbox")).not.toBeChecked();
+  await expect(cards.nth(2).getByRole("checkbox")).not.toBeChecked();
+
+  for (const width of [1100, 1440] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    const [input, route, status, navLog] = await Promise.all([
+      page.locator(".input-rail").boundingBox(),
+      page.locator(".route-workspace").boundingBox(),
+      page.locator(".status-rail").boundingBox(),
+      page.getByLabel("計算済みNAV LOG").boundingBox(),
+    ]);
+    if (!input || !route || !status || !navLog) {
+      throw new Error(`Boundary workflow regions are missing at ${width}px`);
+    }
+    if (width === 1100) {
+      expect(route.y).toBeGreaterThanOrEqual(input.y + input.height - 1);
+      expect(status.y).toBeGreaterThanOrEqual(route.y + route.height - 1);
+      expect(navLog.y).toBeGreaterThanOrEqual(status.y + status.height - 1);
+    } else {
+      expect(route.x).toBeGreaterThanOrEqual(input.x + input.width - 1);
+      expect(status.x).toBeGreaterThanOrEqual(route.x + route.width - 1);
+      expect(Math.abs(route.y - input.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(status.y - input.y)).toBeLessThanOrEqual(1);
+    }
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+    ).toBeLessThanOrEqual(1);
+  }
+});
+
 test("responsive workflow keeps a one-way order at intermediate width", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));

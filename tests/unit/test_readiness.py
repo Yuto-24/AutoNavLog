@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 from autonavlog.application.readiness import (
     IssueProducer,
     create_effective_issue,
@@ -98,6 +100,38 @@ def test_raw_issue_code_does_not_acknowledge_a_warning() -> None:
         )
         == ProjectStatus.READY_FOR_COPY
     )
+
+
+def test_boundary_warnings_for_separate_zones_require_independent_acknowledgement() -> None:
+    section_id = uuid4()
+    warnings = [
+        create_effective_issue(
+            Issue(
+                code="CRUISE_POWER_TABLE_BOUNDARY_USED",
+                severity=IssueSeverity.WARNING,
+                message="fixture",
+                section_id=section_id,
+                segment_sequence=sequence,
+                acknowledgement_required=True,
+                metadata={"boundary_provenance": [{"corner": sequence}]},
+            ),
+            producer=IssueProducer.OUTCOME,
+            cause={"zone": sequence},
+        )
+        for sequence in range(3)
+    ]
+
+    assert len({warning.ctx.ack_key for warning in warnings}) == 3
+    assert derive_project_status(
+        warnings,
+        {warnings[0].ctx.ack_key},
+        outcome_exists=True,
+    ) == ProjectStatus.CALCULATION_WARNING
+    assert derive_project_status(
+        warnings,
+        {warning.ctx.ack_key for warning in warnings},
+        outcome_exists=True,
+    ) == ProjectStatus.READY_FOR_COPY
 
 
 def test_status_derivation_prioritizes_route_weather_and_other_blockers() -> None:
