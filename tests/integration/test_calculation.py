@@ -12,7 +12,7 @@ from autonavlog.application.calculation_service import (
 )
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.vertical_profile import descent_profile_from_metadata
-from autonavlog.domain.calculation import Issue
+from autonavlog.domain.calculation import CalculationOutcome, Issue
 from autonavlog.domain.enums import (
     AdoptedSource,
     Availability,
@@ -48,6 +48,44 @@ def _project_with_climb_endpoint_at_25_nm(project):
         25.0,
     )
     return aligned
+
+
+def _displayed_parent_distance_totals(outcome: CalculationOutcome) -> list[float]:
+    return [
+        float(row.distance.text.split(" / ")[0])
+        for row in outcome.display_rows
+        if row.row_type == "PHYSICAL_LEG_SUMMARY" and row.distance.text is not None
+    ]
+
+
+def _displayed_ttl_distance(outcome: CalculationOutcome) -> float:
+    parent_rows = [
+        row for row in outcome.display_rows if row.row_type == "PHYSICAL_LEG_SUMMARY"
+    ]
+    assert parent_rows
+    assert parent_rows[-1].distance.text is not None
+    return float(parent_rows[-1].distance.text.split(" / ")[1])
+
+
+def _assert_display_distance_invariants(outcome: CalculationOutcome) -> None:
+    parent_rows = [
+        row for row in outcome.display_rows if row.row_type == "PHYSICAL_LEG_SUMMARY"
+    ]
+    assert parent_rows
+
+    displayed_parent_total = 0.0
+    for parent in parent_rows:
+        assert parent.distance.text is not None
+        parent_total = float(parent.distance.text.split(" / ")[0])
+        group = [row for row in outcome.display_rows if row.section_id == parent.section_id]
+        detail_rows = [row for row in group if row.row_type == "CALCULATION_ZONE"]
+        if detail_rows:
+            assert sum(float(row.distance.text or "nan") for row in detail_rows) == pytest.approx(
+                parent_total
+            )
+        displayed_parent_total += parent_total
+
+    assert displayed_parent_total == pytest.approx(_displayed_ttl_distance(outcome))
 
 
 def test_full_calculation_iteration_and_navlog_projection(
@@ -1337,6 +1375,58 @@ def test_eoc_integration_snap_threshold_preserves_profile_metadata(
     assert descent_sections[-1].cumulative_ete_seconds.adopted() is not None
 
 
+def test_eoc_split_positions_keep_parent_and_ttl_display_distance_stable(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    service = CalculationService(airports, performance_repository)
+    variants = {
+        "within_leg": (7_000, 6_500, 5_000),
+        "boundary": (7_000, 6_500, 6_500),
+        "previous_leg": (7_000, 7_000, 7_000),
+    }
+    outcomes: dict[str, CalculationOutcome] = {}
+
+    for name, altitudes in variants.items():
+        routed, _ = _eoc_backtracking_project(
+            project,
+            leg_distances_nm=(2.0, 6.0, 16.4),
+            altitudes_ft_msl=altitudes,
+            manual_courses_deg=(0, 90, 180),
+        )
+        outcome = service.calculate(routed, FakeWeatherProvider())
+        assert not outcome.blockers
+        _assert_display_distance_invariants(outcome)
+        outcomes[name] = outcome
+
+    within_leg_eoc = next(
+        point for point in outcomes["within_leg"].derived_points if point.type.value == "EOC"
+    )
+    boundary_eoc = next(
+        point for point in outcomes["boundary"].derived_points if point.type.value == "EOC"
+    )
+    previous_leg_eoc = next(
+        point for point in outcomes["previous_leg"].derived_points if point.type.value == "EOC"
+    )
+    assert 8.0 < within_leg_eoc.along_route_distance_nm < 24.4
+    assert boundary_eoc.along_route_distance_nm == pytest.approx(8.0)
+    assert previous_leg_eoc.along_route_distance_nm < 8.0
+    assert any(section.to_name == "WP2 / EOC" for section in outcomes["boundary"].sections)
+    assert not any(section.to_name == "WP2 / EOC" for section in outcomes["previous_leg"].sections)
+
+    baseline = outcomes["within_leg"]
+    baseline_exact_total = baseline.sections[-1].cumulative_distance_nm.adopted()
+    baseline_parent_totals = _displayed_parent_distance_totals(baseline)
+    baseline_ttl = _displayed_ttl_distance(baseline)
+    for outcome in outcomes.values():
+        assert outcome.sections[-1].cumulative_distance_nm.adopted() == pytest.approx(
+            baseline_exact_total
+        )
+        assert _displayed_parent_distance_totals(outcome) == baseline_parent_totals
+        assert _displayed_ttl_distance(outcome) == pytest.approx(baseline_ttl)
+
+
 @pytest.mark.parametrize("descent_distance_nm", [2.2, 2.5])
 def test_eoc_does_not_snap_to_the_vrep_descent_end_boundary(
     airports,
@@ -1929,6 +2019,40 @@ def test_visual_arrival_calculates_calm_and_displays_destination_forecast(
     )
     assert mismatched_destination.wind.state == DisplayCellState.UNAVAILABLE
     assert mismatched_destination.wind.text == "未取得"
+
+
+def test_rca_phase_boundary_keeps_parent_and_ttl_display_distance_stable(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    service = CalculationService(airports, performance_repository)
+    with_rca = _project_with_climb_endpoint_at_25_nm(project)
+    without_rca = with_rca.model_copy(deep=True)
+    without_rca.sections[0].phase = FlightPhase.CRUISE
+
+    outcomes = {
+        "with_rca": service.calculate(with_rca, FakeWeatherProvider()),
+        "without_rca": service.calculate(without_rca, FakeWeatherProvider()),
+    }
+
+    assert not outcomes["with_rca"].blockers
+    assert not outcomes["without_rca"].blockers
+    assert any(section.to_name == "RCA" for section in outcomes["with_rca"].sections)
+    assert not any(section.to_name == "RCA" for section in outcomes["without_rca"].sections)
+
+    for outcome in outcomes.values():
+        _assert_display_distance_invariants(outcome)
+
+    assert outcomes["with_rca"].sections[-1].cumulative_distance_nm.adopted() == pytest.approx(
+        outcomes["without_rca"].sections[-1].cumulative_distance_nm.adopted()
+    )
+    assert _displayed_parent_distance_totals(
+        outcomes["with_rca"]
+    ) == _displayed_parent_distance_totals(outcomes["without_rca"])
+    assert _displayed_ttl_distance(outcomes["with_rca"]) == pytest.approx(
+        _displayed_ttl_distance(outcomes["without_rca"])
+    )
 
 
 def test_missing_climb_wind_is_not_misreported_as_rca_outside_route(

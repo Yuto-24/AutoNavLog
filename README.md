@@ -8,7 +8,7 @@ Web 画面に表示します。
 利用者が根拠と警告を確認してください。航空大学校の公式様式や計算規則への準拠は
 主張していません。
 
-- 現在のバージョン: `1.7.1`
+- 現在のバージョン: `1.8.0`
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
@@ -272,7 +272,7 @@ npm --prefix web run build
 npm --prefix web run test:e2e
 ```
 
-リリース時は `1.7.1` が次の場所で一致していることを確認します。
+リリース時は `1.8.0` が次の場所で一致していることを確認します。
 
 - `pyproject.toml`
 - `web/package.json` と `web/package-lock.json`

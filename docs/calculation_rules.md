@@ -118,9 +118,10 @@ R6.5.1改正は、大分方面の北上を5,500 ftとし、Newtabaru CENTER Rout
 - 子区間では主経路の直線Legから求めた`DIST`、`TC`、`WCA`、`MH`、`GS`をそのまま表示します。
   したがってこの例外の`CLIMB`子行では、意図的に`DIST / GS != ETE`となります。
   通常Legの`DIST = GS × ETE`不変条件に対する、この例外だけのカーブアウトです。
-- `RJFM→OMARU`親行のDIST・ETEは、転記時の可読性を保つため、各子区間を規程の
-  0.5 NM・0.5分単位へ丸めた表示値の合計をZONEとして表示し、CUMも表示済みZONEの
-  累計とします。親SECT FUELも各子区間を0.1 galへ丸めた表示値の合計とし、表示REMは
+- `RJFM→OMARU`親行のDISTは、配下Physical Legの採用距離合計を先に0.5 NM単位へ丸め、
+  そのtickを子区間のexact距離比へ最大剰余法で配賦した表示値をZONEとして使います。CUMは
+  表示済み親DISTの累計です。ETEは従来どおり子区間を0.5分単位へ丸めた表示値の合計、親SECT
+  FUELは各子区間を0.1 galへ丸めた表示値の合計とし、表示REMは
   表示TOTALから表示RUN UPを引いた値を起点に、各親SECT表示値をLeg順に減算します。
   計算・監査用のexact値、燃料計算、`CalculationOutcome.sections`の燃料・残量は未丸め値を
   保持します。親行のTC・VAR・MCはRJFMからOMARUへのWGS84直行測地線値を
@@ -253,9 +254,14 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
   上記RJFM UMK/RCA例外の`CLIMB`行だけはPOH ETEを優先するため、この等式の対象外です。
 - `CalculationOutcome.sections`は重複しないCalculation Zoneです。`display_rows`はそこから
   作る表示専用投影です。分割の有無にかかわらず各通常Physical LegへFROM/TOを持つ
-  `PHYSICAL_LEG_SUMMARY`と最低1つの`CALCULATION_ZONE`内訳行を置きます。小計の
-  ZONE DIST/ETEは配下Zoneを表示単位へ丸めた値の合計、CUMは表示済み小計をLeg順に加えた値を
-  小計行だけに表示します。親SECT FUELも配下Zoneの表示済み0.1 gal値の合計、REMは
+  `PHYSICAL_LEG_SUMMARY`と最低1つの`CALCULATION_ZONE`内訳行を置きます。DISTは各Physical
+  Legの採用距離を先に0.5 NMへ丸める。通常Legは`Geometry.distance_nm`、RJFM→OMARU集約親は
+  配下`Geometry.distance_nm`の合計を採用距離とする。丸め済み親DISTの0.5 NM tickは、子Zoneの
+  exact距離比へ最大剰余法（floor後、小数部降順、同値は経路順）で配賦する。親ZONE/CUMはこの
+  表示済み親DISTをLeg順に加えた値とし、子の`distance.text`だけを配賦値へ置き換える。
+  子のeffective valueと`CalculationOutcome.sections`のexact距離は変更しない。採用距離または
+  Zone距離が欠損・不整合なら、当該親子DISTは`UNAVAILABLE`としてfail-closeする。ETEは配下Zoneを
+  表示単位へ丸めた値の合計、CUMは表示済み小計をLeg順に加えた値を小計行だけに表示します。親SECT FUELも配下Zoneの表示済み0.1 gal値の合計、REMは
   表示TOTALから表示RUN UPを引いた起点から表示SECTをLeg順に引いた値です。内訳行のFROMと
   CUMは空欄です。最終`VISUAL_ARRIVAL`だけは親計算行と`DESTINATION_INFO`行に分け、
   通常内訳行を作りません。各Physical Legグループの後には`LEG_SEPARATOR`を1行置きます。

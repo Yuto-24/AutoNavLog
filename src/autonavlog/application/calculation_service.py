@@ -2906,6 +2906,7 @@ class CalculationService:
                 start_node_id=geometry.start.id,
                 end_name=geometry.end.name,
                 end_node_id=geometry.end.id,
+                adopted_distance_nm=geometry.distance_nm,
             )
             for geometry in geometries
         ]
@@ -2946,6 +2947,7 @@ class CalculationService:
             start_node_id=grouped[0].start.id,
             end_name=grouped[-1].end.name,
             end_node_id=grouped[-1].end.id,
+            adopted_distance_nm=sum(geometry.distance_nm for geometry in grouped),
             summary_true_course_deg=direct.initial_true_course_deg,
             summary_variation_deg_east=variation,
             summary_magnetic_course_deg=(

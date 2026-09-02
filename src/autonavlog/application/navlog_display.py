@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from math import floor, isclose
+from math import floor, isclose, isfinite
 from re import sub
 from typing import Any
 from uuid import UUID
@@ -36,6 +36,7 @@ class NavLogPhysicalLeg:
     phase: FlightPhase
     start_name: str
     end_name: str
+    adopted_distance_nm: float | None = None
     start_node_id: UUID | None = None
     end_node_id: UUID | None = None
     summary_true_course_deg: float | None = None
@@ -232,6 +233,63 @@ def _fuel_tenths(value: float) -> int:
     return int(round(round_half_up(value, 0.1) * 10))
 
 
+def _allocate_proportional_largest_remainder_ticks(
+    values: list[float],
+    target_ticks: int,
+) -> list[int] | None:
+    """Allocate a rounded parent total proportionally in route order."""
+
+    if target_ticks < 0 or not values or any(
+        not isfinite(value) or value < 0 for value in values
+    ):
+        return None
+    total = sum(values)
+    if not isfinite(total) or total < 0:
+        return None
+    if total == 0:
+        return None
+    exact_ticks = [value / total * target_ticks for value in values]
+    allocated = [floor(value) for value in exact_ticks]
+    remaining = target_ticks - sum(allocated)
+    if remaining < 0 or remaining > len(allocated):
+        return None
+    order = sorted(
+        range(len(values)),
+        key=lambda index: (-(exact_ticks[index] - allocated[index]), index),
+    )
+    for index in order[:remaining]:
+        allocated[index] += 1
+    return allocated
+
+
+def _allocate_raw_largest_remainder_ticks(
+    exact_ticks: list[float],
+    target_ticks: int,
+) -> list[int] | None:
+    """Allocate raw units by floor plus fractional remainder in route order.
+
+    RJFM inbound ETE has always rounded its profile total once, then allocated
+    that total from each Zone's *raw* 30-second units.  Unlike DIST, it does
+    not proportionally normalize those units to the rounded total.
+    """
+
+    if target_ticks < 0 or not exact_ticks or any(
+        not isfinite(value) or value < 0 for value in exact_ticks
+    ):
+        return None
+    allocated = [floor(value) for value in exact_ticks]
+    remaining = target_ticks - sum(allocated)
+    if remaining < 0 or remaining > len(allocated):
+        return None
+    order = sorted(
+        range(len(exact_ticks)),
+        key=lambda index: (-(exact_ticks[index] - allocated[index]), index),
+    )
+    for index in order[:remaining]:
+        allocated[index] += 1
+    return allocated
+
+
 def _inbound_ete_display_seconds(
     sections: list[SectionResult],
 ) -> dict[int, int]:
@@ -247,15 +305,9 @@ def _inbound_ete_display_seconds(
         return {}
     exact_units = [float(value) / 30.0 for _, value in values if value is not None]
     target_units = int(round_half_up(sum(exact_units), 1.0))
-    base_units = [floor(value) for value in exact_units]
-    remaining = max(0, target_units - sum(base_units))
-    order = sorted(
-        range(len(values)),
-        key=lambda index: (-(exact_units[index] - base_units[index]), index),
-    )
-    allocated = list(base_units)
-    for index in order[:remaining]:
-        allocated[index] += 1
+    allocated = _allocate_raw_largest_remainder_ticks(exact_units, target_units)
+    if allocated is None:
+        return {}
     return {
         section.sequence: units * 30
         for (section, _), units in zip(values, allocated, strict=True)
@@ -372,6 +424,67 @@ def _display_rounded_combined(
             ),
         ),
         display_cumulative,
+    )
+
+
+def _display_distance_cells(
+    leg: NavLogPhysicalLeg,
+    zones: list[SectionResult],
+    *,
+    prior_display_cumulative: float | None,
+) -> tuple[NavLogDisplayCell, float | None, list[NavLogDisplayCell]]:
+    """Project DIST from the rounded Physical Leg total into its Calculation Zones.
+
+    A Physical Leg's adopted distance is the canonical display total.  Its
+    0.5-NM ticks are allocated to child zones by largest remainder, using route
+    order to break exact fractional ties.  This intentionally changes only
+    child ``text``: their effective values remain the exact calculation values.
+    """
+
+    fallback_reason = "DISPLAY_DISTANCE_ALLOCATION_UNAVAILABLE"
+    adopted_values = [zone.zone_distance_nm.adopted() for zone in zones]
+    exact_values = [float(value) for value in adopted_values if value is not None]
+    canonical = leg.adopted_distance_nm
+    if (
+        canonical is None
+        or not isfinite(canonical)
+        or canonical < 0
+        or len(exact_values) != len(zones)
+        or not isclose(sum(exact_values), canonical, rel_tol=0.0, abs_tol=1e-7)
+    ):
+        unavailable = _unavailable(fallback_reason)
+        return unavailable, None, [unavailable for _ in zones]
+
+    target_ticks = int(round_half_up(canonical, 0.5) / 0.5)
+    allocated_ticks = _allocate_proportional_largest_remainder_ticks(
+        exact_values,
+        target_ticks,
+    )
+    if allocated_ticks is None or prior_display_cumulative is None:
+        unavailable = _unavailable(fallback_reason)
+        return unavailable, None, [unavailable for _ in zones]
+
+    display_total = target_ticks * 0.5
+    display_cumulative = prior_display_cumulative + display_total
+    child_cells = [
+        _display(
+            _distance(ticks * 0.5),
+            value,
+            manual=zone.zone_distance_nm.adopted_source == AdoptedSource.MANUAL,
+        )
+        for zone, value, ticks in zip(zones, exact_values, allocated_ticks, strict=True)
+    ]
+    return (
+        _display(
+            f"{_distance(display_total)} / {_distance(display_cumulative)}",
+            f"{display_total}/{display_cumulative}",
+            manual=any(
+                zone.zone_distance_nm.adopted_source == AdoptedSource.MANUAL
+                for zone in zones
+            ),
+        ),
+        display_cumulative,
+        child_cells,
     )
 
 
@@ -696,14 +809,14 @@ def build_navlog_display_rows(
             and leg.phase == FlightPhase.VISUAL_ARRIVAL
         )
 
-        distance_cell, display_cumulative_distance_nm = _display_rounded_combined(
-            [zone.zone_distance_nm for zone in zones],
-            last.cumulative_distance_nm,
-            _distance,
-            quantum=0.5,
-            unit_scale=1.0,
+        (
+            distance_cell,
+            display_cumulative_distance_nm,
+            zone_distance_cells,
+        ) = _display_distance_cells(
+            leg,
+            zones,
             prior_display_cumulative=display_cumulative_distance_nm,
-            fallback_reason="DISPLAY_DISTANCE_SUBTOTAL_UNAVAILABLE",
         )
         if inbound_ete_display_seconds and any(
             zone.sequence in inbound_ete_display_seconds for zone in zones
@@ -841,8 +954,8 @@ def build_navlog_display_rows(
                 else None
             )
             next_leg = physical_legs[leg_index + 1] if leg_index + 1 < len(physical_legs) else None
-            for zone_index, (zone, candidates) in enumerate(
-                zip(zones, candidate_cells, strict=True)
+            for zone_index, (zone, candidates, zone_distance_cell) in enumerate(
+                zip(zones, candidate_cells, zone_distance_cells, strict=True)
             ):
                 is_endpoint = zone_index == len(zones) - 1
                 is_vrep = bool(
@@ -926,11 +1039,7 @@ def build_navlog_display_rows(
                         wind=shown["wind"],
                         wca=shown["wca"],
                         mh=shown["mh"],
-                        distance=_from_adopted(
-                            zone.zone_distance_nm,
-                            _distance,
-                            fallback_reason="ZONE_DISTANCE_UNAVAILABLE",
-                        ),
+                        distance=zone_distance_cell,
                         gs=gs_cell,
                         ete=(
                             _display(
