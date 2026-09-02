@@ -1053,7 +1053,10 @@ class AutoNavLogWebApplication:
     ) -> dict[str, Any] | None:
         if (
             project is None
-            or project.departure_airport_id.strip().upper() != "RJFM"
+            or (
+                project.departure_airport_id.strip().upper() != "RJFM"
+                and project.destination_airport_id.strip().upper() != "RJFM"
+            )
         ):
             return None
         pca = reference_pack.pca

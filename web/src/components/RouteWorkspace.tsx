@@ -764,7 +764,7 @@ export function RouteWorkspace({
             role="group"
             aria-label="RJFMガイダンス凡例"
           >
-            <strong>RJFM空域・出発</strong>
+            <strong>RJFM空域</strong>
             {rjfmMapReference && (
               <>
                 <span>
