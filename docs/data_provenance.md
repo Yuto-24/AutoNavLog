@@ -10,9 +10,15 @@
 現行SR22 G6データは、P/N 13772-006 Reissue A（Revision A1のLOEP上、性能頁
 5-30〜5-34はReissue A）から転記しました。上昇原表19節点と巡航159行を別処理で再抽出し、
 全行差分ゼロを確認しています。実行時の上昇CSVはIssue #15添付表に合わせ、原表節点間を
-高度方向へ線形補間した500 ft刻み36行です。巡航CSVは原表159行を保持し、派生6,419行を
-同梱せず、PWR、ISA偏差、高度の順で区分線形補間します。これにより添付の多次元拡張表
-6,419行すべてを再現できることを独立比較しました。外挿は行いません。
+高度方向へ線形補間した500 ft刻み36行です。巡航CSVは原表159行を保持し、派生表を同梱せず、
+各PA / ISA cornerの65% PWRを先に解決してから、ISA偏差、高度の順で区分線形補間します。
+65%がcornerの掲載PWR範囲外なら最寄り2行から65%へ線形外挿します。これはPOH直接値ではない
+AutoNavLogの実装Policyであり、高度・ISA偏差方向の外挿は行いません。
+
+`docs/reference/SR22_G6_cruise_65pct_reference_2026-09-03.xlsx`は、PR #115の65% PWR
+Policy検討用に、`cruise_performance.csv`のblob
+`1260cc9c1145b2d9835229666821e02596d2d3b0`から作成した非実行時参照資料です。実行時の
+唯一の数値入力は引き続き159行のCSVです。
 
 CSVのSHA-256、原典PDFのSHA-256、適用する上昇温度・巡航補間Policy、およびIssue #15
 添付3件のURL・SHA-256・用途は`data/performance/manifest.json`へ固定しています。
@@ -20,10 +26,11 @@ CSVのSHA-256、原典PDFのSHA-256、適用する上昇温度・巡航補間Pol
 `tables[].sha256`で宣言した同梱CSVだけです。`source_artifacts[].sha256`は添付資料を
 採用した時点の参照用メタデータであり、実行時にURLを取得したり、その内容を再検証したり
 しません。
-各巡航結果には軸の上下限・係数、PWR補間corner、参照頁を保存します。表外入力で最寄りの
-表端を採用する場合は、軸、要求値、表の利用可能範囲、採用値、Power cornerのPA/ISAと参照頁を
-boundary provenanceとして保存します。Readiness表示でPower boundaryを確認する際は、この来歴を
-現在のCalculation Zoneへ結び付けます。位置の表示名は保存済みUUIDではなく現在のNAV LOG結果から
+各巡航結果には軸の上下限・係数、PWR補間または外挿corner、参照頁を保存します。表端の
+高度・ISA採用では、軸、要求値、表の利用可能範囲、採用値をboundary provenanceとして保存し、
+Readiness Warningにも添付します。65% PWR外挿ではさらに、Power cornerのPA/ISA、利用可能範囲、
+65%の解決値、支持する2行とその係数、参照頁を保存しますが、これは通常の計算経路として
+interpolation metadataに残し、Readiness Warningにはしません。位置の表示名は保存済みUUIDではなく現在のNAV LOG結果から
 解決するため、来歴データ自体は監査用の安定した計算識別子を維持します。
 `VERIFIED`は数値転記とmanifest整合の状態であり、対象機への適用性、校内承認、または
 Golden NAV2 LOGとのend-to-end一致を意味しません。

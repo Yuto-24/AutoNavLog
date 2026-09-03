@@ -20,7 +20,7 @@
       "sha256": "c99c885d3cb9c7f147be1b858769a6582eb10d5a80589092df59e8cd9882edf3"
     }
   ],
-  "cruise_interpolation_policy": "PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR",
+  "cruise_interpolation_policy": "PWR_LINEAR_OR_65_PERCENT_EXTRAPOLATION_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR",
   "source_artifacts": [
     {
       "id": "issue-15-climb-500ft",

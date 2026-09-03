@@ -6,11 +6,14 @@ AutoNavLog の利用者に影響する変更を記録します。
 
 ### 追加
 
-- 巡航性能表で65%出力を挟む行がなく表端を採用した場合、準備状況の確認事項に対象Leg・
-  Calculation Zone・PA/ISAごとの表corner、要求値、利用可能範囲、採用値を表示します。
-  計算結果のKTAS、GPH、ETE、燃料は変更しません。
-- 表端採用の来歴を軸共通のprovenanceとして保持し、Readiness APIにはPower boundaryの詳細と
-  人間可読なLeg/Zone位置を加算的に公開します。
+- 巡航性能表で65% PWRを挟む行がないPA/ISA cornerは、表端へclampせず最寄り2行から65%へ
+  線形外挿します。これはAutoNavLogの実装Policyであり、該当LegのKTAS、GPH、ETE、燃料が
+  変わることがあります。
+- 表端の高度・ISA採用は準備状況の確認事項へ残し、その画面ではCalculation conditionと
+  interpolation cornerを分離して表示します。来歴は軸共通のprovenanceとして保持し、
+  Readiness APIにはboundary詳細と人間可読なLeg/Zone位置を加算的に公開します。
+- 65% PWR外挿そのものはWarningにせず、支持する2行・係数・65%の解決値を計算metadataへ
+  残して監査できるようにしました。
 
 ### 配布
 

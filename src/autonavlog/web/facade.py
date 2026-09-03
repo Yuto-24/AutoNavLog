@@ -128,6 +128,9 @@ ISSUE_ACTIONS: dict[str, str] = {
     "WEATHER_QUERY_FAILED": "通信と気象providerを確認して再計算してください。",
     "WIND_UNAVAILABLE": "風を取得するか、風向・風速を手入力してください。",
     "TEMPERATURE_UNAVAILABLE": "気温を取得するか手入力してください。",
+    "CRUISE_POWER_TABLE_BOUNDARY_USED": (
+        "65% PWRの線形外挿値とPOH原表を確認してください。"
+    ),
     "PILOT_REQUIRED": "PILOTを入力してください。",
     "SHIP_REQUIRED": "SHIPを入力してください。",
     "DEVELOPMENT_WEATHER_PROVIDER": "実気象providerで再計算してください。",
@@ -1032,7 +1035,7 @@ class AutoNavLogWebApplication:
         outcome: CalculationOutcome | None,
         issue: Issue,
     ) -> dict[str, Any]:
-        """Expose power-boundary evidence with human-readable route context.
+        """Expose cruise-boundary evidence with human-readable route context.
 
         The stored Issue keeps only stable calculation identifiers.  Labels and
         zone order are resolved from the current result at presentation time so
@@ -1056,11 +1059,41 @@ class AutoNavLogWebApplication:
                     "pressureAltitudeFt": item.get("pressure_altitude_ft"),
                     "isaDeviationC": item.get("isa_deviation_c"),
                     "sourcePages": item.get("source_pages", []),
+                    "supportingLowerValue": item.get("supporting_lower_value"),
+                    "supportingUpperValue": item.get("supporting_upper_value"),
+                    "supportingFraction": item.get("supporting_fraction"),
+                    "extrapolated": item.get("extrapolated", False),
                 }
             )
         if not provenance:
             return {}
         details: dict[str, Any] = {"boundaryProvenance": provenance}
+        raw_calculation_condition = issue.metadata.get("calculation_condition")
+        if isinstance(raw_calculation_condition, dict):
+            details["calculationCondition"] = {
+                "pressureAltitudeFt": raw_calculation_condition.get("pressure_altitude_ft"),
+                "isaDeviationC": raw_calculation_condition.get("isa_deviation_c"),
+            }
+        raw_selected_condition = issue.metadata.get("selected_condition")
+        if isinstance(raw_selected_condition, dict):
+            power_percent_by_corner = raw_selected_condition.get("power_percent_by_corner")
+            details["selectedCondition"] = {
+                "pressureAltitudeFt": raw_selected_condition.get("pressure_altitude_ft"),
+                "isaDeviationC": raw_selected_condition.get("isa_deviation_c"),
+                "powerPercentByCorner": (
+                    [
+                        {
+                            "pressureAltitudeFt": item.get("pressure_altitude_ft"),
+                            "isaDeviationC": item.get("isa_deviation_c"),
+                            "powerPercent": item.get("power_percent"),
+                        }
+                        for item in power_percent_by_corner
+                        if isinstance(item, dict)
+                    ]
+                    if isinstance(power_percent_by_corner, list)
+                    else []
+                ),
+            }
         location = AutoNavLogWebApplication._boundary_issue_location(outcome, issue)
         if location is not None:
             details["location"] = location

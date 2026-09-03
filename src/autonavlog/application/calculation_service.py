@@ -2408,45 +2408,49 @@ class CalculationService:
                             )
                             tas_state = ValueState.PERFORMANCE_TABLE
                         gph = selected.row.gph
+                        requested_condition = {
+                            "pressure_altitude_ft": planning_pa,
+                            "isa_deviation_c": temperature - isa_temperature_c(planning_pa),
+                        }
+                        selected_condition = (
+                            None
+                            if selected.interpolation is None
+                            else {
+                                "pressure_altitude_ft": (
+                                    selected.interpolation.altitude.lower
+                                    + selected.interpolation.altitude.fraction
+                                    * (
+                                        selected.interpolation.altitude.upper
+                                        - selected.interpolation.altitude.lower
+                                    )
+                                ),
+                                "isa_deviation_c": (
+                                    selected.interpolation.isa_deviation.lower
+                                    + selected.interpolation.isa_deviation.fraction
+                                    * (
+                                        selected.interpolation.isa_deviation.upper
+                                        - selected.interpolation.isa_deviation.lower
+                                    )
+                                ),
+                                "power_percent_by_corner": [
+                                    {
+                                        "pressure_altitude_ft": corner.pressure_altitude_ft,
+                                        "isa_deviation_c": corner.isa_deviation_c,
+                                        "power_percent": (
+                                            corner.power.lower
+                                            + corner.power.fraction
+                                            * (corner.power.upper - corner.power.lower)
+                                        ),
+                                    }
+                                    for corner in selected.interpolation.corners
+                                ],
+                            }
+                        )
                         performance_metadata.update(
                             {
                                 "type": "cruise",
-                                "requested_condition": {
-                                    "pressure_altitude_ft": planning_pa,
-                                    "isa_deviation_c": temperature - isa_temperature_c(planning_pa),
-                                },
-                                "selected_condition": (
-                                    None
-                                    if selected.interpolation is None
-                                    else {
-                                        "pressure_altitude_ft": (
-                                            selected.interpolation.altitude.lower
-                                            + selected.interpolation.altitude.fraction
-                                            * (
-                                                selected.interpolation.altitude.upper
-                                                - selected.interpolation.altitude.lower
-                                            )
-                                        ),
-                                        "isa_deviation_c": (
-                                            selected.interpolation.isa_deviation.lower
-                                            + selected.interpolation.isa_deviation.fraction
-                                            * (
-                                                selected.interpolation.isa_deviation.upper
-                                                - selected.interpolation.isa_deviation.lower
-                                            )
-                                        ),
-                                        "power_percent_by_corner": [
-                                            {
-                                                "pressure_altitude_ft": corner.pressure_altitude_ft,
-                                                "isa_deviation_c": corner.isa_deviation_c,
-                                                "power_percent": corner.power.lower
-                                                + corner.power.fraction
-                                                * (corner.power.upper - corner.power.lower),
-                                            }
-                                            for corner in selected.interpolation.corners
-                                        ],
-                                    }
-                                ),
+                                "requested_condition": requested_condition,
+                                "selected_condition": selected_condition,
                                 "selected_cell": selected.row.model_dump(),
                                 "poh_table_ktas": table_ktas,
                                 "nose_fairing_adjustment_ktas": (
@@ -2477,6 +2481,21 @@ class CalculationService:
                                 "warnings": selected.warnings,
                             }
                         )
+                        boundary_issue_metadata = (
+                            {
+                                "boundary_provenance": [
+                                    asdict(provenance)
+                                    for provenance in selected.interpolation.boundary_provenance
+                                ],
+                                "calculation_condition": requested_condition,
+                                "selected_condition": selected_condition,
+                            }
+                            if (
+                                selected.interpolation is not None
+                                and selected.interpolation.boundary_provenance
+                            )
+                            else {}
+                        )
                         for warning in selected.warnings:
                             messages = {
                                 "CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED": (
@@ -2486,7 +2505,8 @@ class CalculationService:
                                     "ISA偏差が巡航性能表の範囲外のため、最寄りの表端温度を採用しました。"
                                 ),
                                 "CRUISE_POWER_TABLE_BOUNDARY_USED": (
-                                    "65%を挟む性能行がないため、最寄りの表端出力を採用しました。"
+                                    "65%が性能表cornerの掲載PWR範囲外のため、最寄りの2行から"
+                                    "65%へ線形外挿しました（AutoNavLogの実装Policy）。"
                                 ),
                             }
                             issues.append(
@@ -2500,22 +2520,7 @@ class CalculationService:
                                     section_id=section.id,
                                     segment_sequence=segment.sequence,
                                     acknowledgement_required=True,
-                                    metadata=(
-                                        {
-                                            "boundary_provenance": [
-                                                asdict(provenance)
-                                                for provenance in (
-                                                    selected.interpolation.boundary_provenance
-                                                )
-                                                if provenance.axis == "POWER_PERCENT"
-                                            ]
-                                        }
-                                        if (
-                                            warning == "CRUISE_POWER_TABLE_BOUNDARY_USED"
-                                            and selected.interpolation is not None
-                                        )
-                                        else {}
-                                    ),
+                                    metadata=boundary_issue_metadata,
                                 )
                             )
                     except CruisePerformanceError as error:

@@ -148,22 +148,55 @@ def test_boundary_issue_details_resolve_leg_and_zone_without_exposing_identifier
     )
     zone = next(section for section in outcome.sections if section.phase == FlightPhase.CRUISE)
     issue = Issue(
-        code="CRUISE_POWER_TABLE_BOUNDARY_USED",
+        code="CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED",
         severity=IssueSeverity.WARNING,
         message="fixture",
         section_id=zone.section_id,
         segment_sequence=zone.sequence,
         metadata={
+            "calculation_condition": {
+                "pressure_altitude_ft": 3_000.0,
+                "isa_deviation_c": 0.0,
+            },
+            "selected_condition": {
+                "pressure_altitude_ft": 4_000.0,
+                "isa_deviation_c": 0.0,
+                "power_percent_by_corner": [
+                    {
+                        "pressure_altitude_ft": 4_000.0,
+                        "isa_deviation_c": 0.0,
+                        "power_percent": 65.0,
+                    }
+                ],
+            },
             "boundary_provenance": [
+                {
+                    "axis": "PRESSURE_ALTITUDE_FT",
+                    "requested_value": 3_000.0,
+                    "available_min": 4_000.0,
+                    "available_max": 14_000.0,
+                    "adopted_value": 4_000.0,
+                    "pressure_altitude_ft": None,
+                    "isa_deviation_c": None,
+                    "source_pages": ["5-32"],
+                    "supporting_lower_value": None,
+                    "supporting_upper_value": None,
+                    "supporting_fraction": None,
+                    "extrapolated": False,
+                },
                 {
                     "axis": "POWER_PERCENT",
                     "requested_value": 65.0,
                     "available_min": 72.0,
                     "available_max": 98.0,
-                    "adopted_value": 72.0,
+                    "adopted_value": 65.0,
                     "pressure_altitude_ft": 2_000.0,
                     "isa_deviation_c": 0.0,
                     "source_pages": ["5-32"],
+                    "supporting_lower_value": 72.0,
+                    "supporting_upper_value": 76.0,
+                    "supporting_fraction": -1.75,
+                    "extrapolated": True,
                 }
             ]
         },
@@ -173,16 +206,49 @@ def test_boundary_issue_details_resolve_leg_and_zone_without_exposing_identifier
 
     assert details["boundaryProvenance"] == [
         {
+            "axis": "PRESSURE_ALTITUDE_FT",
+            "requestedValue": 3_000.0,
+            "availableMin": 4_000.0,
+            "availableMax": 14_000.0,
+            "adoptedValue": 4_000.0,
+            "pressureAltitudeFt": None,
+            "isaDeviationC": None,
+            "sourcePages": ["5-32"],
+            "supportingLowerValue": None,
+            "supportingUpperValue": None,
+            "supportingFraction": None,
+            "extrapolated": False,
+        },
+        {
             "axis": "POWER_PERCENT",
             "requestedValue": 65.0,
             "availableMin": 72.0,
             "availableMax": 98.0,
-            "adoptedValue": 72.0,
+            "adoptedValue": 65.0,
             "pressureAltitudeFt": 2_000.0,
             "isaDeviationC": 0.0,
             "sourcePages": ["5-32"],
+            "supportingLowerValue": 72.0,
+            "supportingUpperValue": 76.0,
+            "supportingFraction": -1.75,
+            "extrapolated": True,
         }
     ]
+    assert details["calculationCondition"] == {
+        "pressureAltitudeFt": 3_000.0,
+        "isaDeviationC": 0.0,
+    }
+    assert details["selectedCondition"] == {
+        "pressureAltitudeFt": 4_000.0,
+        "isaDeviationC": 0.0,
+        "powerPercentByCorner": [
+            {
+                "pressureAltitudeFt": 4_000.0,
+                "isaDeviationC": 0.0,
+                "powerPercent": 65.0,
+            }
+        ],
+    }
     location = details["location"]
     parent = next(
         row

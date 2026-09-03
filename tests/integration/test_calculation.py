@@ -157,7 +157,7 @@ def test_full_calculation_iteration_and_navlog_projection(
     assert all(run_id == "20260728000000" for run_id, _ in provider.query_history)
 
 
-def test_cruise_power_boundary_issues_keep_each_zone_provenance(airports, project) -> None:
+def test_cruise_power_extrapolation_stays_in_metadata_for_each_zone(airports, project) -> None:
     from autonavlog.performance.repository import PerformanceRepository
 
     boundary_project = project.model_copy(deep=True)
@@ -197,22 +197,23 @@ def test_cruise_power_boundary_issues_keep_each_zone_provenance(airports, projec
         PerformanceRepository.from_directory(Path("data/performance")),
     ).calculate(boundary_project, FakeWeatherProvider())
 
-    warnings = [
-        issue
+    assert not any(
+        issue.code == "CRUISE_POWER_TABLE_BOUNDARY_USED"
         for issue in outcome.issues
-        if issue.code == "CRUISE_POWER_TABLE_BOUNDARY_USED"
-    ]
-    assert len(warnings) == 3
-    assert {(issue.section_id, issue.segment_sequence) for issue in warnings} == {
-        (section.id, index) for index, section in enumerate(boundary_project.sections)
-    }
-    assert all(len(issue.metadata["boundary_provenance"]) == 3 for issue in warnings)
-    assert all(
-        provenance["axis"] == "POWER_PERCENT"
-        and provenance["requested_value"] == 65.0
-        for issue in warnings
-        for provenance in issue.metadata["boundary_provenance"]
     )
+    cruise_sections = [
+        section for section in outcome.sections if section.phase == FlightPhase.CRUISE
+    ]
+    assert len(cruise_sections) == 3
+    for section in cruise_sections:
+        provenance = section.performance_metadata["interpolation"]["boundary_provenance"]
+        assert len(provenance) == 3
+        assert all(
+            item["axis"] == "POWER_PERCENT"
+            and item["requested_value"] == 65.0
+            and item["extrapolated"] is True
+            for item in provenance
+        )
 
 
 def test_destination_surface_temperature_uses_calculated_arrival_time(
@@ -427,7 +428,7 @@ def test_climb_leg_is_automatically_split_at_rca_without_losing_distance(
         if section.phase == FlightPhase.CRUISE
     )
     assert cruise_metadata["reason"] == (
-        "PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR_NO_EXTRAPOLATION"
+        "PWR_LINEAR_OR_65_PERCENT_EXTRAPOLATION_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR"
     )
     assert cruise_metadata["selected_cell"]["power_percent"] == 65.0
     assert cruise_metadata["selected_cell"]["rpm"] is None
@@ -620,6 +621,7 @@ def test_manual_low_altitude_and_hot_toat_keep_cruise_outputs_complete(
     warning_codes = {issue.code for issue in outcome.issues}
     assert "CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED" in warning_codes
     assert "CRUISE_ISA_DEVIATION_TABLE_BOUNDARY_USED" in warning_codes
+    assert "CRUISE_POWER_TABLE_BOUNDARY_USED" not in warning_codes
     metadata = cruise[0].performance_metadata
     assert metadata["requested_condition"] == {
         "pressure_altitude_ft": 1_500.0,

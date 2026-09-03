@@ -1446,7 +1446,7 @@ test("route-node inline rename reprojects the current table, map, and NAV LOG", 
   ).toEqual([]);
 });
 
-test("cruise power boundary cards show every corner and acknowledge independently", async ({ page }) => {
+test("cruise boundary cards separate calculation conditions from interpolation corners", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await calculateNavLog(page, false);
@@ -1456,25 +1456,58 @@ test("cruise power boundary cards show every corner and acknowledge independentl
     return await response.json() as WebState;
   });
   const boundaryIssues = [1, 2, 3].map((zoneOrdinal) => ({
-    code: "CRUISE_POWER_TABLE_BOUNDARY_USED",
+    code: "CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED",
     severity: "WARNING" as const,
-    message: "65%を挟む性能行がないため、最寄りの表端出力を採用しました。",
+    message: "気圧高度が巡航性能表の範囲外のため、最寄りの表端高度を採用しました。",
     sectionId: null,
     segmentSequence: zoneOrdinal - 1,
     acknowledgementRequired: true,
     ackKey: `boundary-ack-${zoneOrdinal}`,
     acknowledged: false,
-    action: "性能表の表端採用を確認してください。",
+    action: "採用した表端高度と65% PWRの解決値を確認してください。",
+    calculationCondition: {
+      pressureAltitudeFt: 3_000,
+      isaDeviationC: 0,
+    },
+    selectedCondition: {
+      pressureAltitudeFt: 4_000,
+      isaDeviationC: 0,
+      powerPercentByCorner: [
+        {
+          pressureAltitudeFt: 4_000,
+          isaDeviationC: 0,
+          powerPercent: 65,
+        },
+      ],
+    },
     boundaryProvenance: [
+      {
+        axis: "PRESSURE_ALTITUDE_FT" as const,
+        requestedValue: 3_000,
+        availableMin: 4_000,
+        availableMax: 14_000,
+        adoptedValue: 4_000,
+        pressureAltitudeFt: null,
+        isaDeviationC: null,
+        sourcePages: ["5-32"],
+        supportingLowerValue: null,
+        supportingUpperValue: null,
+        supportingFraction: null,
+        extrapolated: false,
+      },
       {
         axis: "POWER_PERCENT" as const,
         requestedValue: 65,
         availableMin: 45 + zoneOrdinal,
         availableMax: 64,
-        adoptedValue: 64,
+        adoptedValue: 65,
         pressureAltitudeFt: 12_000 + zoneOrdinal * 1_000,
         isaDeviationC: zoneOrdinal === 2 ? 0 : 30,
         sourcePages: ["5-33"],
+        supportingLowerValue: 61,
+        supportingUpperValue: 64,
+        supportingFraction: 4 / 3,
+        extrapolated: true,
       },
     ],
     location: {
@@ -1521,16 +1554,22 @@ test("cruise power boundary cards show every corner and acknowledge independentl
   });
   await page.reload();
 
-  const cards = page.locator(".issue-item", { hasText: "CRUISE_POWER_TABLE_BOUNDARY_USED" });
+  const cards = page.locator(".issue-item", { hasText: "CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED" });
   await expect(cards).toHaveCount(3);
   await expect(page.locator(".boundary-provenance")).toHaveCount(3);
   for (const zoneOrdinal of [1, 2, 3]) {
     const card = cards.nth(zoneOrdinal - 1);
     await expect(card).toContainText(`TP1 → RJFO · 巡航 Zone ${zoneOrdinal}/3`);
     await expect(card).toContainText(`ZONE-${zoneOrdinal}-FROM → ZONE-${zoneOrdinal}-TO`);
+    await expect(card).toContainText("Calculation condition");
+    await expect(card).toContainText("Selected table condition");
+    await expect(card).toContainText("Pressure altitude boundary");
+    await expect(card).toContainText("Boundary used at interpolation corner");
     await expect(card).toContainText("Requested");
     await expect(card).toContainText("Available");
-    await expect(card).toContainText("Adopted");
+    await expect(card).toContainText("Supporting PWR");
+    await expect(card).toContainText("Linear extrapolation");
+    await expect(card).toContainText("Resolved");
   }
 
   await cards.first().getByRole("checkbox").click();
