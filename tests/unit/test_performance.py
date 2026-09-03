@@ -300,9 +300,9 @@ def test_issue_15_cruise_workbook_golden_points(
 
 @pytest.mark.parametrize(
     ("pressure_altitude_ft", "isa_deviation_c"),
-    ((1_500, 0), (5_000, 31), (2_000, 0)),
+    ((1_500, 0), (5_000, 31)),
 )
-def test_cruise_multidimensional_interpolation_never_extrapolates(
+def test_cruise_altitude_and_isa_interpolation_never_extrapolate(
     pressure_altitude_ft: float,
     isa_deviation_c: float,
 ) -> None:
@@ -319,7 +319,7 @@ def test_cruise_multidimensional_interpolation_never_extrapolates(
         )
 
 
-def test_cruise_boundary_policy_uses_nearest_power_without_extrapolation() -> None:
+def test_cruise_policy_extrapolates_missing_65_percent_from_nearest_power_rows() -> None:
     repository = PerformanceRepository.from_directory(Path("data/performance"))
 
     result = CruisePerformanceSelectionPolicy(
@@ -334,9 +334,79 @@ def test_cruise_boundary_policy_uses_nearest_power_without_extrapolation() -> No
         wind_speed_kt=0,
     )
 
-    assert result.row.ktas > 0
-    assert result.row.gph > 0
-    assert "CRUISE_POWER_TABLE_BOUNDARY_USED" in result.warnings
+    assert result.row.ktas == 161.8
+    assert result.row.gph == 15.2
+    assert result.warnings == ()
+    assert result.interpolation is not None
+    assert len(result.interpolation.boundary_provenance) == 1
+    provenance = result.interpolation.boundary_provenance[0]
+    assert provenance.axis == "POWER_PERCENT"
+    assert provenance.requested_value == 65.0
+    assert provenance.available_min == 72.0
+    assert provenance.available_max == 98.0
+    assert provenance.adopted_value == 65.0
+    assert provenance.pressure_altitude_ft == 2_000
+    assert provenance.isa_deviation_c == 0
+    assert provenance.supporting_lower_value == 72.0
+    assert provenance.supporting_upper_value == 76.0
+    assert provenance.supporting_fraction == pytest.approx(-1.75)
+    assert provenance.extrapolated is True
+    assert provenance.source_pages == ("5-32",)
+
+
+def test_cruise_policy_uses_65_percent_extrapolation_without_boundary_clamping() -> None:
+    repository = PerformanceRepository.from_directory(Path("data/performance"))
+
+    result = CruisePerformanceSelectionPolicy(repository.cruise_rows).select(
+        3_000,
+        0,
+        distance_nm=100,
+        true_course_deg=0,
+        wind_direction_deg_from=None,
+        wind_speed_kt=0,
+    )
+
+    assert (result.row.ktas, result.row.gph) == (163.4, 15.4)
+    assert result.warnings == ()
+
+
+def test_cruise_extrapolation_provenance_records_each_affected_corner_once() -> None:
+    repository = PerformanceRepository.from_directory(Path("data/performance"))
+
+    result = CruisePerformanceSelectionPolicy(
+        repository.cruise_rows,
+        use_table_boundaries=True,
+    ).select(
+        13_000,
+        15,
+        distance_nm=100,
+        true_course_deg=0,
+        wind_direction_deg_from=None,
+        wind_speed_kt=0,
+    )
+
+    assert (result.row.ktas, result.row.gph) == (179.6, 15.7)
+    assert result.warnings == ()
+    assert result.interpolation is not None
+    assert [
+        (
+            item.pressure_altitude_ft,
+            item.isa_deviation_c,
+            item.available_min,
+            item.available_max,
+            item.adopted_value,
+            item.supporting_lower_value,
+            item.supporting_upper_value,
+            item.supporting_fraction,
+            item.extrapolated,
+            item.source_pages,
+        )
+        for item in result.interpolation.boundary_provenance
+    ] == [
+        (12_000.0, 30.0, 45.0, 64.0, 65.0, 61.0, 64.0, pytest.approx(4 / 3), True, ("5-33",)),
+        (14_000.0, 0.0, 47.0, 62.0, 65.0, 60.0, 62.0, pytest.approx(2.5), True, ("5-33",)),
+        (14_000.0, 30.0, 45.0, 59.0, 65.0, 57.0, 59.0, pytest.approx(4.0), True, ("5-33",)),
+    ]
 
 
 def test_issue_15_climb_table_contains_500ft_workbook_points() -> None:

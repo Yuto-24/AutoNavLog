@@ -522,6 +522,50 @@ export interface EffectiveIssue {
   ackKey: string;
   acknowledged: boolean;
   action: string;
+  boundaryProvenance?: BoundaryProvenance[];
+  calculationCondition?: BoundaryCondition;
+  location?: BoundaryIssueLocation;
+  selectedCondition?: SelectedBoundaryCondition;
+}
+
+export interface BoundaryCondition {
+  pressureAltitudeFt: number | null;
+  isaDeviationC: number | null;
+}
+
+export interface SelectedBoundaryCondition extends BoundaryCondition {
+  powerPercentByCorner: BoundaryPowerPercentByCorner[];
+}
+
+export interface BoundaryPowerPercentByCorner {
+  pressureAltitudeFt: number | null;
+  isaDeviationC: number | null;
+  powerPercent: number | null;
+}
+
+export interface BoundaryProvenance {
+  axis: "POWER_PERCENT" | "PRESSURE_ALTITUDE_FT" | "ISA_DEVIATION_C";
+  requestedValue: number;
+  availableMin: number;
+  availableMax: number;
+  adoptedValue: number;
+  pressureAltitudeFt: number | null;
+  isaDeviationC: number | null;
+  sourcePages: string[];
+  supportingLowerValue: number | null;
+  supportingUpperValue: number | null;
+  supportingFraction: number | null;
+  extrapolated: boolean;
+}
+
+export interface BoundaryIssueLocation {
+  fromName: string;
+  toName: string;
+  phase: string;
+  zoneOrdinal: number;
+  zoneCount: number;
+  zoneFromName: string;
+  zoneToName: string;
 }
 
 export interface ReadinessState {

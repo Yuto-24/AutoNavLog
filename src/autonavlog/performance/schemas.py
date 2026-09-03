@@ -32,6 +32,9 @@ class CruiseInterpolationPolicy(StrEnum):
     PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR = (
         "PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR"
     )
+    PWR_LINEAR_OR_65_PERCENT_EXTRAPOLATION_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR = (
+        "PWR_LINEAR_OR_65_PERCENT_EXTRAPOLATION_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR"
+    )
 
 
 class PerformanceManifest(PerformanceModel):
@@ -43,7 +46,7 @@ class PerformanceManifest(PerformanceModel):
     validation_status: str = "UNVERIFIED"
     climb_temperature_policy: ClimbTemperaturePolicy = ClimbTemperaturePolicy.TABLE_GRID
     cruise_interpolation_policy: CruiseInterpolationPolicy = (
-        CruiseInterpolationPolicy.PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR
+        CruiseInterpolationPolicy.PWR_LINEAR_OR_65_PERCENT_EXTRAPOLATION_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR
     )
     source_artifacts: list[PerformanceSourceArtifact] = Field(default_factory=list)
     tables: list[PerformanceTableManifest] = Field(default_factory=list)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from math import isfinite
 
 from autonavlog.nav.wind_triangle import WindTriangleError, solve_wind_triangle
@@ -38,6 +39,37 @@ class PowerInterpolationCorner:
     source_pages: tuple[str, ...]
 
 
+class BoundaryAxis(StrEnum):
+    """Performance-table dimensions that may need a nearest-boundary selection."""
+
+    POWER_PERCENT = "POWER_PERCENT"
+    PRESSURE_ALTITUDE_FT = "PRESSURE_ALTITUDE_FT"
+    ISA_DEVIATION_C = "ISA_DEVIATION_C"
+
+
+@dataclass(frozen=True)
+class BoundaryProvenance:
+    """Auditable record of one table-boundary choice or PWR extrapolation.
+
+    ``pressure_altitude_ft`` and ``isa_deviation_c`` identify a power-table
+    corner when the bounded axis is ``POWER_PERCENT``.  They remain optional so
+    altitude and ISA boundary handling can use the same contract later.
+    """
+
+    axis: BoundaryAxis
+    requested_value: float
+    available_min: float
+    available_max: float
+    adopted_value: float
+    pressure_altitude_ft: float | None = None
+    isa_deviation_c: float | None = None
+    source_pages: tuple[str, ...] = ()
+    supporting_lower_value: float | None = None
+    supporting_upper_value: float | None = None
+    supporting_fraction: float | None = None
+    extrapolated: bool = False
+
+
 @dataclass(frozen=True)
 class CruiseInterpolationTrace:
     method: str
@@ -45,6 +77,7 @@ class CruiseInterpolationTrace:
     isa_deviation: AxisBracket
     power_percent: float
     corners: tuple[PowerInterpolationCorner, ...]
+    boundary_provenance: tuple[BoundaryProvenance, ...] = ()
 
 
 def _candidate_axis(values: list[float], target: float) -> tuple[float, ...]:
@@ -67,6 +100,32 @@ def _axis_bracket(values: list[float], target: float, label: str) -> AxisBracket
     upper = candidates[-1]
     fraction = 0.0 if lower == upper else (target - lower) / (upper - lower)
     return AxisBracket(lower, upper, fraction)
+
+
+def _power_axis_bracket(values: list[float], target: float) -> tuple[AxisBracket, bool]:
+    """Resolve a PWR bracket, extrapolating 65% from the nearest two rows.
+
+    Pressure altitude and ISA deviation deliberately continue to use the
+    no-extrapolation ``_axis_bracket`` policy.  The PWR rule is different:
+    each PA/ISA corner must be resolved at 65% before the other two axes are
+    interpolated, including corners whose published PWR range excludes 65%.
+    """
+
+    if not isfinite(target):
+        raise CruisePerformanceError("65% power must be finite")
+    ordered = sorted(set(values))
+    if not ordered:
+        raise CruisePerformanceError("65% power axis is empty")
+    if ordered[0] <= target <= ordered[-1]:
+        return _axis_bracket(ordered, target, "65% power"), False
+    if len(ordered) < 2:
+        raise CruisePerformanceError(
+            "cruise table needs two power rows to extrapolate 65% power"
+        )
+    lower, upper = (
+        (ordered[0], ordered[1]) if target < ordered[0] else (ordered[-2], ordered[-1])
+    )
+    return AxisBracket(lower, upper, (target - lower) / (upper - lower)), True
 
 
 def _bounded_target(
@@ -116,6 +175,7 @@ class CruisePerformanceSelectionPolicy:
         ) or distance_nm < 0:
             raise CruisePerformanceError("cruise route inputs must be finite and non-negative")
         warnings: list[str] = []
+        boundary_provenance: list[BoundaryProvenance] = []
         evaluated_altitude = pressure_altitude_ft
         evaluated_isa_deviation = isa_deviation_c
         if self.use_table_boundaries:
@@ -131,8 +191,26 @@ class CruisePerformanceSelectionPolicy:
             )
             if altitude_bounded:
                 warnings.append("CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED")
+                boundary_provenance.append(
+                    BoundaryProvenance(
+                        axis=BoundaryAxis.PRESSURE_ALTITUDE_FT,
+                        requested_value=pressure_altitude_ft,
+                        available_min=min(row.pressure_altitude_ft for row in self.rows),
+                        available_max=max(row.pressure_altitude_ft for row in self.rows),
+                        adopted_value=evaluated_altitude,
+                    )
+                )
             if isa_bounded:
                 warnings.append("CRUISE_ISA_DEVIATION_TABLE_BOUNDARY_USED")
+                boundary_provenance.append(
+                    BoundaryProvenance(
+                        axis=BoundaryAxis.ISA_DEVIATION_C,
+                        requested_value=isa_deviation_c,
+                        available_min=min(row.isa_deviation_c for row in self.rows),
+                        available_max=max(row.isa_deviation_c for row in self.rows),
+                        adopted_value=evaluated_isa_deviation,
+                    )
+                )
         altitude = _axis_bracket(
             [row.pressure_altitude_ft for row in self.rows],
             evaluated_altitude,
@@ -157,24 +235,39 @@ class CruisePerformanceSelectionPolicy:
                 if row.pressure_altitude_ft == pressure_altitude
                 and row.isa_deviation_c == temperature
             ]
-            evaluated_power = power_percent
-            if self.use_table_boundaries:
-                evaluated_power, power_bounded = _bounded_target(
-                    [row.power_percent for row in rows],
-                    power_percent,
-                    "65% power",
-                )
-                if power_bounded:
-                    warnings.append("CRUISE_POWER_TABLE_BOUNDARY_USED")
-            power = _axis_bracket(
+            power, power_extrapolated = _power_axis_bracket(
                 [row.power_percent for row in rows],
-                evaluated_power,
-                "65% power",
+                power_percent,
             )
             indexed = {row.power_percent: row for row in rows}
             if power.lower not in indexed or power.upper not in indexed:
                 raise CruisePerformanceError(
                     "cruise table has a missing power interpolation corner"
+                )
+            source_pages = tuple(
+                dict.fromkeys(
+                    (
+                        indexed[power.lower].source_page,
+                        indexed[power.upper].source_page,
+                    )
+                )
+            )
+            if power_extrapolated and field == "ktas":
+                boundary_provenance.append(
+                    BoundaryProvenance(
+                        axis=BoundaryAxis.POWER_PERCENT,
+                        requested_value=power_percent,
+                        available_min=min(row.power_percent for row in rows),
+                        available_max=max(row.power_percent for row in rows),
+                        adopted_value=power_percent,
+                        pressure_altitude_ft=pressure_altitude,
+                        isa_deviation_c=temperature,
+                        source_pages=source_pages,
+                        supporting_lower_value=power.lower,
+                        supporting_upper_value=power.upper,
+                        supporting_fraction=power.fraction,
+                        extrapolated=True,
+                    )
                 )
             if field == "ktas":
                 corner_traces.append(
@@ -182,14 +275,7 @@ class CruisePerformanceSelectionPolicy:
                         pressure_altitude,
                         temperature,
                         power,
-                        tuple(
-                            dict.fromkeys(
-                                (
-                                    indexed[power.lower].source_page,
-                                    indexed[power.upper].source_page,
-                                )
-                            )
-                        ),
+                        source_pages,
                     )
                 )
             return _linear(
@@ -220,11 +306,12 @@ class CruisePerformanceSelectionPolicy:
             interpolated[field] = round(_linear(altitude, lower, upper), 1)
 
         trace = CruiseInterpolationTrace(
-            method="PWR_LINEAR_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR_NO_EXTRAPOLATION",
+            method="PWR_LINEAR_OR_65_PERCENT_EXTRAPOLATION_THEN_ISA_LINEAR_THEN_ALTITUDE_LINEAR",
             altitude=altitude,
             isa_deviation=isa_deviation,
             power_percent=power_percent,
             corners=tuple(corner_traces),
+            boundary_provenance=tuple(boundary_provenance),
         )
         source_pages = tuple(
             dict.fromkeys(page for corner in corner_traces for page in corner.source_pages)

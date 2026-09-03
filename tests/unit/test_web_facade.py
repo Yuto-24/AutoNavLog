@@ -5,13 +5,16 @@ from types import SimpleNamespace
 
 import pytest
 
+from autonavlog.application.calculation_service import CalculationService
 from autonavlog.application.rjfm_departure_plan import (
     RjfmPlanReferences,
     apply_rjfm_departure_exception,
 )
-from autonavlog.domain.enums import FlightPhase
+from autonavlog.domain.calculation import Issue
+from autonavlog.domain.enums import FlightPhase, IssueSeverity
 from autonavlog.domain.planning import RjfmCoordinate
 from autonavlog.storage.rjfm_reference import RjfmReferencePack
+from autonavlog.weather.fake_provider import FakeWeatherProvider
 from autonavlog.web.facade import AutoNavLogWebApplication
 
 PACK_ROOT = Path(__file__).resolve().parents[2] / "data" / "reference" / "rjfm"
@@ -132,6 +135,136 @@ def test_cruising_altitude_guidance_does_not_apply_to_visual_arrival(project) ->
     assert guidance["appliesToCruisingAltitudeInput"] is False
     assert guidance["appliesToCruise"] is False
     assert guidance["requiresReview"] is False
+
+
+def test_boundary_issue_details_resolve_leg_and_zone_without_exposing_identifiers(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    outcome = CalculationService(airports, performance_repository).calculate(
+        project,
+        FakeWeatherProvider(),
+    )
+    zone = next(section for section in outcome.sections if section.phase == FlightPhase.CRUISE)
+    issue = Issue(
+        code="CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED",
+        severity=IssueSeverity.WARNING,
+        message="fixture",
+        section_id=zone.section_id,
+        segment_sequence=zone.sequence,
+        metadata={
+            "calculation_condition": {
+                "pressure_altitude_ft": 3_000.0,
+                "isa_deviation_c": 0.0,
+            },
+            "selected_condition": {
+                "pressure_altitude_ft": 4_000.0,
+                "isa_deviation_c": 0.0,
+                "power_percent_by_corner": [
+                    {
+                        "pressure_altitude_ft": 4_000.0,
+                        "isa_deviation_c": 0.0,
+                        "power_percent": 65.0,
+                    }
+                ],
+            },
+            "boundary_provenance": [
+                {
+                    "axis": "PRESSURE_ALTITUDE_FT",
+                    "requested_value": 3_000.0,
+                    "available_min": 4_000.0,
+                    "available_max": 14_000.0,
+                    "adopted_value": 4_000.0,
+                    "pressure_altitude_ft": None,
+                    "isa_deviation_c": None,
+                    "source_pages": ["5-32"],
+                    "supporting_lower_value": None,
+                    "supporting_upper_value": None,
+                    "supporting_fraction": None,
+                    "extrapolated": False,
+                },
+                {
+                    "axis": "POWER_PERCENT",
+                    "requested_value": 65.0,
+                    "available_min": 72.0,
+                    "available_max": 98.0,
+                    "adopted_value": 65.0,
+                    "pressure_altitude_ft": 2_000.0,
+                    "isa_deviation_c": 0.0,
+                    "source_pages": ["5-32"],
+                    "supporting_lower_value": 72.0,
+                    "supporting_upper_value": 76.0,
+                    "supporting_fraction": -1.75,
+                    "extrapolated": True,
+                }
+            ]
+        },
+    )
+
+    details = AutoNavLogWebApplication._boundary_issue_details(outcome, issue)
+
+    assert details["boundaryProvenance"] == [
+        {
+            "axis": "PRESSURE_ALTITUDE_FT",
+            "requestedValue": 3_000.0,
+            "availableMin": 4_000.0,
+            "availableMax": 14_000.0,
+            "adoptedValue": 4_000.0,
+            "pressureAltitudeFt": None,
+            "isaDeviationC": None,
+            "sourcePages": ["5-32"],
+            "supportingLowerValue": None,
+            "supportingUpperValue": None,
+            "supportingFraction": None,
+            "extrapolated": False,
+        },
+        {
+            "axis": "POWER_PERCENT",
+            "requestedValue": 65.0,
+            "availableMin": 72.0,
+            "availableMax": 98.0,
+            "adoptedValue": 65.0,
+            "pressureAltitudeFt": 2_000.0,
+            "isaDeviationC": 0.0,
+            "sourcePages": ["5-32"],
+            "supportingLowerValue": 72.0,
+            "supportingUpperValue": 76.0,
+            "supportingFraction": -1.75,
+            "extrapolated": True,
+        }
+    ]
+    assert details["calculationCondition"] == {
+        "pressureAltitudeFt": 3_000.0,
+        "isaDeviationC": 0.0,
+    }
+    assert details["selectedCondition"] == {
+        "pressureAltitudeFt": 4_000.0,
+        "isaDeviationC": 0.0,
+        "powerPercentByCorner": [
+            {
+                "pressureAltitudeFt": 4_000.0,
+                "isaDeviationC": 0.0,
+                "powerPercent": 65.0,
+            }
+        ],
+    }
+    location = details["location"]
+    parent = next(
+        row
+        for row in outcome.display_rows
+        if row.row_type == "PHYSICAL_LEG_SUMMARY" and row.section_id == zone.section_id
+    )
+    assert location["fromName"] == parent.from_name
+    assert location["toName"] == parent.to_name
+    assert location["zoneFromName"] == zone.from_name
+    assert location["zoneToName"] == zone.to_name
+    matching_zones = [
+        section for section in outcome.sections if section.section_id == zone.section_id
+    ]
+    assert location["zoneOrdinal"] == matching_zones.index(zone) + 1
+    assert location["zoneCount"] == len(matching_zones)
+    assert str(zone.section_id) not in str(details)
 
 
 def test_rjfm_physical_umk_sections_expose_fixed_input_modes(project) -> None:

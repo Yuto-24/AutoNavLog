@@ -2,6 +2,23 @@
 
 AutoNavLog の利用者に影響する変更を記録します。
 
+## 1.8.2 - 2026-09-03
+
+### 追加
+
+- 巡航性能表で65% PWRを挟む行がないPA/ISA cornerは、表端へclampせず最寄り2行から65%へ
+  線形外挿します。これはAutoNavLogの実装Policyであり、該当LegのKTAS、GPH、ETE、燃料が
+  変わることがあります。
+- 表端の高度・ISA採用は準備状況の確認事項へ残し、その画面ではCalculation conditionと
+  interpolation cornerを分離して表示します。来歴は軸共通のprovenanceとして保持し、
+  Readiness APIにはboundary詳細と人間可読なLeg/Zone位置を加算的に公開します。
+- 65% PWR外挿そのものはWarningにせず、支持する2行・係数・65%の解決値を計算metadataへ
+  残して監査できるようにしました。
+
+### 配布
+
+- Python・Web のバージョンを `1.8.2` に更新しました。
+
 ## 1.8.1 - 2026-09-02
 
 ### 追加
