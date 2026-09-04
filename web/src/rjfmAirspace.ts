@@ -59,6 +59,20 @@ export interface RjfmTrainingAirspacePolygon {
   positions: [number, number][][];
 }
 
+export interface RjfmTrainingAirspaceBoundary {
+  id: string;
+  name: string;
+  lowerLimit: string;
+  upperLimit: string;
+  authority: string;
+  positions: [number, number][];
+}
+
+export interface RjfmTrainingAirspace {
+  polygons: RjfmTrainingAirspacePolygon[];
+  boundaries: RjfmTrainingAirspaceBoundary[];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -166,10 +180,29 @@ function parsePolygonCoordinates(
   });
 }
 
+function parseLineStringCoordinates(
+  value: unknown,
+  coordinateCounter: { value: number },
+  tile: ApprovedTile,
+): [number, number][] {
+  if (
+    !Array.isArray(value)
+    || value.length < 2
+    || value.length > MAX_COORDINATES_PER_RING
+  ) {
+    throw new Error("GSI LineString coordinate count is outside the accepted limit");
+  }
+  coordinateCounter.value += value.length;
+  if (coordinateCounter.value > MAX_COORDINATES_PER_TILE) {
+    throw new Error("GSI tile coordinate count exceeds the accepted limit");
+  }
+  return value.map((position) => parsePosition(position, tile));
+}
+
 export function parseGsiCivilTrainingAirspaceTile(
   payload: unknown,
   tileReference: RjfmCivilTrainingTestAirspaceTileReference,
-): RjfmTrainingAirspacePolygon[] {
+): RjfmTrainingAirspace {
   const tile = APPROVED_TILES.find(
     (candidate) => candidate.url === tileReference.url,
   );
@@ -194,8 +227,10 @@ export function parseGsiCivilTrainingAirspaceTile(
 
   const coordinateCounter = { value: 0 };
   const polygons: RjfmTrainingAirspacePolygon[] = [];
+  const boundaries: RjfmTrainingAirspaceBoundary[] = [];
   const expectedPolygonNames = new Set<string>(tileReference.expectedPolygonNames);
   const seenPolygonNames = new Set<string>();
+  const seenBoundaryNames = new Set<string>();
   payload.features.forEach((rawFeature, featureIndex) => {
     if (!isRecord(rawFeature) || rawFeature.type !== "Feature") {
       throw new Error("GSI collection contains a malformed Feature");
@@ -209,6 +244,30 @@ export function parseGsiCivilTrainingAirspaceTile(
     const rawName = rawFeature.properties["空域名称"];
     const isKs4Feature = typeof rawName === "string" && rawName.startsWith("KS4-");
     if (rawFeature.geometry.type === "LineString") {
+      // The approved layer also contains KS3 boundary segments. They are
+      // outside this display contract and must not make an otherwise valid
+      // tile unavailable.
+      if (!isKs4Feature) return;
+      const name = requireDisplayText(rawName, "airspace name", 16);
+      if (!allowedAirspaceName.test(name)) {
+        throw new Error("GSI LineString has an unexpected KS4 airspace name");
+      }
+      if (!expectedPolygonNames.has(name)) {
+        throw new Error("GSI tile contains an unexpected KS4 LineString name");
+      }
+      boundaries.push({
+        id: `${tile.id}-${featureIndex}-${name}-boundary`,
+        name,
+        lowerLimit: requireDisplayText(rawFeature.properties["下限"], "lower limit"),
+        upperLimit: requireDisplayText(rawFeature.properties["上限"], "upper limit"),
+        authority: requireDisplayText(rawFeature.properties["管轄機関"], "authority"),
+        positions: parseLineStringCoordinates(
+          rawFeature.geometry.coordinates,
+          coordinateCounter,
+          tile,
+        ),
+      });
+      seenBoundaryNames.add(name);
       return;
     }
     if (rawFeature.geometry.type !== "Polygon") {
@@ -253,7 +312,12 @@ export function parseGsiCivilTrainingAirspaceTile(
   ) {
     throw new Error("GSI tile is missing an expected KS4 Polygon name");
   }
-  return polygons;
+  if (
+    [...expectedPolygonNames].some((name) => !seenBoundaryNames.has(name))
+  ) {
+    throw new Error("GSI tile is missing an expected KS4 LineString boundary name");
+  }
+  return { polygons, boundaries };
 }
 
 export function isApprovedRjfmAirspaceReference(
@@ -314,7 +378,7 @@ async function readBoundedJson(response: Response): Promise<unknown> {
 export async function fetchRjfmTrainingAirspace(
   reference: RjfmCivilTrainingTestAirspaceReference,
   signal: AbortSignal,
-): Promise<RjfmTrainingAirspacePolygon[]> {
+): Promise<RjfmTrainingAirspace> {
   if (!isApprovedRjfmAirspaceReference(reference)) {
     throw new Error("RJFM airspace reference does not match the approved GSI source");
   }
@@ -332,9 +396,10 @@ export async function fetchRjfmTrainingAirspace(
       tile,
     );
   }));
-  const polygons = tilePolygons.flat();
+  const polygons = tilePolygons.flatMap((tile) => tile.polygons);
+  const boundaries = tilePolygons.flatMap((tile) => tile.boundaries);
   if (polygons.length === 0 || polygons.length > MAX_POLYGONS_PER_TILE * 2) {
     throw new Error("GSI response has no accepted KS4 Polygon geometry");
   }
-  return polygons;
+  return { polygons, boundaries };
 }
