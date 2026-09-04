@@ -59,8 +59,9 @@ hash対象外で、計算入力にはしません。
   p.19（2020-11-05有効）によります。MZEの名称、周波数、概略位置は国土交通省の
   航空保安無線施設告示でも照合しました。
 - 民間訓練試験空域は、国土交通省の確認案内からリンクされた国土地理院
-  `kokuarea_minkankunren` GeoJSONのRJFM周辺z8 tileを表示します。KS4 Polygonだけを
-  厳格に検証して描画し、取得失敗・形式不一致・上限超過時はfail-closedで非表示にします。
+  `kokuarea_minkankunren` GeoJSONのRJFM周辺z8 tileを表示します。KS4 Polygonは塗りつぶし専用、
+  KS4 LineStringは実境界線としてそれぞれ厳格に検証して描画し、Polygonのタイル切断端は境界線に
+  昇格しません。取得失敗・形式不一致・上限超過時は両レイヤーをfail-closedで非表示にします。
   これは表示専用のライブ参照であり、出発案内、NAV LOG、PCA制約の計算には使いません。
 - UMK、OVER FIELD、OMARUは、別添9を6か所の庁舎位置で座標補正した上で
   シンボル中心をデジタイズした値です。庁舎座標は国土地理院住所検索APIを使用し、

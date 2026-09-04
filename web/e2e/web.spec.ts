@@ -331,25 +331,224 @@ const gsiTile103Ring = [
   [131.25, 32.28],
   [131.25, 32.12],
 ];
+const gsiTileBoundaryLatitude = 31.952162238024968;
 const gsiTile104Ring = [
-  [131.32, 31.8],
-  [131.55, 31.8],
+  [131.32, gsiTileBoundaryLatitude],
+  [131.55, gsiTileBoundaryLatitude],
   [131.55, 31.92],
   [131.32, 31.92],
-  [131.32, 31.8],
+  [131.32, gsiTileBoundaryLatitude],
 ];
+const gsiTile103BoundaryDefinitions = [
+  {
+    name: "KS4-1/4",
+    coordinates: [
+      [131.332425, 32.0198],
+      [131.347334, 31.966921],
+      [131.330727856, gsiTileBoundaryLatitude],
+    ],
+  },
+  {
+    name: "KS4-1/4",
+    coordinates: [
+      [131.281417314, gsiTileBoundaryLatitude],
+      [131.298788, 31.996833],
+      [131.332425, 32.0198],
+    ],
+  },
+  {
+    name: "KS4-1",
+    coordinates: [
+      [131.26199, 31.953105],
+      [131.270026, 31.95758],
+      [131.281417314, gsiTileBoundaryLatitude],
+    ],
+  },
+  {
+    name: "KS4-1",
+    coordinates: [
+      [131.330727856, gsiTileBoundaryLatitude],
+      [131.377136, 31.983763],
+      [131.535484, 31.989806],
+      [131.613460733, gsiTileBoundaryLatitude],
+    ],
+  },
+  {
+    name: "KS4-1",
+    coordinates: [
+      [131.261473182, gsiTileBoundaryLatitude],
+      [131.26199, 31.953105],
+    ],
+  },
+  {
+    name: "KS4-3",
+    coordinates: [
+      [130.980556, 31.994444],
+      [131.332425, 32.0198],
+      [131.261473132, gsiTileBoundaryLatitude],
+    ],
+  },
+  {
+    name: "KS4-3",
+    coordinates: [
+      [130.979182216, gsiTileBoundaryLatitude],
+      [130.980556, 31.994444],
+    ],
+  },
+  {
+    name: "KS4-5",
+    coordinates: [
+      [130.836781, 32.197636],
+      [130.990439, 32.07944],
+      [130.979182216, gsiTileBoundaryLatitude],
+    ],
+  },
+  {
+    name: "KS4-5",
+    coordinates: [
+      [130.904940776, gsiTileBoundaryLatitude],
+      [130.863127, 31.980683],
+      [130.78125, 32.009545151],
+    ],
+  },
+  {
+    name: "KS4-5",
+    coordinates: [
+      [130.78125, 32.012954614],
+      [130.836781, 32.197636],
+    ],
+  },
+] satisfies Array<{ name: string; coordinates: number[][] }>;
+const gsiTile104BoundaryDefinitions = [
+  {
+    name: "KS4-2",
+    coordinates: [
+      [131.567778, 31.584167],
+      [131.338889, 31.539722],
+      [131.390248, 31.716566],
+      [131.55241, 31.743382],
+      [131.670556, 31.603333],
+      [131.567778, 31.584167],
+    ],
+  },
+  {
+    name: "KS4-7",
+    coordinates: [
+      [131.214366, 31.772685],
+      [131.383816, 31.694158],
+      [131.338889, 31.539722],
+      [131.157497, 31.583613],
+      [131.208632, 31.729445],
+      [131.214366, 31.772685],
+    ],
+  },
+  {
+    name: "KS4-6",
+    coordinates: [
+      [131.187036, 31.658287],
+      [131.148611, 31.588056],
+      [131.02, 31.651944],
+      [130.975556, 31.840556],
+      [131.214372, 31.772769],
+      [131.187036, 31.658287],
+    ],
+  },
+  {
+    name: "KS4-1/4",
+    coordinates: [
+      [131.330727856, gsiTileBoundaryLatitude],
+      [131.31733, 31.935081],
+      [131.281417314, gsiTileBoundaryLatitude],
+    ],
+  },
+  {
+    name: "KS4-1",
+    coordinates: [
+      [131.281417314, gsiTileBoundaryLatitude],
+      [131.31733, 31.935081],
+      [131.330727856, gsiTileBoundaryLatitude],
+    ],
+  },
+  {
+    name: "KS4-1",
+    coordinates: [
+      [131.613460733, gsiTileBoundaryLatitude],
+      [131.633337, 31.878577],
+      [131.555313, 31.745282],
+      [131.383611, 31.694167],
+      [131.2, 31.779444],
+      [131.261634, 31.805264],
+      [131.241597, 31.878577],
+      [131.261473182, gsiTileBoundaryLatitude],
+    ],
+  },
+  {
+    name: "KS4-3",
+    coordinates: [
+      [131.261473132, gsiTileBoundaryLatitude],
+      [131.241597, 31.878577],
+      [131.042778, 31.852222],
+      [130.979182216, gsiTileBoundaryLatitude],
+    ],
+  },
+  {
+    name: "KS4-5",
+    coordinates: [
+      [130.979182216, gsiTileBoundaryLatitude],
+      [130.975556, 31.840556],
+      [130.947537, 31.904714],
+      [130.904940776, gsiTileBoundaryLatitude],
+    ],
+  },
+  {
+    name: "KS4-8",
+    coordinates: [
+      [131.670556, 31.603333],
+      [131.794444, 31.456111],
+      [131.586667, 31.415833],
+      [131.568333, 31.583611],
+      [131.670556, 31.603333],
+    ],
+  },
+] satisfies Array<{ name: string; coordinates: number[][] }>;
+
+function gsiDisplayMetadata(name: string): Record<string, string> {
+  switch (name) {
+    case "KS4-1/4":
+      return { "下限": "SFC", "上限": "7000FT", "管轄機関": "航空交通管理センター" };
+    case "KS4-1":
+      return { "下限": "5500FT", "上限": "7000FT", "管轄機関": "航空交通管理センター" };
+    case "KS4-2":
+      return { "下限": "SFC", "上限": "8000FT", "管轄機関": "航空交通管理センター" };
+    case "KS4-3":
+    case "KS4-5":
+    case "KS4-7":
+      return { "下限": "SFC", "上限": "6000FT", "管轄機関": "航空交通管理センター" };
+    case "KS4-6":
+      return { "下限": "SFC", "上限": "4000FT", "管轄機関": "航空交通管理センター" };
+    case "KS4-8":
+      return { "下限": "SFC", "上限": "8000FT", "管轄機関": "航空交通管理センター" };
+    case "KS3-8":
+      return { "下限": "5000FT", "上限": "FL150", "管轄機関": "航空交通管理センター" };
+    case "KS3-4":
+    case "KS3-5":
+    case "KS3-6":
+    case "KS3-7":
+      return { "下限": "SFC", "上限": "5000FT", "管轄機関": "航空交通管理センター" };
+    default:
+      throw new Error(`unexpected GSI fixture name: ${name}`);
+  }
+}
 
 function gsiPolygonFeature(
-  name: RjfmCivilTrainingTestAirspaceName,
+  name: string,
   ring: number[][],
 ): GsiAirspaceFeatureFixture {
   return {
     type: "Feature",
     properties: {
       "空域名称": name,
-      "下限": name === "KS4-2" ? "SFC" : "5500FT",
-      "上限": name === "KS4-2" ? "8000FT" : "7000FT",
-      "管轄機関": "航空交通管理センター",
+      ...gsiDisplayMetadata(name),
     },
     geometry: {
       type: "Polygon",
@@ -358,41 +557,48 @@ function gsiPolygonFeature(
   };
 }
 
+function gsiLineStringFeature(
+  name: string,
+  coordinates: number[][],
+): GsiAirspaceFeatureFixture {
+  return {
+    type: "Feature",
+    properties: {
+      "空域名称": name,
+      ...gsiDisplayMetadata(name),
+    },
+    geometry: { type: "LineString", coordinates },
+  };
+}
+
 const gsiAirspaceTile103Fixture: GsiAirspaceCollectionFixture = {
   type: "FeatureCollection",
   features: [
     ...gsiTile103PolygonNames.map((name) => gsiPolygonFeature(name, gsiTile103Ring)),
     {
-      type: "Feature",
-      properties: {
-        "空域名称": "KS3-4",
-        "下限": "SFC",
-        "上限": "5000FT",
-        "管轄機関": "航空交通管理センター",
-      },
-      geometry: {
-        type: "Polygon",
-        coordinates: [[
-          [131.1, 32], [131.2, 32], [131.2, 32.1], [131.1, 32],
-        ]],
-      },
+      ...gsiPolygonFeature("KS3-4", [
+        [131.1, 32],
+        [131.2, 32],
+        [131.2, 32.1],
+        [131.1, 32],
+      ]),
     },
-    {
-      type: "Feature",
-      properties: { "空域名称": "KS4-1" },
-      geometry: {
-        type: "LineString",
-        coordinates: [[131.25, 32.12], [131.48, 32.12]],
-      },
-    },
+    gsiLineStringFeature("KS3-4", [[132.166667, 32.903056], [132.175356113, 33.137551192]]),
+    gsiLineStringFeature("KS3-5", [[132.1875, 32.5802532], [132.1875, 32.904973205]]),
+    ...gsiTile103BoundaryDefinitions.map(({ name, coordinates }) => (
+      gsiLineStringFeature(name, coordinates)
+    )),
   ],
 };
 
 const gsiAirspaceTile104Fixture: GsiAirspaceCollectionFixture = {
   type: "FeatureCollection",
-  features: gsiTile104PolygonNames.map((name) => (
-    gsiPolygonFeature(name, gsiTile104Ring)
-  )),
+  features: [
+    ...gsiTile104PolygonNames.map((name) => gsiPolygonFeature(name, gsiTile104Ring)),
+    ...gsiTile104BoundaryDefinitions.map(({ name, coordinates }) => (
+      gsiLineStringFeature(name, coordinates)
+    )),
+  ],
 };
 
 function gsiTile103WithFirstPolygonRing(
@@ -406,9 +612,18 @@ function gsiTile103WithFirstPolygonRing(
             ...feature,
             geometry: { ...feature.geometry, coordinates: [ring] },
           }
-        : feature
+      : feature
     )),
   };
+}
+
+function hasArtificialTileEdgeBoundary(
+  boundaries: { positions: [number, number][] }[],
+): boolean {
+  return boundaries.some((boundary) => (
+    boundary.positions.length >= 2
+    && boundary.positions.every(([latitude]) => latitude === gsiTileBoundaryLatitude)
+  ));
 }
 
 type GsiFixtureMode =
@@ -884,11 +1099,38 @@ test.beforeEach(async ({ page }) => {
 
 test("GSI live tile Polygon contract fails closed on payload drift", () => {
   const tile = rjfmMapReferenceFixture.civilTrainingTestAirspace.tiles[0];
-  const polygons = parseGsiCivilTrainingAirspaceTile(
+  const parsed = parseGsiCivilTrainingAirspaceTile(
     gsiAirspaceTile103Fixture,
     tile,
   );
-  expect(polygons.map((polygon) => polygon.name)).toEqual(gsiTile103PolygonNames);
+  expect(parsed.polygons.map((polygon) => polygon.name)).toEqual(gsiTile103PolygonNames);
+  expect(parsed.boundaries).toHaveLength(10);
+  expect(parsed.boundaries[0]?.positions).toEqual([
+    [32.0198, 131.332425],
+    [31.966921, 131.347334],
+    [gsiTileBoundaryLatitude, 131.330727856],
+  ]);
+  const malformedNonKs4Lines: GsiAirspaceCollectionFixture = {
+    ...gsiAirspaceTile103Fixture,
+    features: gsiAirspaceTile103Fixture.features.map((feature) => (
+      feature.geometry.type === "LineString"
+      && feature.properties["空域名称"]?.startsWith("KS3-")
+        ? { ...feature, geometry: { ...feature.geometry, coordinates: [[0, 0]] } }
+        : feature
+    )),
+  };
+  expect(parseGsiCivilTrainingAirspaceTile(malformedNonKs4Lines, tile).boundaries)
+    .toHaveLength(10);
+  const missingBoundaryName: GsiAirspaceCollectionFixture = {
+    ...gsiAirspaceTile103Fixture,
+    features: gsiAirspaceTile103Fixture.features.filter((feature) => (
+      !(feature.geometry.type === "LineString"
+        && feature.properties["空域名称"] === "KS4-5")
+    )),
+  };
+  expect(() => parseGsiCivilTrainingAirspaceTile(missingBoundaryName, tile)).toThrow(
+    "GSI tile is missing an expected KS4 LineString boundary name",
+  );
 
   for (const rejectedMode of [
     "missing-polygon",
@@ -909,7 +1151,7 @@ test("GSI live tile accepts 2D and finite 3D positions only", () => {
     gsiAirspaceTile103Fixture,
     tile,
   );
-  expect(twoDimensional[0]?.positions[0]?.[0]).toEqual([32.12, 131.25]);
+  expect(twoDimensional.polygons[0]?.positions[0]?.[0]).toEqual([32.12, 131.25]);
 
   const threeDimensionalRing = gsiTile103Ring.map(
     ([longitude, latitude]) => [longitude, latitude, 0],
@@ -918,7 +1160,7 @@ test("GSI live tile accepts 2D and finite 3D positions only", () => {
     gsiTile103WithFirstPolygonRing(threeDimensionalRing),
     tile,
   );
-  expect(threeDimensional[0]?.positions[0]?.[0]).toEqual([32.12, 131.25]);
+  expect(threeDimensional.polygons[0]?.positions[0]?.[0]).toEqual([32.12, 131.25]);
 
   for (const invalidAltitude of ["0", Number.NaN, Number.POSITIVE_INFINITY]) {
     const invalidAltitudeRing = gsiTile103Ring.map(
@@ -939,6 +1181,96 @@ test("GSI live tile accepts 2D and finite 3D positions only", () => {
   )).toThrow(
     "GSI Polygon coordinate must contain longitude, latitude, and optional altitude",
   );
+});
+
+test("GSI live tile validates explicit LineString boundaries independently", () => {
+  const tile = rjfmMapReferenceFixture.civilTrainingTestAirspace.tiles[0];
+  const boundary = gsiAirspaceTile103Fixture.features.at(-1);
+  if (boundary === undefined) throw new Error("boundary fixture is missing");
+
+  const withDuplicateBoundary: GsiAirspaceCollectionFixture = {
+    ...gsiAirspaceTile103Fixture,
+    features: [...gsiAirspaceTile103Fixture.features, {
+      ...boundary,
+      geometry: {
+        ...boundary.geometry,
+        coordinates: [[131.25, 32.13], [131.48, 32.13]],
+      },
+    }],
+  };
+  expect(parseGsiCivilTrainingAirspaceTile(withDuplicateBoundary, tile).boundaries)
+    .toHaveLength(11);
+
+  const threeDimensionalBoundary: GsiAirspaceCollectionFixture = {
+    ...gsiAirspaceTile103Fixture,
+    features: [...gsiAirspaceTile103Fixture.features.slice(0, -1), {
+      ...boundary,
+      geometry: {
+        ...boundary.geometry,
+        coordinates: [[131.25, 32.12, 0], [131.48, 32.12, 0]],
+      },
+    }],
+  };
+  expect(parseGsiCivilTrainingAirspaceTile(threeDimensionalBoundary, tile)
+    .boundaries.at(-1)?.positions).toEqual([[32.12, 131.25], [32.12, 131.48]]);
+
+  const tile104 = rjfmMapReferenceFixture.civilTrainingTestAirspace.tiles[1];
+  const parsedTile104 = parseGsiCivilTrainingAirspaceTile(gsiAirspaceTile104Fixture, tile104);
+  expect(parsedTile104.boundaries).toHaveLength(9);
+  expect(parsedTile104.boundaries.map((boundary) => boundary.name)).toEqual(
+    gsiTile104BoundaryDefinitions.map(({ name }) => name),
+  );
+  expect(hasArtificialTileEdgeBoundary(parsedTile104.boundaries)).toBe(false);
+
+  for (const coordinates of [
+    [[131.25, 32.12]],
+    [[131.25, 32.12], [132.3, 32.12]],
+  ]) {
+    const malformedBoundary: GsiAirspaceCollectionFixture = {
+      ...gsiAirspaceTile103Fixture,
+      features: [...gsiAirspaceTile103Fixture.features.slice(0, -1), {
+        ...boundary,
+        geometry: { ...boundary.geometry, coordinates },
+      }],
+    };
+    expect(() => parseGsiCivilTrainingAirspaceTile(malformedBoundary, tile)).toThrow();
+  }
+
+  const missingDisplayMetadata: GsiAirspaceCollectionFixture = {
+    ...gsiAirspaceTile103Fixture,
+    features: [...gsiAirspaceTile103Fixture.features.slice(0, -1), {
+      ...boundary,
+      properties: { "空域名称": "KS4-1" },
+    }],
+  };
+  expect(() => parseGsiCivilTrainingAirspaceTile(missingDisplayMetadata, tile)).toThrow();
+
+  const malformedBoundaryName: GsiAirspaceCollectionFixture = {
+    ...gsiAirspaceTile103Fixture,
+    features: [...gsiAirspaceTile103Fixture.features.slice(0, -1), {
+      ...boundary,
+      properties: {
+        "空域名称": "KS4-",
+        "下限": "5500FT",
+        "上限": "7000FT",
+        "管轄機関": "航空交通管理センター",
+      },
+    }],
+  };
+  expect(() => parseGsiCivilTrainingAirspaceTile(malformedBoundaryName, tile)).toThrow();
+
+  const unknownBoundaryName: GsiAirspaceCollectionFixture = {
+    ...gsiAirspaceTile103Fixture,
+    features: [...gsiAirspaceTile103Fixture.features.slice(0, -1), {
+      ...boundary,
+      properties: { ...boundary.properties, "空域名称": "KS4-9" },
+    }],
+  };
+  expect(() => parseGsiCivilTrainingAirspaceTile(unknownBoundaryName, tile)).toThrow();
+  expect(hasArtificialTileEdgeBoundary(parseGsiCivilTrainingAirspaceTile(
+    gsiAirspaceTile103Fixture,
+    tile,
+  ).boundaries)).toBe(false);
 });
 
 test("desktop workflow renders without the removed A4 output", async ({ page }, testInfo) => {
@@ -1970,6 +2302,26 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     "7 6",
   );
   await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
+  await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(19);
+  const trainingPolygonStyles = await page.locator(".rjfm-training-airspace").evaluateAll(
+    (paths) => paths.map((path) => path.getAttribute("stroke")),
+  );
+  expect(trainingPolygonStyles).toEqual(Array.from({ length: 12 }, () => "none"));
+  const trainingBoundaryStyles = await page.locator(
+    ".rjfm-training-airspace-boundary",
+  ).evaluateAll((paths) => paths.map((path) => ({
+    stroke: path.getAttribute("stroke"),
+    width: path.getAttribute("stroke-width"),
+  })));
+  expect(trainingBoundaryStyles).toEqual(Array.from({ length: 19 }, () => ({
+    stroke: "#315caa",
+    width: "2",
+  })));
+
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await expect(legend).toBeVisible();
+  await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
+  await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(19);
 
   await page.setViewportSize({ width: 390, height: 844 });
   const runway09Box = await runway09.boundingBox();
@@ -1995,6 +2347,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
   await expect(page.locator(".rjfm-pca-exclusion")).toHaveCount(1);
   await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
+  await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(19);
 
   guidanceState.readiness.calculationIsCurrent = false;
   await page.route("**/api/state", async (route) => {
@@ -2018,6 +2371,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
   await expect(page.locator(".rjfm-pca-exclusion")).toHaveCount(1);
   await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
+  await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(19);
 
   guidanceState.readiness.calculationIsCurrent = true;
   guidanceState.outcome.rjfm_departure_guidance = rjfmValidUnavailableGuidanceFixture;
@@ -2069,6 +2423,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
       "GSI空域は取得できず非表示",
     );
     await expect(page.locator(".rjfm-training-airspace")).toHaveCount(0);
+    await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(0);
     await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
     await expect(page.locator(".rjfm-pca-exclusion")).toHaveCount(1);
   }
@@ -2085,6 +2440,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     message: "the pending peer GSI request should be aborted after the first tile fails",
   }).toBe(true);
   await expect(page.locator(".rjfm-training-airspace")).toHaveCount(0);
+  await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(0);
   await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
   expect(pageErrors).toEqual([]);
 });

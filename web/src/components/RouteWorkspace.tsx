@@ -17,6 +17,7 @@ import { formatOperationalMagneticCourse } from "../displayRounding";
 import {
   fetchRjfmTrainingAirspace,
   isApprovedRjfmAirspaceReference,
+  type RjfmTrainingAirspaceBoundary,
   type RjfmTrainingAirspacePolygon,
 } from "../rjfmAirspace";
 import type {
@@ -121,8 +122,12 @@ function fixedAltitudeLabels(
 const centerRoutePointLabels = ["UMK", "OVER FIELD", "OMARU"] as const;
 
 type TrainingAirspaceState =
-  | { status: "idle" | "loading" | "unavailable"; polygons: [] }
-  | { status: "ready"; polygons: RjfmTrainingAirspacePolygon[] };
+  | { status: "idle" | "loading" | "unavailable"; polygons: []; boundaries: [] }
+  | {
+      status: "ready";
+      polygons: RjfmTrainingAirspacePolygon[];
+      boundaries: RjfmTrainingAirspaceBoundary[];
+    };
 
 function FitBounds({
   coordinates,
@@ -202,6 +207,7 @@ export function RouteWorkspace({
   const [trainingAirspace, setTrainingAirspace] = useState<TrainingAirspaceState>({
     status: "idle",
     polygons: [],
+    boundaries: [],
   });
   const parsedPatternAltitude = patternAltitudeFtMsl(
     destinationPatternAltitudeFtMsl,
@@ -364,20 +370,22 @@ export function RouteWorkspace({
       });
   useEffect(() => {
     if (civilAirspaceReference === null) {
-      setTrainingAirspace({ status: "idle", polygons: [] });
+      setTrainingAirspace({ status: "idle", polygons: [], boundaries: [] });
       return undefined;
     }
     let active = true;
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 8_000);
-    setTrainingAirspace({ status: "loading", polygons: [] });
+    setTrainingAirspace({ status: "loading", polygons: [], boundaries: [] });
     void fetchRjfmTrainingAirspace(civilAirspaceReference, controller.signal)
-      .then((polygons) => {
-        if (active) setTrainingAirspace({ status: "ready", polygons });
+      .then(({ polygons, boundaries }) => {
+        if (active) setTrainingAirspace({ status: "ready", polygons, boundaries });
       })
       .catch(() => {
         controller.abort();
-        if (active) setTrainingAirspace({ status: "unavailable", polygons: [] });
+        if (active) {
+          setTrainingAirspace({ status: "unavailable", polygons: [], boundaries: [] });
+        }
       })
       .finally(() => window.clearTimeout(timeout));
     return () => {
@@ -576,11 +584,9 @@ export function RouteWorkspace({
               className="rjfm-training-airspace"
               positions={airspace.positions}
               pathOptions={{
-                color: "#315caa",
                 fillColor: "#5b83cf",
                 fillOpacity: 0.1,
-                opacity: 0.82,
-                weight: 2,
+                stroke: false,
               }}
             >
               <Tooltip sticky>
@@ -595,6 +601,30 @@ export function RouteWorkspace({
                 </span>
               </Tooltip>
             </Polygon>
+          ))}
+          {trainingAirspace.boundaries.map((boundary) => (
+            <Polyline
+              key={boundary.id}
+              className="rjfm-training-airspace-boundary"
+              positions={boundary.positions}
+              pathOptions={{
+                color: "#315caa",
+                opacity: 0.82,
+                weight: 2,
+              }}
+            >
+              <Tooltip sticky>
+                <span>
+                  <strong>{boundary.name}</strong>
+                  <br />
+                  {boundary.lowerLimit} – {boundary.upperLimit}
+                  <br />
+                  {boundary.authority}
+                  <br />
+                  出典: 国土地理院（表示専用）
+                </span>
+              </Tooltip>
+            </Polyline>
           ))}
           {coordinates.length >= 2 && (
             <Polyline positions={coordinates} pathOptions={{ color: "#173b5e", weight: 4 }} />
