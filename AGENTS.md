@@ -7,6 +7,14 @@
 - Keep wide layouts above 1,240 px aligned as a three-column input, route, and readiness workspace unless a feature explicitly requires another layout.
 - Every layout change must include browser regression coverage at an intermediate width around 1,100 px and a wide width above 1,240 px. Assert the relative vertical or horizontal positions of the workflow regions, not only their visibility.
 
+## リリース番号
+
+- Issue対応ではリリース番号を必ず更新する。`pyproject.toml`、
+  `web/package.json`、`web/package-lock.json`（トップレベルと`packages[""]`）、`README.md`、
+  `CHANGELOG.md`を同じ版へ同期し、`CHANGELOG.md`にはIssue番号と変更概要を記録する。
+- 更新後は`pytest tests/unit/test_version.py`で版番号の同期を、`npm --prefix web run typecheck`
+  でWeb側の整合性を確認する。`src/autonavlog/version.py`と`jma-msm-wind`の版は別管理のため変更しない。
+
 ## プラン実施時のルール
 
 5.6 Sol はオーケストレーターとして振舞い、原則として実装はしないでください。
