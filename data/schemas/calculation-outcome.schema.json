@@ -1053,7 +1053,7 @@
     },
     "RjfmInboundGuidance": {
       "additionalProperties": false,
-      "description": "Transient west-extension diagnostic; it is never persisted with a project.",
+      "description": "West-extension diagnostic persisted only inside the last-good calculation.",
       "properties": {
         "actual_bearing_magnetic_deg": {
           "anyOf": [
