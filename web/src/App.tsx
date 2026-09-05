@@ -11,6 +11,8 @@ import {
   patternAltitudeFtMsl,
   touchAndGoCount,
   usableFuelGal,
+  validDepartureTimeJst,
+  validFlightDate,
   variationForDeparture,
 } from "./forms";
 import type { PlanningForm } from "./forms";
@@ -31,7 +33,7 @@ import { ProgressRail } from "./components/ProgressRail";
 import { RouteWorkspace } from "./components/RouteWorkspace";
 import { StatusPanel } from "./components/StatusPanel";
 import { CalculationProgressOverlay } from "./components/CalculationProgressOverlay";
-import type { CheckPointInput, FlightPhase, NavSection, WebState } from "./types";
+import type { CheckPointInput, FlightPhase, NavSection, Project, WebState } from "./types";
 import { useModalFocusTrap } from "./useModalFocusTrap";
 
 interface PendingKmz {
@@ -41,7 +43,19 @@ interface PendingKmz {
 }
 
 type ActiveOperation = "calculate" | null;
+type DraftSaveWaiter = (saved: boolean) => void;
+
+interface DraftSaveRequest {
+  generation: number;
+  projectId: string;
+  payload: Record<string, unknown>;
+  useCanonicalFallback: boolean;
+  syncDerivedArrival: boolean;
+  waiters: DraftSaveWaiter[];
+}
+
 const ROUTE_EDITOR_VREP_REASON = "経路画面で指定したVREP計画高度";
+const DRAFT_AUTOSAVE_FAILURE = "Projectを自動保存できませんでした。入力内容は画面に保持されています。";
 
 function inboundMetric(value: number | null, digits = 1): string {
   return value === null ? "—" : value.toFixed(digits);
@@ -73,6 +87,7 @@ function App() {
   const [navLogDrafts, setNavLogDrafts] = useState<NavLogEditDrafts>({});
   const [navLogEditErrors, setNavLogEditErrors] = useState<NavLogEditErrors>({});
   const [navLogEditVersion, setNavLogEditVersion] = useState(0);
+  const [draftAutosaveVersion, setDraftAutosaveVersion] = useState(0);
   const [calculationInputsAreLocallyCurrent, setCalculationInputsAreLocallyCurrent] =
     useState(true);
   const [navLogEditStatus, setNavLogEditStatus] = useState<{
@@ -100,12 +115,20 @@ function App() {
   const navLogEditPendingRef = useRef(false);
   const navLogDraftsRef = useRef<NavLogEditDrafts>({});
   const projectIdRef = useRef<string | null | undefined>(undefined);
+  const canonicalProjectRef = useRef<Project | null>(null);
+  const draftAutosaveGenerationRef = useRef(0);
+  const draftAutosaveTimerRef = useRef<number | null>(null);
+  const draftAutosaveQueuedRef = useRef<DraftSaveRequest | null>(null);
+  const draftAutosaveRunningRef = useRef<DraftSaveRequest | null>(null);
+  const draftAutosaveDrainRef = useRef<Promise<void> | null>(null);
   const navLogRecalculationRef = useRef<Promise<void>>(Promise.resolve());
   const destinationPatternGenerationRef = useRef(0);
   const destinationPatternBasisRef = useRef<string | null | undefined>(undefined);
   const destinationPatternRecalculationRef = useRef<Promise<void>>(Promise.resolve());
   const updatePayloadRef = useRef<(
-    sectionOverrides?: NavSection[], selectedPatternAltitudeFtMsl?: number,
+    sectionOverrides?: NavSection[],
+    selectedPatternAltitudeFtMsl?: number,
+    invalidFallbackProject?: Project,
   ) => Record<string, unknown>>(() => ({}));
   const altitudeGuidanceBySection = useMemo(
     () => new Map(
@@ -141,9 +164,19 @@ function App() {
     });
   };
 
+  const markDraftForAutosave = () => {
+    if (!projectIdRef.current) return;
+    draftAutosaveGenerationRef.current += 1;
+    setDraftAutosaveVersion(draftAutosaveGenerationRef.current);
+  };
+
   const applyState = (
     next: WebState,
-    options: { syncCalculationInputs?: boolean; freshImport?: boolean } = {},
+    options: {
+      syncCalculationInputs?: boolean;
+      syncDerivedArrival?: boolean;
+      freshImport?: boolean;
+    } = {},
   ) => {
     const nextProjectId = next.project?.id ?? null;
     const nextPatternBasis = patternRequestBasis(next);
@@ -160,6 +193,7 @@ function App() {
       setCalculationInputsAreLocallyCurrent(true);
     }
     if (projectChanged) cancelPendingRecalculation();
+    canonicalProjectRef.current = next.project;
     projectIdRef.current = nextProjectId;
     destinationPatternBasisRef.current = nextPatternBasis;
     if (projectChanged || initialState) {
@@ -177,9 +211,21 @@ function App() {
         next.project &&
         current.project.id === next.project.id
       ) {
+        const derivedArrivalSections = options.syncDerivedArrival
+          ? new Map(
+              next.project.sections
+                .filter((section) => section.phase === "VISUAL_ARRIVAL")
+                .map((section) => [section.id, section]),
+            )
+          : null;
         return {
           ...next,
-          project: { ...next.project, sections: current.project.sections },
+          project: {
+            ...next.project,
+            sections: current.project.sections.map(
+              (section) => derivedArrivalSections?.get(section.id) ?? section,
+            ),
+          },
         };
       }
       return next;
@@ -244,6 +290,15 @@ function App() {
             )
           : {},
       );
+    } else if (options.syncDerivedArrival && next.project) {
+      setAltitudeInputs((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          next.project!.sections
+            .filter((section) => section.phase === "VISUAL_ARRIVAL")
+            .map((section) => [section.id, String(section.planned_altitude_ft_msl)]),
+        ),
+      }));
     }
   };
 
@@ -363,6 +418,7 @@ function App() {
 
   const setTrackedForm: typeof setForm = (value) => {
     invalidateCalculationInputs();
+    markDraftForAutosave();
     setForm(value);
   };
 
@@ -495,6 +551,7 @@ function App() {
     const inputMode = altitudeGuidanceBySection.get(sectionId)?.inputMode;
     if (inputMode !== undefined && inputMode !== "EDITABLE") return;
     invalidateCalculationInputs();
+    markDraftForAutosave();
     setAltitudeInputs((current) => ({ ...current, [sectionId]: value }));
     const altitude = Number(value);
     if (value.trim() && Number.isFinite(altitude)) {
@@ -533,7 +590,10 @@ function App() {
         ) as Partial<NavSection>
       : changes;
     if (Object.keys(safeChanges).length === 0) return;
-    if (invalidate) invalidateCalculationInputs();
+    if (invalidate) {
+      invalidateCalculationInputs();
+      markDraftForAutosave();
+    }
     setState((current) => {
       if (!current?.project) return current;
       const currentSection = current.project.sections.find(
@@ -585,20 +645,45 @@ function App() {
   const updatePayload = (
     sectionOverrides?: NavSection[],
     selectedPatternAltitudeFtMsl?: number,
+    invalidFallbackProject?: Project,
   ) => {
     const payloadSections = sectionOverrides ?? state?.project?.sections ?? [];
     if (!state?.project) throw new Error("Projectがありません。");
+    const fallbackProject = invalidFallbackProject?.id === state.project.id
+      ? invalidFallbackProject
+      : undefined;
     const canonicalSections = new Map(
-      state.project.sections.map((section) => [section.id, section]),
+      (fallbackProject ?? state.project).sections.map((section) => [section.id, section]),
     );
-    const fuelGal = usableFuelGal(form);
+    const fuelGal = usableFuelGal(form) ?? fallbackProject?.total_usable_fuel_gal ?? null;
     if (fuelGal === null) {
       throw new Error("FUELは0より大きく200 gal以下で入力してください。");
     }
-    const tglCount = touchAndGoCount(form);
+    const tglCount = touchAndGoCount(form) ?? fallbackProject?.tgl_count ?? null;
     if (tglCount === null) {
       throw new Error("TGLは0～20の整数で入力してください。");
     }
+    const flightDate = validFlightDate(form.flightDate)
+      ? form.flightDate
+      : fallbackProject?.flight_date;
+    if (!flightDate) throw new Error("DATEを入力してください。");
+    const departureTimeJst = validDepartureTimeJst(form.departureTimeJst)
+      ? form.departureTimeJst
+      : fallbackProject?.planned_departure_time_jst.slice(11, 16);
+    if (!departureTimeJst) throw new Error("ETD JSTを入力してください。");
+    const destinationElevation = state.airports.find(
+      (airport) => airport.id === state.project?.destination_airport_id,
+    )?.elevationFtMsl ?? null;
+    const localPatternAltitude = patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl);
+    const localPatternIsValid = localPatternAltitude !== null
+      && (destinationElevation === null || localPatternAltitude > destinationElevation);
+    const resolvedPatternAltitude = selectedPatternAltitudeFtMsl
+      ?? (localPatternIsValid ? localPatternAltitude : undefined)
+      ?? fallbackProject?.metadata.ui_state?.arrival_plan?.selected_pattern_altitude_ft_msl;
+    if (resolvedPatternAltitude === undefined) {
+      throw new Error("場周経路高度は飛行場標高より高い100 ft単位で入力してください。");
+    }
+    const invalidAltitudeSectionIds = new Set<string>();
     const plannedAltitudes = new Map(
       payloadSections.map((section) => {
         const guidance = altitudeGuidanceBySection.get(section.id);
@@ -615,6 +700,10 @@ function App() {
             : altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)
         ).trim();
         if (!rawAltitude) {
+          if (fallbackProject && canonicalSection) {
+            invalidAltitudeSectionIds.add(section.id);
+            return [section.id, canonicalSection.planned_altitude_ft_msl] as const;
+          }
           throw new Error("すべてのLegに計画高度を入力してください。");
         }
         const altitude = Number(rawAltitude);
@@ -624,14 +713,30 @@ function App() {
           altitude > 25000 ||
           altitude % 100 !== 0
         ) {
+          if (fallbackProject && canonicalSection) {
+            invalidAltitudeSectionIds.add(section.id);
+            return [section.id, canonicalSection.planned_altitude_ft_msl] as const;
+          }
           throw new Error("計画高度は100～25,000 ftの範囲で100 ft単位にしてください。");
         }
         return [section.id, altitude] as const;
       }),
     );
-    const arrival = state.project.metadata.ui_state?.arrival_plan ?? null;
-    const ftdWeather = ftdWeatherSettings(form);
-    if (form.weatherMode === "FTD" && ftdWeather === null) {
+    const localArrival = state.project.metadata.ui_state?.arrival_plan ?? null;
+    const invalidVrepAltitude = payloadSections.some(
+      (section) => section.phase === "VISUAL_ARRIVAL"
+        && invalidAltitudeSectionIds.has(section.id),
+    );
+    const arrival = invalidVrepAltitude && fallbackProject
+      ? fallbackProject.metadata.ui_state?.arrival_plan ?? null
+      : localArrival;
+    let weatherMode = form.weatherMode;
+    let ftdWeather = ftdWeatherSettings(form);
+    if (weatherMode === "FTD" && ftdWeather === null && fallbackProject) {
+      weatherMode = fallbackProject.weather_mode;
+      ftdWeather = fallbackProject.ftd_weather;
+    }
+    if (weatherMode === "FTD" && ftdWeather === null) {
       throw new Error(
         "FTD固定気象は、地上と5,000 ftの風向・風速を範囲内で入力してください。",
       );
@@ -639,12 +744,12 @@ function App() {
     const orderedNodes = [...state.project.route_nodes].sort((a, b) => a.sequence - b.sequence);
     const fallbackVrep = orderedNodes.length >= 3 ? orderedNodes.at(-2)?.id ?? null : null;
     return {
-      flight_date: form.flightDate,
-      departure_time_jst: form.departureTimeJst,
+      flight_date: flightDate,
+      departure_time_jst: departureTimeJst,
       total_usable_fuel_gal: fuelGal,
       default_variation_deg_east: form.variationDegEast,
-      weather_mode: form.weatherMode,
-      ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
+      weather_mode: weatherMode,
+      ftd_weather: weatherMode === "FTD" ? ftdWeather : null,
       run_up_included: form.runUpIncluded,
       nose_fairing_enabled: form.noseFairingEnabled,
       air_conditioning_enabled: form.airConditioningEnabled,
@@ -668,7 +773,7 @@ function App() {
         };
       }),
       visual_reporting_point_node_id: arrival?.visual_reporting_point_node_id ?? fallbackVrep,
-      selected_pattern_altitude_ft_msl: selectedPatternAltitudeFtMsl,
+      selected_pattern_altitude_ft_msl: resolvedPatternAltitude,
       arrival_altitude_mode: arrival?.altitude_mode ?? "STANDARD_DISTANCE_RULE",
       manual_vrep_altitude_ft_msl: arrival?.manual_vrep_altitude_ft_msl ?? null,
       manual_vrep_reason: arrival?.manual_override_reason ?? null,
@@ -676,6 +781,192 @@ function App() {
   };
 
   updatePayloadRef.current = updatePayload;
+
+  const showDraftAutosaveFailure = () => {
+    setError(DRAFT_AUTOSAVE_FAILURE);
+  };
+
+  const pendingDraftAutosave = (): DraftSaveRequest | null => (
+    draftAutosaveQueuedRef.current
+  );
+
+  const drainDraftAutosaves = () => {
+    if (draftAutosaveDrainRef.current) return;
+    const drain = (async () => {
+      while (draftAutosaveQueuedRef.current) {
+        const request = draftAutosaveQueuedRef.current;
+        draftAutosaveQueuedRef.current = null;
+        draftAutosaveRunningRef.current = request;
+        let saved = false;
+        try {
+          const next = await api.request<WebState>("/api/project", {
+            method: "PUT",
+            body: request.payload,
+          });
+          saved = true;
+          if (request.projectId === projectIdRef.current && next.project) {
+            canonicalProjectRef.current = next.project;
+            const queued = pendingDraftAutosave();
+            if (queued?.projectId === request.projectId && queued.useCanonicalFallback) {
+              queued.payload = updatePayloadRef.current(
+                undefined,
+                undefined,
+                next.project,
+              );
+            }
+          }
+          if (
+            request.projectId === projectIdRef.current
+            && request.generation === draftAutosaveGenerationRef.current
+          ) {
+            applyState(next, {
+              syncCalculationInputs: false,
+              syncDerivedArrival: request.syncDerivedArrival,
+            });
+            setDraftAutosaveVersion(0);
+            setError((current) => current === DRAFT_AUTOSAVE_FAILURE ? null : current);
+          }
+        } catch {
+          if (
+            request.projectId === projectIdRef.current
+            && request.generation === draftAutosaveGenerationRef.current
+          ) {
+            showDraftAutosaveFailure();
+          }
+        } finally {
+          draftAutosaveRunningRef.current = null;
+          request.waiters.forEach((resolve) => resolve(saved));
+        }
+      }
+    })().finally(() => {
+      draftAutosaveDrainRef.current = null;
+      if (draftAutosaveQueuedRef.current) drainDraftAutosaves();
+    });
+    draftAutosaveDrainRef.current = drain;
+  };
+
+  const enqueueDraftAutosave = (
+    generation: number,
+    useCanonicalFallback: boolean,
+    force = false,
+  ): Promise<boolean> => {
+    const projectId = projectIdRef.current;
+    if (!projectId) return Promise.resolve(true);
+    const payload = updatePayloadRef.current(
+      undefined,
+      undefined,
+      useCanonicalFallback ? canonicalProjectRef.current ?? undefined : undefined,
+    );
+    const visualArrival = state?.project?.sections.find(
+      (section) => section.phase === "VISUAL_ARRIVAL",
+    );
+    const visualArrivalInput = visualArrival
+      ? (altitudeInputs[visualArrival.id]
+        ?? String(visualArrival.planned_altitude_ft_msl)).trim()
+      : "";
+    const visualArrivalAltitude = Number(visualArrivalInput);
+    const visualArrivalInputIsValid = Boolean(
+      visualArrival
+      && visualArrivalInput
+      && Number.isFinite(visualArrivalAltitude)
+      && visualArrivalAltitude >= 100
+      && visualArrivalAltitude <= 25000
+      && visualArrivalAltitude % 100 === 0,
+    );
+    const requestedPatternAltitude = payload.selected_pattern_altitude_ft_msl;
+    const appliedPatternAltitude = state?.project
+      ?.metadata.ui_state?.arrival_plan?.selected_pattern_altitude_ft_msl;
+    const syncDerivedArrival = visualArrivalInputIsValid
+      && typeof requestedPatternAltitude === "number"
+      && requestedPatternAltitude !== appliedPatternAltitude;
+    return new Promise((resolve) => {
+      const running = draftAutosaveRunningRef.current;
+      if (
+        !force
+        && running?.projectId === projectId
+        && running.generation === generation
+      ) {
+        running.waiters.push(resolve);
+        return;
+      }
+      const queued = draftAutosaveQueuedRef.current;
+      if (queued?.projectId === projectId) {
+        queued.generation = generation;
+        queued.payload = payload;
+        queued.useCanonicalFallback = useCanonicalFallback;
+        queued.syncDerivedArrival = syncDerivedArrival;
+        queued.waiters.push(resolve);
+      } else {
+        draftAutosaveQueuedRef.current = {
+          generation,
+          projectId,
+          payload,
+          useCanonicalFallback,
+          syncDerivedArrival,
+          waiters: [resolve],
+        };
+      }
+      drainDraftAutosaves();
+    });
+  };
+
+  const flushDraftAutosave = async (strict: boolean): Promise<boolean> => {
+    if (draftAutosaveTimerRef.current !== null) {
+      window.clearTimeout(draftAutosaveTimerRef.current);
+      draftAutosaveTimerRef.current = null;
+    }
+    return enqueueDraftAutosave(
+      draftAutosaveGenerationRef.current,
+      !strict,
+      strict,
+    );
+  };
+
+  const waitForDraftAutosaves = async (): Promise<void> => {
+    while (
+      draftAutosaveDrainRef.current
+      || draftAutosaveRunningRef.current
+      || draftAutosaveQueuedRef.current
+    ) {
+      if (!draftAutosaveDrainRef.current && draftAutosaveQueuedRef.current) {
+        drainDraftAutosaves();
+      }
+      const drain = draftAutosaveDrainRef.current;
+      if (drain) await drain;
+    }
+  };
+
+  const discardPendingDraftAutosave = async (): Promise<void> => {
+    if (draftAutosaveTimerRef.current !== null) {
+      window.clearTimeout(draftAutosaveTimerRef.current);
+      draftAutosaveTimerRef.current = null;
+    }
+    draftAutosaveGenerationRef.current += 1;
+    setDraftAutosaveVersion(0);
+    await waitForDraftAutosaves();
+  };
+
+  useEffect(() => {
+    if (draftAutosaveVersion === 0 || !state?.project) return;
+    if (draftAutosaveTimerRef.current !== null) {
+      window.clearTimeout(draftAutosaveTimerRef.current);
+    }
+    const generation = draftAutosaveVersion;
+    draftAutosaveTimerRef.current = window.setTimeout(() => {
+      draftAutosaveTimerRef.current = null;
+      try {
+        void enqueueDraftAutosave(generation, true).catch(showDraftAutosaveFailure);
+      } catch {
+        showDraftAutosaveFailure();
+      }
+    }, 300);
+    return () => {
+      if (draftAutosaveTimerRef.current !== null) {
+        window.clearTimeout(draftAutosaveTimerRef.current);
+        draftAutosaveTimerRef.current = null;
+      }
+    };
+  }, [draftAutosaveVersion, state?.project?.id]);
 
   const destinationPatternProjectBasis = state ? patternRequestBasis(state) : null;
   const destinationPatternProjectId = state?.project?.id ?? null;
@@ -690,6 +981,7 @@ function App() {
   useEffect(() => {
     const selectedPattern = patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl);
     if (
+      !destinationPatternRecalculates ||
       destinationPatternProjectBasis === null ||
       destinationPatternProjectId === null ||
       destinationPatternDestinationId === null ||
@@ -698,6 +990,7 @@ function App() {
       selectedPattern === destinationPatternApplied
     ) return;
     const requestGeneration = destinationPatternGenerationRef.current;
+    const calculationGeneration = calculationInputGenerationRef.current;
     const requestBasis = destinationPatternProjectBasis;
     let cancelled = false;
     const timeout = window.setTimeout(() => {
@@ -706,6 +999,7 @@ function App() {
           if (
             cancelled ||
             requestGeneration !== destinationPatternGenerationRef.current ||
+            calculationGeneration !== calculationInputGenerationRef.current ||
             requestBasis !== destinationPatternBasisRef.current
           ) return;
           try {
@@ -719,6 +1013,7 @@ function App() {
             if (
               cancelled ||
               requestGeneration !== destinationPatternGenerationRef.current ||
+              calculationGeneration !== calculationInputGenerationRef.current ||
               requestBasis !== destinationPatternBasisRef.current ||
               patternRequestBasis(next) !== requestBasis
             ) return;
@@ -727,6 +1022,7 @@ function App() {
             if (
               cancelled ||
               requestGeneration !== destinationPatternGenerationRef.current ||
+              calculationGeneration !== calculationInputGenerationRef.current ||
               requestBasis !== destinationPatternBasisRef.current
             ) return;
             setError(
@@ -853,12 +1149,11 @@ function App() {
 
   const handleCalculate = async () => {
     cancelPendingRecalculation();
+    invalidateDestinationPatternRequests();
     setCalculationProgress({ percent: 0, message: "計算を開始しています。" });
     const calculated = await run(async () => {
-      await api.request<WebState>("/api/project", {
-        method: "PUT",
-        body: updatePayload(),
-      });
+      const saved = await flushDraftAutosave(true);
+      if (!saved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
       return api.calculate(setCalculationProgress);
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
       syncCalculationInputs: true,
@@ -877,12 +1172,16 @@ function App() {
 
   const handleSave = async (name: string) => {
     if (!state?.project) return;
+    invalidateDestinationPatternRequests();
     const saved = await run(
-      () =>
-        api.request<WebState>("/api/projects/save", {
+      async () => {
+        const draftSaved = await flushDraftAutosave(true);
+        if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
+        return api.request<WebState>("/api/projects/save", {
           method: "POST",
           body: { name },
-        }),
+        });
+      },
       "Projectをローカルへ保存しました。",
     );
     if (saved?.project) setProjectName(saved.project.name);
@@ -905,11 +1204,14 @@ function App() {
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
     const loaded = await run(
-      () =>
-        api.request<WebState>("/api/projects/load", {
+      async () => {
+        const draftSaved = await flushDraftAutosave(false);
+        if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
+        return api.request<WebState>("/api/projects/load", {
           method: "POST",
           body: { project_id: selectedProjectId },
-        }),
+        });
+      },
       undefined,
       { syncCalculationInputs: true },
     );
@@ -931,10 +1233,19 @@ function App() {
     }
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
+    const deletingCurrentProject = selectedProjectId === state?.project?.id;
     const deleted = await runTask(
-      () => api.request<WebState>(`/api/projects/${encodeURIComponent(selectedProjectId)}`, {
-        method: "DELETE",
-      }),
+      async () => {
+        if (deletingCurrentProject) {
+          await discardPendingDraftAutosave();
+        } else {
+          const draftSaved = await flushDraftAutosave(false);
+          if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
+        }
+        return api.request<WebState>(`/api/projects/${encodeURIComponent(selectedProjectId)}`, {
+          method: "DELETE",
+        });
+      },
       { success: "保存済みProjectを削除しました。", fallbackError: "削除できませんでした。" },
     );
     if (deleted) {
@@ -951,6 +1262,8 @@ function App() {
     invalidateDestinationPatternRequests();
     const reset = await runTask(
       async () => {
+        const draftSaved = await flushDraftAutosave(false);
+        if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
         await api.resetSession();
         return true;
       },
@@ -1106,7 +1419,9 @@ function App() {
           onAltitudeInputChange={handleAltitudeInputChange}
           onDestinationPatternAltitudeChange={(value) => {
             invalidateDestinationPatternRequests();
-            setTrackedForm((current) => ({
+            invalidateCalculationInputs();
+            if (!state?.outcome) markDraftForAutosave();
+            setForm((current) => ({
               ...current,
               destinationPatternAltitudeFtMsl: value,
             }));

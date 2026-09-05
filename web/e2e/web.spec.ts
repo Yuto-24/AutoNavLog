@@ -1512,6 +1512,297 @@ test("autosaved last-good calculation survives reload and cookie loss until expl
   expect(pageErrors).toEqual([]);
 });
 
+test("valid planning drafts autosave before calculation and coalesce rapid edits", async ({
+  context,
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("/");
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const routeAltitudes = page.locator(
+    ".route-table tbody tr:not(.vrep-row) .table-number-input",
+  );
+  await expect(routeAltitudes).toHaveCount(3);
+  const requests: Array<Record<string, unknown>> = [];
+  let releaseFirstResponse = () => {};
+  let markFirstResponseReady = () => {};
+  const firstResponseReleased = new Promise<void>((resolve) => {
+    releaseFirstResponse = resolve;
+  });
+  const firstResponseReady = new Promise<void>((resolve) => {
+    markFirstResponseReady = resolve;
+  });
+  await page.route("**/api/project", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.continue();
+      return;
+    }
+    requests.push(route.request().postDataJSON() as Record<string, unknown>);
+    if (requests.length === 1) {
+      const response = await route.fetch();
+      markFirstResponseReady();
+      await firstResponseReleased;
+      await route.fulfill({ response });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.getByLabel("FUEL gal").fill("80");
+  await firstResponseReady;
+  const firstPayload = requests[0] as {
+    sections: Array<{ planned_altitude_ft_msl: number }>;
+  };
+  const canonicalSecondAltitude = firstPayload.sections[1]?.planned_altitude_ft_msl;
+  await page.getByLabel("FUEL gal").fill("81");
+  await page.getByLabel("FUEL gal").fill("77.5");
+  await page.getByLabel("ETD JST").fill("10:10");
+  await page.getByLabel("ETD JST").fill("10:15");
+  await routeAltitudes.first().fill("4500");
+  await routeAltitudes.first().fill("5500");
+  await routeAltitudes.nth(1).fill("");
+  await page.waitForTimeout(350);
+  expect(requests).toHaveLength(1);
+
+  const coalescedResponse = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as Record<string, unknown>;
+    return body.total_usable_fuel_gal === 77.5;
+  });
+  releaseFirstResponse();
+  const coalesced = await coalescedResponse;
+  const coalescedPayload = coalesced.request().postDataJSON() as {
+    departure_time_jst: string;
+    sections: Array<{ planned_altitude_ft_msl: number }>;
+  };
+  expect(coalescedPayload.departure_time_jst).toBe("10:15");
+  expect(coalescedPayload.sections[0]?.planned_altitude_ft_msl).toBe(5500);
+  expect(coalescedPayload.sections[1]?.planned_altitude_ft_msl).toBe(
+    canonicalSecondAltitude,
+  );
+
+  const correctedResponse = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as {
+      sections?: Array<{ planned_altitude_ft_msl: number }>;
+    };
+    return body.sections?.[1]?.planned_altitude_ft_msl === 6500;
+  });
+  await routeAltitudes.nth(1).fill("6500");
+  await correctedResponse;
+
+  await page.reload();
+  await expect(page.getByLabel("FUEL gal")).toHaveValue("77.5");
+  await expect(page.getByLabel("ETD JST")).toHaveValue("10:15");
+  await expect(routeAltitudes.first()).toHaveValue("5500");
+  await expect(routeAltitudes.nth(1)).toHaveValue("6500");
+  await expect(page.getByLabel("計算済みNAV LOG")).toHaveCount(0);
+
+  await context.clearCookies();
+  await page.reload();
+  await expect(page.getByLabel("FUEL gal")).toHaveValue("77.5");
+  await expect(page.getByLabel("ETD JST")).toHaveValue("10:15");
+  await expect(routeAltitudes.first()).toHaveValue("5500");
+  await expect(routeAltitudes.nth(1)).toHaveValue("6500");
+  await expect(page.getByLabel("計算済みNAV LOG")).toHaveCount(0);
+
+  let checkpointRequested = false;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/projects/save")) {
+      checkpointRequested = true;
+    }
+  });
+  await routeAltitudes.nth(1).fill("");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "すべてのLegに計画高度を入力してください",
+  );
+  expect(checkpointRequested).toBe(false);
+  await expect(routeAltitudes.nth(1)).toHaveValue("");
+  await page.reload();
+  await expect(routeAltitudes.nth(1)).toHaveValue("6500");
+  expect(pageErrors).toEqual([]);
+});
+
+test("draft autosave failure keeps the local value and a manual save flushes its retry", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+  const routeAltitudes = page.locator(
+    ".route-table tbody tr:not(.vrep-row) .table-number-input",
+  );
+  await expect(routeAltitudes).toHaveCount(3);
+  const altitudeSaved = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as {
+      sections?: Array<{ phase: string; planned_altitude_ft_msl: number }>;
+    };
+    const editableSections = body.sections?.filter(
+      (section) => section.phase !== "VISUAL_ARRIVAL",
+    );
+    return Boolean(
+      editableSections?.length
+      && editableSections.every((section) => section.planned_altitude_ft_msl === 4500),
+    );
+  });
+  for (let index = 0; index < await routeAltitudes.count(); index += 1) {
+    await routeAltitudes.nth(index).fill("4500");
+  }
+  await altitudeSaved;
+
+  await page.route("**/api/project", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "TEST_AUTOSAVE_FAILURE", message: "failure" } }),
+    });
+  }, { times: 1 });
+  const fuel = page.getByLabel("FUEL gal");
+  await fuel.fill("76");
+  await expect(page.getByRole("alert")).toContainText("Projectを自動保存できませんでした");
+  await expect(fuel).toHaveValue("76");
+
+  const requestOrder: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "PUT" && request.url().endsWith("/api/project")) {
+      requestOrder.push("draft");
+    }
+    if (request.method() === "POST" && request.url().endsWith("/api/projects/save")) {
+      requestOrder.push("checkpoint");
+    }
+  });
+  const saved = page.waitForResponse(
+    (response) => response.url().endsWith("/api/projects/save") && response.ok(),
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saved;
+  expect(requestOrder.slice(-2)).toEqual(["draft", "checkpoint"]);
+  await page.reload();
+  await expect(fuel).toHaveValue("76");
+});
+
+test("manual save flushes a pending destination pattern exactly once before checkpoint", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const routeAltitudes = page.locator(
+    ".route-table tbody tr:not(.vrep-row) .table-number-input",
+  );
+  await expect(routeAltitudes).toHaveCount(3);
+  const altitudeSaved = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as {
+      sections?: Array<{ phase: string; planned_altitude_ft_msl: number }>;
+    };
+    const editableSections = body.sections?.filter(
+      (section) => section.phase !== "VISUAL_ARRIVAL",
+    );
+    return Boolean(
+      editableSections?.length
+      && editableSections.every((section) => section.planned_altitude_ft_msl === 4500),
+    );
+  });
+  for (let index = 0; index < await routeAltitudes.count(); index += 1) {
+    await routeAltitudes.nth(index).fill("4500");
+  }
+  await altitudeSaved;
+
+  const requestOrder: string[] = [];
+  const draftPayloads: Record<string, unknown>[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "PUT" && request.url().endsWith("/api/project")) {
+      requestOrder.push("draft");
+      draftPayloads.push(request.postDataJSON() as Record<string, unknown>);
+    }
+    if (request.method() === "POST" && request.url().endsWith("/api/projects/save")) {
+      requestOrder.push("checkpoint");
+    }
+  });
+  const patternAltitude = page.getByLabel("今回採用する場周経路高度");
+  await patternAltitude.fill("1300");
+  const saved = page.waitForResponse(
+    (response) => response.url().endsWith("/api/projects/save") && response.ok(),
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saved;
+  await page.waitForTimeout(700);
+
+  expect(requestOrder).toEqual(["draft", "checkpoint"]);
+  expect(draftPayloads).toHaveLength(1);
+  expect(draftPayloads[0]?.selected_pattern_altitude_ft_msl).toBe(1300);
+  await page.reload();
+  await expect(patternAltitude).toHaveValue("1300");
+});
+
+test("a newer planning edit prevents a pending destination recalculation transaction", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await calculateNavLog(page, false, false, true);
+
+  let releaseAutosave = () => {};
+  let markAutosaveReady = () => {};
+  const autosaveReleased = new Promise<void>((resolve) => {
+    releaseAutosave = resolve;
+  });
+  const autosaveReady = new Promise<Record<string, unknown>>((resolve) => {
+    markAutosaveReady = () => resolve({});
+  });
+  let autosavePayload: Record<string, unknown> | null = null;
+  await page.route("**/api/project", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.continue();
+      return;
+    }
+    autosavePayload = route.request().postDataJSON() as Record<string, unknown>;
+    const response = await route.fetch();
+    markAutosaveReady();
+    await autosaveReleased;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  const recalculationRequests: Record<string, unknown>[] = [];
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST"
+      && request.url().endsWith("/api/project/recalculate")
+    ) {
+      recalculationRequests.push(request.postDataJSON() as Record<string, unknown>);
+    }
+  });
+
+  await page.getByLabel("今回採用する場周経路高度").fill("1400");
+  await page.waitForTimeout(100);
+  await page.getByLabel("FUEL gal").fill("89");
+  await autosaveReady;
+  await page.waitForTimeout(350);
+
+  expect(recalculationRequests).toHaveLength(0);
+  expect(autosavePayload?.selected_pattern_altitude_ft_msl).toBe(1400);
+  expect(autosavePayload?.total_usable_fuel_gal).toBe(89);
+  const autosaveCompleted = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project")
+      && response.request().method() === "PUT",
+  );
+  releaseAutosave();
+  await autosaveCompleted;
+  await expect(page.getByLabel("FUEL gal")).toHaveValue("89");
+});
+
 test("edited VREP altitude reaches the calculation request and NAV LOG", async ({ page }) => {
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
@@ -1672,6 +1963,23 @@ test("stale destination pattern response cannot overwrite a loaded project or du
     });
   }, { times: 1 });
   await page.reload();
+
+  await page.route("**/api/project", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const updated = await response.json() as WebState;
+    await route.fulfill({
+      response,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...updated,
+        savedProjects: replacementState.savedProjects,
+      }),
+    });
+  }, { times: 1 });
 
   let releaseFirstResponse = () => {};
   let markFirstResponseReady = () => {};
@@ -3508,6 +3816,28 @@ test("RUN UP, nose fairing, and A/C choices persist after save and reload", asyn
   expect(state.project?.run_up_included).toBe(false);
   expect(state.project?.nose_fairing_enabled).toBe(true);
   expect(state.project?.air_conditioning_enabled).toBe(false);
+
+  const routeAltitudes = page.locator(
+    ".route-table tbody tr:not(.vrep-row) .table-number-input",
+  );
+  await expect(routeAltitudes).toHaveCount(3);
+  const altitudeSaved = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as {
+      sections?: Array<{ phase: string; planned_altitude_ft_msl: number }>;
+    };
+    const editableSections = body.sections?.filter(
+      (section) => section.phase !== "VISUAL_ARRIVAL",
+    );
+    return Boolean(
+      editableSections?.length
+      && editableSections.every((section) => section.planned_altitude_ft_msl === 4500),
+    );
+  });
+  for (let index = 0; index < await routeAltitudes.count(); index += 1) {
+    await routeAltitudes.nth(index).fill("4500");
+  }
+  await altitudeSaved;
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();

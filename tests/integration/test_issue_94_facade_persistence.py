@@ -362,6 +362,33 @@ def test_explicit_save_does_not_publish_checkpoint_when_draft_write_fails(
     assert not (storage_root / "projects" / str(project_id) / "project.json").exists()
 
 
+def test_project_update_does_not_commit_session_when_draft_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = _application(tmp_path / "storage")
+    session, state = _new_project(application)
+    assert session.project is not None
+    project_id = session.project.id
+    original_session_project = session.project.model_copy(deep=True)
+    original_stored_project = application.project_service.load(project_id)
+
+    def fail_autosave(*_args: object, **_kwargs: object) -> None:
+        raise OSError("injected autosave failure")
+
+    monkeypatch.setattr(application.project_service, "autosave", fail_autosave)
+
+    with pytest.raises(WebApplicationError) as error:
+        application.update_project(
+            session,
+            _update_request(state["project"], fuel_gal=75),
+        )
+
+    assert error.value.code == "PROJECT_PERSISTENCE_FAILED"
+    assert session.project == original_session_project
+    assert application.project_service.load(project_id) == original_stored_project
+
+
 def test_delete_failure_keeps_project_session_and_last_opened_marker(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -905,6 +905,115 @@ def _without_route_labels(value: object) -> object:
 
 
 @pytest.mark.anyio
+async def test_uncalculated_project_update_restores_draft_without_checkpoint(
+    tmp_path: Path,
+) -> None:
+    storage_root = tmp_path / "storage"
+    config = WebRuntimeConfig(
+        data_root=ROOT / "data",
+        storage_root=storage_root,
+        weather_mode="fake",
+        trusted_local_identity="draft-restore-test-user",
+    )
+    app = create_app(config)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        assert (
+            await client.post(
+                "/api/import",
+                json={"filename": "route.kml", "kml_text": KML},
+            )
+        ).status_code == 200
+        confirmed = await client.post("/api/route/confirm", json=_route_payload())
+        assert confirmed.status_code == 200, confirmed.text
+        initial_project = confirmed.json()["project"]
+
+        payload = _update_payload(initial_project, fuel_gal=72.5)
+        payload.update(
+            {
+                "flight_date": "2099-09-12",
+                "departure_time_jst": "14:35",
+                "pilot_name": "Draft Pilot",
+                "ship_identifier": "JA94DL",
+                "default_variation_deg_east": 7.25,
+                "weather_mode": "FTD",
+                "ftd_weather": {
+                    "surface_wind": {"direction_deg_from": 210, "speed_kt": 12},
+                    "wind_at_5000_ft": {
+                        "direction_deg_from": 260,
+                        "speed_kt": 24,
+                    },
+                },
+                "run_up_included": False,
+                "nose_fairing_enabled": True,
+                "air_conditioning_enabled": False,
+                "descent_rate_fpm": 1000,
+                "tgl_count": 3,
+                "defaults_confirmed": True,
+            }
+        )
+        sections = payload["sections"]
+        assert isinstance(sections, list)
+        first_section = sections[0]
+        assert isinstance(first_section, dict)
+        first_section["planned_altitude_ft_msl"] = 4500
+
+        updated_response = await client.put("/api/project", json=payload)
+        assert updated_response.status_code == 200, updated_response.text
+        updated = updated_response.json()
+        project_id = updated["project"]["id"]
+        initial_revision = initial_project["revision"]
+        assert updated["project"]["revision"] == initial_revision
+        assert updated["project"]["planned_departure_time_jst"] == "2099-09-12T14:35:00+09:00"
+        assert updated["project"]["total_usable_fuel_gal"] == 72.5
+        assert updated["project"]["sections"][0]["planned_altitude_ft_msl"] == 4500
+        assert updated["project"]["weather_mode"] == "FTD"
+        assert updated["project"]["ftd_weather"] == payload["ftd_weather"]
+        assert updated["outcome"] is None
+        assert updated["destinationWind"] is None
+
+        invalid_response = await client.put(
+            "/api/project",
+            json=payload | {"total_usable_fuel_gal": 0},
+        )
+        assert invalid_response.status_code == 422, invalid_response.text
+        unchanged = (await client.get("/api/state")).json()
+        assert unchanged["project"] == updated["project"]
+        assert unchanged["outcome"] is None
+        assert unchanged["destinationWind"] is None
+
+    project_dir = storage_root / "projects" / project_id
+    assert (project_dir / "autosave.json").is_file()
+    assert not (project_dir / "project.json").exists()
+    assert not (project_dir / "last-calculation.json").exists()
+
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as fresh:
+        restored_response = await fresh.post("/api/session")
+        assert restored_response.status_code == 200, restored_response.text
+        restored = restored_response.json()["state"]
+        assert restored["project"] == updated["project"]
+        assert restored["project"]["revision"] == initial_revision
+        assert restored["outcome"] is None
+        assert restored["destinationWind"] is None
+
+    restarted = create_app(config)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=restarted),
+        base_url="https://test",
+    ) as after_restart:
+        restored_response = await after_restart.post("/api/session")
+        assert restored_response.status_code == 200, restored_response.text
+        restored = restored_response.json()["state"]
+        assert restored["project"] == updated["project"]
+        assert restored["project"]["revision"] == initial_revision
+        assert restored["outcome"] is None
+        assert restored["destinationWind"] is None
+
+    assert not (project_dir / "last-calculation.json").exists()
+
+
+@pytest.mark.anyio
 async def test_autosaved_last_good_restores_without_cookie_or_server_session(
     tmp_path: Path,
 ) -> None:
