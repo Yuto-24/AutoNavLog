@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from autonavlog.domain.calculation import Issue
+from autonavlog.domain.calculation import Issue, RjfmInboundGuidance
 from autonavlog.domain.enums import IssueSeverity
 from autonavlog.importers.kml import import_kml_text
 from autonavlog.web.facade import AutoNavLogWebApplication, WebApplicationError
@@ -296,6 +296,48 @@ def test_forecast_identity_metadata_and_warning_outcome_are_persisted(
     )
     assert updated_record is not None
     assert any(issue.code == "TEST_WARNING" for issue in updated_record.outcome.issues)
+
+
+def test_inbound_presentation_keeps_warnings_and_redacts_unsafe_available_values(
+    tmp_path: Path,
+) -> None:
+    application = _application(tmp_path / "storage")
+    session, _ = _new_project(application)
+    application.calculate(session)
+    assert session.outcome is not None
+
+    unavailable = RjfmInboundGuidance(
+        status="UNAVAILABLE",
+        reason_code="REFERENCE_LOAD_FAILED",
+        message="reference unavailable",
+        generated_against_fingerprint="a" * 64,
+    )
+    session.outcome = session.outcome.model_copy(
+        update={"rjfm_inbound_guidance": unavailable}
+    )
+    warning_state = application.present(session)
+    assert warning_state["outcome"]["rjfm_inbound_guidance"] == unavailable.model_dump(
+        mode="json"
+    )
+
+    unsafe_available = RjfmInboundGuidance(
+        status="AVAILABLE",
+        message="unsafe stale numerics",
+        generated_against_fingerprint="b" * 64,
+        reference_revision="wrong-reference",
+        reference_content_fingerprint="c" * 64,
+        rounded_dme_nm=12.5,
+        rounded_turn_altitude_ft_msl=3200,
+    )
+    session.outcome = session.outcome.model_copy(
+        update={"rjfm_inbound_guidance": unsafe_available}
+    )
+    redacted_state = application.present(session)
+    redacted = redacted_state["outcome"]["rjfm_inbound_guidance"]
+    assert redacted["status"] == "AVAILABLE"
+    assert redacted["message"] == "unsafe stale numerics"
+    assert redacted["rounded_dme_nm"] is None
+    assert redacted["rounded_turn_altitude_ft_msl"] is None
 
 
 def test_explicit_save_does_not_publish_checkpoint_when_draft_write_fails(

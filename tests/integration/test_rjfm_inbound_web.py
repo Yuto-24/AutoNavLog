@@ -8,22 +8,34 @@ import httpx
 import pytest
 
 from autonavlog.domain.calculation import RjfmInboundGuidance
-from autonavlog.storage.rjfm_inbound_reference import RjfmInboundReferenceError
+from autonavlog.storage.rjfm_inbound_reference import (
+    RjfmInboundGuidanceReference,
+    RjfmInboundReferenceError,
+)
 from autonavlog.web.app import create_app
 from autonavlog.web.runtime import WebRuntimeConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _synthetic_available_inbound_guidance(*_args: object, **_kwargs: object) -> RjfmInboundGuidance:
+def _synthetic_available_inbound_guidance(
+    _project: object,
+    _outcome: object,
+    _state: object,
+    reference: RjfmInboundGuidanceReference | None,
+    *,
+    generated_against_fingerprint: str,
+    **_kwargs: object,
+) -> RjfmInboundGuidance:
     """API contract fixture; production reference tests use the signed v2 pack."""
 
+    assert reference is not None
     return RjfmInboundGuidance(
         status="AVAILABLE",
         message="Synthetic west-extension guidance.",
-        generated_against_fingerprint="a" * 64,
-        reference_revision="synthetic-primary-v1",
-        reference_content_fingerprint="b" * 64,
+        generated_against_fingerprint=generated_against_fingerprint,
+        reference_revision=reference.revision,
+        reference_content_fingerprint=reference.content_fingerprint,
         raw_turn_point={"latitude_deg": 32.0, "longitude_deg": 131.0},
         rounded_turn_point={"latitude_deg": 32.01, "longitude_deg": 131.01},
         bearing_magnetic_deg=270.0,
@@ -157,6 +169,8 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         }
 
         calculated = await _wait_for_calculation(client)
+        current_reference = app.state.web_application.rjfm_inbound_guidance_reference
+        assert current_reference is not None
         calculated_project = calculated["project"]
         calculated_nodes = sorted(
             calculated_project["route_nodes"], key=lambda node: node["sequence"]
@@ -179,7 +193,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         assert inbound_guidance is not None
         assert inbound_guidance["status"] == "AVAILABLE"
         assert inbound_guidance["rounded_dme_nm"] == 12.5
-        assert inbound_guidance["reference_revision"] == "synthetic-primary-v1"
+        assert inbound_guidance["reference_revision"] == current_reference.revision
         eoc = [point for point in calculated["outcome"]["derived_points"] if point["type"] == "EOC"]
         assert len(eoc) == 1
         assert eoc[0]["latitude_deg"] == pytest.approx(31.985137767624444)
@@ -200,7 +214,8 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         assert loaded.status_code == 200, loaded.text
         loaded_state = loaded.json()
         loaded_project = loaded_state["project"]
-        assert loaded_state["outcome"] is None
+        assert loaded_state["outcome"]["project_id"] == saved_project["id"]
+        assert loaded_state["readiness"]["calculationIsCurrent"] is True
         assert loaded_project["weather_mode"] == "FTD"
         assert loaded_project["ftd_weather"] == calculated_project["ftd_weather"]
         assert loaded_project["metadata"]["ui_state"]["state_schema_version"] == 7
@@ -229,7 +244,11 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         )
         assert changed.status_code == 200, changed.text
         changed_state = changed.json()
-        assert changed_state["outcome"] is None
+        assert changed_state["outcome"]["project_id"] == saved_project["id"]
+        stale_guidance = changed_state["outcome"]["rjfm_inbound_guidance"]
+        assert stale_guidance is not None
+        assert stale_guidance["status"] == "AVAILABLE"
+        assert stale_guidance["rounded_dme_nm"] is None
         assert not changed_state["readiness"]["calculationIsCurrent"]
         assert changed_state["project"]["metadata"]["ui_state"]["state_schema_version"] == 7
         assert changed_state["project"]["metadata"]["ui_state"]["rjfm_inbound_plan"] == plan

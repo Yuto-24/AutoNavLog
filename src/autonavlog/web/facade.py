@@ -112,6 +112,22 @@ JST = ZoneInfo("Asia/Tokyo")
 RouteEntry = tuple[str, float, float, str, RouteNodeNameSource]
 ROUTE_EDITOR_VREP_REASON = "経路画面で指定したVREP計画高度"
 LOGGER = logging.getLogger(__name__)
+_RJFM_INBOUND_NUMERIC_FIELDS = (
+    "raw_turn_point",
+    "rounded_turn_point",
+    "bearing_magnetic_deg",
+    "actual_bearing_magnetic_deg",
+    "raw_extra_distance_nm",
+    "extra_distance_nm",
+    "raw_predicted_ete_min",
+    "predicted_ete_min",
+    "raw_dme_nm",
+    "rounded_dme_nm",
+    "raw_turn_altitude_ft_msl",
+    "rounded_turn_altitude_ft_msl",
+    "raw_minimum_boundary_clearance_nm",
+    "minimum_boundary_clearance_nm",
+)
 
 
 ISSUE_ACTIONS: dict[str, str] = {
@@ -1098,6 +1114,8 @@ class AutoNavLogWebApplication:
         if project is None or outcome is None or outcome.rjfm_inbound_guidance is None:
             return outcome
         guidance = outcome.rjfm_inbound_guidance
+        if guidance.status != "AVAILABLE":
+            return outcome
         reference = self.rjfm_inbound_guidance_reference
         raw_ui_state = project.metadata.get("ui_state")
         calculated_fingerprint = (
@@ -1114,7 +1132,10 @@ class AutoNavLogWebApplication:
         )
         if safe:
             return outcome
-        return outcome.model_copy(update={"rjfm_inbound_guidance": None})
+        redacted = guidance.model_copy(
+            update={field: None for field in _RJFM_INBOUND_NUMERIC_FIELDS}
+        )
+        return outcome.model_copy(update={"rjfm_inbound_guidance": redacted})
 
     def present(self, session: WebSession) -> dict[str, Any]:
         with session.lock:

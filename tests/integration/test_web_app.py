@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import httpx
@@ -376,7 +377,6 @@ async def test_web_route_calculation_save_and_fail_closed_state(
         assert edited_result["temperature_c"]["automatic_value"] is not None
         assert edited_result["wind_speed_kt"]["automatic_value"] is not None
 
-        last_good_project = recalculated_state["project"]
         last_good_outcome = recalculated_state["outcome"]
         web = app.state.web_application
         token = client.cookies.get("autonavlog_session")
@@ -394,8 +394,9 @@ async def test_web_route_calculation_save_and_fail_closed_state(
         assert failed.status_code == 400
         assert failed.json()["error"]["code"] == "TEST_CALCULATION_FAILED"
         after_failure = (await client.get("/api/state")).json()
-        assert after_failure["project"] == last_good_project
+        assert after_failure["project"]["total_usable_fuel_gal"] == 89
         assert after_failure["outcome"] == last_good_outcome
+        assert after_failure["readiness"]["calculationIsCurrent"] is False
 
         blocked = await client.get("/api/transfer-aid")
         assert blocked.status_code == 404
@@ -644,7 +645,7 @@ async def test_ftd_mode_calculates_with_fixed_wind_and_isa_without_fake_weather_
 
 
 @pytest.mark.anyio
-async def test_checkpoint_crud_previews_projection_and_persists_on_saved_project(
+async def test_checkpoint_crud_previews_projection_and_autosave_remains_authoritative(
     tmp_path: Path,
 ) -> None:
     app = create_app(
@@ -703,6 +704,11 @@ async def test_checkpoint_crud_previews_projection_and_persists_on_saved_project
         saved = await client.post("/api/projects/save", json={"name": "cp-route"})
         assert saved.status_code == 200, saved.text
         project_id = saved.json()["project"]["id"]
+        checkpoint_path = (
+            tmp_path / "storage" / "projects" / project_id / "project.json"
+        )
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        assert checkpoint["visual_references"][0]["name"] == "訓練CP改"
         removed = await client.put(
             "/api/project/check-points",
             json={"check_points": []},
@@ -715,8 +721,8 @@ async def test_checkpoint_crud_previews_projection_and_persists_on_saved_project
             json={"project_id": project_id},
         )
         assert loaded.status_code == 200, loaded.text
-        assert loaded.json()["project"]["visual_references"][0]["name"] == "訓練CP改"
-        assert len(loaded.json()["checkPointPlanning"]["projections"]) == 1
+        assert loaded.json()["project"]["visual_references"] == []
+        assert loaded.json()["checkPointPlanning"]["projections"] == []
 
 
 @pytest.mark.anyio
