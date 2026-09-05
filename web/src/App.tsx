@@ -164,6 +164,11 @@ function App() {
     destinationPatternBasisRef.current = nextPatternBasis;
     if (projectChanged || initialState) {
       setProjectName(next.project?.name ?? "未保存の新規作業");
+      setSelectedProjectId(
+        nextProjectId && next.savedProjects.some((project) => project.id === nextProjectId)
+          ? nextProjectId
+          : "",
+      );
     }
     setState((current) => {
       if (
@@ -247,7 +252,17 @@ function App() {
     api
       .bootstrap()
       .then((next) => {
-        if (active) applyState(next);
+        if (!active) return;
+        applyState(next);
+        if (next.project) {
+          setNotice(
+            next.outcome
+              ? next.readiness.calculationIsCurrent
+                ? "最後に開いたProjectと最後の計算結果を復元しました。"
+                : "最後に開いたProjectと直前の計算結果を復元しました。入力が変更されているため再計算してください。"
+              : "最後に開いたProjectを復元しました。NAV LOGを計算してください。",
+          );
+        }
       })
       .catch((reason: unknown) => {
         if (active) setError(reason instanceof Error ? reason.message : "起動に失敗しました。");
@@ -889,14 +904,22 @@ function App() {
     if (!selectedProjectId) return;
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
-    await run(
+    const loaded = await run(
       () =>
         api.request<WebState>("/api/projects/load", {
           method: "POST",
           body: { project_id: selectedProjectId },
         }),
-      "保存済みProjectを開きました。再計算してください。",
+      undefined,
       { syncCalculationInputs: true },
+    );
+    if (!loaded) return;
+    setNotice(
+      loaded.outcome
+        ? loaded.readiness.calculationIsCurrent
+          ? "保存済みProjectと最後の計算結果を開きました。"
+          : "保存済みProjectと直前の計算結果を開きました。入力が変更されているため再計算してください。"
+        : "保存済みProjectを開きました。NAV LOGを計算してください。",
     );
   };
 

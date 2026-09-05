@@ -85,6 +85,11 @@ async function readState(page: Page): Promise<State> {
   });
 }
 
+test.beforeEach(async ({ request }) => {
+  const reset = await request.delete("/api/session");
+  expect(reset.status()).toBe(204);
+});
+
 test("real RJFO inbound KML keeps physical route and places EOC at UMK", async ({ page }, testInfo) => {
   test.setTimeout(120_000);
 

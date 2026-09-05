@@ -1093,7 +1093,9 @@ async function importKmlCandidate(page: Page): Promise<void> {
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, request }) => {
+  const reset = await request.delete("/api/session");
+  expect(reset.status()).toBe(204);
   await installGsiAirspaceRoute(page);
 });
 
@@ -1367,6 +1369,146 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
   await expect(blankCell).toHaveText("");
   await expect(blankCell).not.toHaveClass(/unavailable-value/);
 
+  expect(pageErrors).toEqual([]);
+});
+
+test("autosaved last-good calculation survives reload and cookie loss until explicit delete", async ({
+  context,
+  page,
+}, testInfo) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  const initiallyHasProject = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return ((await response.json()) as WebState).project !== null;
+  });
+  if (initiallyHasProject) page.once("dialog", (dialog) => dialog.accept());
+  await Promise.all([
+    page.waitForNavigation(),
+    page.getByRole("button", { name: "新規" }).click(),
+  ]);
+  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return ((await response.json()) as WebState).project;
+  })).toBeNull();
+
+  await calculateNavLog(page, false, false, true);
+  const calculated = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  if (calculated.project === null || calculated.outcome === null) {
+    throw new Error("calculated Project and outcome are required");
+  }
+  const projectId = calculated.project.id;
+  expect(calculated.savedProjects.some((project) => project.id === projectId)).toBe(true);
+  await expect(page.getByLabel("保存済み", { exact: true })).toHaveValue(projectId);
+
+  await page.reload();
+  await expect(page.getByText(
+    "最後に開いたProjectと最後の計算結果を復元しました。",
+    { exact: true },
+  )).toBeVisible();
+  await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
+  await expect(page.getByLabel("保存済み", { exact: true })).toHaveValue(projectId);
+
+  await context.clearCookies();
+  await page.reload();
+  await expect(page.getByText(
+    "最後に開いたProjectと最後の計算結果を復元しました。",
+    { exact: true },
+  )).toBeVisible();
+  await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
+  const cookieRestored = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  expect(cookieRestored.project?.id).toBe(projectId);
+  expect(cookieRestored.outcome).toEqual(calculated.outcome);
+  expect(cookieRestored.destinationWind).toEqual(calculated.destinationWind);
+  await page.screenshot({
+    path: testInfo.outputPath("issue94-cookie-restored.png"),
+    fullPage: true,
+  });
+
+  const stale = await page.evaluate(async () => {
+    const stateResponse = await fetch("/api/state");
+    if (!stateResponse.ok) throw new Error(`state request failed: ${stateResponse.status}`);
+    const state = await stateResponse.json() as WebState;
+    const project = state.project;
+    if (project === null) throw new Error("Project is missing");
+    const arrival = project.metadata.ui_state?.arrival_plan ?? null;
+    const response = await fetch("/api/project", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        flight_date: project.flight_date,
+        departure_time_jst: project.planned_departure_time_jst.slice(11, 16),
+        pilot_name: project.pilot_name,
+        ship_identifier: project.ship_identifier,
+        total_usable_fuel_gal: project.total_usable_fuel_gal - 1,
+        default_variation_deg_east: project.default_variation_deg_east,
+        weather_mode: project.weather_mode,
+        ftd_weather: project.ftd_weather,
+        run_up_included: project.run_up_included,
+        nose_fairing_enabled: project.nose_fairing_enabled,
+        air_conditioning_enabled: project.air_conditioning_enabled,
+        descent_rate_fpm: project.descent_rate_fpm,
+        tgl_count: project.tgl_count,
+        sections: project.sections.map((section) => ({
+          section_id: section.id,
+          planned_altitude_ft_msl: section.planned_altitude_ft_msl,
+          phase: section.phase,
+          manual_wind_direction_deg: section.manual_wind_direction_deg,
+          manual_wind_speed_kt: section.manual_wind_speed_kt,
+          manual_wind_by_phase: section.manual_wind_by_phase ?? {},
+          manual_temperature_c: section.manual_temperature_c,
+          manual_temperature_c_by_phase: section.manual_temperature_c_by_phase ?? {},
+          manual_tas_kt: section.manual_tas_kt,
+        })),
+        visual_reporting_point_node_id: arrival?.visual_reporting_point_node_id ?? null,
+        selected_pattern_altitude_ft_msl: arrival?.selected_pattern_altitude_ft_msl ?? null,
+        arrival_altitude_mode: arrival?.altitude_mode ?? "STANDARD_DISTANCE_RULE",
+        manual_vrep_altitude_ft_msl: arrival?.manual_vrep_altitude_ft_msl ?? null,
+        manual_vrep_reason: arrival?.manual_override_reason ?? null,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Project update failed: ${response.status} ${await response.text()}`);
+    }
+    return await response.json() as WebState;
+  });
+  expect(stale.outcome).not.toBeNull();
+  expect(stale.readiness.calculationIsCurrent).toBe(false);
+
+  await page.reload();
+  await expect(page.getByText(
+    "最後に開いたProjectと直前の計算結果を復元しました。入力が変更されているため再計算してください。",
+    { exact: true },
+  )).toBeVisible();
+  await expect(page.getByText("RECALCULATION_REQUIRED", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("issue94-stale-last-good.png"),
+    fullPage: true,
+  });
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "保存済みProjectを削除" }).click();
+  await expect(page.getByText("保存済みProjectを削除しました。", { exact: true })).toBeVisible();
+  await context.clearCookies();
+  await page.reload();
+  await expect(page.getByLabel("計算済みNAV LOG")).toHaveCount(0);
+  await expect(page.getByLabel("保存済み", { exact: true }).locator(
+    `option[value="${projectId}"]`,
+  )).toHaveCount(0);
   expect(pageErrors).toEqual([]);
 });
 

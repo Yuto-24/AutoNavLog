@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -15,7 +16,7 @@ from autonavlog.application.checkpoints import project_check_points
 from autonavlog.application.navlog_display import reproject_route_node_labels
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.readiness import ReadinessEvaluation
-from autonavlog.application.readiness_service import ReadinessService
+from autonavlog.application.readiness_service import MaterializedReadiness, ReadinessService
 from autonavlog.application.rjfm_coordinate_matcher import (
     TRIGGER_TOLERANCE_NM,
     coordinate_distance_nm,
@@ -80,6 +81,7 @@ from autonavlog.storage.reference_data import (
 from autonavlog.storage.repository import ProjectSummary
 from autonavlog.storage.rjfm_inbound_reference import RjfmInboundGuidanceReference
 from autonavlog.storage.rjfm_reference import RjfmReferencePack
+from autonavlog.storage.safe_json import JsonStorageError
 from autonavlog.version import __version__
 from autonavlog.weather.destination_taf import (
     DestinationWindForecast,
@@ -109,6 +111,7 @@ from .models import (
 JST = ZoneInfo("Asia/Tokyo")
 RouteEntry = tuple[str, float, float, str, RouteNodeNameSource]
 ROUTE_EDITOR_VREP_REASON = "経路画面で指定したVREP計画高度"
+LOGGER = logging.getLogger(__name__)
 
 
 ISSUE_ACTIONS: dict[str, str] = {
@@ -166,6 +169,7 @@ class WebSession:
     outcome: CalculationOutcome | None = None
     destination_wind: DestinationWindForecast | None = None
     readiness: ReadinessEvaluation | None = None
+    restore_warning: str | None = None
 
 
 class AutoNavLogWebApplication:
@@ -237,6 +241,7 @@ class AutoNavLogWebApplication:
                     require_defaults_review=False,
                 ),
             )
+            self._restore_last_opened_project(session)
             self._sessions[token] = session
             self._session_order.append(token)
             return session
@@ -261,16 +266,34 @@ class AutoNavLogWebApplication:
             self._session_order.append(token)
             return session
 
-    def invalidate_session(self, token: str, owner_id: str) -> None:
+    def invalidate_session(
+        self,
+        token: str,
+        owner_id: str,
+        *,
+        clear_last_opened: bool = False,
+    ) -> None:
         with self._lock:
             session = self._sessions.get(token)
-            if session is None or not _owner_ids_match(session.owner_id, owner_id):
-                return
-            self._sessions.pop(token, None)
-            try:
-                self._session_order.remove(token)
-            except ValueError:
-                pass
+            if session is not None and _owner_ids_match(session.owner_id, owner_id):
+                self._sessions.pop(token, None)
+                try:
+                    self._session_order.remove(token)
+                except ValueError:
+                    pass
+            if clear_last_opened:
+                self.clear_last_opened_project(owner_id)
+
+    def clear_last_opened_project(self, owner_id: str) -> None:
+        try:
+            self.project_service.clear_last_opened_project(owner_id)
+        except Exception as error:
+            LOGGER.exception("Failed to clear last-opened Project marker")
+            raise WebApplicationError(
+                "PROJECT_PERSISTENCE_FAILED",
+                "Projectの復元情報を更新できませんでした。再試行してください。",
+                status_code=500,
+            ) from error
 
     def accept_import(
         self,
@@ -384,6 +407,8 @@ class AutoNavLogWebApplication:
             if request.defaults_confirmed:
                 session.readiness_service.confirm_defaults(project, None)
             materialized = session.readiness_service.evaluate(project, None)
+            self._persist_draft(session, materialized.project)
+            self._set_last_opened(session, materialized.project.id)
             session.project = materialized.project
             session.outcome = materialized.outcome
             session.readiness = materialized.evaluation
@@ -399,6 +424,7 @@ class AutoNavLogWebApplication:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             working = self._updated_project(session, request)
             materialized = session.readiness_service.evaluate(working, session.outcome)
+            self._persist_draft(session, materialized.project)
             session.project = materialized.project
             session.outcome = materialized.outcome
             if materialized.outcome is None:
@@ -462,6 +488,7 @@ class AutoNavLogWebApplication:
             ]
             working = working.model_copy(update={"visual_references": [*preserved, *replacements]})
             materialized = session.readiness_service.evaluate(working, session.outcome)
+            self._persist_draft(session, materialized.project)
             session.project = materialized.project
             session.outcome = materialized.outcome
             session.readiness = materialized.evaluation
@@ -492,16 +519,24 @@ class AutoNavLogWebApplication:
                     "出発・到着空港の表示名は変更できません。",
                     status_code=409,
                 )
-            previous_name = node.name
-            node.name = name
-            node.name_source = RouteNodeNameSource.USER
+            working = session.project.model_copy(deep=True)
+            working_node = next(item for item in working.route_nodes if item.id == node_id)
+            previous_name = working_node.name
+            working_node.name = name
+            working_node.name_source = RouteNodeNameSource.USER
+            outcome = session.outcome
             if session.outcome is not None:
-                session.outcome = reproject_route_node_labels(
-                    session.project,
+                outcome = reproject_route_node_labels(
+                    working,
                     session.outcome,
-                    node_id=node.id,
+                    node_id=working_node.id,
                     previous_name=previous_name,
                 )
+            materialized = session.readiness_service.evaluate(working, outcome)
+            self._persist_draft(session, materialized.project)
+            session.project = materialized.project
+            session.outcome = materialized.outcome
+            session.readiness = materialized.evaluation
             return self.present(session)
 
     def update_and_calculate(
@@ -514,12 +549,30 @@ class AutoNavLogWebApplication:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             working = self._updated_project(session, request)
-            outcome, destination_wind = self._calculate_outcome(session, working)
-            materialized = session.readiness_service.record_calculation(working, outcome)
+            draft = session.readiness_service.evaluate(working, session.outcome)
+            self._persist_draft(session, draft.project)
+            session.project = draft.project
+            session.outcome = draft.outcome
+            session.readiness = draft.evaluation
+            calculation_project = session.project.model_copy(deep=True)
+            outcome, destination_wind = self._calculate_outcome(
+                session,
+                calculation_project,
+            )
+            materialized = session.readiness_service.record_calculation(
+                calculation_project,
+                outcome,
+            )
+            self._persist_calculation(
+                session,
+                materialized,
+                destination_wind,
+            )
             session.project = materialized.project
             session.outcome = materialized.outcome
             session.destination_wind = destination_wind
             session.readiness = materialized.evaluation
+            session.restore_warning = None
             return self.present(session)
 
     def calculate(
@@ -532,20 +585,27 @@ class AutoNavLogWebApplication:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             report = progress or (lambda _percent, _message: None)
             report(10, "経路と計算条件を確認しています。")
+            calculation_project = session.project.model_copy(deep=True)
             outcome, destination_wind = self._calculate_outcome(
                 session,
-                session.project,
+                calculation_project,
                 progress=report,
             )
             report(90, "計算結果と準備状況を反映しています。")
             materialized = session.readiness_service.record_calculation(
-                session.project,
+                calculation_project,
                 outcome,
+            )
+            self._persist_calculation(
+                session,
+                materialized,
+                destination_wind,
             )
             session.project = materialized.project
             session.outcome = materialized.outcome
             session.destination_wind = destination_wind
             session.readiness = materialized.evaluation
+            session.restore_warning = None
             report(98, "画面表示を準備しています。")
             return self.present(session)
 
@@ -798,9 +858,9 @@ class AutoNavLogWebApplication:
             self.rjfm_inbound_guidance_reference,
             generated_against_fingerprint=fingerprint,
         )
-        # Inbound guidance is intentionally transient. Saving solver diagnostics
-        # could resurrect a turn point after route, wind, altitude, or reference
-        # inputs change. Departure guidance has different persisted semantics.
+        # Inbound guidance is preserved in the last-good record for auditability,
+        # but presentation hides its numeric turn-point guidance unless the draft
+        # and active reference pack still match this fingerprint.
         updated_state = state.model_copy(update={"rjfm_departure_guidance": guidance})
         self.project_service.set_ui_state(project, updated_state)
         return outcome.model_copy(
@@ -845,11 +905,16 @@ class AutoNavLogWebApplication:
                     "確認対象の確認事項が現在の計算状態にありません。",
                     status_code=404,
                 )
+            working = session.project.model_copy(deep=True)
             if checked:
-                session.project.acknowledged_warning_codes.add(ack_key)
+                working.acknowledged_warning_codes.add(ack_key)
             else:
-                session.project.acknowledged_warning_codes.discard(ack_key)
-            self._evaluate(session)
+                working.acknowledged_warning_codes.discard(ack_key)
+            materialized = session.readiness_service.evaluate(working, session.outcome)
+            self._persist_draft(session, materialized.project)
+            session.project = materialized.project
+            session.outcome = materialized.outcome
+            session.readiness = materialized.evaluation
             return self.present(session)
 
     def save(self, session: WebSession, request: SaveProjectRequest) -> dict[str, Any]:
@@ -861,7 +926,9 @@ class AutoNavLogWebApplication:
             if request.name is not None:
                 project_to_save.name = self._normalize_project_name(request.name)
                 project_to_save.metadata["project_name_auto"] = False
+            self._persist_draft(session, project_to_save)
             saved = self.project_service.save(project_to_save)
+            self._persist_draft(session, saved.project)
             session.project = saved.project
             self._projects_changed(session)
             self._evaluate(session)
@@ -869,23 +936,7 @@ class AutoNavLogWebApplication:
 
     def load(self, session: WebSession, project_id: UUID) -> dict[str, Any]:
         with session.lock:
-            try:
-                project = self.project_service.load(project_id)
-            except ValueError as error:
-                raise WebApplicationError(
-                    "PROJECT_NOT_FOUND",
-                    "指定されたProjectは見つかりません。",
-                    status_code=404,
-                ) from error
-            self._assert_project_owner(project, session.owner_id)
-            self._normalize_rjfm_departure(project)
-            session.project = project
-            session.saved_projects_cache = None
-            session.outcome = None
-            session.destination_wind = None
-            session.import_result = None
-            session.import_filename = None
-            self._evaluate(session)
+            self._restore_project(session, project_id, explicit=True)
             return self.present(session)
 
     def delete(self, session: WebSession, project_id: UUID) -> dict[str, Any]:
@@ -899,7 +950,15 @@ class AutoNavLogWebApplication:
                     status_code=404,
                 ) from error
             self._assert_project_owner(project, session.owner_id)
-            self.project_service.delete(project_id)
+            try:
+                self.project_service.delete_for_owner(project_id, session.owner_id)
+            except Exception as error:
+                LOGGER.exception("Failed to delete Project and update last-opened marker")
+                raise WebApplicationError(
+                    "PROJECT_PERSISTENCE_FAILED",
+                    "Projectを削除できませんでした。再試行してください。",
+                    status_code=500,
+                ) from error
             if session.project is not None and session.project.id == project_id:
                 session.project = None
                 session.outcome = None
@@ -907,6 +966,155 @@ class AutoNavLogWebApplication:
                 session.readiness = None
             self._projects_changed(session)
             return self.present(session)
+
+    def _persist_draft(self, session: WebSession, project: Project) -> None:
+        try:
+            self.project_service.autosave(project)
+        except Exception as error:
+            LOGGER.exception("Failed to persist Project draft: project_id=%s", project.id)
+            raise WebApplicationError(
+                "PROJECT_PERSISTENCE_FAILED",
+                "Projectを自動保存できませんでした。入力を確認して再試行してください。",
+                status_code=500,
+            ) from error
+        self._projects_changed(session)
+
+    def _set_last_opened(self, session: WebSession, project_id: UUID) -> None:
+        try:
+            self.project_service.set_last_opened_project(session.owner_id, project_id)
+        except Exception as error:
+            LOGGER.exception("Failed to persist last-opened Project marker")
+            raise WebApplicationError(
+                "PROJECT_PERSISTENCE_FAILED",
+                "Projectの復元情報を保存できませんでした。再試行してください。",
+                status_code=500,
+            ) from error
+
+    def _persist_calculation(
+        self,
+        session: WebSession,
+        materialized: MaterializedReadiness,
+        destination_wind: DestinationWindForecast | None,
+    ) -> None:
+        self._persist_draft(session, materialized.project)
+        has_effective_blocker = any(
+            item.effective_severity == IssueSeverity.BLOCKER
+            for item in materialized.evaluation.effective_issues
+        )
+        if has_effective_blocker or materialized.outcome is None:
+            return
+        try:
+            self.project_service.replace_last_calculation(
+                owner_id=session.owner_id,
+                project=materialized.project,
+                outcome=materialized.outcome,
+                destination_wind=destination_wind,
+                forecast_metadata=session.calculation_service.last_forecast_metadata,
+                calculation_fingerprint=materialized.fingerprints.calculation_input,
+            )
+        except Exception as error:
+            LOGGER.exception(
+                "Failed to persist last-good calculation: project_id=%s",
+                materialized.project.id,
+            )
+            raise WebApplicationError(
+                "CALCULATION_PERSISTENCE_FAILED",
+                "計算結果を保存できませんでした。再計算してください。",
+                status_code=500,
+            ) from error
+
+    def _restore_last_opened_project(self, session: WebSession) -> None:
+        try:
+            project_id = self.project_service.last_opened_project(session.owner_id)
+        except (JsonStorageError, OSError, ValueError):
+            LOGGER.exception("Ignoring invalid last-opened Project marker")
+            session.restore_warning = "保存済みProjectの復元情報を読み込めませんでした。"
+            return
+        if project_id is None:
+            return
+        try:
+            self._restore_project(session, project_id, explicit=False)
+        except Exception:
+            LOGGER.exception("Ignoring unavailable or unauthorized last-opened Project")
+            session.project = None
+            session.outcome = None
+            session.destination_wind = None
+            session.readiness = None
+            session.restore_warning = "保存済みProjectを安全に復元できませんでした。"
+
+    def _restore_project(
+        self,
+        session: WebSession,
+        project_id: UUID,
+        *,
+        explicit: bool,
+    ) -> None:
+        try:
+            loaded = self.project_service.load_with_recovery(project_id)
+        except (FileNotFoundError, JsonStorageError, ValueError) as error:
+            raise WebApplicationError(
+                "PROJECT_NOT_FOUND",
+                "指定されたProjectは見つかりません。",
+                status_code=404,
+            ) from error
+        project = loaded.project
+        self._assert_project_owner(project, session.owner_id)
+        project_before_normalization = project.model_dump(mode="python")
+        self._normalize_rjfm_departure(project)
+        if project.model_dump(mode="python") != project_before_normalization:
+            self._persist_draft(session, project)
+        record = None
+        restore_warning = (
+            "最新の自動保存を読み込めなかったため、直前の保存内容を復元しました。"
+            if loaded.recovered_from_fallback
+            else None
+        )
+        try:
+            record = self.project_service.load_last_calculation(project_id, session.owner_id)
+        except (JsonStorageError, OSError, ValueError):
+            LOGGER.exception("Ignoring invalid last-good calculation")
+            restore_warning = "前回の計算結果を安全に復元できませんでした。再計算してください。"
+        materialized = session.readiness_service.evaluate(
+            project,
+            None if record is None else record.outcome,
+        )
+        if explicit:
+            self._set_last_opened(session, project_id)
+        session.project = materialized.project
+        session.outcome = materialized.outcome
+        session.destination_wind = None if record is None else record.destination_wind
+        session.readiness = materialized.evaluation
+        session.saved_projects_cache = None
+        session.import_result = None
+        session.import_filename = None
+        session.restore_warning = restore_warning
+
+    def _outcome_for_presentation(
+        self,
+        project: Project | None,
+        outcome: CalculationOutcome | None,
+        evaluation: ReadinessEvaluation,
+    ) -> CalculationOutcome | None:
+        if project is None or outcome is None or outcome.rjfm_inbound_guidance is None:
+            return outcome
+        guidance = outcome.rjfm_inbound_guidance
+        reference = self.rjfm_inbound_guidance_reference
+        raw_ui_state = project.metadata.get("ui_state")
+        calculated_fingerprint = (
+            raw_ui_state.get("calculated_against_fingerprint")
+            if isinstance(raw_ui_state, dict)
+            else None
+        )
+        safe = bool(
+            evaluation.calculation_is_current
+            and guidance.generated_against_fingerprint == calculated_fingerprint
+            and reference is not None
+            and guidance.reference_revision == reference.revision
+            and guidance.reference_content_fingerprint == reference.content_fingerprint
+        )
+        if safe:
+            return outcome
+        return outcome.model_copy(update={"rjfm_inbound_guidance": None})
 
     def present(self, session: WebSession) -> dict[str, Any]:
         with session.lock:
@@ -948,11 +1156,34 @@ class AutoNavLogWebApplication:
                         **self._boundary_issue_details(session.outcome, item.issue),
                     }
                 )
+        if session.restore_warning is not None:
+            issues.append(
+                {
+                    "code": "PERSISTED_STATE_RECOVERY_FAILED",
+                    "severity": IssueSeverity.WARNING.value,
+                    "message": session.restore_warning,
+                    "sectionId": None,
+                    "segmentSequence": None,
+                    "acknowledgementRequired": False,
+                    "ackKey": "persisted-state-recovery-failed",
+                    "acknowledged": False,
+                    "action": "保存済みProjectを選び直すか、NAV LOGを再計算してください。",
+                }
+            )
         project_payload = (
             None if session.project is None else session.project.model_dump(mode="json")
         )
+        presented_outcome = (
+            None
+            if evaluation is None
+            else self._outcome_for_presentation(
+                session.project,
+                session.outcome,
+                evaluation,
+            )
+        )
         outcome_payload = (
-            None if session.outcome is None else session.outcome.model_dump(mode="json")
+            None if presented_outcome is None else presented_outcome.model_dump(mode="json")
         )
         destination_wind_payload = (
             None

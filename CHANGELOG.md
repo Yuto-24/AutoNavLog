@@ -2,6 +2,22 @@
 
 AutoNavLog の利用者に影響する変更を記録します。
 
+## 1.9.0 - 2026-09-05
+
+### 追加
+
+- Issue #94で、serverが受理したProject入力を最新draftとして自動保存し、明示保存していない
+  Projectも一覧・読込・削除できるようにしました。
+- Projectごとに最後に正常完了したNAV LOG、計算時点のProject、目的地風、Forecast Run・来歴を
+  1件だけ保存し、reload、Cookie消失、server再起動後にも復元します。入力変更後は直前のNAV LOGを
+  stale表示で維持し、失敗・中断・Blockerのある計算では置き換えません。
+- ownerごとに最後に明示作成・選択したProjectを復元し、owner identityを生のまま保存pathへ含めない
+  分離を追加しました。
+
+### 配布
+
+- Python・Web のバージョンを `1.9.0` に更新しました。
+
 ## 1.8.3 - 2026-09-04
 
 ### 修正

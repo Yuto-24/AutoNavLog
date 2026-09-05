@@ -1,12 +1,21 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+from typing import Any
 from uuid import UUID
 
 from autonavlog.domain.calculation import CalculationOutcome
 from autonavlog.domain.planning import PersistedUiState, load_persisted_ui_state
 from autonavlog.domain.project import Project
-from autonavlog.storage.repository import ProjectRepository, ProjectSummary, SaveResult
+from autonavlog.storage.repository import (
+    LastCalculationRecord,
+    ProjectLoadResult,
+    ProjectRepository,
+    ProjectSummary,
+    SaveResult,
+    owner_storage_key,
+)
+from autonavlog.weather.destination_taf import DestinationWindForecast
 
 
 class ProjectService:
@@ -46,6 +55,69 @@ class ProjectService:
 
     def delete(self, project_id: UUID) -> None:
         self.repository.delete(project_id)
+
+    def delete_for_owner(self, project_id: UUID, owner_id: str) -> None:
+        self.repository.delete_with_owner_marker(
+            project_id,
+            owner_key=self.owner_key(owner_id),
+        )
+
+    def autosave(self, project: Project) -> None:
+        self.repository.autosave(self._normalize_ui_state(project))
+
+    @staticmethod
+    def owner_key(owner_id: str) -> str:
+        return owner_storage_key(owner_id)
+
+    def last_opened_project(self, owner_id: str) -> UUID | None:
+        return self.repository.load_owner_project(self.owner_key(owner_id))
+
+    def set_last_opened_project(self, owner_id: str, project_id: UUID) -> None:
+        self.repository.set_owner_project(self.owner_key(owner_id), project_id)
+
+    def clear_last_opened_project(
+        self,
+        owner_id: str,
+        project_id: UUID | None = None,
+    ) -> None:
+        self.repository.clear_owner_project(self.owner_key(owner_id), project_id)
+
+    def load_last_calculation(
+        self,
+        project_id: UUID,
+        owner_id: str,
+    ) -> LastCalculationRecord | None:
+        return self.repository.load_last_calculation(
+            project_id,
+            owner_key=self.owner_key(owner_id),
+        )
+
+    def replace_last_calculation(
+        self,
+        *,
+        owner_id: str,
+        project: Project,
+        outcome: CalculationOutcome,
+        destination_wind: DestinationWindForecast | None,
+        forecast_metadata: dict[str, Any],
+        calculation_fingerprint: str,
+    ) -> LastCalculationRecord:
+        normalized = self._normalize_ui_state(project)
+        record = LastCalculationRecord(
+            project_id=normalized.id,
+            owner_key=self.owner_key(owner_id),
+            project=normalized.model_copy(deep=True),
+            outcome=outcome.model_copy(deep=True),
+            destination_wind=(
+                None if destination_wind is None else destination_wind.model_copy(deep=True)
+            ),
+            selected_forecast_run_id=outcome.selected_forecast_run_id,
+            forecast_metadata=dict(forecast_metadata),
+            calculation_fingerprint=calculation_fingerprint,
+            saved_at_utc=datetime.now(UTC),
+        )
+        self.repository.replace_last_calculation(record)
+        return record
 
     @staticmethod
     def ui_state(project: Project) -> PersistedUiState:
@@ -87,6 +159,12 @@ class ProjectService:
 
     def load(self, project_id: UUID) -> Project:
         return self._normalize_ui_state(self.repository.load(project_id))
+
+    def load_with_recovery(self, project_id: UUID) -> ProjectLoadResult:
+        loaded = self.repository.load_with_recovery(project_id)
+        return loaded.model_copy(
+            update={"project": self._normalize_ui_state(loaded.project)}
+        )
 
     def save(self, project: Project) -> SaveResult:
         normalized = self._normalize_ui_state(project)

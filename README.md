@@ -8,7 +8,7 @@ Web 画面に表示します。
 利用者が根拠と警告を確認してください。航空大学校の公式様式や計算規則への準拠は
 主張していません。
 
-- 現在のバージョン: `1.8.3`
+- 現在のバージョン: `1.9.0`
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
@@ -18,10 +18,27 @@ Web 画面に表示します。
 - KML/KMZ から経路を取り込む
 - 飛行計画、性能、MSM の風と気温から NAV LOG を計算する
 - 計算結果、警告、確認事項を Web 画面で見る
-- Project と気象キャッシュを保存する
+- Projectの入力を自動保存し、最後に正常完了したNAV LOGと気象情報を復元する
+- 参照データと気象キャッシュを保存する
 
 SEA、DEM、陸域マスクは現在の計算対象に含めていません。旧 Project に残る SEA 関連の項目は
 schema v3 への読込時に破棄します。
+
+## Projectの自動保存と復元
+
+serverが受理したProject入力は、画面の「保存」を押さなくても最新draftとして自動保存します。
+「保存」は現在のdraftとは別に、revision付きの明示checkpointを更新します。自動保存だけの
+Projectも「保存済み」の一覧から開くことができ、削除操作を行うまで保存領域に残ります。
+
+計算が最後まで正常に完了し、Blockerがない場合は、warningを含むNAV LOG、計算時点のProject、
+目的地風、Forecast Run・来歴をProjectごとに1件だけ保存します。その後に入力を変更しても
+直前のNAV LOGは表示したまま「再計算が必要」とし、RJFMの数値案内は現在の入力・参照資料と
+一致する場合だけ表示します。失敗・中断・Blockerで終わった計算は直前の正常結果を置き換えません。
+
+新しいsessionやCookie消失後は、Cloudflare Access identityごとに最後に明示作成・選択した
+Projectをserver storageから復元します。更新日時が新しいだけの別Projectは自動選択しません。
+markerが欠落・破損している場合や所有者が一致しない場合はProjectを自動選択せず、所有中の一覧から
+明示的に開きます。Projectと復元結果は同じownerだけが読み込めます。
 
 ## 経路を取り込む
 
@@ -274,7 +291,7 @@ npm --prefix web run build
 npm --prefix web run test:e2e
 ```
 
-リリース時は `1.8.3` が次の場所で一致していることを確認します。
+リリース時は `1.9.0` が次の場所で一致していることを確認します。
 
 - `pyproject.toml`
 - `web/package.json` と `web/package-lock.json`

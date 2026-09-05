@@ -8,6 +8,7 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
+  workers: 1,
   retries: 0,
   reporter: "line",
   use: {
@@ -22,6 +23,7 @@ export default defineConfig({
         cwd: "..",
         env: {
           AUTONAVLOG_TRUSTED_LOCAL_IDENTITY: "playwright-local",
+          AUTONAVLOG_SESSION_COOKIE_SECURE: "false",
         },
         url: `${localBaseUrl}/healthz`,
         reuseExistingServer: false,

@@ -834,6 +834,58 @@ async def _save_route(client: httpx.AsyncClient, name: str) -> str:
     return str(saved.json()["project"]["id"])
 
 
+def _update_payload(project: dict[str, object], *, fuel_gal: float) -> dict[str, object]:
+    metadata = project["metadata"]
+    assert isinstance(metadata, dict)
+    ui_state = metadata["ui_state"]
+    assert isinstance(ui_state, dict)
+    arrival = ui_state["arrival_plan"]
+    assert isinstance(arrival, dict)
+    route_nodes = project["route_nodes"]
+    sections = project["sections"]
+    assert isinstance(route_nodes, list)
+    assert isinstance(sections, list)
+    return {
+        "flight_date": project["flight_date"],
+        "departure_time_jst": "09:00",
+        "pilot_name": project["pilot_name"],
+        "ship_identifier": project["ship_identifier"],
+        "total_usable_fuel_gal": fuel_gal,
+        "default_variation_deg_east": project["default_variation_deg_east"],
+        "weather_mode": project["weather_mode"],
+        "ftd_weather": project["ftd_weather"],
+        "run_up_included": project["run_up_included"],
+        "nose_fairing_enabled": project["nose_fairing_enabled"],
+        "air_conditioning_enabled": project["air_conditioning_enabled"],
+        "descent_rate_fpm": project["descent_rate_fpm"],
+        "tgl_count": project["tgl_count"],
+        "sections": [
+            {
+                "section_id": section["id"],
+                "planned_altitude_ft_msl": section["planned_altitude_ft_msl"],
+                "phase": section["phase"],
+                "manual_wind_direction_deg": section["manual_wind_direction_deg"],
+                "manual_wind_speed_kt": section["manual_wind_speed_kt"],
+                "manual_wind_by_phase": section["manual_wind_by_phase"],
+                "manual_temperature_c": section["manual_temperature_c"],
+                "manual_temperature_c_by_phase": section[
+                    "manual_temperature_c_by_phase"
+                ],
+                "manual_tas_kt": section["manual_tas_kt"],
+            }
+            for section in sections
+            if isinstance(section, dict)
+        ],
+        "visual_reporting_point_node_id": arrival["visual_reporting_point_node_id"],
+        "selected_pattern_altitude_ft_msl": arrival[
+            "selected_pattern_altitude_ft_msl"
+        ],
+        "arrival_altitude_mode": arrival["altitude_mode"],
+        "manual_vrep_altitude_ft_msl": arrival["manual_vrep_altitude_ft_msl"],
+        "manual_vrep_reason": arrival["manual_override_reason"],
+    }
+
+
 def _without_route_labels(value: object) -> object:
     if isinstance(value, dict):
         return {
@@ -844,6 +896,125 @@ def _without_route_labels(value: object) -> object:
     if isinstance(value, list):
         return [_without_route_labels(item) for item in value]
     return value
+
+
+@pytest.mark.anyio
+async def test_autosaved_last_good_restores_without_cookie_or_server_session(
+    tmp_path: Path,
+) -> None:
+    storage_root = tmp_path / "storage"
+    config = WebRuntimeConfig(
+        data_root=ROOT / "data",
+        storage_root=storage_root,
+        weather_mode="fake",
+        trusted_local_identity="local-test-user",
+    )
+    app = create_app(config)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        assert (
+            await client.post(
+                "/api/import",
+                json={"filename": "route.kml", "kml_text": KML},
+            )
+        ).status_code == 200
+        confirmed = await client.post(
+            "/api/route/confirm",
+            json=_route_payload()
+            | {
+                "weather_mode": "FTD",
+                "ftd_weather": {
+                    "surface_wind": {"direction_deg_from": 180, "speed_kt": 5},
+                    "wind_at_5000_ft": {"direction_deg_from": 270, "speed_kt": 20},
+                },
+            },
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        calculated = await _calculate(client)
+        project_id = calculated["project"]["id"]
+        assert calculated["outcome"] is not None
+        assert calculated["destinationWind"]["reason_code"] == "FTD_MODE_NO_TAF"
+
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as fresh:
+        restored = (await fresh.post("/api/session")).json()["state"]
+        assert restored["project"]["id"] == project_id
+        assert restored["outcome"]["project_id"] == project_id
+        assert restored["destinationWind"]["reason_code"] == "FTD_MODE_NO_TAF"
+        assert restored["readiness"]["calculationIsCurrent"] is True
+
+    restarted = create_app(config)
+    restarted_transport = httpx.ASGITransport(app=restarted)
+    async with httpx.AsyncClient(
+        transport=restarted_transport,
+        base_url="https://test",
+    ) as after_restart:
+        restored_response = await after_restart.post("/api/session")
+        assert restored_response.status_code == 200, restored_response.text
+        restored = restored_response.json()["state"]
+        assert restored["project"]["id"] == project_id
+        assert restored["outcome"]["project_id"] == project_id
+        assert restored["readiness"]["calculationIsCurrent"] is True
+
+        reset = await after_restart.delete("/api/session")
+        assert reset.status_code == 204, reset.text
+        blank = (await after_restart.post("/api/session")).json()["state"]
+        assert blank["project"] is None
+        assert blank["outcome"] is None
+        assert [item["id"] for item in blank["savedProjects"]] == [project_id]
+
+
+@pytest.mark.anyio
+async def test_update_and_calculate_failure_keeps_autosaved_stale_draft(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage_root = tmp_path / "storage"
+    config = WebRuntimeConfig(
+        data_root=ROOT / "data",
+        storage_root=storage_root,
+        weather_mode="fake",
+        trusted_local_identity="local-test-user",
+    )
+    app = create_app(config)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        assert (
+            await client.post(
+                "/api/import",
+                json={"filename": "route.kml", "kml_text": KML},
+            )
+        ).status_code == 200
+        confirmed = await client.post("/api/route/confirm", json=_route_payload())
+        assert confirmed.status_code == 200, confirmed.text
+        project = confirmed.json()["project"]
+
+        def fail_calculation(*_args: object, **_kwargs: object) -> object:
+            raise RuntimeError("injected calculation failure")
+
+        monkeypatch.setattr(
+            app.state.web_application,
+            "_calculate_outcome",
+            fail_calculation,
+        )
+        with pytest.raises(RuntimeError, match="injected"):
+            await client.post(
+                "/api/project/recalculate",
+                json=_update_payload(project, fuel_gal=75),
+            )
+        current = (await client.get("/api/state")).json()
+        assert current["project"]["total_usable_fuel_gal"] == 75
+        assert current["outcome"] is None
+
+    restarted = create_app(config)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=restarted),
+        base_url="https://test",
+    ) as after_restart:
+        restored = (await after_restart.post("/api/session")).json()["state"]
+        assert restored["project"]["total_usable_fuel_gal"] == 75
+        assert restored["outcome"] is None
 
 
 @pytest.mark.anyio

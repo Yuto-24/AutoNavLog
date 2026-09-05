@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,7 +12,14 @@ from uuid import UUID, uuid4
 
 from autonavlog.domain.project import Project
 
-from .repository import ProjectIndex, ProjectSummary, SaveResult
+from .repository import (
+    LastCalculationRecord,
+    OwnerProjectState,
+    ProjectIndex,
+    ProjectLoadResult,
+    ProjectSummary,
+    SaveResult,
+)
 from .safe_json import (
     JsonStorageError,
     atomic_model_write,
@@ -24,6 +33,13 @@ class RevisionConflictError(RuntimeError):
     def __init__(self, message: str, conflict_copy: Path):
         super().__init__(message)
         self.conflict_copy = conflict_copy
+
+
+class UnsafeStoragePathError(JsonStorageError):
+    """Raised before following a symlink or leaving the configured storage root."""
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _normalize_legacy_wind_directions(project_payload: dict[str, Any]) -> bool:
@@ -116,15 +132,40 @@ def _read_migrated_project(path: Path) -> Project:
 
 class LocalProjectRepository:
     def __init__(self, root: str | Path):
-        self.root = Path(root)
+        self.root = Path(root).absolute()
         self._lock = RLock()
 
+    def _safe_path(self, path: Path) -> Path:
+        candidate = path.absolute()
+        try:
+            relative = candidate.relative_to(self.root)
+        except ValueError as error:
+            raise UnsafeStoragePathError("storage path leaves configured root") from error
+        current = self.root
+        if current.exists() and current.is_symlink():
+            raise UnsafeStoragePathError("storage root must not be a symlink")
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                raise UnsafeStoragePathError(f"storage path must not contain symlinks: {current}")
+        return candidate
+
     def _project_dir(self, project_id: UUID) -> Path:
-        return self.root / "projects" / str(project_id)
+        return self._safe_path(self.root / "projects" / str(project_id))
 
     @property
     def index_path(self) -> Path:
-        return self.root / "projects" / "index.json"
+        return self._safe_path(self.root / "projects" / "index.json")
+
+    def _project_path(self, project_id: UUID, filename: str) -> Path:
+        return self._safe_path(self._project_dir(project_id) / filename)
+
+    def _owner_state_path(self, owner_key: str) -> Path:
+        if len(owner_key) != 64 or any(
+            character not in "0123456789abcdef" for character in owner_key
+        ):
+            raise ValueError("owner key must be a lowercase SHA-256 digest")
+        return self._safe_path(self.root / "owners" / owner_key / "state.json")
 
     @staticmethod
     def _summary(project: Project) -> ProjectSummary:
@@ -148,16 +189,36 @@ class LocalProjectRepository:
         )
 
     def _scan_projects(self) -> list[ProjectSummary]:
-        projects_root = self.root / "projects"
+        projects_root = self._safe_path(self.root / "projects")
         summaries: list[ProjectSummary] = []
         if not projects_root.exists():
             return summaries
-        for path in sorted(projects_root.glob("*/project.json")):
-            try:
-                project = _read_migrated_project(path)
-            except JsonStorageError:
+        for project_dir in sorted(projects_root.iterdir()):
+            if not project_dir.is_dir() or project_dir.is_symlink():
                 continue
-            if path.parent.name != str(project.id):
+            try:
+                project_id = UUID(project_dir.name)
+            except ValueError:
+                continue
+            if str(project_id) != project_dir.name:
+                continue
+            paths = (
+                self._project_path(project_id, "autosave.json"),
+                self._project_path(project_id, "project.json"),
+                self._project_path(project_id, "project.json.bak"),
+            )
+            project = None
+            for path in paths:
+                if not path.exists():
+                    continue
+                try:
+                    project = _read_migrated_project(path)
+                    self._validate_project_path_identity(project, project_id)
+                except JsonStorageError:
+                    project = None
+                    continue
+                break
+            if project is None:
                 continue
             summaries.append(self._summary(project))
         return self._sort_summaries(summaries)
@@ -191,24 +252,69 @@ class LocalProjectRepository:
 
     def list_projects(self) -> list[ProjectSummary]:
         with self._lock:
-            return self._read_or_rebuild_index()
+            return [
+                summary
+                for summary in self._read_or_rebuild_index()
+                if self._project_dir(summary.id).is_dir()
+                and not self._project_dir(summary.id).is_symlink()
+                and any(
+                    self._project_path(summary.id, filename).is_file()
+                    for filename in ("autosave.json", "project.json", "project.json.bak")
+                )
+            ]
 
-    def load(self, project_id: UUID) -> Project:
-        path = self._project_dir(project_id) / "project.json"
-        try:
-            project = _read_migrated_project(path)
-        except JsonStorageError:
-            project = _read_migrated_project(path.with_name("project.json.bak"))
+    @staticmethod
+    def _validate_project_path_identity(project: Project, project_id: UUID) -> None:
         if project.id != project_id:
             raise JsonStorageError("project id does not match its storage path")
-        return project
+
+    def load(self, project_id: UUID) -> Project:
+        return self.load_with_recovery(project_id).project
+
+    def load_with_recovery(self, project_id: UUID) -> ProjectLoadResult:
+        with self._lock:
+            return self._load_with_recovery_locked(project_id)
+
+    def _load_with_recovery_locked(self, project_id: UUID) -> ProjectLoadResult:
+        autosave_path = self._project_path(project_id, "autosave.json")
+        path = self._project_path(project_id, "project.json")
+        project = None
+        recovered_from_fallback = False
+        if autosave_path.exists():
+            try:
+                project = _read_migrated_project(autosave_path)
+                self._validate_project_path_identity(project, project_id)
+            except UnsafeStoragePathError:
+                raise
+            except JsonStorageError:
+                project = None
+                LOGGER.warning("Ignoring corrupt Project autosave: %s", autosave_path)
+                recovered_from_fallback = True
+        if project is None:
+            try:
+                project = _read_migrated_project(path)
+                self._validate_project_path_identity(project, project_id)
+            except UnsafeStoragePathError:
+                raise
+            except JsonStorageError:
+                recovered_from_fallback = True
+                project = _read_migrated_project(
+                    self._project_path(project_id, "project.json.bak")
+                )
+                self._validate_project_path_identity(project, project_id)
+        if recovered_from_fallback:
+            self._update_index(project)
+        return ProjectLoadResult(
+            project=project,
+            recovered_from_fallback=recovered_from_fallback,
+        )
 
     def save(self, project: Project, expected_revision: int) -> SaveResult:
         with self._lock:
             return self._save_locked(project, expected_revision)
 
     def _save_locked(self, project: Project, expected_revision: int) -> SaveResult:
-        path = self._project_dir(project.id) / "project.json"
+        path = self._project_path(project.id, "project.json")
         if path.exists():
             existing = _read_migrated_project(path)
             if existing.revision != expected_revision:
@@ -236,19 +342,114 @@ class LocalProjectRepository:
         return SaveResult(project=saved, path=path)
 
     def autosave(self, project: Project) -> Path:
-        path = self._project_dir(project.id) / "autosave.json"
-        atomic_model_write(path, project)
-        return path
+        with self._lock:
+            path = self._project_path(project.id, "autosave.json")
+            atomic_model_write(path, project)
+            self._update_index(project)
+            return path
+
+    def replace_last_calculation(self, record: LastCalculationRecord) -> Path:
+        with self._lock:
+            self._validate_project_path_identity(record.project, record.project_id)
+            path = self._project_path(record.project_id, "last-calculation.json")
+            atomic_model_write(path, record, keep_backup=False)
+            return path
+
+    def load_last_calculation(
+        self,
+        project_id: UUID,
+        *,
+        owner_key: str,
+    ) -> LastCalculationRecord | None:
+        with self._lock:
+            path = self._project_path(project_id, "last-calculation.json")
+            if not path.exists():
+                return None
+            try:
+                record = read_json_model(path, LastCalculationRecord)
+                if record.project_id != project_id:
+                    raise JsonStorageError("last calculation Project id mismatch")
+                if record.owner_key != owner_key:
+                    raise JsonStorageError("last calculation owner mismatch")
+                return record
+            except UnsafeStoragePathError:
+                raise
+            except JsonStorageError:
+                quarantine = self._project_path(
+                    project_id,
+                    "last-calculation.invalid.json",
+                )
+                os.replace(path, quarantine)
+                LOGGER.warning("Quarantined invalid last calculation: %s", path)
+                raise
+
+    def load_owner_project(self, owner_key: str) -> UUID | None:
+        with self._lock:
+            path = self._owner_state_path(owner_key)
+            if not path.exists():
+                return None
+            return read_json_model(path, OwnerProjectState).project_id
+
+    def set_owner_project(self, owner_key: str, project_id: UUID) -> Path:
+        with self._lock:
+            path = self._owner_state_path(owner_key)
+            atomic_model_write(
+                path,
+                OwnerProjectState(project_id=project_id),
+                keep_backup=False,
+            )
+            return path
+
+    def clear_owner_project(
+        self,
+        owner_key: str,
+        project_id: UUID | None = None,
+    ) -> None:
+        with self._lock:
+            path = self._owner_state_path(owner_key)
+            if not path.exists():
+                return
+            state = read_json_model(path, OwnerProjectState)
+            if project_id is None or state.project_id == project_id:
+                path.unlink()
+
+    def _delete_locked(self, project_id: UUID) -> None:
+        project_dir = self._project_dir(project_id)
+        if not any(
+            self._project_path(project_id, filename).exists()
+            for filename in ("autosave.json", "project.json", "project.json.bak")
+        ):
+            raise FileNotFoundError(f"project not found: {project_id}")
+        shutil.rmtree(project_dir)
+        projects = [
+            summary
+            for summary in self._read_or_rebuild_index()
+            if summary.id != project_id
+        ]
+        self._write_index(self._sort_summaries(projects))
 
     def delete(self, project_id: UUID) -> None:
         with self._lock:
-            project_dir = self._project_dir(project_id)
-            if not (project_dir / "project.json").exists():
-                raise FileNotFoundError(f"project not found: {project_id}")
-            shutil.rmtree(project_dir)
-            projects = [
-                summary
-                for summary in self._read_or_rebuild_index()
-                if summary.id != project_id
-            ]
-            self._write_index(self._sort_summaries(projects))
+            self._delete_locked(project_id)
+
+    def delete_with_owner_marker(self, project_id: UUID, *, owner_key: str) -> None:
+        """Delete a Project without leaving its owner's marker stale on failure."""
+
+        with self._lock:
+            marker_path = self._owner_state_path(owner_key)
+            matching_marker = None
+            if marker_path.exists():
+                marker = read_json_model(marker_path, OwnerProjectState)
+                if marker.project_id == project_id:
+                    matching_marker = marker
+                    marker_path.unlink()
+            try:
+                self._delete_locked(project_id)
+            except Exception:
+                if matching_marker is not None:
+                    atomic_model_write(
+                        marker_path,
+                        matching_marker,
+                        keep_backup=False,
+                    )
+                raise
