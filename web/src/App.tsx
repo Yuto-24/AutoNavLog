@@ -769,6 +769,7 @@ function App() {
           manual_wind_by_phase: section.manual_wind_by_phase ?? {},
           manual_temperature_c: section.manual_temperature_c,
           manual_temperature_c_by_phase: section.manual_temperature_c_by_phase ?? {},
+          manual_tas_kt_by_phase: section.manual_tas_kt_by_phase ?? {},
           manual_tas_kt: section.manual_tas_kt,
         };
       }),
@@ -1070,6 +1071,14 @@ function App() {
             [phase]: value,
           },
         }
+      : field === "tas"
+        ? {
+            ...currentDraft,
+            tasByPhase: {
+              ...currentDraft.tasByPhase,
+              [phase]: value,
+            },
+          }
       : field === "windDirection"
         ? {
             ...currentDraft,

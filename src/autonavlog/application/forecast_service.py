@@ -28,7 +28,10 @@ class ForecastService:
                     end.longitude_deg,
                 ).distance_nm
             )
-            speed = section.manual_tas_kt or self.estimate_speed_kt
+            # Initial forecasting precedes RCA/EOC segmentation.  Use the
+            # declared estimate rather than treating a Physical section phase
+            # as an effective calculation zone.
+            speed = self.estimate_speed_kt
             section_seconds = distance / speed * 3600.0
             times.append(
                 project.planned_departure_time_jst

@@ -209,9 +209,19 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
   [Cirrus公式Supplement案内](https://store.cirrusaircraft.com/sr22-supplement-13772-127%2C-air-conditioning/5637369215.p)では
   A/C装備時に別Supplementが適用されることを確認していますが、該当Supplement本文は
   リポジトリにないためページ番号は記録しません。
+- 手入力TASは Physical Leg の単一値ではなく、同じ Leg から分割された実効
+  `CLIMB`、`CRUISE`、`DESCENT` の各Flight Phaseに保存します。したがってRCA後の
+  `CRUISE`入力はRCA前の`CLIMB`へ、EOC前の`CRUISE`入力はEOC後の`DESCENT`へ適用しません。
+  `DESCENT`入力だけは既存どおり最初のDESCENT基準Legから全DESCENT zoneへの共通overrideです。
+  旧Projectのscalar TASは保存時のsection phaseへだけ移行し、他phaseへ複製しません。
 - RUN UPありは10分・1.5 gal、なしは0分・0.0 galです。BOF Fuelは
   `CLIMB + CRUISE + DESCENT + TGL + ADDITIONAL`で、RUN UPとRESERVEを含みません。
-- 降下は直前巡航CAS、Projectで選択した500 fpmまたは1000 fpm、12 GPHを使用します。
+- 降下はEOC直前の正の距離を持つ実効`CRUISE` Calculation ZoneのCASを共通CASとして、
+  以後の全`DESCENT` Zoneへexactに適用します。Physical Legの指定phaseではなく、RCA/EOCで
+  分割・snapした後のZoneを基準にするため、EOCがDESCENT指定Leg内または前Legへ移る場合も
+  CAS sourceが追従します。EOCとCAS sourceは自己整合的に再計算し、EOC直前にCRUISE Zoneが
+  ない自動降下はBlockerです。手動DESCENT TASは既存の共通overrideとして扱います。
+  Projectで選択した500 fpmまたは1000 fpm、12 GPHを使用します。
   500 fpmが規程で裏付けられた標準値で、1000 fpmは利用者が明示選択する代替計画値です。
   EOC探索はまずDESCENT基準Leg自身の計画高度から開始し、
   `（基準Leg高度 - VREP高度）/ 選択降下率 + 1分`が同Leg内に収まる場合はそこで終了します。

@@ -77,6 +77,17 @@
           "default": null,
           "title": "Manual Tas Kt"
         },
+        "manual_tas_kt_by_phase": {
+          "additionalProperties": {
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/FlightPhase"
+          },
+          "title": "Manual Tas Kt By Phase",
+          "type": "object"
+        },
         "manual_temperature_c": {
           "anyOf": [
             {

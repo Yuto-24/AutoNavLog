@@ -315,6 +315,7 @@ def _insert_omaru_after_umk(
         manual_wind_by_phase=dict(copied.manual_wind_by_phase),
         manual_temperature_c=copied.manual_temperature_c,
         manual_temperature_c_by_phase=dict(copied.manual_temperature_c_by_phase),
+        manual_tas_kt_by_phase=dict(copied.manual_tas_kt_by_phase),
         manual_tas_kt=copied.manual_tas_kt,
     )
     rebuilt: list[NavSection] = [sections[0], inserted]

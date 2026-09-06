@@ -435,7 +435,7 @@ function DisplayResultCells({
       ) : (
         <EditableNumberCell
           value={source.tas_kt}
-          draftValue={draft.tas}
+          draftValue={draft.tasByPhase[row.phase ?? source.phase] ?? ""}
           field="tas"
           label={`${inputLabel} 手動TAS`}
           error={errors.tas}

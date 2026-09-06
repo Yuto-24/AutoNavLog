@@ -77,6 +77,7 @@ def current_calculation_input_fingerprint(
             },
             "manual_temperature_c": section.manual_temperature_c,
             "manual_temperature_c_by_phase": (section.manual_temperature_c_by_phase),
+            "manual_tas_kt_by_phase": section.manual_tas_kt_by_phase,
             "manual_tas_kt": section.manual_tas_kt,
         }
         for section in project.ordered_sections()

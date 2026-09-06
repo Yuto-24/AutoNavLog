@@ -89,6 +89,17 @@ def test_legacy_default_variation_does_not_change_calculation_key(
     assert _calculation_fingerprint(changed, performance_repository) == baseline
 
 
+def test_phase_specific_manual_tas_changes_calculation_key(
+    project: Project,
+    performance_repository: Any,
+) -> None:
+    baseline = _calculation_fingerprint(project, performance_repository)
+    changed = project.model_copy(deep=True)
+    changed.sections[0].manual_tas_kt_by_phase = {FlightPhase.CRUISE: 140.0}
+
+    assert _calculation_fingerprint(changed, performance_repository) != baseline
+
+
 def test_variation_rule_version_changes_calculation_key(
     project: Project,
     performance_repository: Any,

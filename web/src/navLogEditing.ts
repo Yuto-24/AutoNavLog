@@ -10,7 +10,7 @@ export type NavLogEditableField =
 export interface NavLogEditDraft {
   plannedAltitude: string;
   temperatureByPhase: Partial<Record<FlightPhase, string>>;
-  tas: string;
+  tasByPhase: Partial<Record<FlightPhase, string>>;
   windDirectionByPhase: Partial<Record<FlightPhase, string>>;
   windSpeedByPhase: Partial<Record<FlightPhase, string>>;
 }
@@ -23,12 +23,19 @@ export type NavLogEditErrors = Record<
 
 export function draftFromSection(section: NavSection): NavLogEditDraft {
   const temperatureByPhase: Partial<Record<FlightPhase, string>> = {};
+  const tasByPhase: Partial<Record<FlightPhase, string>> = {};
   const windDirectionByPhase: Partial<Record<FlightPhase, string>> = {};
   const windSpeedByPhase: Partial<Record<FlightPhase, string>> = {};
   for (const [phase, value] of Object.entries(section.manual_temperature_c_by_phase ?? {})) {
     temperatureByPhase[phase as FlightPhase] = String(value);
   }
   temperatureByPhase[section.phase] = section.manual_temperature_c?.toString() ?? "";
+  for (const [phase, value] of Object.entries(section.manual_tas_kt_by_phase ?? {})) {
+    tasByPhase[phase as FlightPhase] = String(value);
+  }
+  if (tasByPhase[section.phase] === undefined) {
+    tasByPhase[section.phase] = section.manual_tas_kt?.toString() ?? "";
+  }
   for (const [phase, wind] of Object.entries(section.manual_wind_by_phase ?? {})) {
     windDirectionByPhase[phase as FlightPhase] = String(
       wind.direction_deg_from === 0 ? 360 : wind.direction_deg_from,
@@ -47,7 +54,7 @@ export function draftFromSection(section: NavSection): NavLogEditDraft {
   return {
     plannedAltitude: String(section.planned_altitude_ft_msl),
     temperatureByPhase,
-    tas: section.manual_tas_kt?.toString() ?? "",
+    tasByPhase,
     windDirectionByPhase,
     windSpeedByPhase,
   };
@@ -92,9 +99,12 @@ export function validateNavLogDrafts(
     }
 
     if (!isVisualArrival) {
-      const tas = finiteNumber(draft.tas);
-      if (draft.tas.trim() && (tas === null || tas <= 0 || tas > 300)) {
-        sectionErrors.tas = "0より大きく300 kt以下にしてください。";
+      for (const tasDraft of Object.values(draft.tasByPhase)) {
+        const tas = finiteNumber(tasDraft ?? "");
+        if (tasDraft?.trim() && (tas === null || tas <= 0 || tas > 300)) {
+          sectionErrors.tas = "0より大きく300 kt以下にしてください。";
+          break;
+        }
       }
 
       const windPhases = new Set<FlightPhase>([
@@ -147,6 +157,13 @@ export function applyDraftToSection(
         return parsed === null ? [] : [[phase, parsed]];
       }),
   ) as Partial<Record<FlightPhase, number>>;
+  const manualTasByPhase = Object.fromEntries(
+    Object.entries(draft.tasByPhase)
+      .flatMap(([phase, value]) => {
+        const parsed = finiteNumber(value ?? "");
+        return parsed === null ? [] : [[phase, parsed]];
+      }),
+  ) as Partial<Record<FlightPhase, number>>;
   const windPhases = new Set<FlightPhase>([
     ...(Object.keys(draft.windDirectionByPhase) as FlightPhase[]),
     ...(Object.keys(draft.windSpeedByPhase) as FlightPhase[]),
@@ -169,7 +186,11 @@ export function applyDraftToSection(
       : Number(draft.plannedAltitude),
     manual_temperature_c: finiteNumber(draft.temperatureByPhase[section.phase] ?? ""),
     manual_temperature_c_by_phase: manualTemperatureByPhase,
-    manual_tas_kt: isVisualArrival ? section.manual_tas_kt : finiteNumber(draft.tas),
+    manual_tas_kt_by_phase: isVisualArrival
+      ? section.manual_tas_kt_by_phase
+      : manualTasByPhase,
+    // New updates never write the scalar compatibility field.
+    manual_tas_kt: isVisualArrival ? section.manual_tas_kt : null,
     manual_wind_by_phase: isVisualArrival
       ? section.manual_wind_by_phase
       : manualWindByPhase,
