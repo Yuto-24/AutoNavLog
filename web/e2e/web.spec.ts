@@ -1093,7 +1093,9 @@ async function importKmlCandidate(page: Page): Promise<void> {
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, request }) => {
+  const reset = await request.delete("/api/session");
+  expect(reset.status()).toBe(204);
   await installGsiAirspaceRoute(page);
 });
 
@@ -1370,6 +1372,597 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
   expect(pageErrors).toEqual([]);
 });
 
+test("autosaved last-good calculation survives reload and cookie loss until explicit delete", async ({
+  context,
+  page,
+}, testInfo) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  const initiallyHasProject = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return ((await response.json()) as WebState).project !== null;
+  });
+  if (initiallyHasProject) page.once("dialog", (dialog) => dialog.accept());
+  await Promise.all([
+    page.waitForNavigation(),
+    page.getByRole("button", { name: "新規" }).click(),
+  ]);
+  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return ((await response.json()) as WebState).project;
+  })).toBeNull();
+
+  await calculateNavLog(page, false, false, true);
+  const calculated = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  if (calculated.project === null || calculated.outcome === null) {
+    throw new Error("calculated Project and outcome are required");
+  }
+  const projectId = calculated.project.id;
+  expect(calculated.savedProjects.some((project) => project.id === projectId)).toBe(true);
+  await expect(page.getByLabel("保存済み", { exact: true })).toHaveValue(projectId);
+
+  await page.reload();
+  await expect(page.getByText(
+    "最後に開いたProjectと最後の計算結果を復元しました。",
+    { exact: true },
+  )).toBeVisible();
+  await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
+  await expect(page.getByLabel("保存済み", { exact: true })).toHaveValue(projectId);
+
+  await context.clearCookies();
+  await page.reload();
+  await expect(page.getByText(
+    "最後に開いたProjectと最後の計算結果を復元しました。",
+    { exact: true },
+  )).toBeVisible();
+  await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
+  const cookieRestored = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  expect(cookieRestored.project?.id).toBe(projectId);
+  expect(cookieRestored.outcome).toEqual(calculated.outcome);
+  expect(cookieRestored.destinationWind).toEqual(calculated.destinationWind);
+  await page.screenshot({
+    path: testInfo.outputPath("issue94-cookie-restored.png"),
+    fullPage: true,
+  });
+
+  const stale = await page.evaluate(async () => {
+    const stateResponse = await fetch("/api/state");
+    if (!stateResponse.ok) throw new Error(`state request failed: ${stateResponse.status}`);
+    const state = await stateResponse.json() as WebState;
+    const project = state.project;
+    if (project === null) throw new Error("Project is missing");
+    const arrival = project.metadata.ui_state?.arrival_plan ?? null;
+    const response = await fetch("/api/project", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        flight_date: project.flight_date,
+        departure_time_jst: project.planned_departure_time_jst.slice(11, 16),
+        pilot_name: project.pilot_name,
+        ship_identifier: project.ship_identifier,
+        total_usable_fuel_gal: project.total_usable_fuel_gal - 1,
+        default_variation_deg_east: project.default_variation_deg_east,
+        weather_mode: project.weather_mode,
+        ftd_weather: project.ftd_weather,
+        run_up_included: project.run_up_included,
+        nose_fairing_enabled: project.nose_fairing_enabled,
+        air_conditioning_enabled: project.air_conditioning_enabled,
+        descent_rate_fpm: project.descent_rate_fpm,
+        tgl_count: project.tgl_count,
+        sections: project.sections.map((section) => ({
+          section_id: section.id,
+          planned_altitude_ft_msl: section.planned_altitude_ft_msl,
+          phase: section.phase,
+          manual_wind_direction_deg: section.manual_wind_direction_deg,
+          manual_wind_speed_kt: section.manual_wind_speed_kt,
+          manual_wind_by_phase: section.manual_wind_by_phase ?? {},
+          manual_temperature_c: section.manual_temperature_c,
+          manual_temperature_c_by_phase: section.manual_temperature_c_by_phase ?? {},
+          manual_tas_kt: section.manual_tas_kt,
+        })),
+        visual_reporting_point_node_id: arrival?.visual_reporting_point_node_id ?? null,
+        selected_pattern_altitude_ft_msl: arrival?.selected_pattern_altitude_ft_msl ?? null,
+        arrival_altitude_mode: arrival?.altitude_mode ?? "STANDARD_DISTANCE_RULE",
+        manual_vrep_altitude_ft_msl: arrival?.manual_vrep_altitude_ft_msl ?? null,
+        manual_vrep_reason: arrival?.manual_override_reason ?? null,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Project update failed: ${response.status} ${await response.text()}`);
+    }
+    return await response.json() as WebState;
+  });
+  expect(stale.outcome).not.toBeNull();
+  expect(stale.readiness.calculationIsCurrent).toBe(false);
+
+  await page.reload();
+  await expect(page.getByText(
+    "最後に開いたProjectと直前の計算結果を復元しました。入力が変更されているため再計算してください。",
+    { exact: true },
+  )).toBeVisible();
+  await expect(page.getByText("RECALCULATION_REQUIRED", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("issue94-stale-last-good.png"),
+    fullPage: true,
+  });
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "保存済みProjectを削除" }).click();
+  await expect(page.getByText("保存済みProjectを削除しました。", { exact: true })).toBeVisible();
+  await context.clearCookies();
+  await page.reload();
+  await expect(page.getByLabel("計算済みNAV LOG")).toHaveCount(0);
+  await expect(page.getByLabel("保存済み", { exact: true }).locator(
+    `option[value="${projectId}"]`,
+  )).toHaveCount(0);
+  expect(pageErrors).toEqual([]);
+});
+
+test("valid planning drafts autosave before calculation and coalesce rapid edits", async ({
+  context,
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("/");
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const routeAltitudes = page.locator(
+    ".route-table tbody tr:not(.vrep-row) .table-number-input",
+  );
+  await expect(routeAltitudes).toHaveCount(3);
+  const requests: Array<Record<string, unknown>> = [];
+  let releaseFirstResponse = () => {};
+  let markFirstResponseReady = () => {};
+  const firstResponseReleased = new Promise<void>((resolve) => {
+    releaseFirstResponse = resolve;
+  });
+  const firstResponseReady = new Promise<void>((resolve) => {
+    markFirstResponseReady = resolve;
+  });
+  await page.route("**/api/project", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.continue();
+      return;
+    }
+    requests.push(route.request().postDataJSON() as Record<string, unknown>);
+    if (requests.length === 1) {
+      const response = await route.fetch();
+      markFirstResponseReady();
+      await firstResponseReleased;
+      await route.fulfill({ response });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.getByLabel("FUEL gal").fill("80");
+  await firstResponseReady;
+  const firstPayload = requests[0] as {
+    sections: Array<{ planned_altitude_ft_msl: number }>;
+  };
+  const canonicalSecondAltitude = firstPayload.sections[1]?.planned_altitude_ft_msl;
+  await page.getByLabel("FUEL gal").fill("81");
+  await page.getByLabel("FUEL gal").fill("77.5");
+  await page.getByLabel("ETD JST").fill("10:10");
+  await page.getByLabel("ETD JST").fill("10:15");
+  await routeAltitudes.first().fill("4500");
+  await routeAltitudes.first().fill("5500");
+  await routeAltitudes.nth(1).fill("");
+  await page.waitForTimeout(350);
+  expect(requests).toHaveLength(1);
+
+  const coalescedResponse = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as Record<string, unknown>;
+    return body.total_usable_fuel_gal === 77.5;
+  });
+  releaseFirstResponse();
+  const coalesced = await coalescedResponse;
+  const coalescedPayload = coalesced.request().postDataJSON() as {
+    departure_time_jst: string;
+    sections: Array<{ planned_altitude_ft_msl: number }>;
+  };
+  expect(coalescedPayload.departure_time_jst).toBe("10:15");
+  expect(coalescedPayload.sections[0]?.planned_altitude_ft_msl).toBe(5500);
+  expect(coalescedPayload.sections[1]?.planned_altitude_ft_msl).toBe(
+    canonicalSecondAltitude,
+  );
+
+  const correctedResponse = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as {
+      sections?: Array<{ planned_altitude_ft_msl: number }>;
+    };
+    return body.sections?.[1]?.planned_altitude_ft_msl === 6500;
+  });
+  await routeAltitudes.nth(1).fill("6500");
+  await correctedResponse;
+
+  await page.reload();
+  await expect(page.getByLabel("FUEL gal")).toHaveValue("77.5");
+  await expect(page.getByLabel("ETD JST")).toHaveValue("10:15");
+  await expect(routeAltitudes.first()).toHaveValue("5500");
+  await expect(routeAltitudes.nth(1)).toHaveValue("6500");
+  await expect(page.getByLabel("計算済みNAV LOG")).toHaveCount(0);
+
+  await context.clearCookies();
+  await page.reload();
+  await expect(page.getByLabel("FUEL gal")).toHaveValue("77.5");
+  await expect(page.getByLabel("ETD JST")).toHaveValue("10:15");
+  await expect(routeAltitudes.first()).toHaveValue("5500");
+  await expect(routeAltitudes.nth(1)).toHaveValue("6500");
+  await expect(page.getByLabel("計算済みNAV LOG")).toHaveCount(0);
+
+  let checkpointRequested = false;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/projects/save")) {
+      checkpointRequested = true;
+    }
+  });
+  await routeAltitudes.nth(1).fill("");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "すべてのLegに計画高度を入力してください",
+  );
+  expect(checkpointRequested).toBe(false);
+  await expect(routeAltitudes.nth(1)).toHaveValue("");
+  await page.reload();
+  await expect(routeAltitudes.nth(1)).toHaveValue("6500");
+  expect(pageErrors).toEqual([]);
+});
+
+test("draft autosave failure keeps the local value and a manual save flushes its retry", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+  const routeAltitudes = page.locator(
+    ".route-table tbody tr:not(.vrep-row) .table-number-input",
+  );
+  await expect(routeAltitudes).toHaveCount(3);
+  const altitudeSaved = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as {
+      sections?: Array<{ phase: string; planned_altitude_ft_msl: number }>;
+    };
+    const editableSections = body.sections?.filter(
+      (section) => section.phase !== "VISUAL_ARRIVAL",
+    );
+    return Boolean(
+      editableSections?.length
+      && editableSections.every((section) => section.planned_altitude_ft_msl === 4500),
+    );
+  });
+  for (let index = 0; index < await routeAltitudes.count(); index += 1) {
+    await routeAltitudes.nth(index).fill("4500");
+  }
+  await altitudeSaved;
+
+  await page.route("**/api/project", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "TEST_AUTOSAVE_FAILURE", message: "failure" } }),
+    });
+  }, { times: 1 });
+  const fuel = page.getByLabel("FUEL gal");
+  await fuel.fill("76");
+  await expect(page.getByRole("alert")).toContainText("Projectを自動保存できませんでした");
+  await expect(fuel).toHaveValue("76");
+
+  const requestOrder: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "PUT" && request.url().endsWith("/api/project")) {
+      requestOrder.push("draft");
+    }
+    if (request.method() === "POST" && request.url().endsWith("/api/projects/save")) {
+      requestOrder.push("checkpoint");
+    }
+  });
+  const saved = page.waitForResponse(
+    (response) => response.url().endsWith("/api/projects/save") && response.ok(),
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saved;
+  expect(requestOrder.slice(-2)).toEqual(["draft", "checkpoint"]);
+  await page.reload();
+  await expect(fuel).toHaveValue("76");
+});
+
+test("manual save flushes a pending destination pattern exactly once before checkpoint", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const routeAltitudes = page.locator(
+    ".route-table tbody tr:not(.vrep-row) .table-number-input",
+  );
+  await expect(routeAltitudes).toHaveCount(3);
+  const altitudeSaved = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as {
+      sections?: Array<{ phase: string; planned_altitude_ft_msl: number }>;
+    };
+    const editableSections = body.sections?.filter(
+      (section) => section.phase !== "VISUAL_ARRIVAL",
+    );
+    return Boolean(
+      editableSections?.length
+      && editableSections.every((section) => section.planned_altitude_ft_msl === 4500),
+    );
+  });
+  for (let index = 0; index < await routeAltitudes.count(); index += 1) {
+    await routeAltitudes.nth(index).fill("4500");
+  }
+  await altitudeSaved;
+
+  const requestOrder: string[] = [];
+  const draftPayloads: Record<string, unknown>[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "PUT" && request.url().endsWith("/api/project")) {
+      requestOrder.push("draft");
+      draftPayloads.push(request.postDataJSON() as Record<string, unknown>);
+    }
+    if (request.method() === "POST" && request.url().endsWith("/api/projects/save")) {
+      requestOrder.push("checkpoint");
+    }
+  });
+  const patternAltitude = page.getByLabel("今回採用する場周経路高度");
+  await patternAltitude.fill("1300");
+  const saved = page.waitForResponse(
+    (response) => response.url().endsWith("/api/projects/save") && response.ok(),
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saved;
+  await page.waitForTimeout(700);
+
+  expect(requestOrder).toEqual(["draft", "checkpoint"]);
+  expect(draftPayloads).toHaveLength(1);
+  expect(draftPayloads[0]?.selected_pattern_altitude_ft_msl).toBe(1300);
+  await page.reload();
+  await expect(patternAltitude).toHaveValue("1300");
+});
+
+test("autosave-only projects collapse into Latest and become named saved projects", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const readState = async (): Promise<WebState> => page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  await expect.poll(async () => {
+    const current = await readState();
+    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
+  }).toBe(1);
+  const latestState = await readState();
+  const latest = latestState.savedProjects.find((project) => project.kind === "LATEST");
+  if (!latest) throw new Error("Latest autosave project is missing");
+  expect(latest.revision).toBe(0);
+  expect(latestState.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(1);
+  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(1);
+  await expect(page.locator("#saved-project")).toHaveValue(latest.id);
+
+  const routeAltitudes = page.locator(
+    ".route-table tbody tr:not(.vrep-row) .table-number-input",
+  );
+  await expect(routeAltitudes).toHaveCount(3);
+  const altitudeSaved = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as {
+      sections?: Array<{ phase: string; planned_altitude_ft_msl: number }>;
+    };
+    const editableSections = body.sections?.filter(
+      (section) => section.phase !== "VISUAL_ARRIVAL",
+    );
+    return Boolean(
+      editableSections?.length
+      && editableSections.every((section) => section.planned_altitude_ft_msl === 4500),
+    );
+  });
+  for (let index = 0; index < await routeAltitudes.count(); index += 1) {
+    await routeAltitudes.nth(index).fill("4500");
+  }
+  await altitudeSaved;
+
+  const projectName = `Latestから保存-${latest.id.slice(0, 8)}`;
+  await page.getByLabel("プロジェクト").fill(projectName);
+  const saveResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/projects/save") && response.ok(),
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saveResponse;
+  await expect.poll(async () => {
+    const current = await readState();
+    return current.savedProjects.find((project) => project.id === latest.id)?.kind;
+  }).toBe("SAVED");
+  const savedState = await readState();
+  expect(savedState.savedProjects.some(
+    (project) => project.id === latest.id && project.kind === "SAVED" && project.name === projectName,
+  )).toBe(true);
+  expect(savedState.savedProjects.find((project) => project.id === latest.id)?.revision).toBe(1);
+  expect(savedState.savedProjects.some((project) => project.kind === "LATEST")).toBe(false);
+  await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(1);
+  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
+
+  const postSaveAutosave = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as { total_usable_fuel_gal?: number };
+    return body.total_usable_fuel_gal === 89;
+  });
+  await page.getByLabel("FUEL gal").fill("89");
+  await postSaveAutosave;
+  const afterEdit = await readState();
+  expect(afterEdit.savedProjects.find((project) => project.id === latest.id)?.revision).toBe(1);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await Promise.all([
+    page.waitForNavigation(),
+    page.getByRole("button", { name: "新規" }).click(),
+  ]);
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+  await expect.poll(async () => {
+    const current = await readState();
+    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
+  }).toBe(1);
+  const afterNew = await readState();
+  expect(afterNew.savedProjects.some(
+    (project) => project.id === latest.id && project.kind === "SAVED" && project.name === projectName,
+  )).toBe(true);
+  expect(afterNew.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(1);
+  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(1);
+
+  // Keep the persistent Compose volume clean while exercising explicit deletion.
+  await page.getByLabel("保存済み", { exact: true }).selectOption(latest.id);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "保存済みProjectを削除" }).click();
+  await expect(page.getByText("保存済みProjectを削除しました。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(0);
+});
+
+test("a newer unsaved route replaces the previous owner Latest", async ({ page }) => {
+  await page.goto("/");
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const readState = async (): Promise<WebState> => page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  await expect.poll(async () => {
+    const current = await readState();
+    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
+  }).toBe(1);
+  const first = await readState();
+  if (!first.project) throw new Error("first autosaved Project is missing");
+  const firstProjectId = first.project.id;
+  expect(first.savedProjects.some(
+    (project) => project.id === firstProjectId && project.kind === "LATEST",
+  )).toBe(true);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await Promise.all([
+    page.waitForNavigation(),
+    page.getByRole("button", { name: "新規" }).click(),
+  ]);
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  await expect.poll(async () => {
+    const current = await readState();
+    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
+  }).toBe(1);
+  const second = await readState();
+  if (!second.project) throw new Error("second autosaved Project is missing");
+  const secondProjectId = second.project.id;
+  expect(secondProjectId).not.toBe(firstProjectId);
+  expect(second.savedProjects.some(
+    (project) => project.id === firstProjectId,
+  )).toBe(false);
+  expect(second.savedProjects.filter((project) => project.kind === "LATEST")).toEqual([
+    expect.objectContaining({ id: secondProjectId, kind: "LATEST" }),
+  ]);
+
+  await page.reload();
+  await expect.poll(async () => (await readState()).project?.id).toBe(secondProjectId);
+  const restored = await readState();
+  expect(restored.savedProjects.some((project) => project.id === firstProjectId)).toBe(false);
+  expect(restored.savedProjects.some(
+    (project) => project.id === secondProjectId && project.kind === "LATEST",
+  )).toBe(true);
+});
+
+test("a newer planning edit prevents a pending destination recalculation transaction", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await calculateNavLog(page, false, false, true);
+
+  let releaseAutosave = () => {};
+  let markAutosaveReady = () => {};
+  const autosaveReleased = new Promise<void>((resolve) => {
+    releaseAutosave = resolve;
+  });
+  const autosaveReady = new Promise<Record<string, unknown>>((resolve) => {
+    markAutosaveReady = () => resolve({});
+  });
+  let autosavePayload: Record<string, unknown> | null = null;
+  await page.route("**/api/project", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.continue();
+      return;
+    }
+    autosavePayload = route.request().postDataJSON() as Record<string, unknown>;
+    const response = await route.fetch();
+    markAutosaveReady();
+    await autosaveReleased;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  const recalculationRequests: Record<string, unknown>[] = [];
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST"
+      && request.url().endsWith("/api/project/recalculate")
+    ) {
+      recalculationRequests.push(request.postDataJSON() as Record<string, unknown>);
+    }
+  });
+
+  await page.getByLabel("今回採用する場周経路高度").fill("1400");
+  await page.waitForTimeout(100);
+  await page.getByLabel("FUEL gal").fill("89");
+  await autosaveReady;
+  await page.waitForTimeout(350);
+
+  expect(recalculationRequests).toHaveLength(0);
+  expect(autosavePayload?.selected_pattern_altitude_ft_msl).toBe(1400);
+  expect(autosavePayload?.total_usable_fuel_gal).toBe(89);
+  const autosaveCompleted = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project")
+      && response.request().method() === "PUT",
+  );
+  releaseAutosave();
+  await autosaveCompleted;
+  await expect(page.getByLabel("FUEL gal")).toHaveValue("89");
+});
+
 test("edited VREP altitude reaches the calculation request and NAV LOG", async ({ page }) => {
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
@@ -1481,6 +2074,7 @@ test("stale destination pattern response cannot overwrite a loaded project or du
       ...currentState.savedProjects,
       {
         id: replacementProjectId,
+        kind: "SAVED",
         name: "RJFK replacement",
         status: "DRAFT",
         revision: 1,
@@ -1530,6 +2124,23 @@ test("stale destination pattern response cannot overwrite a loaded project or du
     });
   }, { times: 1 });
   await page.reload();
+
+  await page.route("**/api/project", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const updated = await response.json() as WebState;
+    await route.fulfill({
+      response,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...updated,
+        savedProjects: replacementState.savedProjects,
+      }),
+    });
+  }, { times: 1 });
 
   let releaseFirstResponse = () => {};
   let markFirstResponseReady = () => {};
@@ -3366,6 +3977,28 @@ test("RUN UP, nose fairing, and A/C choices persist after save and reload", asyn
   expect(state.project?.run_up_included).toBe(false);
   expect(state.project?.nose_fairing_enabled).toBe(true);
   expect(state.project?.air_conditioning_enabled).toBe(false);
+
+  const routeAltitudes = page.locator(
+    ".route-table tbody tr:not(.vrep-row) .table-number-input",
+  );
+  await expect(routeAltitudes).toHaveCount(3);
+  const altitudeSaved = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as {
+      sections?: Array<{ phase: string; planned_altitude_ft_msl: number }>;
+    };
+    const editableSections = body.sections?.filter(
+      (section) => section.phase !== "VISUAL_ARRIVAL",
+    );
+    return Boolean(
+      editableSections?.length
+      && editableSections.every((section) => section.planned_altitude_ft_msl === 4500),
+    );
+  });
+  for (let index = 0; index < await routeAltitudes.count(); index += 1) {
+    await routeAltitudes.nth(index).fill("4500");
+  }
+  await altitudeSaved;
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();

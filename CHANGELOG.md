@@ -2,6 +2,28 @@
 
 AutoNavLog の利用者に影響する変更を記録します。
 
+## 1.9.0 - 2026-09-05
+
+### 追加
+
+- Issue #94で、serverが受理したProject入力を最新draftとして自動保存し、明示保存していない
+  Projectも一覧・読込・削除できるようにしました。計算前の飛行条件・高度・PHASE編集も300 ms後に
+  保存し、不正な編集中フィールドは直前の正常値を維持します。明示保存・計算は入力検証とdraft保存の
+  完了後だけ開始し、自動保存失敗は画面へ表示します。
+- autosave-only Projectはownerごとに最新1件だけを`Latest`として一覧表示し、新しいProjectの
+  autosave成功後に旧draftを自動削除します。明示保存したProjectは名前付きcheckpointとして残り、
+  通常autosaveではrevisionを変更しません。named volumeを維持した更新・container再作成後も、
+  最新draftとowner状態を復元します。
+- Projectごとに最後に正常完了したNAV LOG、計算時点のProject、目的地風、Forecast Run・来歴を
+  1件だけ保存し、reload、Cookie消失、server再起動後にも復元します。入力変更後は直前のNAV LOGを
+  stale表示で維持し、失敗・中断・Blockerのある計算では置き換えません。
+- ownerごとに最後に明示作成・選択したProjectを復元し、owner identityを生のまま保存pathへ含めない
+  分離を追加しました。
+
+### 配布
+
+- Python・Web のバージョンを `1.9.0` に更新しました。
+
 ## 1.8.3 - 2026-09-04
 
 ### 修正

@@ -243,7 +243,13 @@ def create_app(
         owner_id = _owner_identity(request)
         session_token = request.cookies.get(SESSION_COOKIE_NAME)
         if session_token:
-            web.invalidate_session(session_token, owner_id)
+            web.invalidate_session(
+                session_token,
+                owner_id,
+                clear_last_opened=True,
+            )
+        else:
+            web.clear_last_opened_project(owner_id)
         response = Response(status_code=204)
         response.delete_cookie(
             key=SESSION_COOKIE_NAME,

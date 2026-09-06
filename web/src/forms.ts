@@ -85,6 +85,22 @@ export function touchAndGoCount(form: PlanningForm): number | null {
   return Number.isInteger(count) && count >= 0 && count <= 20 ? count : null;
 }
 
+export function validFlightDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+export function validDepartureTimeJst(value: string): boolean {
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
 export function ftdWeatherSettings(form: PlanningForm): FtdWeatherSettings | null {
   if (
     !form.ftdSurfaceWindDirection.trim() ||

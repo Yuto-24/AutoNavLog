@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,7 +12,15 @@ from uuid import UUID, uuid4
 
 from autonavlog.domain.project import Project
 
-from .repository import ProjectIndex, ProjectSummary, SaveResult
+from .repository import (
+    LastCalculationRecord,
+    OwnerProjectState,
+    ProjectIndex,
+    ProjectLoadResult,
+    ProjectSummary,
+    SaveResult,
+    owner_storage_key,
+)
 from .safe_json import (
     JsonStorageError,
     atomic_model_write,
@@ -24,6 +34,13 @@ class RevisionConflictError(RuntimeError):
     def __init__(self, message: str, conflict_copy: Path):
         super().__init__(message)
         self.conflict_copy = conflict_copy
+
+
+class UnsafeStoragePathError(JsonStorageError):
+    """Raised before following a symlink or leaving the configured storage root."""
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _normalize_legacy_wind_directions(project_payload: dict[str, Any]) -> bool:
@@ -116,15 +133,56 @@ def _read_migrated_project(path: Path) -> Project:
 
 class LocalProjectRepository:
     def __init__(self, root: str | Path):
-        self.root = Path(root)
+        self.root = Path(root).absolute()
         self._lock = RLock()
 
+    def _safe_path(self, path: Path) -> Path:
+        candidate = path.absolute()
+        try:
+            relative = candidate.relative_to(self.root)
+        except ValueError as error:
+            raise UnsafeStoragePathError("storage path leaves configured root") from error
+        current = self.root
+        if current.exists() and current.is_symlink():
+            raise UnsafeStoragePathError("storage root must not be a symlink")
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                raise UnsafeStoragePathError(f"storage path must not contain symlinks: {current}")
+        return candidate
+
     def _project_dir(self, project_id: UUID) -> Path:
-        return self.root / "projects" / str(project_id)
+        return self._safe_path(self.root / "projects" / str(project_id))
 
     @property
     def index_path(self) -> Path:
-        return self.root / "projects" / "index.json"
+        return self._safe_path(self.root / "projects" / "index.json")
+
+    def _project_path(self, project_id: UUID, filename: str) -> Path:
+        return self._safe_path(self._project_dir(project_id) / filename)
+
+    def _owner_state_path(self, owner_key: str) -> Path:
+        if len(owner_key) != 64 or any(
+            character not in "0123456789abcdef" for character in owner_key
+        ):
+            raise ValueError("owner key must be a lowercase SHA-256 digest")
+        return self._safe_path(self.root / "owners" / owner_key / "state.json")
+
+    def _owner_invalid_state_path(self, owner_key: str) -> Path:
+        return self._safe_path(
+            self._owner_state_path(owner_key).with_name("state.invalid.json")
+        )
+
+    def _quarantine_owner_state_locked(self, owner_key: str) -> Path | None:
+        """Neutralize unreadable owner state without interpreting its contents."""
+
+        path = self._owner_state_path(owner_key)
+        if not path.exists():
+            return None
+        quarantine = self._owner_invalid_state_path(owner_key)
+        os.replace(path, quarantine)
+        LOGGER.warning("Quarantined invalid owner state: owner_key=%s", owner_key)
+        return quarantine
 
     @staticmethod
     def _summary(project: Project) -> ProjectSummary:
@@ -140,6 +198,11 @@ class LocalProjectRepository:
         )
 
     @staticmethod
+    def _project_owner_key(project: Project) -> str | None:
+        owner_id = project.metadata.get("web_owner_id")
+        return owner_storage_key(owner_id) if isinstance(owner_id, str) and owner_id else None
+
+    @staticmethod
     def _sort_summaries(summaries: list[ProjectSummary]) -> list[ProjectSummary]:
         return sorted(
             summaries,
@@ -148,16 +211,36 @@ class LocalProjectRepository:
         )
 
     def _scan_projects(self) -> list[ProjectSummary]:
-        projects_root = self.root / "projects"
+        projects_root = self._safe_path(self.root / "projects")
         summaries: list[ProjectSummary] = []
         if not projects_root.exists():
             return summaries
-        for path in sorted(projects_root.glob("*/project.json")):
-            try:
-                project = _read_migrated_project(path)
-            except JsonStorageError:
+        for project_dir in sorted(projects_root.iterdir()):
+            if not project_dir.is_dir() or project_dir.is_symlink():
                 continue
-            if path.parent.name != str(project.id):
+            try:
+                project_id = UUID(project_dir.name)
+            except ValueError:
+                continue
+            if str(project_id) != project_dir.name:
+                continue
+            paths = (
+                self._project_path(project_id, "project.json"),
+                self._project_path(project_id, "project.json.bak"),
+                self._project_path(project_id, "autosave.json"),
+            )
+            project = None
+            for path in paths:
+                if not path.exists():
+                    continue
+                try:
+                    project = _read_migrated_project(path)
+                    self._validate_project_path_identity(project, project_id)
+                except JsonStorageError:
+                    project = None
+                    continue
+                break
+            if project is None:
                 continue
             summaries.append(self._summary(project))
         return self._sort_summaries(summaries)
@@ -189,26 +272,245 @@ class LocalProjectRepository:
         projects.append(self._summary(project))
         self._write_index(self._sort_summaries(projects))
 
-    def list_projects(self) -> list[ProjectSummary]:
-        with self._lock:
-            return self._read_or_rebuild_index()
+    def _has_valid_checkpoint_locked(self, project_id: UUID) -> bool:
+        """Return whether a Project has a trustworthy explicit checkpoint.
 
-    def load(self, project_id: UUID) -> Project:
-        path = self._project_dir(project_id) / "project.json"
+        ``project.json.bak`` is deliberately included: it is the last known
+        explicit checkpoint after an interrupted/corrupt primary write.
+        """
+
+        return self._checkpoint_summary_locked(project_id) is not None
+
+    def _checkpoint_summary_locked(self, project_id: UUID) -> ProjectSummary | None:
+        """Return the latest trustworthy explicit checkpoint summary, if any."""
+
+        for filename in ("project.json", "project.json.bak"):
+            path = self._project_path(project_id, filename)
+            if not path.exists():
+                continue
+            try:
+                project = _read_migrated_project(path)
+                self._validate_project_path_identity(project, project_id)
+            except JsonStorageError:
+                continue
+            return self._summary(project)
+        return None
+
+    def _is_autosave_only_for_owner_locked(
+        self,
+        project_id: UUID,
+        owner_key: str,
+    ) -> bool:
+        if self._has_valid_checkpoint_locked(project_id):
+            return False
+        path = self._project_path(project_id, "autosave.json")
+        if not path.exists():
+            return False
         try:
             project = _read_migrated_project(path)
+            self._validate_project_path_identity(project, project_id)
         except JsonStorageError:
-            project = _read_migrated_project(path.with_name("project.json.bak"))
+            return False
+        return self._project_owner_key(project) == owner_key
+
+    def _read_owner_state_locked(
+        self,
+        owner_key: str,
+        *,
+        migrate: bool = True,
+    ) -> OwnerProjectState | None:
+        path = self._owner_state_path(owner_key)
+        if not path.exists():
+            return None
+        state = read_json_model(path, OwnerProjectState)
+        if state.schema_version != 1 or not migrate:
+            return state
+        assert state.project_id is not None  # validated by OwnerProjectState
+        project_id = state.project_id
+        migrated = OwnerProjectState(
+            schema_version=2,
+            last_opened_project_id=project_id,
+            latest_draft_project_id=(
+                project_id
+                if self._is_autosave_only_for_owner_locked(project_id, owner_key)
+                else None
+            ),
+        )
+        atomic_model_write(path, migrated, keep_backup=False)
+        return migrated
+
+    def _write_owner_state_locked(
+        self,
+        owner_key: str,
+        state: OwnerProjectState,
+    ) -> Path:
+        path = self._owner_state_path(owner_key)
+        atomic_model_write(path, state, keep_backup=False)
+        return path
+
+    def _iter_owner_keys_locked(self) -> list[str]:
+        owners_root = self._safe_path(self.root / "owners")
+        if not owners_root.exists():
+            return []
+        keys: list[str] = []
+        for owner_dir in owners_root.iterdir():
+            if not owner_dir.is_dir() or owner_dir.is_symlink():
+                continue
+            key = owner_dir.name
+            if len(key) == 64 and all(character in "0123456789abcdef" for character in key):
+                keys.append(key)
+        return keys
+
+    def _cleanup_pending_locked(self, owner_key: str, state: OwnerProjectState) -> None:
+        """Best-effort cleanup of drafts named by a committed owner marker.
+
+        A pending id is recorded in the same atomic marker write that selects
+        the new Latest.  We never infer cleanup candidates by scanning, which
+        preserves a draft written before a failed marker update.
+        """
+
+        remaining: list[UUID] = []
+        for project_id in state.pending_cleanup_project_ids:
+            try:
+                if self._is_autosave_only_for_owner_locked(project_id, owner_key):
+                    self._delete_locked(project_id)
+            except FileNotFoundError:
+                pass
+            except Exception:
+                LOGGER.exception("Unable to clean up stale autosave-only Project: %s", project_id)
+                remaining.append(project_id)
+        if remaining != state.pending_cleanup_project_ids:
+            try:
+                self._write_owner_state_locked(
+                    owner_key,
+                    state.model_copy(update={"pending_cleanup_project_ids": remaining}),
+                )
+            except Exception:
+                # A successful deletion with an uncleared retry token is safe:
+                # a later attempt sees the missing Project and removes it.
+                LOGGER.exception("Unable to record Latest cleanup completion")
+
+    def _retry_latest_cleanup_locked(self) -> None:
+        for owner_key in self._iter_owner_keys_locked():
+            try:
+                state = self._read_owner_state_locked(owner_key)
+            except (JsonStorageError, OSError, ValueError):
+                LOGGER.exception("Unable to read owner state while retrying Latest cleanup")
+                continue
+            if state is not None:
+                self._cleanup_pending_locked(owner_key, state)
+
+    def list_projects(self) -> list[ProjectSummary]:
+        with self._lock:
+            self._retry_latest_cleanup_locked()
+            latest_by_owner: dict[str, UUID] = {}
+            for owner_key in self._iter_owner_keys_locked():
+                try:
+                    state = self._read_owner_state_locked(owner_key)
+                except (JsonStorageError, OSError, ValueError):
+                    LOGGER.exception("Ignoring invalid owner state while listing Projects")
+                    continue
+                if state is not None and state.latest_draft_project_id is not None:
+                    latest_by_owner[owner_key] = state.latest_draft_project_id
+            visible: list[ProjectSummary] = []
+            for summary in self._read_or_rebuild_index():
+                project_dir = self._project_dir(summary.id)
+                if not project_dir.is_dir() or project_dir.is_symlink():
+                    continue
+                checkpoint_summary = self._checkpoint_summary_locked(summary.id)
+                if checkpoint_summary is not None:
+                    visible.append(checkpoint_summary.model_copy(update={"kind": "SAVED"}))
+                    continue
+                summary_owner_key = (
+                    owner_storage_key(summary.web_owner_id)
+                    if isinstance(summary.web_owner_id, str) and summary.web_owner_id
+                    else None
+                )
+                if (
+                    summary_owner_key is not None
+                    and latest_by_owner.get(summary_owner_key) == summary.id
+                ):
+                    if self._is_autosave_only_for_owner_locked(summary.id, summary_owner_key):
+                        visible.append(summary.model_copy(update={"kind": "LATEST"}))
+            return self._sort_summaries(visible)
+
+    @staticmethod
+    def _validate_project_path_identity(project: Project, project_id: UUID) -> None:
         if project.id != project_id:
             raise JsonStorageError("project id does not match its storage path")
-        return project
+
+    def load(self, project_id: UUID) -> Project:
+        return self.load_with_recovery(project_id).project
+
+    def load_with_recovery(self, project_id: UUID) -> ProjectLoadResult:
+        with self._lock:
+            return self._load_with_recovery_locked(project_id)
+
+    def _load_with_recovery_locked(self, project_id: UUID) -> ProjectLoadResult:
+        autosave_path = self._project_path(project_id, "autosave.json")
+        path = self._project_path(project_id, "project.json")
+        backup_path = self._project_path(project_id, "project.json.bak")
+        autosave_project = None
+        autosave_invalid = False
+        checkpoint_project = None
+        checkpoint_recovered = False
+        should_update_index = False
+        recovered_from_fallback = False
+        if autosave_path.exists():
+            try:
+                autosave_project = _read_migrated_project(autosave_path)
+                self._validate_project_path_identity(autosave_project, project_id)
+            except UnsafeStoragePathError:
+                raise
+            except JsonStorageError:
+                autosave_project = None
+                autosave_invalid = True
+                LOGGER.warning("Ignoring corrupt Project autosave: %s", autosave_path)
+        if path.exists():
+            try:
+                checkpoint_project = _read_migrated_project(path)
+                self._validate_project_path_identity(checkpoint_project, project_id)
+            except UnsafeStoragePathError:
+                raise
+            except JsonStorageError:
+                checkpoint_project = None
+                checkpoint_recovered = True
+                LOGGER.warning("Ignoring corrupt Project checkpoint: %s", path)
+        if checkpoint_project is None and backup_path.exists():
+            checkpoint_project = _read_migrated_project(backup_path)
+            self._validate_project_path_identity(checkpoint_project, project_id)
+            checkpoint_recovered = True
+        if (
+            autosave_project is not None
+            and checkpoint_project is not None
+            and checkpoint_project.revision > autosave_project.revision
+        ):
+            # An explicit save may have committed project.json before a later
+            # best-effort autosave/marker refresh failed.  In that case the
+            # stale autosave must not shadow the newer checkpoint.
+            project = checkpoint_project
+            should_update_index = True
+        elif autosave_project is not None:
+            project = autosave_project
+        elif checkpoint_project is not None:
+            project = checkpoint_project
+            recovered_from_fallback = autosave_invalid or checkpoint_recovered
+            should_update_index = recovered_from_fallback
+        else:
+            raise FileNotFoundError(f"project not found: {project_id}")
+        if should_update_index:
+            self._update_index(project)
+        return ProjectLoadResult(
+            project=project,
+            recovered_from_fallback=recovered_from_fallback,
+        )
 
     def save(self, project: Project, expected_revision: int) -> SaveResult:
         with self._lock:
             return self._save_locked(project, expected_revision)
 
     def _save_locked(self, project: Project, expected_revision: int) -> SaveResult:
-        path = self._project_dir(project.id) / "project.json"
+        path = self._project_path(project.id, "project.json")
         if path.exists():
             existing = _read_migrated_project(path)
             if existing.revision != expected_revision:
@@ -233,22 +535,250 @@ class LocalProjectRepository:
         )
         atomic_model_write(path, saved)
         self._update_index(saved)
+        owner_key = self._project_owner_key(saved)
+        if owner_key is not None:
+            # ``project.json`` is the explicit-save commit point.  The owner
+            # marker only controls Latest classification and cleanup; allowing
+            # its failure to escape here would report a failed save after the
+            # revision has already been durably advanced.
+            try:
+                state = self._read_owner_state_locked(owner_key)
+                if state is not None and state.latest_draft_project_id == saved.id:
+                    self._write_owner_state_locked(
+                        owner_key,
+                        state.model_copy(update={"latest_draft_project_id": None}),
+                    )
+                    state = self._read_owner_state_locked(owner_key)
+                if state is not None:
+                    self._cleanup_pending_locked(owner_key, state)
+            except Exception:
+                LOGGER.exception(
+                    "Unable to update Latest marker after explicit Project save: %s",
+                    saved.id,
+                )
         return SaveResult(project=saved, path=path)
 
-    def autosave(self, project: Project) -> Path:
-        path = self._project_dir(project.id) / "autosave.json"
-        atomic_model_write(path, project)
-        return path
+    def autosave(self, project: Project, *, set_last_opened: bool = False) -> Path:
+        with self._lock:
+            path = self._project_path(project.id, "autosave.json")
+            atomic_model_write(path, project)
+            self._update_index(project)
+            owner_key = self._project_owner_key(project)
+            if owner_key is None:
+                return path
+            try:
+                state = self._read_owner_state_locked(owner_key)
+            except JsonStorageError:
+                if not set_last_opened:
+                    raise
+                # Route confirmation is an explicit, validated ownership
+                # boundary.  It may replace an unreadable marker with a fresh
+                # v2 state, but deliberately records no inferred cleanup ids.
+                # Existing draft directories therefore remain hidden/orphaned
+                # rather than being guessed at or deleted.
+                LOGGER.warning(
+                    "Replacing invalid owner state while committing new Latest: owner_key=%s",
+                    owner_key,
+                )
+                state = OwnerProjectState()
+            if state is None:
+                state = OwnerProjectState()
+            # A background calculation can finish after its session stopped
+            # being the owner's active Project.  Its draft is still useful for
+            # its own recovery/last-good record, but it must not steal Latest
+            # or trigger cleanup for the newer active Project.
+            if not set_last_opened and state.last_opened_project_id != project.id:
+                return path
+            latest_draft_project_id = (
+                None if self._has_valid_checkpoint_locked(project.id) else project.id
+            )
+            pending_cleanup = list(state.pending_cleanup_project_ids)
+            previous_latest = state.latest_draft_project_id
+            if previous_latest is not None and previous_latest != project.id:
+                if previous_latest not in pending_cleanup:
+                    pending_cleanup.append(previous_latest)
+            committed = state.model_copy(
+                update={
+                    "last_opened_project_id": (
+                        project.id if set_last_opened else state.last_opened_project_id
+                    ),
+                    "latest_draft_project_id": latest_draft_project_id,
+                    "pending_cleanup_project_ids": pending_cleanup,
+                }
+            )
+            self._write_owner_state_locked(
+                owner_key,
+                committed,
+            )
+            # The write above is the commit point.  Cleanup is intentionally
+            # best-effort so a failed deletion cannot hide the new draft.
+            self._cleanup_pending_locked(owner_key, committed)
+            return path
+
+    def replace_last_calculation(self, record: LastCalculationRecord) -> Path:
+        with self._lock:
+            self._validate_project_path_identity(record.project, record.project_id)
+            path = self._project_path(record.project_id, "last-calculation.json")
+            atomic_model_write(path, record, keep_backup=False)
+            return path
+
+    def load_last_calculation(
+        self,
+        project_id: UUID,
+        *,
+        owner_key: str,
+    ) -> LastCalculationRecord | None:
+        with self._lock:
+            path = self._project_path(project_id, "last-calculation.json")
+            if not path.exists():
+                return None
+            try:
+                record = read_json_model(path, LastCalculationRecord)
+                if record.project_id != project_id:
+                    raise JsonStorageError("last calculation Project id mismatch")
+                if record.owner_key != owner_key:
+                    raise JsonStorageError("last calculation owner mismatch")
+                return record
+            except UnsafeStoragePathError:
+                raise
+            except JsonStorageError:
+                quarantine = self._project_path(
+                    project_id,
+                    "last-calculation.invalid.json",
+                )
+                os.replace(path, quarantine)
+                LOGGER.warning("Quarantined invalid last calculation: %s", path)
+                raise
+
+    def load_owner_project(self, owner_key: str) -> UUID | None:
+        with self._lock:
+            state = self._read_owner_state_locked(owner_key)
+            return None if state is None else state.last_opened_project_id
+
+    def load_owner_state(self, owner_key: str) -> OwnerProjectState | None:
+        with self._lock:
+            return self._read_owner_state_locked(owner_key)
+
+    def set_owner_project(self, owner_key: str, project_id: UUID) -> Path:
+        with self._lock:
+            state = self._read_owner_state_locked(owner_key)
+            if state is None:
+                state = OwnerProjectState()
+            return self._write_owner_state_locked(
+                owner_key,
+                state.model_copy(update={"last_opened_project_id": project_id}),
+            )
+
+    def clear_owner_project(
+        self,
+        owner_key: str,
+        project_id: UUID | None = None,
+    ) -> None:
+        with self._lock:
+            path = self._owner_state_path(owner_key)
+            if not path.exists():
+                return
+            try:
+                state = self._read_owner_state_locked(owner_key)
+            except JsonStorageError:
+                # A reset has no trustworthy selection to preserve.  Do not
+                # infer Latest or delete any Project directory from malformed
+                # content; simply neutralize this owner's marker.
+                self._quarantine_owner_state_locked(owner_key)
+                return
+            if state is None:
+                return
+            if project_id is None or state.last_opened_project_id == project_id:
+                replacement = state.model_copy(update={"last_opened_project_id": None})
+                if (
+                    replacement.latest_draft_project_id is not None
+                    or replacement.pending_cleanup_project_ids
+                ):
+                    self._write_owner_state_locked(owner_key, replacement)
+                    return
+                path.unlink()
+
+    def _delete_locked(self, project_id: UUID) -> None:
+        project_dir = self._project_dir(project_id)
+        if not any(
+            self._project_path(project_id, filename).exists()
+            for filename in ("autosave.json", "project.json", "project.json.bak")
+        ):
+            raise FileNotFoundError(f"project not found: {project_id}")
+        shutil.rmtree(project_dir)
+        projects = [
+            summary
+            for summary in self._read_or_rebuild_index()
+            if summary.id != project_id
+        ]
+        self._write_index(self._sort_summaries(projects))
 
     def delete(self, project_id: UUID) -> None:
         with self._lock:
-            project_dir = self._project_dir(project_id)
-            if not (project_dir / "project.json").exists():
-                raise FileNotFoundError(f"project not found: {project_id}")
-            shutil.rmtree(project_dir)
-            projects = [
-                summary
-                for summary in self._read_or_rebuild_index()
-                if summary.id != project_id
-            ]
-            self._write_index(self._sort_summaries(projects))
+            self._delete_locked(project_id)
+
+    def delete_with_owner_marker(self, project_id: UUID, *, owner_key: str) -> None:
+        """Delete a Project without leaving its owner's marker stale on failure."""
+
+        with self._lock:
+            marker_path = self._owner_state_path(owner_key)
+            quarantined_marker: Path | None = None
+            try:
+                matching_marker = self._read_owner_state_locked(owner_key)
+            except JsonStorageError:
+                # Ownership was already verified from the Project itself by
+                # the facade.  A corrupt marker cannot name a safe selection,
+                # so neutralize it but preserve its exact bytes for rollback
+                # if the Project-directory deletion fails.
+                quarantined_marker = self._quarantine_owner_state_locked(owner_key)
+                matching_marker = None
+            marker_changed = False
+            if matching_marker is not None and (
+                matching_marker.last_opened_project_id == project_id
+                or matching_marker.latest_draft_project_id == project_id
+            ):
+                replacement = matching_marker.model_copy(
+                    update={
+                        "last_opened_project_id": (
+                            None
+                            if matching_marker.last_opened_project_id == project_id
+                            else matching_marker.last_opened_project_id
+                        ),
+                        "latest_draft_project_id": (
+                            None
+                            if matching_marker.latest_draft_project_id == project_id
+                            else matching_marker.latest_draft_project_id
+                        ),
+                        "pending_cleanup_project_ids": [
+                            pending_id
+                            for pending_id in matching_marker.pending_cleanup_project_ids
+                            if pending_id != project_id
+                        ],
+                    }
+                )
+                marker_changed = True
+                if (
+                    replacement.last_opened_project_id is None
+                    and replacement.latest_draft_project_id is None
+                    and not replacement.pending_cleanup_project_ids
+                ):
+                    marker_path.unlink()
+                else:
+                    self._write_owner_state_locked(owner_key, replacement)
+            try:
+                self._delete_locked(project_id)
+            except Exception:
+                if matching_marker is not None and marker_changed:
+                    atomic_model_write(
+                        marker_path,
+                        matching_marker,
+                        keep_backup=False,
+                    )
+                elif quarantined_marker is not None:
+                    try:
+                        os.replace(quarantined_marker, marker_path)
+                    except OSError:
+                        LOGGER.exception(
+                            "Unable to restore quarantined owner state after failed Project delete"
+                        )
+                raise

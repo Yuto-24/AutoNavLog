@@ -208,7 +208,7 @@ class RjfmInboundGuidancePoint(CalculationModel):
 
 
 class RjfmInboundGuidance(CalculationModel):
-    """Transient west-extension diagnostic; it is never persisted with a project."""
+    """West-extension diagnostic persisted only inside the last-good calculation."""
 
     status: Literal[
         "AVAILABLE",

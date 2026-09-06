@@ -69,7 +69,7 @@ export function Header({
           <option value="">選択</option>
           {savedProjects.map((project) => (
             <option key={project.id} value={project.id}>
-              {project.name}
+              {project.kind === "LATEST" ? "Latest" : project.name}
             </option>
           ))}
         </select>

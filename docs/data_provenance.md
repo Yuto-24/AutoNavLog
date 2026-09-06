@@ -99,10 +99,30 @@ Supplement本文を収録していないため未確認のページ番号は付�
 保存形式の後方互換専用であり、この自動値の来歴には使用しません。
 
 目的地風はAviationWeather.govのTAFを出典とし、目的空港ICAO、到着予定時刻、TAF発表時刻、
-有効期間、変化区分、風向・風速・ガスト、TAF原文をWeb sessionへ保持します。採用した風向・
+有効期間、変化区分、風向・風速・ガスト、TAF原文をWeb sessionとlast-good計算recordへ
+保持します。採用した風向・
 風速と出典metadataはCalculationOutcomeの`DESTINATION_INFO`表示投影へ含めますが、到着区間
 計算へは使いません。再計算のたびに到着予定時刻へ合わせて選び直し、取得失敗時は目的空港
 情報行だけを`UNAVAILABLE`とします。VREP→目的空港は常に固定CALMで計算します。
 
-Projectは入力、手動値、選択した参照データを保存します。CalculationOutcome、気象要求、
-気象結果は保存用Snapshotへ複製せず、現在のWeb sessionで再計算可能な状態として扱います。
+Projectは入力、手動値、選択した参照データを最新draftとして自動保存し、明示保存時にはrevision付き
+checkpointも更新します。最後にBlockerなしで完了した計算はProjectごとに1件だけ、計算時Projectの
+deep snapshot、`CalculationOutcome`、目的地風、Forecast Run・metadata、計算fingerprint、保存時刻を
+self-containedなlast-good計算recordへ保存します。履歴・連番Snapshotは作りません。
+
+autosave-only Projectはownerごとに1件だけ`Latest`として扱います。新draftは`autosave.json`を書き、
+同じowner state v2の`latest_draft_project_id`（route確定時は`last_opened_project_id`も）をatomicに更新して
+から旧Latestを削除します。削除失敗は新draftを無効にせず、opaque owner marker内のretry対象として保持し、
+次回アクセス時に同owner・autosave-only・path安全を再確認してから再試行します。明示checkpointと他ownerの
+Projectは自動削除の対象外です。v1の単一owner markerは、対象がautosave-onlyならLatest、checkpointなら
+last-openedとして移行します。
+
+このrepositoryはComposeの`autonavlog-data` named volume上に置かれます。同じvolumeを維持する通常の
+`git pull`、image build、container再作成ではLatest、last-opened、last-good recordを復元します。`down -v`
+またはvolume削除は保存来歴を破棄する明示操作です。
+
+復元後は最新draftと計算時snapshotのfingerprintを比較します。不一致は破損ではなく、入力変更後の
+stale状態です。NAV LOG本体と計算時の来歴は残しますが、RJFM inbound/departure guidanceの数値表示は
+draftがcurrentで、保存した参照identityも現在の参照パックと一致する場合に限ります。malformed record、
+schema、Project ID、owner key、fingerprintの内部不整合はlast calculationだけを隔離・無視し、Project
+入力は失いません。
