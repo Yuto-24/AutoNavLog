@@ -423,8 +423,11 @@ class AutoNavLogWebApplication:
             if request.defaults_confirmed:
                 session.readiness_service.confirm_defaults(project, None)
             materialized = session.readiness_service.evaluate(project, None)
-            self._persist_draft(session, materialized.project)
-            self._set_last_opened(session, materialized.project.id)
+            self._persist_draft(
+                session,
+                materialized.project,
+                set_last_opened=True,
+            )
             session.project = materialized.project
             session.outcome = materialized.outcome
             session.readiness = materialized.evaluation
@@ -944,7 +947,13 @@ class AutoNavLogWebApplication:
                 project_to_save.metadata["project_name_auto"] = False
             self._persist_draft(session, project_to_save)
             saved = self.project_service.save(project_to_save)
-            self._persist_draft(session, saved.project)
+            try:
+                self.project_service.autosave(saved.project)
+            except Exception:
+                LOGGER.exception(
+                    "Failed to refresh saved Project draft after checkpoint: project_id=%s",
+                    saved.project.id,
+                )
             session.project = saved.project
             self._projects_changed(session)
             self._evaluate(session)
@@ -983,9 +992,15 @@ class AutoNavLogWebApplication:
             self._projects_changed(session)
             return self.present(session)
 
-    def _persist_draft(self, session: WebSession, project: Project) -> None:
+    def _persist_draft(
+        self,
+        session: WebSession,
+        project: Project,
+        *,
+        set_last_opened: bool = False,
+    ) -> None:
         try:
-            self.project_service.autosave(project)
+            self.project_service.autosave(project, set_last_opened=set_last_opened)
         except Exception as error:
             LOGGER.exception("Failed to persist Project draft: project_id=%s", project.id)
             raise WebApplicationError(
@@ -1251,6 +1266,7 @@ class AutoNavLogWebApplication:
                     "status": summary.status.value,
                     "revision": summary.revision,
                     "updatedAt": summary.updated_at.isoformat(),
+                    "kind": summary.kind,
                 }
                 for summary in summaries
             ],

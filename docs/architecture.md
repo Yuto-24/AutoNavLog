@@ -26,15 +26,21 @@ Project入力と最後に正常完了した計算はlocal repositoryにも永続
 Project保存は4層に分けます。
 
 - `project.json`: 明示保存したrevision付きcheckpoint。
-- `autosave.json`: server validationを通過した最新draft。読込時はcheckpointより優先し、autosaveだけの
-  Projectも一覧、明示読込、削除の対象にします。
+- `autosave.json`: server validationを通過した最新draft。読込時はcheckpointより優先します。ownerごとに
+  autosave-only Projectは1件だけ`Latest`として一覧・明示読込・削除の対象にし、次の正常なdraft commit後は
+  古いautosave-only Project directoryを自動削除します。
 - `last-calculation.json`: schema v1の1件固定レコード。計算時Projectのdeep snapshot、
   `CalculationOutcome`、目的地風、Forecast Run・metadata、計算fingerprint、保存時刻を保持します。
-- `owners/{owner-key}/state.json`: ownerごとに最後に明示作成・選択したProject IDを保持します。
-  owner keyはdomain-separated SHA-256で作り、生identityをpathへ含めません。
+- `owners/{owner-key}/state.json`: schema v2で、ownerごとの`last_opened_project_id`、
+  `latest_draft_project_id`、削除再試行対象を保持します。owner keyはdomain-separated SHA-256で作り、
+  生identityをpathへ含めません。v1の単一markerは安全に移行します。
 
-Project mutationは、更新後Projectを検証してautosaveへatomic writeし、成功した場合だけsessionへ
-commitします。明示保存は同じdraftをautosaveした上でcheckpointのrevisionを進めます。計算完了時は、
+Project mutationは、更新後Projectを検証してautosaveへatomic writeし、owner stateのLatest/route-confirm時の
+last-opened更新も同じmarker writeで確定してから、成功した場合だけsessionへcommitします。新しいLatestを
+確定してからだけ旧autosave-only Projectをbest-effortで削除し、失敗時は一覧から隠してmarkerのretry対象へ
+残します。明示保存は同じdraftをautosaveした上でcheckpointのrevisionを進めます。checkpoint確定後の
+Latest marker整理が失敗しても、checkpoint/revisionを巻き戻したり保存APIを失敗扱いにしたりしません。
+計算完了時は、
 effective BlockerのないREADYまたはwarning結果だけをself-containedなlast-goodとしてatomic replaceし、
 同じProjectをautosaveします。例外、中断、blocked outcome、単なる編集は既存last-goodを消しません。
 
@@ -49,6 +55,11 @@ Project一覧を返します。
 検証後にreplaceし、read-backも検証します。壊れたautosaveは有効なcheckpointへfallbackし、壊れた
 last calculationは固定名へ隔離してgeneric warningとserver logを残します。Project削除は明示操作だけで、
 一致するowner markerもclearします。
+
+Composeの`autonavlog-data` named volumeがProject repositoryを保持します。同じCompose projectで
+`git pull`、image build、`docker compose up -d --force-recreate`を行ってもLast draft、last-opened、
+last-good calculationは復元できます。`docker compose down -v`またはvolumeの明示削除はこの永続状態を
+削除します。
 
 MSMのGRIB2、RISH URL、NetCDF、気圧面配列は`jma-msm-wind`だけが扱います。AutoNavLogの
 MSM adapterは単位、時刻、型、request ID、表示ラベルを変換します。固定中の

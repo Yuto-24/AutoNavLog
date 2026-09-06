@@ -110,6 +110,17 @@ checkpointも更新します。最後にBlockerなしで完了した計算はPro
 deep snapshot、`CalculationOutcome`、目的地風、Forecast Run・metadata、計算fingerprint、保存時刻を
 self-containedなlast-good計算recordへ保存します。履歴・連番Snapshotは作りません。
 
+autosave-only Projectはownerごとに1件だけ`Latest`として扱います。新draftは`autosave.json`を書き、
+同じowner state v2の`latest_draft_project_id`（route確定時は`last_opened_project_id`も）をatomicに更新して
+から旧Latestを削除します。削除失敗は新draftを無効にせず、opaque owner marker内のretry対象として保持し、
+次回アクセス時に同owner・autosave-only・path安全を再確認してから再試行します。明示checkpointと他ownerの
+Projectは自動削除の対象外です。v1の単一owner markerは、対象がautosave-onlyならLatest、checkpointなら
+last-openedとして移行します。
+
+このrepositoryはComposeの`autonavlog-data` named volume上に置かれます。同じvolumeを維持する通常の
+`git pull`、image build、container再作成ではLatest、last-opened、last-good recordを復元します。`down -v`
+またはvolume削除は保存来歴を破棄する明示操作です。
+
 復元後は最新draftと計算時snapshotのfingerprintを比較します。不一致は破損ではなく、入力変更後の
 stale状態です。NAV LOG本体と計算時の来歴は残しますが、RJFM inbound/departure guidanceの数値表示は
 draftがcurrentで、保存した参照identityも現在の参照パックと一致する場合に限ります。malformed record、

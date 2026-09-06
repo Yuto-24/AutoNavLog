@@ -33,6 +33,7 @@ class ProjectSummary(BaseModel):
     status: ProjectStatus
     revision: int
     web_owner_id: str | None = None
+    kind: Literal["LATEST", "SAVED"] = "SAVED"
 
 
 class ProjectIndex(BaseModel):
@@ -110,8 +111,23 @@ class OwnerProjectState(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    schema_version: Literal[1] = 1
-    project_id: UUID
+    # v1 contained a single ``project_id``.  It is accepted only to allow a
+    # safe, lazy migration by the local repository; new writes are v2.
+    schema_version: Literal[1, 2] = 2
+    last_opened_project_id: UUID | None = None
+    latest_draft_project_id: UUID | None = None
+    pending_cleanup_project_ids: list[UUID] = Field(default_factory=list)
+    project_id: UUID | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def validate_state(self) -> OwnerProjectState:
+        if self.schema_version == 1 and self.project_id is None:
+            raise ValueError("v1 owner state requires project_id")
+        if self.schema_version == 2 and self.project_id is not None:
+            raise ValueError("v2 owner state must not contain project_id")
+        if len(set(self.pending_cleanup_project_ids)) != len(self.pending_cleanup_project_ids):
+            raise ValueError("owner cleanup Project ids must be unique")
+        return self
 
 
 class ProjectRepository(Protocol):
@@ -132,7 +148,7 @@ class ProjectRepository(Protocol):
         owner_key: str,
     ) -> None: ...
 
-    def autosave(self, project: Project) -> Path: ...
+    def autosave(self, project: Project, *, set_last_opened: bool = False) -> Path: ...
 
     def replace_last_calculation(self, record: LastCalculationRecord) -> Path: ...
 
@@ -144,6 +160,8 @@ class ProjectRepository(Protocol):
     ) -> LastCalculationRecord | None: ...
 
     def load_owner_project(self, owner_key: str) -> UUID | None: ...
+
+    def load_owner_state(self, owner_key: str) -> OwnerProjectState | None: ...
 
     def set_owner_project(self, owner_key: str, project_id: UUID) -> Path: ...
 

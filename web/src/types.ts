@@ -578,6 +578,7 @@ export interface ReadinessState {
 
 export interface SavedProject {
   id: string;
+  kind: "LATEST" | "SAVED";
   name: string;
   status: string;
   revision: number;

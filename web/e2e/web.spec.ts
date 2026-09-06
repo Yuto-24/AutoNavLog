@@ -1749,6 +1749,166 @@ test("manual save flushes a pending destination pattern exactly once before chec
   await expect(patternAltitude).toHaveValue("1300");
 });
 
+test("autosave-only projects collapse into Latest and become named saved projects", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const readState = async (): Promise<WebState> => page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  await expect.poll(async () => {
+    const current = await readState();
+    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
+  }).toBe(1);
+  const latestState = await readState();
+  const latest = latestState.savedProjects.find((project) => project.kind === "LATEST");
+  if (!latest) throw new Error("Latest autosave project is missing");
+  expect(latest.revision).toBe(0);
+  expect(latestState.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(1);
+  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(1);
+  await expect(page.locator("#saved-project")).toHaveValue(latest.id);
+
+  const routeAltitudes = page.locator(
+    ".route-table tbody tr:not(.vrep-row) .table-number-input",
+  );
+  await expect(routeAltitudes).toHaveCount(3);
+  const altitudeSaved = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as {
+      sections?: Array<{ phase: string; planned_altitude_ft_msl: number }>;
+    };
+    const editableSections = body.sections?.filter(
+      (section) => section.phase !== "VISUAL_ARRIVAL",
+    );
+    return Boolean(
+      editableSections?.length
+      && editableSections.every((section) => section.planned_altitude_ft_msl === 4500),
+    );
+  });
+  for (let index = 0; index < await routeAltitudes.count(); index += 1) {
+    await routeAltitudes.nth(index).fill("4500");
+  }
+  await altitudeSaved;
+
+  const projectName = `Latestから保存-${latest.id.slice(0, 8)}`;
+  await page.getByLabel("プロジェクト").fill(projectName);
+  const saveResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/projects/save") && response.ok(),
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saveResponse;
+  await expect.poll(async () => {
+    const current = await readState();
+    return current.savedProjects.find((project) => project.id === latest.id)?.kind;
+  }).toBe("SAVED");
+  const savedState = await readState();
+  expect(savedState.savedProjects.some(
+    (project) => project.id === latest.id && project.kind === "SAVED" && project.name === projectName,
+  )).toBe(true);
+  expect(savedState.savedProjects.find((project) => project.id === latest.id)?.revision).toBe(1);
+  expect(savedState.savedProjects.some((project) => project.kind === "LATEST")).toBe(false);
+  await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(1);
+  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
+
+  const postSaveAutosave = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/api/project") || !response.ok()) return false;
+    const body = response.request().postDataJSON() as { total_usable_fuel_gal?: number };
+    return body.total_usable_fuel_gal === 89;
+  });
+  await page.getByLabel("FUEL gal").fill("89");
+  await postSaveAutosave;
+  const afterEdit = await readState();
+  expect(afterEdit.savedProjects.find((project) => project.id === latest.id)?.revision).toBe(1);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await Promise.all([
+    page.waitForNavigation(),
+    page.getByRole("button", { name: "新規" }).click(),
+  ]);
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+  await expect.poll(async () => {
+    const current = await readState();
+    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
+  }).toBe(1);
+  const afterNew = await readState();
+  expect(afterNew.savedProjects.some(
+    (project) => project.id === latest.id && project.kind === "SAVED" && project.name === projectName,
+  )).toBe(true);
+  expect(afterNew.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(1);
+  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(1);
+
+  // Keep the persistent Compose volume clean while exercising explicit deletion.
+  await page.getByLabel("保存済み", { exact: true }).selectOption(latest.id);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "保存済みProjectを削除" }).click();
+  await expect(page.getByText("保存済みProjectを削除しました。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(0);
+});
+
+test("a newer unsaved route replaces the previous owner Latest", async ({ page }) => {
+  await page.goto("/");
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const readState = async (): Promise<WebState> => page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  await expect.poll(async () => {
+    const current = await readState();
+    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
+  }).toBe(1);
+  const first = await readState();
+  if (!first.project) throw new Error("first autosaved Project is missing");
+  const firstProjectId = first.project.id;
+  expect(first.savedProjects.some(
+    (project) => project.id === firstProjectId && project.kind === "LATEST",
+  )).toBe(true);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await Promise.all([
+    page.waitForNavigation(),
+    page.getByRole("button", { name: "新規" }).click(),
+  ]);
+  await importKmlCandidate(page);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  await expect.poll(async () => {
+    const current = await readState();
+    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
+  }).toBe(1);
+  const second = await readState();
+  if (!second.project) throw new Error("second autosaved Project is missing");
+  const secondProjectId = second.project.id;
+  expect(secondProjectId).not.toBe(firstProjectId);
+  expect(second.savedProjects.some(
+    (project) => project.id === firstProjectId,
+  )).toBe(false);
+  expect(second.savedProjects.filter((project) => project.kind === "LATEST")).toEqual([
+    expect.objectContaining({ id: secondProjectId, kind: "LATEST" }),
+  ]);
+
+  await page.reload();
+  await expect.poll(async () => (await readState()).project?.id).toBe(secondProjectId);
+  const restored = await readState();
+  expect(restored.savedProjects.some((project) => project.id === firstProjectId)).toBe(false);
+  expect(restored.savedProjects.some(
+    (project) => project.id === secondProjectId && project.kind === "LATEST",
+  )).toBe(true);
+});
+
 test("a newer planning edit prevents a pending destination recalculation transaction", async ({
   page,
 }) => {
@@ -1914,6 +2074,7 @@ test("stale destination pattern response cannot overwrite a loaded project or du
       ...currentState.savedProjects,
       {
         id: replacementProjectId,
+        kind: "SAVED",
         name: "RJFK replacement",
         status: "DRAFT",
         revision: 1,

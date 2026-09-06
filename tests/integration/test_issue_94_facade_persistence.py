@@ -156,6 +156,7 @@ def test_last_opened_is_owner_isolated_and_not_updated_at_maximum(
     application = _application(tmp_path / "storage")
     first_session, first_state = _new_project(application)
     first_id = first_state["project"]["id"]
+    application.save(first_session, SaveProjectRequest(name="first"))
     second_session, second_state = _new_project(application)
     second_id = second_state["project"]["id"]
     assert first_id != second_id
@@ -180,6 +181,211 @@ def test_last_opened_is_owner_isolated_and_not_updated_at_maximum(
         clear_last_opened=True,
     )
     assert application.create_session(OWNER).project is None
+
+
+def test_owner_list_keeps_only_latest_draft_and_named_checkpoints(tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage"
+    application = _application(storage_root)
+    first_session, first_state = _new_project(application)
+    first_id = first_state["project"]["id"]
+    first_summaries = application.present(first_session)["savedProjects"]
+    assert [(item["id"], item["kind"]) for item in first_summaries] == [
+        (first_id, "LATEST")
+    ]
+
+    named = application.save(first_session, SaveProjectRequest(name="checkpoint"))
+    assert [
+        (item["name"], item["kind"], item["revision"])
+        for item in named["savedProjects"]
+    ] == [
+        ("checkpoint", "SAVED", 1)
+    ]
+
+    second_session, second_state = _new_project(application)
+    second_id = second_state["project"]["id"]
+    assert second_id != first_id
+    summaries = application.present(second_session)["savedProjects"]
+    assert {(item["id"], item["name"], item["kind"]) for item in summaries} == {
+        (first_id, "checkpoint", "SAVED"),
+        (second_id, second_state["project"]["name"], "LATEST"),
+    }
+
+    application.invalidate_session(
+        second_session.token,
+        OWNER,
+        clear_last_opened=True,
+    )
+    blank = application.create_session(OWNER)
+    blank_state = application.present(blank)
+    assert blank_state["project"] is None
+    assert {item["kind"] for item in blank_state["savedProjects"]} == {"SAVED", "LATEST"}
+
+    third_session, third_state = _new_project(application)
+    third_id = third_state["project"]["id"]
+    assert third_id not in {first_id, second_id}
+    assert not (storage_root / "projects" / second_id).exists()
+    final_summaries = application.present(third_session)["savedProjects"]
+    assert {item["id"] for item in final_summaries} == {first_id, third_id}
+
+
+def test_stale_calculation_cannot_replace_newer_session_latest(tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage"
+    application = _application(storage_root)
+    stale_session, stale_state = _new_project(application)
+    stale_id = stale_state["project"]["id"]
+    active_session, active_state = _new_project(application)
+    active_id = active_state["project"]["id"]
+
+    # The active route confirmation has already retired the first draft.  A
+    # calculation finishing from the old session must not promote it again.
+    application.calculate(stale_session)
+
+    active = application.present(active_session)
+    assert active["project"]["id"] == active_id
+    assert [(item["id"], item["kind"]) for item in active["savedProjects"]] == [
+        (active_id, "LATEST")
+    ]
+    assert (storage_root / "projects" / active_id).is_dir()
+    assert stale_id != active_id
+
+
+def test_editing_explicitly_loaded_project_retires_existing_latest(tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage"
+    application = _application(storage_root)
+    saved_session, _ = _new_project(application)
+    saved = application.save(saved_session, SaveProjectRequest(name="saved"))
+    saved_id = saved["project"]["id"]
+    latest_session, latest_state = _new_project(application)
+    latest_id = latest_state["project"]["id"]
+
+    loaded = application.load(saved_session, saved_session.project.id)
+    application.update_project(
+        saved_session,
+        _update_request(loaded["project"], fuel_gal=91),
+    )
+
+    assert not (storage_root / "projects" / latest_id).exists()
+    visible = application.present(latest_session)["savedProjects"]
+    assert [(item["id"], item["kind"]) for item in visible] == [
+        (saved_id, "SAVED")
+    ]
+
+
+def test_route_confirm_commits_latest_and_last_opened_in_one_owner_marker_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = _application(tmp_path / "storage")
+    session, first = _new_project(application)
+    assert session.project is not None
+    first_id = session.project.id
+    repository = application.project_service.repository
+    owner_key = application.project_service.owner_key(OWNER)
+    committed = repository.load_owner_state(owner_key)
+    assert committed is not None
+    assert committed.last_opened_project_id == first_id
+    assert committed.latest_draft_project_id == first_id
+
+    application.accept_import(
+        session,
+        result=import_kml_text(KML),
+        filename="second-route.kml",
+    )
+    original_write = repository._write_owner_state_locked  # noqa: SLF001
+
+    def fail_marker(*_args: object, **_kwargs: object) -> Path:
+        raise OSError("injected owner marker failure")
+
+    monkeypatch.setattr(repository, "_write_owner_state_locked", fail_marker)
+    with pytest.raises(WebApplicationError, match="自動保存"):
+        application.confirm_route(
+            session,
+            ConfirmRouteRequest.model_validate(
+                {
+                    "candidate_kind": "line",
+                    "candidate_index": 0,
+                    "route_use_confirmed": True,
+                    "flight_date": "2099-08-10",
+                    "departure_time_jst": "09:00",
+                    "total_usable_fuel_gal": 90,
+                    "default_variation_deg_east": 8,
+                    "weather_mode": "FTD",
+                    "ftd_weather": {
+                        "surface_wind": {"direction_deg_from": 180, "speed_kt": 5},
+                        "wind_at_5000_ft": {"direction_deg_from": 270, "speed_kt": 20},
+                    },
+                    "all_leg_altitude_ft_msl": 3500,
+                    "defaults_confirmed": True,
+                }
+            ),
+        )
+    monkeypatch.setattr(repository, "_write_owner_state_locked", original_write)
+
+    unchanged = repository.load_owner_state(owner_key)
+    assert unchanged is not None
+    assert unchanged.last_opened_project_id == first_id
+    assert unchanged.latest_draft_project_id == first_id
+    assert session.project is None
+    assert first["project"]["id"] == str(first_id)
+
+
+def test_route_confirm_recovers_from_corrupt_owner_marker_without_deleting_orphan(
+    tmp_path: Path,
+) -> None:
+    storage_root = tmp_path / "storage"
+    application = _application(storage_root)
+    _, first = _new_project(application)
+    first_id = first["project"]["id"]
+    repository = application.project_service.repository
+    owner_key = application.project_service.owner_key(OWNER)
+    repository._owner_state_path(owner_key).write_text(  # noqa: SLF001 - corruption fixture
+        '{"broken":',
+        encoding="utf-8",
+    )
+
+    blank = application.create_session(OWNER)
+    assert blank.project is None
+    recovered_session, recovered = _new_project(application)
+    recovered_id = recovered["project"]["id"]
+
+    state = repository.load_owner_state(owner_key)
+    assert state is not None
+    assert str(state.last_opened_project_id) == recovered_id
+    assert str(state.latest_draft_project_id) == recovered_id
+    assert state.pending_cleanup_project_ids == []
+    assert (storage_root / "projects" / first_id).is_dir()
+    summaries = application.present(recovered_session)["savedProjects"]
+    assert [(item["id"], item["kind"]) for item in summaries] == [
+        (recovered_id, "LATEST")
+    ]
+
+
+def test_reset_and_explicit_delete_recover_from_corrupt_owner_marker(
+    tmp_path: Path,
+) -> None:
+    storage_root = tmp_path / "storage"
+    application = _application(storage_root)
+    session, _ = _new_project(application)
+    saved = application.save(session, SaveProjectRequest(name="checkpoint"))
+    project_id = saved["project"]["id"]
+    repository = application.project_service.repository
+    owner_key = application.project_service.owner_key(OWNER)
+    marker_path = repository._owner_state_path(owner_key)  # noqa: SLF001 - corruption fixture
+    marker_path.write_text('{"broken":', encoding="utf-8")
+
+    # This is the same operation used by DELETE /api/session: no project
+    # directory is inferred from corrupt state, and the marker is neutralized.
+    application.clear_last_opened_project(OWNER)
+    assert not marker_path.exists()
+    assert marker_path.with_name("state.invalid.json").exists()
+
+    blank = application.create_session(OWNER)
+    marker_path.write_text('{"broken":', encoding="utf-8")
+    assert session.project is not None
+    deleted = application.delete(blank, session.project.id)
+
+    assert deleted["savedProjects"] == []
+    assert not (storage_root / "projects" / project_id).exists()
 
 
 def test_failed_and_blocked_calculations_preserve_last_good(
@@ -360,6 +566,43 @@ def test_explicit_save_does_not_publish_checkpoint_when_draft_write_fails(
 
     assert error.value.code == "PROJECT_PERSISTENCE_FAILED"
     assert not (storage_root / "projects" / str(project_id) / "project.json").exists()
+
+
+def test_explicit_save_survives_post_checkpoint_draft_refresh_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage_root = tmp_path / "storage"
+    application = _application(storage_root)
+    session, _ = _new_project(application)
+    original_autosave = application.project_service.autosave
+
+    def fail_after_checkpoint(project: object, *, set_last_opened: bool = False) -> None:
+        if getattr(project, "revision", 0) > 0:
+            raise OSError("injected post-checkpoint autosave failure")
+        original_autosave(project, set_last_opened=set_last_opened)
+
+    monkeypatch.setattr(application.project_service, "autosave", fail_after_checkpoint)
+
+    saved = application.save(session, SaveProjectRequest(name="checkpoint"))
+
+    assert saved["project"]["name"] == "checkpoint"
+    assert saved["project"]["revision"] == 1
+    assert saved["savedProjects"] == [
+        {
+            "id": saved["project"]["id"],
+            "name": "checkpoint",
+            "status": saved["project"]["status"],
+            "revision": 1,
+            "updatedAt": saved["savedProjects"][0]["updatedAt"],
+            "kind": "SAVED",
+        }
+    ]
+
+    restarted = _application(storage_root)
+    restored_state = restarted.present(restarted.create_session(OWNER))
+    assert restored_state["project"]["name"] == "checkpoint"
+    assert restored_state["project"]["revision"] == 1
 
 
 def test_project_update_does_not_commit_session_when_draft_write_fails(

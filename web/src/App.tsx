@@ -1228,7 +1228,9 @@ function App() {
   const handleDelete = async () => {
     if (!selectedProjectId) return;
     const selected = state?.savedProjects.find((project) => project.id === selectedProjectId);
-    if (!window.confirm(`保存済みProject「${selected?.name ?? "選択中の経路"}」を削除しますか？`)) {
+    const selectedName =
+      selected?.kind === "LATEST" ? "Latest" : (selected?.name ?? "選択中の経路");
+    if (!window.confirm(`保存済みProject「${selectedName}」を削除しますか？`)) {
       return;
     }
     cancelPendingRecalculation();

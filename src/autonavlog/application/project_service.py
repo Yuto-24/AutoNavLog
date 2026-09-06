@@ -62,8 +62,11 @@ class ProjectService:
             owner_key=self.owner_key(owner_id),
         )
 
-    def autosave(self, project: Project) -> None:
-        self.repository.autosave(self._normalize_ui_state(project))
+    def autosave(self, project: Project, *, set_last_opened: bool = False) -> None:
+        self.repository.autosave(
+            self._normalize_ui_state(project),
+            set_last_opened=set_last_opened,
+        )
 
     @staticmethod
     def owner_key(owner_id: str) -> str:

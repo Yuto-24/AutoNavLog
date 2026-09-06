@@ -28,7 +28,9 @@ schema v3 への読込時に破棄します。
 
 serverが受理したProject入力は、画面の「保存」を押さなくても最新draftとして自動保存します。
 「保存」は現在のdraftとは別に、revision付きの明示checkpointを更新します。自動保存だけの
-Projectも「保存済み」の一覧から開くことができ、削除操作を行うまで保存領域に残ります。
+Projectはownerごとに1件だけ`Latest`として「保存済み」の一覧に表示されます。新しいProjectの
+autosaveが成功すると、以前のautosave-only Projectは自動削除されます。明示保存したProjectは
+指定した名前とrevisionで一覧に残り、通常のautosaveではrevisionを増やしません。
 
 計算が最後まで正常に完了し、Blockerがない場合は、warningを含むNAV LOG、計算時点のProject、
 目的地風、Forecast Run・来歴をProjectごとに1件だけ保存します。その後に入力を変更しても
@@ -226,6 +228,10 @@ docker compose up -d --force-recreate autonavlog
 docker compose ps
 curl --fail --silent http://127.0.0.1:8123/healthz
 ```
+
+`git pull`後のimage buildやcontainer再作成、`docker compose down`ではnamed volumeを削除しないため、
+`Latest`を含むProjectの最後の編集とowner状態は保持されます。`docker compose down -v`を実行すると
+named volumeと保存内容が削除されるため、通常の更新・停止では使用しないでください。
 
 更新後は次を確認します。
 
