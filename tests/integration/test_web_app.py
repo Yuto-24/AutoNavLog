@@ -6,8 +6,8 @@ from pathlib import Path
 
 import httpx
 import pytest
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 import autonavlog.web.app as web_app
 from autonavlog.nav.rounding import round_half_up
