@@ -144,6 +144,71 @@ async def _calculate(client: httpx.AsyncClient) -> dict[str, object]:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("flight_date", "departure_time_jst"),
+    [("2026-08-11", "09:00"), ("2026-08-10", "10:00")],
+)
+async def test_saved_forecast_pin_is_invalidated_after_date_update_without_ftd(
+    tmp_path: Path,
+    flight_date: str,
+    departure_time_jst: str,
+) -> None:
+    owner = "forecast-pin-test-user"
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity=owner,
+            session_cookie_secure=False,
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        assert (
+            await client.post("/api/import", json={"filename": "route.kml", "kml_text": KML})
+        ).status_code == 200
+        confirmed = await client.post(
+            "/api/route/confirm",
+            json=_route_payload()
+            | {"flight_date": "2026-08-10", "weather_mode": "FORECAST"},
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        saved = await client.post("/api/projects/save", json={"name": "old-forecast"})
+        assert saved.status_code == 200, saved.text
+
+        web = app.state.web_application
+        token = client.cookies.get("autonavlog_session")
+        assert token is not None
+        session = web.session(token, owner)
+        assert session.project is not None
+        historical_run_id = "20000101000000"
+        historical_project = session.project.model_copy(
+            update={"selected_forecast_run_id": historical_run_id}
+        )
+        web.project_service.autosave(historical_project, set_last_opened=True)
+
+        loaded = await client.post(
+            "/api/projects/load",
+            json={"project_id": str(historical_project.id)},
+        )
+        assert loaded.status_code == 200, loaded.text
+        assert loaded.json()["project"]["selected_forecast_run_id"] == historical_run_id
+
+        payload = _update_payload(loaded.json()["project"], fuel_gal=90)
+        payload.update(
+            {
+                "flight_date": flight_date,
+                "departure_time_jst": departure_time_jst,
+            }
+        )
+        updated = await client.put("/api/project", json=payload)
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["project"]["selected_forecast_run_id"] is None
+
+
+@pytest.mark.anyio
 async def test_trusted_http_session_cookie_is_reusable(tmp_path: Path) -> None:
     app = create_app(
         WebRuntimeConfig(
