@@ -9,7 +9,7 @@ COPY web ./web
 RUN npm --prefix web run build
 
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm AS python-base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -30,8 +30,26 @@ COPY data ./data
 COPY vendor ./vendor
 COPY --from=frontend /build/web/dist ./src/autonavlog/web/static
 
+FROM python-base AS test
+
+COPY tests ./tests
+COPY scripts ./scripts
+COPY CHANGELOG.md Dockerfile ./
+COPY web/package.json web/package-lock.json ./web/
+COPY .github/workflows/test.yml ./.github/workflows/test.yml
+
+RUN chmod 755 scripts/run_ci_checks.sh \
+    && python -m pip install vendor/jma_msm_wind-0.2.1-py3-none-any.whl ".[test]" \
+    && rm -rf build dist src/autonavlog.egg-info
+
+CMD ["/opt/autonavlog/scripts/run_ci_checks.sh"]
+
+
+FROM python-base AS runtime
+
 RUN chmod -R a=rX /opt/autonavlog \
-    && python -m pip install vendor/jma_msm_wind-0.2.1-py3-none-any.whl .
+    && python -m pip install vendor/jma_msm_wind-0.2.1-py3-none-any.whl . \
+    && rm -rf build dist src/autonavlog.egg-info
 
 USER autonavlog
 

@@ -11,18 +11,71 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - run: docker build --target test --tag autonavlog:test .
+      - run: docker run --rm autonavlog:test
+
+  runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
         with:
-          python-version: "3.12"
-          cache: pip
-      - run: python -m pip install -e ".[test]"
-      - run: ruff check .
-      - run: mypy src/autonavlog
-      - run: pytest --cov=autonavlog --cov-report=term-missing
-      - run: python scripts/validate_performance_data.py data/performance
-      - run: python scripts/validate_runtime_data.py data
-      - run: python scripts/export_schemas.py --check
-      - run: python -m build
+          persist-credentials: false
+      - run: docker build --target runtime --tag autonavlog:runtime .
+      - name: Read expected version from the production image source
+        run: |
+          expected_version="$(docker run --rm --entrypoint python autonavlog:runtime -c '
+            import tomllib
+            from pathlib import Path
+            print(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
+          ')"
+          test -n "$expected_version"
+          echo "EXPECTED_VERSION=$expected_version" >> "$GITHUB_ENV"
+      - name: Verify production image purity
+        run: |
+          test "$(docker image inspect --format '{{.Config.User}}' autonavlog:runtime)" = "autonavlog"
+          docker run --rm --entrypoint sh autonavlog:runtime -c '
+            set -eu
+            test "$(id -u)" = "10001"
+            test ! -d /opt/autonavlog/tests
+            test ! -d /opt/autonavlog/scripts
+            test ! -d /opt/autonavlog/.github
+            test ! -d /opt/autonavlog/web
+            test ! -d /opt/autonavlog/build
+            test ! -d /opt/autonavlog/dist
+            test ! -d /opt/autonavlog/.pytest_cache
+            test ! -d /opt/autonavlog/.mypy_cache
+            test ! -d /opt/autonavlog/.ruff_cache
+            test ! -d /opt/autonavlog/src/autonavlog.egg-info
+            python -c "import sys; assert sys.version_info[:2] == (3, 12)"
+            python -c "import importlib.util; assert all(importlib.util.find_spec(module) is None for module in (\"pytest\", \"ruff\", \"mypy\", \"build\"))"
+            expected_version="$(python -c '\''import tomllib; from pathlib import Path; print(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])'\'')"
+            installed_version="$(python -c '\''from importlib.metadata import version; print(version("autonavlog"))'\'')"
+            test "$installed_version" = "$expected_version"
+          '
+      - name: Start production image with its default command
+        run: docker run --detach --name autonavlog-runtime-smoke --publish 127.0.0.1::8000 autonavlog:runtime
+      - name: Check production health within two minutes
+        run: |
+          port="$(docker port autonavlog-runtime-smoke 8000/tcp | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p')"
+          test -n "$port"
+          response="$(timeout 120s sh -c '
+            set -eu
+            until response="$(curl --fail --silent --show-error "$1" 2>/dev/null)"; do sleep 2; done
+            printf "%s" "$response"
+          ' sh "http://127.0.0.1:$port/healthz")"
+          docker exec --env HEALTH_RESPONSE="$response" --env EXPECTED_VERSION="$EXPECTED_VERSION" autonavlog-runtime-smoke python -c '
+            import json
+            import os
+
+            health = json.loads(os.environ["HEALTH_RESPONSE"])
+            assert health == {"status": "ok", "version": os.environ["EXPECTED_VERSION"]}
+          '
+      - name: Show runtime logs after failure
+        if: failure()
+        run: docker logs autonavlog-runtime-smoke
+      - name: Remove runtime smoke container and its anonymous volume
+        if: always()
+        run: docker rm --force --volumes autonavlog-runtime-smoke || true
 
   web:
     runs-on: ubuntu-latest
