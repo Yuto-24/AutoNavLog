@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Folder><name>Issue 129 single</name>
+<Placemark><name>小丸→日振島→祝島</name><LineString><coordinates>
+131.449,31.877 131.42429852046251,31.985137767624444 131.47036916946163,32.16255070087476 132.29,33.18 132.10,33.30 131.737,33.479
+</coordinates></LineString></Placemark>
+<Placemark><name>小丸</name><Point><coordinates>131.47036916946163,32.16255070087476</coordinates></Point></Placemark>
+</Folder></Document></kml>

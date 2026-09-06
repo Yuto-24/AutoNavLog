@@ -21,6 +21,15 @@ const kml = `<?xml version="1.0" encoding="UTF-8"?>
   </coordinates></LineString></Placemark></Document>
 </kml>`;
 
+
+const issue129OmaruPointKml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Folder><name>RJFM to RJFO</name>
+<Placemark><name>RJFM→UMK</name><LineString><coordinates>131.449,31.877 131.42429852046251,31.985137767624444</coordinates></LineString></Placemark>
+<Placemark><name>UMK→小丸</name><LineString><coordinates>131.42429852046251,31.985137767624444 131.47036916946163,32.16255070087476</coordinates></LineString></Placemark>
+<Placemark><name>小丸→RJFO</name><LineString><coordinates>131.47036916946163,32.16255070087476 131.737,33.479</coordinates></LineString></Placemark>
+<Placemark><name>小丸</name><Point><coordinates>131.47036916946163,32.16255070087476</coordinates></Point></Placemark>
+</Folder></Document></kml>`;
+
 const kmlFromRjfk = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document><Placemark><name>RJFK-RJFO</name><LineString><coordinates>
@@ -4096,4 +4105,41 @@ test("500 and 1000 fpm descent rates recalculate, render, and persist", async ({
   expect(
     consoleErrors.filter((message) => !message.includes("401 (Unauthorized)")),
   ).toEqual([]);
+});
+
+
+test("Issue 129 preserves one imported 小丸 route node after browser confirmation and reload", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await dialog.getByRole("textbox").fill(issue129OmaruPointKml);
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await page.getByLabel("飛行経路候補").selectOption("");
+  await page.getByLabel("飛行経路候補").selectOption("connected_lines:0");
+  await expect(page.getByLabel("FROM")).toHaveValue(/RJFM/);
+  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定" }).click();
+
+  const state = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    return await response.json() as WebState;
+  });
+  expect(state.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "小丸", "RJFO"]);
+  const omaru = state.project?.route_nodes[2];
+  expect(omaru).toMatchObject({
+    name: "小丸",
+    name_source: "IMPORTED",
+    latitude_deg: 32.16255070087476,
+    longitude_deg: 131.47036916946163,
+  });
+
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
+  await page.reload();
+  const restored = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    return await response.json() as WebState;
+  });
+  expect(restored.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "小丸", "RJFO"]);
 });

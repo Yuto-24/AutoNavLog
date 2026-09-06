@@ -206,9 +206,12 @@ def _matching_user_node_index(
 
 
 def _normalize_physical_reference_name(node: RouteNode, name: str) -> None:
-    """Normalize a matched physical slot without overwriting a user label."""
+    """Normalize a matched physical slot without replacing an explicit Point label."""
 
-    if node.name_source == RouteNodeNameSource.USER:
+    if node.name_source == RouteNodeNameSource.USER or (
+        node.name_source == RouteNodeNameSource.IMPORTED
+        and node.source == "KML/KMZ Point"
+    ):
         return
     if node.name.strip().upper() == name:
         return
