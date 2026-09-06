@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 
 from autonavlog.domain.calculation import Issue, RjfmInboundGuidance
 from autonavlog.domain.enums import IssueSeverity
+from autonavlog.domain.weather import ForecastRequirement, ForecastRun, RunSelectionStatus
 from autonavlog.importers.kml import import_kml_text
+from autonavlog.weather.fake_provider import FakeWeatherProvider
 from autonavlog.web.facade import AutoNavLogWebApplication, WebApplicationError
 from autonavlog.web.models import ConfirmRouteRequest, SaveProjectRequest, UpdateProjectRequest
 from autonavlog.web.runtime import WebRuntimeConfig, build_web_application
@@ -25,6 +27,39 @@ KML = """<?xml version="1.0" encoding="UTF-8"?>
 131.7372222222,33.4794444444,0
 </coordinates></LineString></Placemark></Document></kml>
 """
+
+
+class BoundedForecastWeatherProvider(FakeWeatherProvider):
+    old_run_id = "20260809000000"
+    fresh_run_id = "20260810000000"
+    cutoff_utc = datetime(2026, 8, 10, 0, 30, tzinfo=UTC)
+
+    def __init__(self) -> None:
+        super().__init__(runs=(self.fresh_run_id, self.old_run_id))
+
+    @classmethod
+    def _selected_run(cls, requirement: ForecastRequirement) -> str:
+        return (
+            cls.fresh_run_id
+            if min(requirement.valid_times_utc) >= cls.cutoff_utc
+            else cls.old_run_id
+        )
+
+    def resolve_run(self, requirement: ForecastRequirement) -> ForecastRun:
+        run_id = self._selected_run(requirement)
+        return ForecastRun(id=run_id, initial_time_utc=self._run_datetime(run_id))
+
+    def inspect_run_status(
+        self,
+        selected_run_id: str,
+        requirement: ForecastRequirement,
+    ) -> RunSelectionStatus:
+        latest_compatible_run_id = self._selected_run(requirement)
+        return RunSelectionStatus(
+            selected_run_id=selected_run_id,
+            latest_compatible_run_id=latest_compatible_run_id,
+            selected_run_covers_requirement=(selected_run_id == latest_compatible_run_id),
+        )
 
 
 def _application(storage_root: Path) -> AutoNavLogWebApplication:
@@ -502,6 +537,72 @@ def test_forecast_identity_metadata_and_warning_outcome_are_persisted(
     )
     assert updated_record is not None
     assert any(issue.code == "TEST_WARNING" for issue in updated_record.outcome.issues)
+
+
+@pytest.mark.parametrize(
+    ("flight_date", "departure_time_jst"),
+    [
+        (date(2026, 8, 11), "09:00"),
+        (date(2026, 8, 10), "10:00"),
+    ],
+)
+def test_saved_forecast_pin_is_invalidated_for_changed_departure_datetime(
+    tmp_path: Path,
+    flight_date: date,
+    departure_time_jst: str,
+) -> None:
+    application = _application(tmp_path / "storage")
+    application.development_weather = False
+    session, state = _new_project(application, weather_mode="FORECAST")
+    assert session.project is not None
+    provider = BoundedForecastWeatherProvider()
+    session.weather_provider = provider
+
+    historical_run_id = provider.old_run_id
+    saved_project = session.project.model_copy(
+        update={"selected_forecast_run_id": historical_run_id}
+    )
+    application.project_service.autosave(saved_project, set_last_opened=True)
+    loaded = application.load(session, saved_project.id)
+    assert loaded["project"]["selected_forecast_run_id"] == historical_run_id
+
+    request = _update_request(state["project"], fuel_gal=90).model_copy(
+        update={
+            "flight_date": flight_date,
+            "departure_time_jst": departure_time_jst,
+        }
+    )
+    updated = application.update_project(session, request)
+    assert updated["project"]["selected_forecast_run_id"] is None
+
+    calculated = application.calculate(session)
+    assert calculated["outcome"]["selected_forecast_run_id"] == provider.fresh_run_id
+    assert calculated["project"]["selected_forecast_run_id"] == provider.fresh_run_id
+    prepared_requirement = provider.prepared[provider.fresh_run_id]
+    assert provider.inspect_run_status(
+        provider.fresh_run_id,
+        prepared_requirement,
+    ).selected_run_covers_requirement
+    assert not any(item["severity"] == "BLOCKER" for item in calculated["outcome"]["issues"])
+
+
+def test_saved_forecast_pin_is_retained_when_departure_datetime_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    application = _application(tmp_path / "storage")
+    application.development_weather = False
+    session, state = _new_project(application, weather_mode="FORECAST")
+    assert session.project is not None
+    provider = BoundedForecastWeatherProvider()
+    session.weather_provider = provider
+
+    saved_run_id = provider.old_run_id
+    session.project = session.project.model_copy(
+        update={"selected_forecast_run_id": saved_run_id}
+    )
+    updated = application.update_project(session, _update_request(state["project"], fuel_gal=75))
+
+    assert updated["project"]["selected_forecast_run_id"] == saved_run_id
 
 
 def test_inbound_presentation_keeps_warnings_and_redacts_unsafe_available_values(

@@ -695,11 +695,18 @@ class AutoNavLogWebApplication:
         if session.project is None:
             raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
         working = session.project.model_copy(deep=True)
-        working.flight_date = request.flight_date
-        working.planned_departure_time_jst = self._departure_datetime(
+        requested_departure_time = self._departure_datetime(
             request.flight_date,
             request.departure_time_jst,
         )
+        forecast_selection_invalidated = (
+            working.flight_date != request.flight_date
+            or working.planned_departure_time_jst != requested_departure_time
+            or working.weather_mode != request.weather_mode
+            or working.ftd_weather != request.ftd_weather
+        )
+        working.flight_date = request.flight_date
+        working.planned_departure_time_jst = requested_departure_time
         if request.pilot_name is not None:
             working.pilot_name = request.pilot_name
         if request.ship_identifier is not None:
@@ -710,16 +717,14 @@ class AutoNavLogWebApplication:
         working.nose_fairing_enabled = request.nose_fairing_enabled
         working.air_conditioning_enabled = request.air_conditioning_enabled
         working.descent_rate_fpm = request.descent_rate_fpm
-        weather_changed = (
-            working.weather_mode != request.weather_mode
-            or working.ftd_weather != request.ftd_weather
-        )
         working = working.model_copy(
             update={
                 "weather_mode": request.weather_mode,
                 "ftd_weather": request.ftd_weather,
                 "selected_forecast_run_id": (
-                    None if weather_changed else working.selected_forecast_run_id
+                    None
+                    if forecast_selection_invalidated
+                    else working.selected_forecast_run_id
                 ),
             }
         )
