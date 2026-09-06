@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -10,6 +11,10 @@ from autonavlog.web.runtime import WebRuntimeConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests" / "fixtures" / "connected_oita_routes.kml"
+ISSUE_129_FIXTURE = ROOT / "tests" / "fixtures" / "issue_129_omaru_point.kml"
+ISSUE_129_SINGLE_LINE_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "issue_129_single_line_omaru_point.kml"
+)
 
 
 def _connected_route_kml(vertex_count: int) -> str:
@@ -119,17 +124,15 @@ async def test_web_import_exposes_four_connected_candidates_and_records_selectio
         assert len(project["route_nodes"]) == 8
         assert project["route_nodes"][0]["name"] == "RJFM"
         assert project["route_nodes"][-1]["name"] == "RJFO"
-        assert project["route_nodes"][1]["name"] == "UMK"
-        assert project["route_nodes"][1]["name_source"] == "GENERATED"
+        assert project["route_nodes"][1]["name"] == "変針点 UMK(MZE 004/6.2,NHT6.0)"
+        assert project["route_nodes"][1]["name_source"] == "IMPORTED"
         assert project["route_nodes"][1]["source"] == "KML/KMZ Point"
         assert project["metadata"]["web_import_container_path"] == [
             "大分経路",
             "RJFO",
             "RJFM→RJFO①",
         ]
-        assert project["metadata"]["web_import_segment_names"] == candidates[0][
-            "segmentNames"
-        ]
+        assert project["metadata"]["web_import_segment_names"] == candidates[0]["segmentNames"]
 
 
 @pytest.mark.anyio
@@ -255,6 +258,133 @@ async def test_invalid_group_falls_back_to_lines_and_points_only_remain_a_fallba
             },
         )
         assert points_only.status_code == 200, points_only.text
-        assert [
-            item["kind"] for item in points_only.json()["import"]["candidates"]
-        ] == ["points"]
+        assert [item["kind"] for item in points_only.json()["import"]["candidates"]] == ["points"]
+
+
+@pytest.mark.anyio
+async def test_issue_129_explicit_omaru_point_is_one_imported_node_after_connected_confirmation(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        imported = await client.post(
+            "/api/import",
+            json={
+                "filename": ISSUE_129_FIXTURE.name,
+                "kml_text": ISSUE_129_FIXTURE.read_text(encoding="utf-8"),
+            },
+        )
+        assert imported.status_code == 200, imported.text
+        candidate = imported.json()["import"]["candidates"][0]
+        assert candidate["kind"] == "connected_lines"
+        assert candidate["coordinates"][2] == [32.16255070087476, 131.47036916946163]
+
+        confirmed = await client.post("/api/route/confirm", json=_confirm_payload())
+        assert confirmed.status_code == 200, confirmed.text
+        nodes = confirmed.json()["project"]["route_nodes"]
+        assert [node["name"] for node in nodes] == ["RJFM", "UMK", "小丸", "RJFO"]
+        assert [node["name"] for node in nodes].count("小丸") == 1
+        assert all(node["name"] != "OMARU" for node in nodes)
+        assert nodes[2]["name_source"] == "IMPORTED"
+        assert (nodes[2]["latitude_deg"], nodes[2]["longitude_deg"]) == (
+            32.16255070087476,
+            131.47036916946163,
+        )
+
+
+@pytest.mark.anyio
+async def test_issue_129_omaru_display_name_does_not_change_calculated_leg_or_ttl_distance(
+    tmp_path: Path,
+) -> None:
+    async def calculate_for(point_name: str) -> list[str]:
+        app = create_app(
+            WebRuntimeConfig(
+                data_root=ROOT / "data",
+                storage_root=tmp_path / point_name,
+                weather_mode="fake",
+                trusted_local_identity="local-test-user",
+            )
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="https://test"
+        ) as client:
+            assert (await client.post("/api/session")).status_code == 200
+            text = ISSUE_129_FIXTURE.read_text(encoding="utf-8").replace("小丸", point_name)
+            assert (
+                await client.post(
+                    "/api/import", json={"filename": f"{point_name}.kml", "kml_text": text}
+                )
+            ).status_code == 200
+            confirmed = await client.post("/api/route/confirm", json=_confirm_payload())
+            assert confirmed.status_code == 200, confirmed.text
+            created = await client.post("/api/calculation-jobs")
+            assert created.status_code == 202, created.text
+            job = created.json()
+            for _ in range(450):
+                await asyncio.sleep(0.1)
+                job = (await client.get(f"/api/calculation-jobs/{job['job_id']}")).json()
+                if job["status"] in {"succeeded", "failed"}:
+                    break
+            assert job["status"] == "succeeded", job
+            return [
+                row["distance"]["text"]
+                for row in job["state"]["outcome"]["display_rows"]
+                if row["row_type"] == "PHYSICAL_LEG_SUMMARY"
+            ]
+
+    small_circle_distances = await calculate_for("小丸")
+    omaru_distances = await calculate_for("OMARU")
+    # The RJFM departure plan groups the imported route into two physical display legs.
+    assert len(small_circle_distances) == 2
+    assert small_circle_distances[-1].split(" / ")[1] == "97.5"
+    assert small_circle_distances == omaru_distances
+
+
+@pytest.mark.anyio
+async def test_issue_129_single_line_explicit_omaru_point_preserves_two_downstream_names(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
+    ) as client:
+        assert (await client.post("/api/session")).status_code == 200
+        imported = await client.post(
+            "/api/import",
+            json={
+                "filename": ISSUE_129_SINGLE_LINE_FIXTURE.name,
+                "kml_text": ISSUE_129_SINGLE_LINE_FIXTURE.read_text(encoding="utf-8"),
+            },
+        )
+        assert imported.status_code == 200, imported.text
+        assert imported.json()["import"]["candidates"][0]["kind"] == "line"
+        confirmed = await client.post(
+            "/api/route/confirm",
+            json={**_confirm_payload(), "candidate_kind": "line", "candidate_index": 0},
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        nodes = confirmed.json()["project"]["route_nodes"]
+        assert [node["name"] for node in nodes] == ["RJFM", "UMK", "小丸", "日振島", "祝島", "RJFO"]
+        assert nodes[2]["name_source"] == "IMPORTED"
+        assert [(node["latitude_deg"], node["longitude_deg"]) for node in nodes[1:-1]] == [
+            (31.985137767624444, 131.42429852046251),
+            (32.16255070087476, 131.47036916946163),
+            (33.18, 132.29),
+            (33.30, 132.10),
+        ]

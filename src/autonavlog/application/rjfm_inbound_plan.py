@@ -199,7 +199,14 @@ def _final_vrep_index(nodes: list[RouteNode]) -> int | None:
 
 
 def _normalize_reference_name(node: RouteNode, name: str) -> None:
-    if node.name_source == RouteNodeNameSource.USER or node.name.strip().upper() == name:
+    if (
+        node.name_source == RouteNodeNameSource.USER
+        or (
+            node.name_source == RouteNodeNameSource.IMPORTED
+            and node.source == "KML/KMZ Point"
+        )
+        or node.name.strip().upper() == name
+    ):
         return
     node.name = name
     node.name_source = RouteNodeNameSource.GENERATED

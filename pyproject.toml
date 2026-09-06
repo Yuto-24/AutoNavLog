@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autonavlog"
-version = "1.9.0"
+version = "1.9.1"
 description = "Ground-planning support for Civil Aviation College NAV2 navigation logs"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

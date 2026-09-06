@@ -349,7 +349,21 @@ class AutoNavLogWebApplication:
                 (entries[-1][1], entries[-1][2]),
             )
             entries = self._align_route_endpoints(entries, departure.id, destination.id)
-            entries = self._reserve_rjfm_northbound_name_slots(entries, departure.id)
+            explicit_point_names = self._explicit_point_names_for_candidate(
+                result,
+                request,
+                entries,
+            )
+            entries = self._reserve_rjfm_northbound_name_slots(
+                entries,
+                departure.id,
+                explicit_point_names=explicit_point_names,
+            )
+            entries = self._preserve_rjfm_inbound_point_slots(
+                entries,
+                destination.id,
+                explicit_point_names,
+            )
             departure_time = self._departure_datetime(
                 request.flight_date,
                 request.departure_time_jst,
@@ -1834,9 +1848,13 @@ class AutoNavLogWebApplication:
         result: KmlImportResult,
         latitude_deg: float,
         longitude_deg: float,
+        *,
+        container_path: tuple[str, ...] | None = None,
     ) -> str | None:
         nearest: tuple[float, str] | None = None
         for point in result.points:
+            if container_path is not None and point.container_path != container_path:
+                continue
             distance = geodesic_leg(
                 latitude_deg,
                 longitude_deg,
@@ -1902,10 +1920,46 @@ class AutoNavLogWebApplication:
         )
         return deduplicated
 
+    def _explicit_point_names_for_candidate(
+        self,
+        result: KmlImportResult,
+        request: ConfirmRouteRequest,
+        entries: list[RouteEntry],
+    ) -> dict[int, str]:
+        if request.candidate_kind == "line":
+            line = result.lines[request.candidate_index]
+            return {
+                index: point_name
+                for index, (_, latitude_deg, longitude_deg, _, _) in enumerate(entries)
+                if (
+                    point_name := self._nearest_point_name(
+                        result,
+                        latitude_deg,
+                        longitude_deg,
+                        container_path=line.container_path,
+                    )
+                ) is not None
+            }
+        if request.candidate_kind == "connected_lines":
+            return {
+                index: entry[0]
+                for index, entry in enumerate(entries)
+                if entry[3] == "KML/KMZ Point"
+            }
+        if request.candidate_kind == "points":
+            return {
+                index: entry[0]
+                for index, entry in enumerate(entries)
+                if entry[3] == "KML/KMZ Point"
+            }
+        return {}
+
     def _reserve_rjfm_northbound_name_slots(
         self,
         entries: list[RouteEntry],
         departure_id: str,
+        *,
+        explicit_point_names: dict[int, str] | None = None,
     ) -> list[RouteEntry]:
         """Reserve physical UMK/OMARU names before route-node installation.
 
@@ -1921,6 +1975,12 @@ class AutoNavLogWebApplication:
             return entries
 
         reserved = list(entries)
+        if explicit_point_names is None:
+            explicit_point_names = {
+                index: entry[0]
+                for index, entry in enumerate(entries)
+                if entry[3] == "KML/KMZ Point"
+            }
         umk = self.rjfm_reference_pack.points["UMK"].position
         omaru = self.rjfm_reference_pack.points["OMARU"].position
         reserved_indices: set[int] = set()
@@ -1934,8 +1994,26 @@ class AutoNavLogWebApplication:
                 float(point.longitude_deg),
             )
 
+        def explicit_point_name(index: int) -> str | None:
+            return explicit_point_names.get(index)
+
         def reserve(index: int, name: str) -> None:
             current = reserved[index]
+            point_name = explicit_point_name(index)
+            if point_name is not None:
+                # The physical reference is selected by coordinate. A Point
+                # Placemark supplies the display label for that same physical
+                # slot, while the LineString label shifts to a later ordinary
+                # coordinate below.
+                reserved[index] = (
+                    point_name,
+                    current[1],
+                    current[2],
+                    "KML/KMZ Point",
+                    RouteNodeNameSource.IMPORTED,
+                )
+                reserved_indices.add(index)
+                return
             explicit = current[0].strip().upper()
             # A coordinate-consistent KML UMK/OMARU label is already exact.
             # A contradictory label is positional data and must not mask the
@@ -1978,32 +2056,42 @@ class AutoNavLogWebApplication:
         # coordinates in their original order.  KML Point labels remain bound
         # to their explicit coordinate and therefore are neither moved nor
         # overwritten.  The coordinate sequence itself is never changed.
-        ordinary_line_entries = [
-            entry
-            for index, entry in enumerate(entries)
-            if (
+        consumed_point_names = [
+            explicit_point_names[index]
+            for index in reserved_indices
+            if index in explicit_point_names
+        ]
+        ordinary_line_entries: list[RouteEntry] = []
+        for index, entry in enumerate(entries):
+            if not (
                 0 < index < len(entries) - 1
                 and entry[3] == "KML/KMZ LineString name"
-                and not (
-                    entry[0].strip().upper() == "UMK"
-                    and coordinate_matches_reference(
-                        entry[1],
-                        entry[2],
-                        float(umk.latitude_deg),
-                        float(umk.longitude_deg),
-                    )
+            ):
+                continue
+            if entry[0] in consumed_point_names:
+                consumed_point_names.remove(entry[0])
+                continue
+            if (
+                entry[0].strip().upper() == "UMK"
+                and coordinate_matches_reference(
+                    entry[1],
+                    entry[2],
+                    float(umk.latitude_deg),
+                    float(umk.longitude_deg),
                 )
-                and not (
-                    entry[0].strip().upper() == "OMARU"
-                    and coordinate_matches_reference(
-                        entry[1],
-                        entry[2],
-                        float(omaru.latitude_deg),
-                        float(omaru.longitude_deg),
-                    )
+            ):
+                continue
+            if (
+                entry[0].strip().upper() == "OMARU"
+                and coordinate_matches_reference(
+                    entry[1],
+                    entry[2],
+                    float(omaru.latitude_deg),
+                    float(omaru.longitude_deg),
                 )
-            )
-        ]
+            ):
+                continue
+            ordinary_line_entries.append(entry)
         ordinary_targets = [
             index
             for index, entry in enumerate(reserved)
@@ -2023,6 +2111,42 @@ class AutoNavLogWebApplication:
                 source_entry[4],
             )
         return reserved
+
+    def _preserve_rjfm_inbound_point_slots(
+        self,
+        entries: list[RouteEntry],
+        destination_id: str,
+        explicit_point_names: dict[int, str],
+    ) -> list[RouteEntry]:
+        if destination_id.strip().upper() != "RJFM" or not explicit_point_names:
+            return entries
+        umk = self.rjfm_reference_pack.points["UMK"].position
+        omaru = self.rjfm_reference_pack.points["OMARU"].position
+        reserved = list(entries)
+        reserved_indices: set[int] = set()
+        for index, point_name in explicit_point_names.items():
+            if index == 0 or index == len(reserved) - 1:
+                continue
+            current = reserved[index]
+            if not any(
+                coordinate_matches_reference(
+                    current[1],
+                    current[2],
+                    float(reference.latitude_deg),
+                    float(reference.longitude_deg),
+                )
+                for reference in (omaru, umk)
+            ):
+                continue
+            reserved[index] = (
+                point_name,
+                current[1],
+                current[2],
+                "KML/KMZ Point",
+                RouteNodeNameSource.IMPORTED,
+            )
+            reserved_indices.add(index)
+        return entries if not reserved_indices else reserved
 
     @staticmethod
     def _distance_to_airport(coordinate: tuple[float, float], airport: Any) -> float:

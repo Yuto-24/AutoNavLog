@@ -12,6 +12,7 @@ from autonavlog.importers.kml import (
 )
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "connected_oita_routes.kml"
+ISSUE_129_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "issue_129_omaru_point.kml"
 
 
 def test_same_container_lines_connect_in_document_order_and_adopt_best_junction_point() -> None:
@@ -271,3 +272,19 @@ def test_oita_fixture_builds_four_expected_route_candidates() -> None:
         for item in imported.connected_lines
     )
     assert "C'K 佐田岬(TFE 125/17.6)" not in imported.connected_lines[1].waypoint_names
+
+
+def test_issue_129_fixture_keeps_explicit_omaru_point_bound_to_one_coordinate() -> None:
+    imported = import_kml_text(
+        ISSUE_129_FIXTURE.read_text(encoding="utf-8"), filename=ISSUE_129_FIXTURE.name
+    )
+    assert len(imported.lines) == 3
+    assert len(imported.points) == 1
+    selected = select_imported_connected_line(imported, 0)
+    assert selected.coordinates == (
+        (31.877, 131.449),
+        (31.985137767624444, 131.42429852046251),
+        (32.16255070087476, 131.47036916946163),
+        (33.479, 131.737),
+    )
+    assert selected.waypoint_names == ("RJFM", "UMK", "小丸", "RJFO")
