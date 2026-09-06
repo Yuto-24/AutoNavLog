@@ -65,7 +65,11 @@ from autonavlog.weather.provider import WeatherProvider
 from .arrival import calculate_arrival_altitude
 from .checkpoints import project_check_points
 from .forecast_service import ForecastService
-from .navlog_display import NavLogPhysicalLeg, build_navlog_display_rows
+from .navlog_display import (
+    NavLogPhysicalLeg,
+    build_navlog_display_rows,
+    build_navlog_summary,
+)
 from .phase_segments import (
     PhaseSegmentation,
     PhaseSegmentationError,
@@ -724,6 +728,9 @@ class CalculationService:
                 )
             ),
             fuel_plan=fuel_plan,
+            summary=build_navlog_summary(
+                final.sections, self._navlog_physical_legs(geometries, rjfm_departure_plan),
+            ),
             issues=issues,
             converged=converged,
             status=project_status,
@@ -3265,6 +3272,7 @@ class CalculationService:
                 taxi_runup_minutes=10 if project.run_up_included else 0,
                 taxi_runup_gal=1.5 if project.run_up_included else 0.0,
             ),
+            summary=build_navlog_summary([], []),
             check_point_projections=(check_point_projections or []),
             issues=self._deduplicate_issues(issues),
             status=self._status(project, issues),

@@ -227,6 +227,7 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
   `deceleration_duration_seconds = 60`は全プロファイルで1回だけであり、
   EOCから直ちに選択降下率でVREP高度まで連続降下し、level off後の最後の1分を減速に使います。
 - 目視位置通報点以降はCAS 121 kt・12 GPH、CALM固定で、WCA=0、GS=TASとします。
+- RJFM到着で最終VREPがARITA（有田）またはSHIRAHAMA（白浜）に名前又は基準座標から0.5 NM以内で一致するときは、通常の距離式に代えて自動VREP高度を1,500 ft MSLとします。手動VREP高度は維持します。基準座標・名称照合・出典は[RJFM ARITA / SHIRAHAMA final-VREP altitude policy](rjfm_arrival_vrep_altitudes.md)に記録します。
   CAS、標準の500 fpm、燃料流量、到着区間CALMは規程で裏付け済みです。
   1000 fpmは規程上の標準値としては扱いません。
 - 目的地TAFの風は、出発予定時刻へ計算済み累積ETEを加えた到着予定時刻に合わせて
@@ -270,6 +271,7 @@ Web地図上の宮崎特別管制区境界・9 km中心除外円は参照表示�
   通常内訳行を作りません。各Physical Legグループの後には`LEG_SEPARATOR`を1行置きます。
   `display_rows`の親小計・目的地情報・区切りは表示専用であり、距離・時間・燃料の集計へ
   使いません。
+- NAV LOG Summaryはサーバー側で生成する表示投影です。TTL DISTはcanonicalなPhysical Legの採用距離を既存の0.5 NM配分規則で集計し、TTL TIMEはcanonicalなZone ETEを既存の0.5分丸め（RJFM inboundは固定の一度丸めた配分）で集計した後、最終表示だけ分へhalf-upしてH:MMへ整形します。WebはLeg行や目的地情報行を再集計せず、Summaryの表示セルをそのまま使用します。Summaryは独立したFuelPlanのendurance値から生成しません。旧保存CalculationOutcomeにSummaryがない場合は未取得として扱います。
 - `NavLogDisplayCell.state`は表示の意味を明示します。`DISPLAY_VALUE`はcanonicalな値、
   `INHERIT`は親または直前行の計算値を継承しながら表示は完全な空欄、`BLANK`は継承しない
   意図的な空欄、`STATE_SYMBOL`は`↗`/`↘`等、`UNAVAILABLE`は本来必要な値の取得・算出失敗です。

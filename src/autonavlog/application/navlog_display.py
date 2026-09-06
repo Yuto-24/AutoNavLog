@@ -12,6 +12,7 @@ from autonavlog.domain.calculation import (
     CalculationOutcome,
     NavLogDisplayCell,
     NavLogDisplayRow,
+    NavLogSummary,
     SectionResult,
 )
 from autonavlog.domain.enums import (
@@ -486,6 +487,87 @@ def _display_distance_cells(
         display_cumulative,
         child_cells,
     )
+
+
+def _summary_time(value: float) -> str:
+    rounded_minutes = int(round_half_up(value / 60.0, 1.0))
+    return f"{rounded_minutes // 60}:{rounded_minutes % 60:02d}"
+
+
+def build_navlog_summary(
+    sections: list[SectionResult],
+    physical_legs: list[NavLogPhysicalLeg],
+) -> NavLogSummary:
+    """Build TTL from canonical zones using the NAV LOG display policy.
+
+    The summary deliberately projects the canonical calculation zones again;
+    it never parses or aggregates presentation rows.  This keeps TTL stable
+    when a source section is split into RCA/EOC/checkpoint zones.
+    """
+    if not sections or not physical_legs:
+        return NavLogSummary(
+            distance=_unavailable("SUMMARY_DISTANCE_UNAVAILABLE"),
+            time=_unavailable("SUMMARY_TIME_UNAVAILABLE"),
+        )
+
+    display_cumulative_distance: float | None = 0.0
+    display_cumulative_ete_seconds: float | None = 0.0
+    inbound_ete_display_seconds = _inbound_ete_display_seconds(sections)
+    for leg in physical_legs:
+        # A SectionResult can contain several Calculation Zones with the same
+        # source section ID. Preserve their global route order instead of using
+        # a dict keyed by section ID.
+        zones = [section for section in sections if section.section_id in leg.section_ids]
+        if not zones or not set(leg.section_ids).issubset({zone.section_id for zone in zones}):
+            display_cumulative_distance = None
+            display_cumulative_ete_seconds = None
+            continue
+
+        if display_cumulative_distance is not None:
+            _, display_cumulative_distance, _ = _display_distance_cells(
+                leg,
+                zones,
+                prior_display_cumulative=display_cumulative_distance,
+            )
+
+        if display_cumulative_ete_seconds is None:
+            continue
+        if inbound_ete_display_seconds and any(
+            zone.sequence in inbound_ete_display_seconds for zone in zones
+        ):
+            _, display_cumulative_ete_seconds = _display_fixed_ete_combined(
+                zones,
+                display_cumulative_ete_seconds,
+                inbound_ete_display_seconds,
+            )
+        else:
+            _, display_cumulative_ete_seconds = _display_rounded_combined(
+                [zone.zone_ete_seconds for zone in zones],
+                zones[-1].cumulative_ete_seconds,
+                _duration,
+                quantum=0.5,
+                unit_scale=60.0,
+                prior_display_cumulative=display_cumulative_ete_seconds,
+                fallback_reason="DISPLAY_ETE_SUBTOTAL_UNAVAILABLE",
+            )
+
+    distance = (
+        _unavailable("SUMMARY_DISTANCE_UNAVAILABLE")
+        if display_cumulative_distance is None
+        else _display(
+            _distance(display_cumulative_distance),
+            display_cumulative_distance,
+        )
+    )
+    time = (
+        _unavailable("SUMMARY_TIME_UNAVAILABLE")
+        if display_cumulative_ete_seconds is None
+        else _display(
+            _summary_time(display_cumulative_ete_seconds),
+            display_cumulative_ete_seconds,
+        )
+    )
+    return NavLogSummary(distance=distance, time=time)
 
 
 def _weather_temperature(result: WeatherResult | None, reason_code: str) -> NavLogDisplayCell:

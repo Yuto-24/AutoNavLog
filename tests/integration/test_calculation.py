@@ -3,12 +3,17 @@ from __future__ import annotations
 import shutil
 from datetime import UTC, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 from autonavlog.application.calculation_service import (
     CalculationPolicies,
     CalculationService,
+)
+from autonavlog.application.navlog_display import (
+    NavLogPhysicalLeg,
+    build_navlog_summary,
 )
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.vertical_profile import descent_profile_from_metadata
@@ -21,9 +26,11 @@ from autonavlog.domain.enums import (
     IssueSeverity,
     ProjectStatus,
     RouteNodeRole,
+    ValueState,
     WeatherRequestKind,
 )
 from autonavlog.domain.project import ManualWind, NavSection, RouteNode
+from autonavlog.domain.values import AdoptedValue
 from autonavlog.domain.weather import WeatherResult
 from autonavlog.nav.airspeed import tas_from_cas
 from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
@@ -155,6 +162,108 @@ def test_full_calculation_iteration_and_navlog_projection(
     assert outcome.sections[-1].remaining_fuel_gal.adopted() is not None
     assert len(provider.query_history) >= 2
     assert all(run_id == "20260728000000" for run_id, _ in provider.query_history)
+
+
+def _automatic_value(value: float | None) -> AdoptedValue[float]:
+    return AdoptedValue(
+        automatic_value=value,
+        automatic_status=ValueState.AUTO if value is not None else ValueState.UNAVAILABLE,
+        adopted_source=AdoptedSource.AUTOMATIC if value is not None else None,
+    )
+
+
+def test_navlog_summary_uses_canonical_split_zones_and_hhmm_rounding(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    outcome = CalculationService(airports, performance_repository).calculate(
+        project,
+        FakeWeatherProvider(),
+    )
+    source = outcome.sections[0]
+    first = source.model_copy(
+        update={
+            "sequence": 0,
+            "zone_distance_nm": _automatic_value(1.2),
+            "cumulative_distance_nm": _automatic_value(1.2),
+            "zone_ete_seconds": _automatic_value(29.5 * 60),
+            "cumulative_ete_seconds": _automatic_value(29.5 * 60),
+        }
+    )
+    second = source.model_copy(
+        update={
+            "sequence": 1,
+            "zone_distance_nm": _automatic_value(1.3),
+            "cumulative_distance_nm": _automatic_value(2.5),
+            "zone_ete_seconds": _automatic_value(30 * 60),
+            "cumulative_ete_seconds": _automatic_value(59.5 * 60),
+        }
+    )
+    summary = build_navlog_summary(
+        [first, second],
+        [
+            NavLogPhysicalLeg(
+                section_ids=(source.section_id,),
+                phase=source.phase,
+                start_name=source.from_name,
+                end_name=source.to_name,
+                adopted_distance_nm=2.5,
+            )
+        ],
+    )
+
+    assert summary.distance.text == "2.5"
+    assert summary.time.text == "1:00"
+
+
+def test_navlog_summary_keeps_distance_when_an_early_ete_is_unavailable(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    outcome = CalculationService(airports, performance_repository).calculate(
+        project,
+        FakeWeatherProvider(),
+    )
+    first = outcome.sections[0]
+    unavailable_first = first.model_copy(
+        update={
+            "zone_distance_nm": _automatic_value(1.2),
+            "zone_ete_seconds": _automatic_value(None),
+        }
+    )
+    available_second = first.model_copy(
+        update={
+            "section_id": uuid4(),
+            "sequence": 1,
+            "zone_distance_nm": _automatic_value(2.0),
+            "zone_ete_seconds": _automatic_value(60.0),
+        }
+    )
+    summary = build_navlog_summary(
+        [unavailable_first, available_second],
+        [
+            NavLogPhysicalLeg(
+                section_ids=(first.section_id,),
+                phase=first.phase,
+                start_name=first.from_name,
+                end_name=first.to_name,
+                adopted_distance_nm=1.2,
+            ),
+            NavLogPhysicalLeg(
+                section_ids=(available_second.section_id,),
+                phase=available_second.phase,
+                start_name=available_second.from_name,
+                end_name=available_second.to_name,
+                adopted_distance_nm=2.0,
+            ),
+        ],
+    )
+
+    assert summary.distance.text == "3.0"
+    assert summary.time.text == "未取得"
+    assert summary.time.reason_code == "SUMMARY_TIME_UNAVAILABLE"
 
 
 def test_cruise_power_extrapolation_stays_in_metadata_for_each_zone(airports, project) -> None:
@@ -1731,7 +1840,6 @@ def test_eoc_backtracking_blocks_a_non_monotonic_turn_altitude_transition(
     assert len(blocker.metadata["constraint_transitions"]) == 1
     assert len(blocker.metadata["ground_speeds"]) == 2
     assert not any(point.type.value == "EOC" for point in outcome.derived_points)
-
 
 
 @pytest.mark.parametrize(

@@ -21,7 +21,7 @@ Sha256Hex = Annotated[
     StringConstraints(pattern=r"^[0-9a-f]{64}$"),
 ]
 
-ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V4"
+ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V5"
 CP_PROJECTION_POLICY_VERSION = "CP_ABEAM_WGS84_V1"
 RJFM_DEPARTURE_RULE_VERSION = "RJFM_NORTHBOUND_R6_5_1_V2"
 RJFM_INBOUND_RULE_VERSION = "RJFM_INBOUND_OMARU_UMK_VREP_V1"
@@ -453,11 +453,19 @@ class ArrivalAltitudeResult(PlanningModel):
     excess_distance_nm_exact: FiniteFloat = Field(ge=0)
     excess_distance_nm_rounded: int = Field(ge=0)
     automatic_altitude_ft_msl: int = Field(multiple_of=100)
+    automatic_altitude_rule: Literal[
+        "STANDARD_DISTANCE_RULE",
+        "RJFM_ARITA_SHIRAHAMA_1500FT",
+    ] = "STANDARD_DISTANCE_RULE"
+    automatic_altitude_reason: str | None = None
     adopted_altitude_ft_msl: int = Field(multiple_of=100)
     adopted_source: AdoptedSource
     manual_override_reason: str | None = None
     selected_reference_fingerprint: Sha256Hex
-    rule_version: Literal["CAC_REV19_8_4_9_V4"] = "CAC_REV19_8_4_9_V4"
+    rule_version: Literal[
+        "CAC_REV19_8_4_9_V4",
+        "CAC_REV19_8_4_9_V5",
+    ] = "CAC_REV19_8_4_9_V5"
 
     @model_validator(mode="after")
     def validate_derived_values(self) -> ArrivalAltitudeResult:
@@ -475,7 +483,11 @@ class ArrivalAltitudeResult(PlanningModel):
         base_altitude = selected_pattern + 500
         excess_exact = max(0.0, effective_distance - 5.0)
         excess_rounded = _round_half_up_nonnegative(excess_exact)
-        automatic = base_altitude + 200 * excess_rounded
+        automatic = (
+            1500
+            if self.automatic_altitude_rule == "RJFM_ARITA_SHIRAHAMA_1500FT"
+            else base_altitude + 200 * excess_rounded
+        )
         expected = {
             "effective_distance_nm": effective_distance,
             "airport_elevation_rounded_ft_msl": rounded_elevation,
@@ -510,6 +522,11 @@ class ArrivalAltitudeResult(PlanningModel):
             raise ValueError("selected pattern altitude source does not match the master value")
         if selected_pattern <= self.airport_elevation_ft_msl:
             raise ValueError("selected pattern altitude must be above airport elevation")
+        if self.automatic_altitude_rule == "STANDARD_DISTANCE_RULE":
+            if self.automatic_altitude_reason is not None:
+                raise ValueError("standard arrival must not contain an automatic reason")
+        elif not (self.automatic_altitude_reason or "").strip():
+            raise ValueError("special automatic arrival requires a reason")
         if self.adopted_source == AdoptedSource.AUTOMATIC:
             if self.adopted_altitude_ft_msl != automatic:
                 raise ValueError("standard arrival must adopt the automatic value")

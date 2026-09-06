@@ -634,3 +634,23 @@ def test_project_symlink_is_never_followed(
 
     with pytest.raises(UnsafeStoragePathError):
         repository.autosave(project)
+
+
+def test_last_calculation_loads_legacy_outcome_without_navlog_summary(
+    tmp_path: Path,
+    project: Project,
+) -> None:
+    repository = LocalProjectRepository(tmp_path)
+    record = _record(project)
+    path = repository.replace_last_calculation(record)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["outcome"]["summary"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    loaded = repository.load_last_calculation(
+        project.id,
+        owner_key=owner_storage_key(OWNER),
+    )
+
+    assert loaded is not None
+    assert loaded.outcome.summary is None

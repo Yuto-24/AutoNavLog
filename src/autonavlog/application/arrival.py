@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from math import floor
+from typing import Literal
+from unicodedata import normalize
 
 from autonavlog.domain.calculation import Issue
 from autonavlog.domain.enums import (
@@ -18,7 +21,7 @@ from autonavlog.domain.planning import (
     PersistedUiState,
 )
 from autonavlog.domain.project import Project, RouteNode
-from autonavlog.nav.geodesy import geodesic_leg
+from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
 
 from .project_fingerprints import selected_reference_fingerprint
 
@@ -43,16 +46,108 @@ def _round_half_up_nonnegative(value: float) -> int:
     return floor(value + 0.5)
 
 
+RJFM_ICAO = "RJFM"
+SPECIAL_RJFM_VREP_ALTITUDE_FT_MSL = 1500
+SPECIAL_RJFM_VREP_MATCH_RADIUS_NM = 0.5
+ARITA_COORDINATE = (31.94977931375621, 131.3535165268158)
+# RJFM ARP from data/reference/default/airports.csv. SHIRAHAMA is the point
+# 160°T / 5.8 NM from that ARP (the hotel at the tip of Tozaki Cape).
+RJFM_ARP_COORDINATE = (31.8772222222, 131.4486111111)
+SHIRAHAMA_COORDINATE = point_along_leg(*RJFM_ARP_COORDINATE, 160.0, 5.8)
+
+
+@dataclass(frozen=True)
+class AutomaticVrepAltitude:
+    altitude_ft_msl: int
+    rule: Literal["STANDARD_DISTANCE_RULE", "RJFM_ARITA_SHIRAHAMA_1500FT"]
+    reason: str | None
+
+
+def _normalized_vrep_name(name: str | None) -> str:
+    return "" if name is None else normalize("NFKC", name).upper()
+
+
+def _special_rjfm_vrep_name(name: str | None) -> str | None:
+    normalized = _normalized_vrep_name(name)
+    # Imported KML names commonly add ``V-REP``, altitude, and source notes.
+    # Keep token boundaries so, for example, NARITA cannot match ARITA.
+    if "有田" in normalized or re.search(r"(?<![A-Z0-9])ARITA(?![A-Z0-9])", normalized):
+        return "ARITA"
+    if "白浜" in normalized or re.search(r"(?<![A-Z0-9])SHIRAHAMA(?![A-Z0-9])", normalized):
+        return "SHIRAHAMA"
+    return None
+
+
+def _special_rjfm_vrep_coordinate(
+    latitude_deg: float | None,
+    longitude_deg: float | None,
+) -> str | None:
+    if latitude_deg is None or longitude_deg is None:
+        return None
+    for name, coordinate in (
+        ("ARITA", ARITA_COORDINATE),
+        ("SHIRAHAMA", SHIRAHAMA_COORDINATE),
+    ):
+        if (
+            geodesic_leg(latitude_deg, longitude_deg, *coordinate).distance_nm
+            <= SPECIAL_RJFM_VREP_MATCH_RADIUS_NM + 1e-9
+        ):
+            return name
+    return None
+
+
+def automatic_vrep_altitude(
+    distance_nm: float,
+    selected_pattern_altitude_ft_msl: float,
+    *,
+    destination_icao: str | None = None,
+    vrep_name: str | None = None,
+    vrep_latitude_deg: float | None = None,
+    vrep_longitude_deg: float | None = None,
+) -> AutomaticVrepAltitude:
+    """Return the automatic VREP altitude and the policy that produced it."""
+    if distance_nm < 0:
+        raise ValueError("VREP distance must be non-negative")
+    special_vrep = None
+    if (destination_icao or "").upper() == RJFM_ICAO:
+        special_vrep = _special_rjfm_vrep_name(vrep_name) or _special_rjfm_vrep_coordinate(
+            vrep_latitude_deg,
+            vrep_longitude_deg,
+        )
+    if special_vrep is not None:
+        return AutomaticVrepAltitude(
+            altitude_ft_msl=SPECIAL_RJFM_VREP_ALTITUDE_FT_MSL,
+            rule="RJFM_ARITA_SHIRAHAMA_1500FT",
+            reason=f"RJFM final VREP matched {special_vrep}",
+        )
+
+    effective_distance = 5.0 if abs(distance_nm - 5.0) * 1852.0 <= 1.0 + 1e-9 else distance_nm
+    excess_rounded = _round_half_up_nonnegative(max(0.0, effective_distance - 5.0))
+    return AutomaticVrepAltitude(
+        altitude_ft_msl=int(selected_pattern_altitude_ft_msl) + 500 + 200 * excess_rounded,
+        rule="STANDARD_DISTANCE_RULE",
+        reason=None,
+    )
+
+
 def standard_vrep_altitude_ft_msl(
     distance_nm: float,
     selected_pattern_altitude_ft_msl: float,
+    *,
+    destination_icao: str | None = None,
+    vrep_name: str | None = None,
+    vrep_latitude_deg: float | None = None,
+    vrep_longitude_deg: float | None = None,
 ) -> int:
     """Return the NAV2 standard VREP altitude for a route preview or calculation."""
-    if distance_nm < 0:
-        raise ValueError("VREP distance must be non-negative")
-    effective_distance = 5.0 if abs(distance_nm - 5.0) * 1852.0 <= 1.0 + 1e-9 else distance_nm
-    excess_rounded = _round_half_up_nonnegative(max(0.0, effective_distance - 5.0))
-    return int(selected_pattern_altitude_ft_msl) + 500 + 200 * excess_rounded
+    return automatic_vrep_altitude(
+        distance_nm,
+        selected_pattern_altitude_ft_msl,
+        destination_icao=destination_icao,
+        vrep_name=vrep_name,
+        vrep_latitude_deg=vrep_latitude_deg,
+        vrep_longitude_deg=vrep_longitude_deg,
+    ).altitude_ft_msl
 
 
 def _validate_route_vrep(
@@ -190,7 +285,15 @@ def calculate_arrival_altitude(
     base_altitude = selected_pattern + 500
     excess_exact = max(0.0, effective_distance - 5.0)
     excess_rounded = _round_half_up_nonnegative(excess_exact)
-    automatic = standard_vrep_altitude_ft_msl(distance, selected_pattern)
+    automatic_policy = automatic_vrep_altitude(
+        distance,
+        selected_pattern,
+        destination_icao=destination.icao,
+        vrep_name=vrep.name,
+        vrep_latitude_deg=vrep.latitude_deg,
+        vrep_longitude_deg=vrep.longitude_deg,
+    )
+    automatic = automatic_policy.altitude_ft_msl
     if plan.altitude_mode == ArrivalAltitudeMode.STANDARD_DISTANCE_RULE:
         adopted = automatic
         source = AdoptedSource.AUTOMATIC
@@ -240,6 +343,8 @@ def calculate_arrival_altitude(
         adopted_source=source,
         manual_override_reason=reason,
         selected_reference_fingerprint=selected_reference_fingerprint(snapshot),
-        rule_version="CAC_REV19_8_4_9_V4",
+        automatic_altitude_rule=automatic_policy.rule,
+        automatic_altitude_reason=automatic_policy.reason,
+        rule_version="CAC_REV19_8_4_9_V5",
     )
     return ArrivalAltitudeComputation(result, ())

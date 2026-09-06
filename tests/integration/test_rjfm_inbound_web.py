@@ -293,11 +293,37 @@ async def test_production_available_reference_returns_numeric_v2_guidance(
             },
         )
         assert confirmed.status_code == 200, confirmed.text
+        # Issue #103 now correctly previews the final RJFM VREP at 1,500 ft.
+        # This historic numeric-guidance fixture instead exercises the valid
+        # higher manual arrival plan that preserves numeric-guidance feasibility coverage.
+        confirmed_project = confirmed.json()["project"]
+        assert confirmed_project["sections"][-1]["planned_altitude_ft_msl"] == 1500
+        automatic_outcome = (await _wait_for_calculation(client))["outcome"]
+        automatic_guidance = automatic_outcome["rjfm_inbound_guidance"]
+        assert automatic_guidance is not None
+        assert automatic_guidance["status"] == "NO_SOLUTION"
+        assert automatic_guidance["reason_code"] == "NO_FEASIBLE_KS43_AVOIDANCE"
+        manual = await client.put(
+            "/api/project",
+            json={
+                "flight_date": confirmed_project["flight_date"],
+                "departure_time_jst": "09:00",
+                "total_usable_fuel_gal": confirmed_project["total_usable_fuel_gal"],
+                "default_variation_deg_east": confirmed_project["default_variation_deg_east"],
+                "visual_reporting_point_node_id": confirmed_project["route_nodes"][-2]["id"],
+                "selected_pattern_altitude_ft_msl": 1000,
+                "arrival_altitude_mode": "MANUAL_NON_STANDARD_ENTRY",
+                "manual_vrep_altitude_ft_msl": 2500,
+                "manual_vrep_reason": "Inbound guidance numeric fixture",
+            },
+        )
+        assert manual.status_code == 200, manual.text
+        assert manual.json()["project"]["sections"][-1]["planned_altitude_ft_msl"] == 2500
         calculated = await _wait_for_calculation(client)
         outcome = calculated["outcome"]
         guidance = outcome["rjfm_inbound_guidance"]
         assert guidance is not None
-        assert guidance["status"] == "AVAILABLE"
+        assert guidance["status"] == "AVAILABLE", guidance
         assert guidance["reason_code"] is None
         assert guidance["reference_revision"] == "2026-08-31-rjfm-inbound-west-guidance-v2"
         assert guidance["reference_content_fingerprint"]
