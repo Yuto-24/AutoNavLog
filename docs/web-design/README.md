@@ -52,9 +52,11 @@ decorative cards. Shadows are reserved for temporary overlays.
 - Editable route/leg table with ALT and PHASE controls.
 - Readiness rail showing the next action, data provenance, blockers, confirmation
   items, and acknowledgement controls.
-- NAV LOG result table aligned to the 19-column 別添8-1 layout plus INFO and
-  TIME/FUEL summary.
-- Destination TAF wind strip, shown as reference data and kept outside calculation inputs.
+- NAV LOG Summary above the main table with canonical TTL DIST and TTL TIME, plus
+  destination TAF wind as reference data.
+- NAV LOG result table aligned to the 19-column 別添8-1 layout. FROM and TO stay
+  visible while the table scrolls horizontally; VOR/DME remains scrollable.
+- TIME / FUEL PLAN below the main table, outside its horizontal scroll region.
 
 ## Container and responsive rules
 
@@ -63,7 +65,8 @@ decorative cards. Shadows are reserved for temporary overlays.
 - At 1240 px and below, keep one downward workflow: input, route and map,
   readiness, NAV LOG, then contextual guidance.
 - At 820 px and below, stack every region, keep actions full-width, and make data
-  tables horizontally scrollable. Route input and flight-plan fields come first;
+  tables horizontally scrollable. In NAV LOG, Summary precedes the scroll region;
+  TIME / FUEL PLAN follows it at the page width. Route input and flight-plan fields come first;
   the map, map confirmation, and route-confirm action then continue in one downward flow.
 - Do not hide blockers, confirmation controls, provenance, or action reasons
   at any viewport width. Keep linked OpenStreetMap attribution visible even in
@@ -75,6 +78,15 @@ Above the fold may contain only the product identity, the three workflow steps,
 the imported route controls, flight-plan labels, `準備状況`, its next action,
 reference provenance, and the current primary action. Marketing copy, claims,
 metrics, badges, and unrelated navigation are prohibited.
+
+## NAV LOG layout revision (Issue #132)
+
+The historical calculated-review.png concept predates the NAV LOG Summary and
+separate TIME / FUEL PLAN requirement. The current reference flow is NAV LOG
+Summary, horizontally scrollable main table, TIME / FUEL PLAN, then guidance.
+The 2026-08-13 fidelity ledger below remains historical evidence for the
+earlier calculated view; current Playwright coverage verifies this revised
+layout at 390 px, 1,100 px, and 1,440 px.
 
 ## Implementation fidelity ledger (verified 2026-08-13 JST)
 
@@ -99,7 +111,7 @@ metrics, badges, and unrelated navigation are prohibited.
 | Desktop layout | Input / route / readiness columns | 24% / fluid / 25% three-column workspace | Match |
 | Route workspace | Map over compact POINT/ROLE/ALT/PHASE table | Leaflet/OSM route, airport/VREP/RCA/EOC markers, editable Leg table | Match |
 | Readiness | Provenance, next action, blockers/confirmations, primary calculation action | Same order; duplicate causes collapsed by code/Leg/segment | Match |
-| Calculated view | Dense NAV LOG, destination TAF wind, and fuel strip | 19-column NAV LOG plus reference wind and TIME/FUEL tables | Match |
+| Calculated view | Dense NAV LOG, destination TAF wind, and fuel strip | 19-column NAV LOG plus reference wind and TIME/FUEL tables | Historical; superseded by Issue #132 above |
 | Visual language | White canvas, navy/teal, amber/red status, thin borders, no gradients | Same token family and restrained radii | Match |
 | Mobile | Single-column stack with all safety/status content retained | 390 px stack, full-width controls, no body horizontal overflow | Match |
 

@@ -45,8 +45,32 @@ function fixedQuantum(quantum: number, fractionDigits: number): NumberFormatter 
 }
 
 const integer = fixedQuantum(1, 0);
-const BASE_NAV_LOG_WIDTH_PX = 1776;
-const VOR_COLUMN_WIDTH_PX = 96;
+const NAV_LOG_COLUMN_WIDTHS_PX = {
+  vor: 90,
+  from: 110,
+  to: 110,
+  pa: 75,
+  toat: 70,
+  cas: 60,
+  tas: 60,
+  tc: 50,
+  variation: 50,
+  mc: 50,
+  wind: 130,
+  wca: 50,
+  mh: 50,
+  distance: 90,
+  gs: 50,
+  ete: 90,
+  eto: 60,
+  ato: 60,
+  ate: 60,
+  fuel: 90,
+} as const;
+const BASE_NAV_LOG_WIDTH_PX = Object.values(NAV_LOG_COLUMN_WIDTHS_PX)
+  .filter((_, index) => index > 0)
+  .reduce((total, width) => total + width, 0);
+const VOR_COLUMN_WIDTH_PX = NAV_LOG_COLUMN_WIDTHS_PX.vor;
 
 interface VorColumn {
   id: number;
@@ -227,7 +251,11 @@ function FuelPlanTable({ outcome }: { outcome: CalculationOutcome }) {
     ["ADDITIONAL", display.additionalMinutes, display.additionalGal],
   ] as const;
   return (
-    <table className="fuel-plan-table">
+    <section className="fuel-plan-section" aria-labelledby="fuel-plan-title">
+      <div className="fuel-plan-heading">
+        <h3 id="fuel-plan-title">TIME / FUEL PLAN</h3>
+      </div>
+      <table className="fuel-plan-table">
         <colgroup><col /><col /><col /><col /><col /></colgroup>
         <thead><tr><th colSpan={3} /><th>TIME</th><th>FUEL</th></tr></thead>
         <tbody>
@@ -271,7 +299,8 @@ function FuelPlanTable({ outcome }: { outcome: CalculationOutcome }) {
             <td><FuelAmount amount={display.totalGal} /></td>
           </tr>
         </tbody>
-    </table>
+      </table>
+    </section>
   );
 }
 
@@ -502,6 +531,34 @@ function DestinationWindSummary({
   );
 }
 
+function NavLogSummary({
+  outcome,
+  destinationWind,
+}: {
+  outcome: CalculationOutcome;
+  destinationWind: DestinationWindForecast | null;
+}) {
+  const summary = outcome.summary;
+  return (
+    <section className="nav-log-summary" aria-labelledby="nav-log-summary-title">
+      <div className="nav-log-summary-totals">
+        <h3 id="nav-log-summary-title">NAV LOG Summary</h3>
+        <dl>
+          <div>
+            <dt>TTL DIST</dt>
+            <dd>{summary?.distance.text ? `${summary.distance.text} NM` : "未取得"}</dd>
+          </div>
+          <div>
+            <dt>TTL TIME</dt>
+            <dd>{summary?.time.text ?? "未取得"}</dd>
+          </div>
+        </dl>
+      </div>
+      <DestinationWindSummary forecast={destinationWind} />
+    </section>
+  );
+}
+
 export function NavLogTable({
   outcome,
   destinationWind,
@@ -541,21 +598,44 @@ export function NavLogTable({
       ? nearestVorStation(firstFromRow.from_latitude_deg, firstFromRow.from_longitude_deg)
       : DEFAULT_VOR_STATION;
   }, [displayRows]);
-  const selectedVorStations = vorColumns.map((column) => {
-    if (column.stationIdentifier === null) return automaticVorStation;
-    if (column.stationIdentifier === "") return null;
-    return VOR_STATIONS.find(
-      (station) => station.identifier === column.stationIdentifier,
-    ) ?? null;
-  });
-  const navLogColumnCount = 19 + vorColumns.length;
-  const navLogWidth = BASE_NAV_LOG_WIDTH_PX
-    + (vorColumns.length - 1) * VOR_COLUMN_WIDTH_PX;
   const orderedVorStations = useMemo(() => {
     const route = [...project.route_nodes].sort((left, right) => left.sequence - right.sequence);
     return orderVorStationsForRoute(route);
   }, [project.route_nodes]);
-
+  const resolveVorStations = (columns: VorColumn[]) => {
+    const manuallySelected = new Set<string>();
+    const manualStations = columns.map((column) => {
+      if (column.stationIdentifier === null || column.stationIdentifier === "") return null;
+      if (manuallySelected.has(column.stationIdentifier)) return null;
+      const station = VOR_STATIONS.find(
+        (candidate) => candidate.identifier === column.stationIdentifier,
+      ) ?? null;
+      if (station !== null) manuallySelected.add(station.identifier);
+      return station;
+    });
+    const automaticCandidates = [automaticVorStation, ...orderedVorStations]
+      .filter((station, index, stations) => (
+        stations.findIndex((candidate) => candidate.identifier === station.identifier) === index
+      ));
+    const assigned = new Set(manuallySelected);
+    return columns.map((column, index) => {
+      const manualStation = manualStations[index];
+      if (manualStation != null) return manualStation;
+      if (column.stationIdentifier === "") return null;
+      const automaticStation = automaticCandidates.find(
+        (station) => !assigned.has(station.identifier),
+      ) ?? null;
+      if (automaticStation !== null) assigned.add(automaticStation.identifier);
+      return automaticStation;
+    });
+  };
+  const selectedVorStations = useMemo(
+    () => resolveVorStations(vorColumns),
+    [automaticVorStation, orderedVorStations, vorColumns],
+  );
+  const navLogColumnCount = 19 + vorColumns.length;
+  const navLogWidth = BASE_NAV_LOG_WIDTH_PX
+    + vorColumns.length * VOR_COLUMN_WIDTH_PX;
   const addVorColumn = () => {
     setVorColumns((current) => [
       {
@@ -577,7 +657,11 @@ export function NavLogTable({
             ...column,
             stationIdentifier: stationIdentifier === VOR_AUTO_SELECTION
               ? null
-              : stationIdentifier,
+              : stationIdentifier === "" || current.some((other) => (
+                other.id !== columnId && other.stationIdentifier === stationIdentifier
+              ))
+                ? ""
+                : stationIdentifier,
           }
         : column
     )));
@@ -599,7 +683,7 @@ export function NavLogTable({
         </div>
         <span>Forecast Run: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
-      <DestinationWindSummary forecast={destinationWind} />
+      <NavLogSummary outcome={outcome} destinationWind={destinationWind} />
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
         <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>
         <span className="nav-log-readonly-key">読取専用: 航法・距離・時間・燃料などの派生値</span>
@@ -624,6 +708,19 @@ export function NavLogTable({
             className="nav-log-table official-nav-log-table"
             style={{ flexBasis: navLogWidth, width: navLogWidth, minWidth: navLogWidth }}
           >
+          <colgroup>
+            {vorColumns.map((column) => <col key={column.id} className="nav-log-vor-column" />)}
+            <col className="nav-log-from-column" /><col className="nav-log-to-column" />
+            <col className="nav-log-pa-column" /><col className="nav-log-toat-column" />
+            <col className="nav-log-cas-column" /><col className="nav-log-tas-column" />
+            <col className="nav-log-tc-column" /><col className="nav-log-variation-column" />
+            <col className="nav-log-mc-column" /><col className="nav-log-wind-column" />
+            <col className="nav-log-wca-column" /><col className="nav-log-mh-column" />
+            <col className="nav-log-distance-column" /><col className="nav-log-gs-column" />
+            <col className="nav-log-ete-column" /><col className="nav-log-eto-column" />
+            <col className="nav-log-ato-column" /><col className="nav-log-ate-column" />
+            <col className="nav-log-fuel-column" />
+          </colgroup>
           <thead>
             <tr>
               {vorColumns.map((column, index) => (
@@ -651,11 +748,20 @@ export function NavLogTable({
                     value={column.stationIdentifier ?? VOR_AUTO_SELECTION}
                     onChange={(event) => selectVorStation(column.id, event.target.value)}
                   >
-                    {column.stationIdentifier === "" && <option value="">局を選択</option>}
+                    <option value="">局を選択</option>
                     <option value={VOR_AUTO_SELECTION}>
-                      {`自動 ${automaticVorStation.identifier}`}
+                      {`自動 ${resolveVorStations(vorColumns.map((candidate) => (
+                        candidate.id === column.id
+                          ? { ...candidate, stationIdentifier: null }
+                          : candidate
+                      )))[index]?.identifier ?? "未選択"}`}
                     </option>
-                    {orderedVorStations.map((station) => (
+                    {orderedVorStations.filter((station) => (
+                      selectedVorStations[index]?.identifier === station.identifier
+                      || !selectedVorStations.some((selected, selectedIndex) => (
+                        selectedIndex !== index && selected?.identifier === station.identifier
+                      ))
+                    )).map((station) => (
                       <option key={station.identifier} value={station.identifier}>
                         {`${station.identifier} — ${station.name} (${station.type})`}
                       </option>
@@ -663,8 +769,8 @@ export function NavLogTable({
                   </select>
                 </th>
               ))}
-              <th>FROM</th>
-              <th>TO</th>
+              <th className="route-name-header route-from-cell">FROM</th>
+              <th className="route-name-header route-to-cell">TO</th>
               <th>PA<br /><small>ft</small></th>
               <th>TOAT<br /><small>°C</small></th>
               <th>CAS<br /><small>kt</small></th>
@@ -735,7 +841,7 @@ export function NavLogTable({
                       <td
                         className="vor-reference-cell derived-readonly-cell"
                         key={vorColumns[index]!.id}
-                        title={station === null
+                        title={station == null
                           ? "VOR/DME基準局を選択してください。"
                           : `${station.identifier}からTOへのradial / 距離（表示専用セル）`}
                         data-display-text={vorReference}
@@ -776,9 +882,9 @@ export function NavLogTable({
             })}
           </tbody>
           </table>
-          <FuelPlanTable outcome={outcome} />
         </div>
       </div>
+      <FuelPlanTable outcome={outcome} />
       {rjfmGuidance && <RjfmGuidancePanel guidance={rjfmGuidance} />}
       <p className="nav-log-disclaimer">
         本表示は地上準備用です。運航の可否を決定する資料ではありません。

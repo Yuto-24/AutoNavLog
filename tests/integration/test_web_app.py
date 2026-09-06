@@ -38,6 +38,42 @@ KML = """<?xml version="1.0" encoding="UTF-8"?>
 </kml>
 """
 
+KML_TO_RJFM_ARITA = """<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <name>RJFK-RJFM ARITA</name>
+      <LineString>
+        <coordinates>
+          130.7194444444,31.8033333333,0
+          131.0000000000,31.8500000000,0
+          131.3535165268158,31.94977931375621,0
+          131.4486111111,31.8772222222,0
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>
+"""
+
+KML_TO_RJFM_SHIRAHAMA = """<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <name>RJFK-RJFM SHIRAHAMA</name>
+      <LineString>
+        <coordinates>
+          130.7194444444,31.8033333333,0
+          131.1000000000,31.7900000000,0
+          131.48740082335098,31.786185910330968,0
+          131.4486111111,31.8772222222,0
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>
+"""
+
 KML_FROM_RJFK = """<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
@@ -473,6 +509,95 @@ async def test_destination_change_resets_manual_pattern_to_new_master(
         assert arrival_plan["manual_vrep_altitude_ft_msl"] is None
         assert changed_state["project"]["sections"][-2]["phase"] == "DESCENT"
         assert changed_state["project"]["sections"][-1]["phase"] == "VISUAL_ARRIVAL"
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("special_kml", "vrep_name"),
+    [
+        (KML_TO_RJFM_ARITA, "arita"),
+        (KML_TO_RJFM_SHIRAHAMA, "shirahama"),
+    ],
+)
+async def test_rjfm_special_vrep_preview_manual_reload_and_auto_recovery(
+    tmp_path: Path,
+    special_kml: str,
+    vrep_name: str,
+) -> None:
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+        assert (await client.post("/api/session")).status_code == 200
+        imported = await client.post(
+            "/api/import",
+            json={"filename": f"rjfk-rjfm-{vrep_name}.kml", "kml_text": special_kml},
+        )
+        assert imported.status_code == 200, imported.text
+        confirmed = await client.post("/api/route/confirm", json=_route_payload())
+        assert confirmed.status_code == 200, confirmed.text
+        preview_project = confirmed.json()["project"]
+        assert preview_project["destination_airport_id"] == "RJFM"
+        assert preview_project["sections"][-1]["planned_altitude_ft_msl"] == 1500
+
+        automatic_state = await _calculate(client)
+        automatic_arrival = automatic_state["outcome"]["arrival_altitude"]
+        assert automatic_arrival["automatic_altitude_rule"] == "RJFM_ARITA_SHIRAHAMA_1500FT"
+        assert automatic_arrival["adopted_altitude_ft_msl"] == 1500
+
+        project = automatic_state["project"]
+        manual = await client.put(
+            "/api/project",
+            json={
+                "flight_date": project["flight_date"],
+                "departure_time_jst": "09:00",
+                "total_usable_fuel_gal": project["total_usable_fuel_gal"],
+                "default_variation_deg_east": project["default_variation_deg_east"],
+                "visual_reporting_point_node_id": project["route_nodes"][-2]["id"],
+                "arrival_altitude_mode": "MANUAL_NON_STANDARD_ENTRY",
+                "manual_vrep_altitude_ft_msl": 2100,
+                "manual_vrep_reason": "Training entry",
+            },
+        )
+        assert manual.status_code == 200, manual.text
+        assert manual.json()["project"]["sections"][-1]["planned_altitude_ft_msl"] == 2100
+
+        saved = await client.post("/api/projects/save", json={"name": f"rjfm-{vrep_name}"})
+        assert saved.status_code == 200, saved.text
+        loaded = await client.post(
+            "/api/projects/load",
+            json={"project_id": saved.json()["project"]["id"]},
+        )
+        assert loaded.status_code == 200, loaded.text
+        manual_state = await _calculate(client)
+        assert manual_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 2100
+
+        reloaded_project = manual_state["project"]
+        automatic = await client.put(
+            "/api/project",
+            json={
+                "flight_date": reloaded_project["flight_date"],
+                "departure_time_jst": "09:00",
+                "total_usable_fuel_gal": reloaded_project["total_usable_fuel_gal"],
+                "default_variation_deg_east": reloaded_project["default_variation_deg_east"],
+                "visual_reporting_point_node_id": reloaded_project["route_nodes"][-2]["id"],
+                "selected_pattern_altitude_ft_msl": 1000,
+                "arrival_altitude_mode": "STANDARD_DISTANCE_RULE",
+                "manual_vrep_altitude_ft_msl": None,
+                "manual_vrep_reason": None,
+            },
+        )
+        assert automatic.status_code == 200, automatic.text
+        assert automatic.json()["project"]["sections"][-1]["planned_altitude_ft_msl"] == 1500
+        recovered_state = await _calculate(client)
+        assert recovered_state["outcome"]["arrival_altitude"]["adopted_altitude_ft_msl"] == 1500
+        assert recovered_state["outcome"]["arrival_altitude"]["adopted_source"] == "AUTOMATIC"
+
 
 @pytest.mark.anyio
 async def test_route_vrep_altitude_edit_drives_calculation_and_survives_reload(

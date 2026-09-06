@@ -255,6 +255,11 @@ class FuelPlan(CalculationModel):
     extra_endurance_seconds: float | None = None
 
 
+class NavLogSummary(CalculationModel):
+    distance: NavLogDisplayCell
+    time: NavLogDisplayCell
+
+
 class CalculationOutcome(CalculationModel):
     project_id: UUID
     selected_forecast_run_id: str | None
@@ -278,6 +283,7 @@ class CalculationOutcome(CalculationModel):
     rjfm_departure_guidance: RjfmDepartureGuidance | None = None
     rjfm_inbound_guidance: RjfmInboundGuidance | None = None
     fuel_plan: FuelPlan
+    summary: NavLogSummary | None = None
     issues: list[Issue] = Field(default_factory=list)
     converged: bool = False
     status: ProjectStatus

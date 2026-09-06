@@ -457,6 +457,11 @@ export interface RjfmInboundGuidance {
   minimum_boundary_clearance_nm: number | null;
 }
 
+export interface NavLogSummary {
+  distance: NavLogDisplayCell;
+  time: NavLogDisplayCell;
+}
+
 export interface CalculationOutcome {
   selected_forecast_run_id: string | null;
   sections: SectionResult[];
@@ -464,6 +469,7 @@ export interface CalculationOutcome {
   derived_points: DerivedPoint[];
   check_point_projections: CheckPointProjection[];
   fuel_plan: FuelPlan;
+  summary: NavLogSummary | null;
   rjfm_departure_guidance?: RjfmDepartureGuidance | null;
   rjfm_inbound_guidance?: RjfmInboundGuidance | null;
   status: string;

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 import { parseGsiCivilTrainingAirspaceTile } from "../src/rjfmAirspace";
 
@@ -3246,9 +3246,9 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   await expect(altitudeInput).toHaveValue("5500");
   const firstParent = page.locator(".nav-log-table .nav-leg-heading-row").first();
   const vorSelect = page.getByLabel("VOR基準局");
-  await expect(vorSelect.locator("option")).toHaveCount(32);
+  await expect(vorSelect.locator("option")).toHaveCount(33);
   const orderedVorIdentifiers = await vorSelect.locator("option").evaluateAll((options) => (
-    options.slice(1).map((option) => (option as HTMLOptionElement).value)
+    options.slice(2).map((option) => (option as HTMLOptionElement).value)
   ));
   expect(orderedVorIdentifiers.slice(0, 7)).toEqual([
     "MZE", "TFE", "KGE", "HKC", "KUE", "SWE", "UBE",
@@ -3324,25 +3324,31 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   await expect(fuelTable.getByText("TAXI・RUN UP", { exact: true })).toBeVisible();
   await expect(fuelTable.getByText("MIN REQUIRED", { exact: true })).toBeVisible();
   await expect(fuelTable.locator("tbody tr")).toHaveCount(10);
-  const tableLayout = await page.locator(".nav-log-tables").evaluate((container) => {
-    const navTable = container.querySelector<HTMLElement>(".nav-log-table");
-    const planTable = container.querySelector<HTMLElement>(".fuel-plan-table");
-    if (navTable === null || planTable === null) throw new Error("NAV LOG tables are missing");
+  const tableLayout = await page.locator(".nav-log-section").evaluate((section) => {
+    const navTable = section.querySelector<HTMLElement>(".nav-log-table");
+    const scroll = section.querySelector<HTMLElement>(".nav-log-scroll");
+    const planTable = section.querySelector<HTMLElement>(".fuel-plan-table");
+    if (navTable === null || scroll === null || planTable === null) {
+      throw new Error("NAV LOG main and TIME / FUEL PLAN tables are missing");
+    }
+    const scrollBox = scroll.getBoundingClientRect();
+    const planBox = planTable.getBoundingClientRect();
     return {
-      gap: planTable.offsetLeft - (navTable.offsetLeft + navTable.offsetWidth),
       fuelWidth: planTable.offsetWidth,
       navWidth: navTable.offsetWidth,
+      fuelTop: planBox.top,
+      scrollBottom: scrollBox.bottom,
       fuelRowHeight: planTable.querySelector<HTMLElement>("tbody tr")?.offsetHeight ?? 0,
       fuelAmountAlignment: getComputedStyle(
         planTable.querySelector<HTMLElement>(".fuel-amount")!,
       ).justifyContent,
+      fuelInsideScroll: scroll.contains(planTable),
     };
   });
-  expect(tableLayout.gap).toBeGreaterThanOrEqual(11);
-  expect(tableLayout.gap).toBeLessThanOrEqual(13);
-  expect(tableLayout.navWidth).toBeLessThanOrEqual(1800);
+  expect(tableLayout.fuelInsideScroll).toBe(false);
+  expect(tableLayout.fuelTop).toBeGreaterThanOrEqual(tableLayout.scrollBottom - 1);
+  expect(tableLayout.navWidth).toBeLessThanOrEqual(1500);
   expect(tableLayout.fuelWidth).toBeLessThanOrEqual(430);
-  expect(tableLayout.fuelWidth).toBeLessThan(tableLayout.navWidth / 2);
   expect(tableLayout.fuelRowHeight).toBeLessThanOrEqual(25);
   expect(tableLayout.fuelAmountAlignment).toBe("center");
 
@@ -3355,10 +3361,119 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   );
   expect(mobileOverflow).toBeLessThanOrEqual(1);
 
+  const toat = page.locator(".nav-log-table").getByLabel(/手動気温$/).first();
+  const tas = page.locator(".nav-log-table").getByLabel(/手動TAS$/).first();
+  for (const [input, value] of [[altitude, "25000"], [toat, "-80.0"], [tas, "300"]] as const) {
+    const response = page.waitForResponse(
+      (item) => item.url().endsWith("/api/project/recalculate") && item.ok(),
+    );
+    await input.fill(value);
+    await expect(input).toHaveValue(value);
+    const fitting = await input.evaluate((element) => ({
+      inputFits: element.scrollWidth <= element.clientWidth,
+      cellFits: element.closest("td")?.scrollWidth <= element.closest("td")?.clientWidth,
+      width: element.getBoundingClientRect().width,
+    }));
+    expect(fitting.width).toBeGreaterThan(0);
+    expect(fitting.inputFits).toBe(true);
+    expect(fitting.cellFits).toBe(true);
+    await response;
+  }
+
   const unexpectedConsoleErrors = consoleErrors.filter(
     (message) => !message.includes("401 (Unauthorized)"),
   );
   expect(unexpectedConsoleErrors).toEqual([]);
+});
+
+
+test("NAV LOG summary, sticky route names, and TIME / FUEL PLAN remain stable across scroll", async ({ page }, testInfo: TestInfo) => {
+  await page.goto("/");
+  await calculateNavLog(page);
+
+  const summary = page.locator(".nav-log-summary");
+  const scroll = page.locator(".nav-log-scroll");
+  const fuel = page.locator(".fuel-plan-section");
+  const table = page.locator(".nav-log-table");
+  await expect(summary.getByText("TTL DIST", { exact: true })).toBeVisible();
+  await expect(summary.getByText("TTL TIME", { exact: true })).toBeVisible();
+  const calculatedState = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error(`state request failed: ${response.status}`);
+    return await response.json() as WebState;
+  });
+  const calculatedSummary = calculatedState.outcome?.summary;
+  if (calculatedSummary === null || calculatedSummary === undefined) {
+    throw new Error("CalculationOutcome summary is unavailable");
+  }
+  await expect(summary).toContainText(`${calculatedSummary.distance.text} NM`);
+  await expect(summary).toContainText(calculatedSummary.time.text ?? "未取得");
+  await expect(summary.getByLabel("目的地空港の風予報")).toContainText("出典:");
+  await expect(fuel.getByRole("heading", { name: "TIME / FUEL PLAN" })).toBeVisible();
+  const dismissNotice = page.getByLabel("メッセージを閉じる");
+  if (await dismissNotice.count()) await dismissNotice.first().click();
+  for (let index = 0; index < 5; index += 1) {
+    await page.getByRole("button", { name: "VOR/DME列を追加" }).click();
+  }
+
+  for (const width of [390, 1100, 1440] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    const [summaryBox, scrollBox, fuelBox] = await Promise.all([
+      summary.boundingBox(), scroll.boundingBox(), fuel.boundingBox(),
+    ]);
+    if (!summaryBox || !scrollBox || !fuelBox) throw new Error("NAV LOG layout is missing");
+    expect(summaryBox.y + summaryBox.height).toBeLessThanOrEqual(scrollBox.y + 1);
+    expect(fuelBox.y).toBeGreaterThanOrEqual(scrollBox.y + scrollBox.height - 1);
+    expect(summaryBox.x).toBeGreaterThanOrEqual(0);
+    expect(fuelBox.x).toBeGreaterThanOrEqual(0);
+
+    await scroll.evaluate((element) => { element.scrollLeft = 0; });
+    const before = await Promise.all([
+      table.locator("th.route-from-cell").first().boundingBox(),
+      table.locator("th.route-to-cell").first().boundingBox(),
+      table.locator("td.route-from-cell").first().boundingBox(),
+      table.locator("td.route-to-cell").first().boundingBox(),
+      summary.boundingBox(),
+      fuel.boundingBox(),
+    ]);
+    await scroll.evaluate((element) => { element.scrollLeft = 420; });
+    const after = await Promise.all([
+      table.locator("th.route-from-cell").first().boundingBox(),
+      table.locator("th.route-to-cell").first().boundingBox(),
+      table.locator("td.route-from-cell").first().boundingBox(),
+      table.locator("td.route-to-cell").first().boundingBox(),
+      summary.boundingBox(),
+      fuel.boundingBox(),
+    ]);
+    if (before.some((box) => box === null) || after.some((box) => box === null)) {
+      throw new Error("NAV LOG scroll geometry is missing");
+    }
+    const actualScrollLeft = await scroll.evaluate((element) => element.scrollLeft);
+    const expectedFromLeft = Math.max(before[0].x - actualScrollLeft, scrollBox.x);
+    const expectedToLeft = Math.max(
+      before[1].x - actualScrollLeft,
+      expectedFromLeft + after[0].width,
+    );
+    expect(Math.abs(after[0].x - expectedFromLeft)).toBeLessThanOrEqual(2);
+    expect(Math.abs(after[1].x - expectedToLeft)).toBeLessThanOrEqual(2);
+    expect(Math.abs(after[2].x - expectedFromLeft)).toBeLessThanOrEqual(2);
+    expect(Math.abs(after[3].x - expectedToLeft)).toBeLessThanOrEqual(2);
+    expect(Math.abs(after[4].x - before[4].x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after[5].x - before[5].x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after[4].width - before[4].width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after[5].width - before[5].width)).toBeLessThanOrEqual(1);
+  }
+  const removeButtons = page.getByRole("button", { name: /VOR\/DME .*列目を削除/ });
+  while (await removeButtons.count()) {
+    await removeButtons.first().click();
+  }
+  const section = page.locator(".nav-log-section");
+  for (const width of [390, 1100, 1440] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await section.screenshot({
+      path: testInfo.outputPath(`nav-log-summary-${width}.png`),
+    });
+  }
 });
 
 test("VOR/DME reference columns can be added, configured independently, and removed", async ({
@@ -3403,11 +3518,17 @@ test("VOR/DME reference columns can be added, configured independently, and remo
   await expect(firstRow.locator(".vor-reference-cell").nth(0)).toHaveText(
     "055 / 62.9",
   );
+  await expect(originalVor.locator('option[value="HKC"]')).toHaveCount(0);
+  await addedVor.selectOption("");
+  await expect(addedVor).toHaveValue("");
+  await expect(originalVor.locator('option[value="HKC"]')).toHaveCount(1);
+  await addedVor.selectOption("__AUTO__");
+  await expect(addedVor).toHaveValue("__AUTO__");
   expect(await firstRow.locator(".vor-reference-cell").nth(0).textContent()).not.toBe(
     await firstRow.locator(".vor-reference-cell").nth(1).textContent(),
   );
   await expect(firstRow.locator(".route-from-cell")).toHaveText("RJFM");
-  expect((await table.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(initialWidth + 95);
+  expect((await table.boundingBox())?.width ?? 0).toBe(initialWidth + 90);
   expect(await scroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
@@ -3559,7 +3680,7 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
     manual_wind_speed_kt: 15,
     manual_wind_by_phase: { CRUISE: { direction_deg_from: 180, speed_kt: 20 } },
   });
-  await expect(page.getByRole("heading", { name: "NAV LOG" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "NAV LOG", exact: true })).toBeVisible();
   await expect(page.locator("body")).not.toBeEmpty();
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
@@ -3640,7 +3761,7 @@ test("EOC wind edit updates the DESCENT basis Leg common wind", async ({ page })
     expect(section.wind_direction_deg_from.manual_override).toBe(184);
     expect(section.wind_speed_kt.manual_override).toBe(8);
   }
-  await expect(page.getByRole("heading", { name: "NAV LOG" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "NAV LOG", exact: true })).toBeVisible();
   await expect(page.locator("body")).not.toBeEmpty();
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
@@ -3713,7 +3834,7 @@ test("calculated mobile layout has no body overflow", async ({ page }, testInfo)
   await calculateNavLog(page);
 
   await expect(page.getByRole("heading", { name: "準備状況" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "NAV LOG" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "NAV LOG", exact: true })).toBeVisible();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
   );

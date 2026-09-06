@@ -2225,6 +2225,10 @@ class AutoNavLogWebApplication:
                 visual_altitude = standard_vrep_altitude_ft_msl(
                     vrep_distance_nm,
                     selected_pattern,
+                    destination_icao=destination.icao,
+                    vrep_name=vrep.name,
+                    vrep_latitude_deg=vrep.latitude_deg,
+                    vrep_longitude_deg=vrep.longitude_deg,
                 )
         project.sections = [
             NavSection(
@@ -2351,6 +2355,10 @@ class AutoNavLogWebApplication:
                 automatic_altitude = standard_vrep_altitude_ft_msl(
                     distance_nm,
                     selected_pattern,
+                    destination_icao=destination.icao,
+                    vrep_name=ordered[-2].name,
+                    vrep_latitude_deg=ordered[-2].latitude_deg,
+                    vrep_longitude_deg=ordered[-2].longitude_deg,
                 )
                 if altitude_mode == ArrivalAltitudeMode.MANUAL_NON_STANDARD_ENTRY:
                     if manual_vrep_altitude is not None:

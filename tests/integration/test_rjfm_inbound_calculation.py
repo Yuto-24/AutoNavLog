@@ -347,6 +347,15 @@ def test_inbound_display_ete_children_sum_to_once_rounded_profile_total(
         expected_minutes,
         abs=1e-9,
     )
+    assert outcome.summary is not None
+    parent_rows = [
+        row for row in outcome.display_rows if row.row_type == "PHYSICAL_LEG_SUMMARY"
+    ]
+    assert outcome.summary.time.effective_value == pytest.approx(
+        sum(float(row.ete.text.split(" / ", 1)[0]) for row in parent_rows) * 60,
+        abs=1e-9,
+    )
+    assert outcome.summary.distance.text == parent_rows[-1].distance.text.split(" / ", 1)[1]
 
 
 @pytest.mark.parametrize(
