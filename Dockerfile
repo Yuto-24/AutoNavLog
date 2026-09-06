@@ -34,7 +34,7 @@ FROM python-base AS test
 
 COPY tests ./tests
 COPY scripts ./scripts
-COPY CHANGELOG.md Dockerfile ./
+COPY CHANGELOG.md Dockerfile .dockerignore ./
 COPY web/package.json web/package-lock.json ./web/
 COPY .github/workflows/test.yml ./.github/workflows/test.yml
 

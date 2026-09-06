@@ -6,7 +6,10 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
+import autonavlog.web.app as web_app
 from autonavlog.nav.rounding import round_half_up
 from autonavlog.version import __version__
 from autonavlog.web.app import create_app
@@ -233,11 +236,41 @@ async def test_trusted_http_session_cookie_is_reusable(tmp_path: Path) -> None:
         assert (await client.get("/api/state")).status_code == 200
 
 
+def test_web_serves_available_static_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    static_root = tmp_path / "static"
+    assets_root = static_root / "assets"
+    assets_root.mkdir(parents=True)
+    (static_root / "index.html").write_text("<h1>AutoNavLog</h1>", encoding="utf-8")
+    (assets_root / "app.js").write_text("console.log('ready')", encoding="utf-8")
+    monkeypatch.setattr(web_app, "__file__", str(tmp_path / "web_app.py"))
+
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="local-test-user",
+        )
+    )
+    frontend_route = next(route for route in app.routes if route.path == "/{requested_path:path}")
+    root_response = frontend_route.endpoint("")
+    assert isinstance(root_response, FileResponse)
+    assert root_response.status_code == 200
+    assert root_response.path == static_root / "index.html"
+
+    assets_route = next(route for route in app.routes if route.path == "/assets")
+    assert isinstance(assets_route.app, StaticFiles)
+
+
 @pytest.mark.anyio
 async def test_web_route_calculation_save_and_fail_closed_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(web_app, "__file__", str(tmp_path / "web_app.py"))
     app = create_app(
         WebRuntimeConfig(
             data_root=ROOT / "data",

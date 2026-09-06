@@ -23,11 +23,7 @@ jobs:
       - run: docker build --target runtime --tag autonavlog:runtime .
       - name: Read expected version from the production image source
         run: |
-          expected_version="$(docker run --rm --entrypoint python autonavlog:runtime -c '
-            import tomllib
-            from pathlib import Path
-            print(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
-          ')"
+          expected_version="$(docker run --rm --entrypoint python autonavlog:runtime -c 'import tomllib; from pathlib import Path; print(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
           test -n "$expected_version"
           echo "EXPECTED_VERSION=$expected_version" >> "$GITHUB_ENV"
       - name: Verify production image purity
@@ -63,13 +59,7 @@ jobs:
             until response="$(curl --fail --silent --show-error "$1" 2>/dev/null)"; do sleep 2; done
             printf "%s" "$response"
           ' sh "http://127.0.0.1:$port/healthz")"
-          docker exec --env HEALTH_RESPONSE="$response" --env EXPECTED_VERSION="$EXPECTED_VERSION" autonavlog-runtime-smoke python -c '
-            import json
-            import os
-
-            health = json.loads(os.environ["HEALTH_RESPONSE"])
-            assert health == {"status": "ok", "version": os.environ["EXPECTED_VERSION"]}
-          '
+          docker exec --env HEALTH_RESPONSE="$response" --env EXPECTED_VERSION="$EXPECTED_VERSION" autonavlog-runtime-smoke python -c 'import json, os; health = json.loads(os.environ["HEALTH_RESPONSE"]); assert health == {"status": "ok", "version": os.environ["EXPECTED_VERSION"]}'
       - name: Show runtime logs after failure
         if: failure()
         run: docker logs autonavlog-runtime-smoke
