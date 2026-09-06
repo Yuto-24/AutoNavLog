@@ -8,7 +8,7 @@ Web 画面に表示します。
 利用者が根拠と警告を確認してください。航空大学校の公式様式や計算規則への準拠は
 主張していません。
 
-- 現在のバージョン: `1.9.3`
+- 現在のバージョン: `1.9.4`
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
@@ -279,7 +279,7 @@ cloudflared tunnel --url http://localhost:8123
 
 ## 開発
 
-backend CIは当面host側の Python 3.12 で実行します。次のhost側コマンドは開発時の検査用であり、
+backend CIはDockerのPython 3.12 test stageで実行します。次のhost側コマンドは開発時の検査用であり、
 host上でのアプリケーション実行をサポート対象にするものではありません。
 `jma-msm-wind` は `0.2.1` に固定しています。
 
@@ -297,7 +297,16 @@ npm --prefix web run build
 npm --prefix web run test:e2e
 ```
 
-リリース時は `1.9.3` が次の場所で一致していることを確認します。
+CIでは同じ backend 検査をDockerのtest stageで実行し、別のruntime jobで本番imageを既定の
+MSM起動設定のまま起動して`/healthz`を確認します。ローカルでも次のコマンドで再現できます。
+
+```bash
+docker build --target test --tag autonavlog:test .
+docker run --rm autonavlog:test
+docker build --target runtime --tag autonavlog:runtime .
+```
+
+リリース時は `1.9.4` が次の場所で一致していることを確認します。
 
 - `pyproject.toml`
 - `web/package.json` と `web/package-lock.json`
