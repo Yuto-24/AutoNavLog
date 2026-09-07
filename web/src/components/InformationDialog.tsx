@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect } from "react";
-import type { ReleaseBlock, ReleaseNote } from "../releaseNotes";
+import type { KnownIssue, ReleaseBlock, ReleaseNote } from "../releaseNotes";
 import { useModalFocusTrap } from "../useModalFocusTrap";
 
 function InlineText({ text }: { text: string }) {
@@ -19,11 +19,12 @@ function ReleaseBlocks({ blocks }: { blocks: ReleaseBlock[] }) {
 interface InformationDialogProps {
   open: boolean;
   releases: ReleaseNote[];
+  knownIssues: KnownIssue[];
   onClose: () => void;
   onOpened: () => void;
 }
 
-export function InformationDialog({ open, releases, onClose, onOpened }: InformationDialogProps) {
+export function InformationDialog({ open, releases, knownIssues, onClose, onOpened }: InformationDialogProps) {
   const dialogRef = useModalFocusTrap<HTMLElement>(open);
   useEffect(() => {
     if (!open) return;
@@ -45,12 +46,23 @@ export function InformationDialog({ open, releases, onClose, onOpened }: Informa
   >
     <section ref={dialogRef} className="modal-panel information-dialog" role="dialog" aria-modal="true" aria-labelledby="information-dialog-title" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-heading">
-        <div><h2 id="information-dialog-title">Information</h2><p>AutoNavLog の変更履歴</p></div>
+        <div><h2 id="information-dialog-title">Information</h2><p>AutoNavLog のお知らせ</p></div>
         <button className="icon-button" type="button" onClick={onClose} aria-label="Informationを閉じる" data-modal-autofocus><X aria-hidden="true" size={20} /></button>
       </div>
+      {knownIssues.length > 0 && <section className="information-known-issues" aria-labelledby="known-issues-heading">
+        <h3 id="known-issues-heading">既知の不具合</h3>
+        {knownIssues.map((issue) => <article key={issue.id} className="information-known-issue">
+          <h4>{issue.title}</h4>
+          <p>{issue.description.join("\n")}</p>
+          {issue.sections.map((section) => <section key={section.title}>
+            <h5>{section.title}</h5><ul>{section.items.map((item, index) => <li key={index}>{item}</li>)}</ul>
+          </section>)}
+        </article>)}
+      </section>}
+      <h3 className="information-history-heading">更新履歴</h3>
       <div className="information-release-list">
         {releases.map((release) => <article key={release.version} className="information-release">
-          <header><h3>v{release.version}</h3><time dateTime={release.date}>{release.date}</time></header>
+          <header><h3>v{release.version}</h3><time dateTime={release.dateTime ?? release.date}>{release.date}</time></header>
           <ReleaseBlocks blocks={release.summary} />
           {release.sections.map((section) => <section key={section.title}><h4>{section.title}</h4><ReleaseBlocks blocks={section.blocks} /></section>)}
         </article>)}

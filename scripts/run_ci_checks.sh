@@ -2,6 +2,7 @@
 
 set -eu
 
+python scripts/validate_release.py
 ruff check .
 mypy src/autonavlog
 pytest --cov=autonavlog --cov-report=term-missing

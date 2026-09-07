@@ -49,7 +49,6 @@ def test_release_surfaces_are_synchronized() -> None:
         changelog_headings[1].start() if len(changelog_headings) > 1 else len(changelog)
     )
     latest_section = changelog[latest_heading.start() : latest_end]
-    assert re.search(r"^-\s+Issue #\d+", latest_section, re.MULTILINE)
     subsection_headings = list(
         re.finditer(r"^### (?P<title>[^\n]+)$", latest_section, re.MULTILINE)
     )

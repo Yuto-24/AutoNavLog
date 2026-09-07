@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const releaseHeader = /^## ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) - (\d{4}-\d{2}-\d{2})$/;
+const releaseHeader = /^## ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) - (\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2} JST)?)$/;
 const sectionHeader = /^### (.+)$/;
 const bullet = /^- (.+)$/;
 // This is the content identifier produced from the v1.10.0 Information payload in a4a92da.
@@ -17,8 +17,10 @@ function fail(line, message) {
 }
 
 function validDate(value) {
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+  const date = value.slice(0, 10);
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === date
+    && (value.length === 10 || /^\d{4}-\d{2}-\d{2} (?:[01]\d|2[0-3]):[0-5]\d JST$/.test(value));
 }
 
 function compareVersions(left, right) {
@@ -155,20 +157,113 @@ export function informationId(payload) {
   return `information:sha256:${createHash("sha256").update(stableJson(payload)).digest("hex")}`;
 }
 
-export async function generateReleaseNotes({ changelogPath, packagePath, outputPath }) {
-  const [changelog, packageJson] = await Promise.all([
-    readFile(changelogPath, "utf8"), readFile(packagePath, "utf8"),
-  ]);
-  const releases = parseChangelog(changelog);
-  let packageVersion;
-  try { packageVersion = JSON.parse(packageJson).version; } catch { throw new Error("web/package.json: invalid JSON"); }
-  if (releases[0].version !== packageVersion) {
-    throw new Error(`web/package.json: version '${packageVersion}' does not match CHANGELOG latest '${releases[0].version}'`);
+const allowedSections = ["追加", "改善", "変更", "修正"];
+
+export function parseReleaseNotes(source) {
+  const releases = parseChangelog(source);
+  const before = source.split(/^## /m)[0];
+  if (before.split(/\r?\n/).some((line) => line.trim() && !line.startsWith("# "))) {
+    throw new Error("RELEASE_NOTES.md: unexpected content before releases");
   }
+  for (const release of releases) {
+    if (release.summary.length) throw new Error("RELEASE_NOTES.md: version introduction is not allowed");
+    let previous = -1;
+    for (const section of release.sections) {
+      const order = allowedSections.indexOf(section.title);
+      if (order < 0 || order <= previous) throw new Error("RELEASE_NOTES.md: invalid or out-of-order section");
+      previous = order;
+      for (const block of section.blocks) {
+        if (block.kind !== "list" || block.items.some((item) => item.text.includes("\n"))) {
+          throw new Error("RELEASE_NOTES.md: only single-line bullets are allowed");
+        }
+        if (block.items.some((item) => /(?:Issue\s*#?\s*\d+|#\d+)/i.test(item.text))) {
+          throw new Error("RELEASE_NOTES.md: Issue numbers are developer metadata");
+        }
+      }
+    }
+  }
+  return releases;
+}
+
+export function parseKnownIssues(source) {
+  const issues = [];
+  let pending = {};
+  let current = null;
+  let section = null;
+  for (const [index, line] of source.replace(/\r\n/g, "\n").split("\n").entries()) {
+    const bad = (message) => { throw new Error(`KNOWN_ISSUES.md:${index + 1}: ${message}`); };
+    if (!line.trim()) continue;
+    if (/^<!-- [^:]* -->$/.test(line)) continue;
+    const metadata = line.match(/^<!-- ([a-z-]+): (.+) -->$/);
+    if (metadata) {
+      const [, key, value] = metadata;
+      if (!["id", "github-issue"].includes(key) || Object.hasOwn(pending, key)) bad("unknown or duplicate metadata");
+      if (key === "id") {
+        if (Object.keys(pending).length || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) bad("invalid id/metadata order");
+        current = null;
+        section = null;
+      } else if (!pending.id || !/^[1-9]\d*$/.test(value)) bad("github-issue must follow id and be positive");
+      pending[key] = value;
+    } else if (line === "# 既知の不具合" && !issues.length && !Object.keys(pending).length) {
+      continue;
+    } else if (line.startsWith("## ")) {
+      if (!pending.id || !line.slice(3).trim()) bad("id and title required");
+      if (issues.some((issue) => issue.id === pending.id)) bad("duplicate issue id");
+      current = { id: pending.id, title: line.slice(3), description: [], sections: [] };
+      issues.push(current);
+      pending = {};
+      section = null;
+    } else if (current && line.startsWith("### ")) {
+      const title = line.slice(4);
+      if (!["影響する条件", "回避方法"].includes(title) || current.sections.some((item) => item.title === title)) bad("unknown or duplicate section");
+      section = { title, items: [] };
+      current.sections.push(section);
+    } else if (current && section && /^- \S.*$/.test(line)) {
+      section.items.push(line.slice(2));
+    } else if (current && !section && !/^\s*(?:[#<>`~*+|]|- |\d+\. )/.test(line)) {
+      current.description.push(line);
+    } else bad("invalid Known Issue structure");
+  }
+  if (Object.keys(pending).length) throw new Error("KNOWN_ISSUES.md: metadata without issue");
+  for (const issue of issues) {
+    if (!issue.description.length || issue.sections.some((item) => !item.items.length)) {
+      throw new Error("KNOWN_ISSUES.md: description and nonempty optional sections required");
+    }
+  }
+  return issues;
+}
+
+export function knownIssueBody({ title, description, sections }) {
+  return { title, description, sections };
+}
+
+export function buildInformation(releases, knownIssues) {
+  const visibleIssues = knownIssues.map(knownIssueBody);
+  const visible = { ...informationPayload(releases), knownIssues: visibleIssues };
+  const issues = knownIssues.map((issue) => ({ ...issue, bodyHash: informationId(knownIssueBody(issue)) }));
+  return { ...visible, id: informationId(visible), knownIssues: issues, knownIssuesId: informationId(visibleIssues) };
+}
+
+export async function generateReleaseNotes({ changelogPath, releaseNotesPath, knownIssuesPath, packagePath, outputPath }) {
+  const [changelog, userNotes, knownSource, packageJson] = await Promise.all([
+    readFile(changelogPath, "utf8"), readFile(releaseNotesPath, "utf8"),
+    readFile(knownIssuesPath, "utf8"), readFile(packagePath, "utf8"),
+  ]);
+  const developer = parseChangelog(changelog);
+  const releases = parseReleaseNotes(userNotes);
+  const versions = (items) => items.map(({ version, date }) => [version, date]);
+  if (JSON.stringify(versions(developer)) !== JSON.stringify(versions(releases))) {
+    throw new Error("CHANGELOG / RELEASE_NOTES version order and dates must match");
+  }
+  const packageVersion = JSON.parse(packageJson).version;
+  if (releases[0].version !== packageVersion) throw new Error("Package version does not match latest release");
+  const information = buildInformation(releases, parseKnownIssues(knownSource));
+  // date is the exact visible label; dateTime represents timed releases with an explicit zone.
+  information.releases = information.releases.map((release) => ({ ...release,
+    dateTime: release.date.length === 10 ? release.date : `${release.date.slice(0, 10)}T${release.date.slice(11, 16)}:00+09:00`,
+  }));
   await mkdir(dirname(outputPath), { recursive: true });
-  const information = informationPayload(releases);
-  await writeFile(outputPath, `${JSON.stringify({
-    information: { id: informationId(information), ...information },
+  await writeFile(outputPath, `${JSON.stringify({ information,
     compatibility: { legacyReleaseInformationIds },
   }, null, 2)}\n`, "utf8");
 }
@@ -179,6 +274,8 @@ if (process.argv[1] && resolve(process.argv[1]) === ownFile) {
   const repositoryRoot = resolve(webRoot, "..");
   generateReleaseNotes({
     changelogPath: resolve(repositoryRoot, "CHANGELOG.md"),
+    releaseNotesPath: resolve(repositoryRoot, "RELEASE_NOTES.md"),
+    knownIssuesPath: resolve(repositoryRoot, "KNOWN_ISSUES.md"),
     packagePath: resolve(webRoot, "package.json"),
     outputPath: resolve(webRoot, "src/generated/releaseNotes.json"),
   }).catch((error) => { console.error(error.message); process.exitCode = 1; });

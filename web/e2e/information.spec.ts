@@ -35,6 +35,7 @@ async function expectBaseWorkflow(page: Page) {
 }
 
 async function createEditCalculateAndSave(page: Page) {
+  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   if (await page.getByRole("button", { name: "KMLを貼り付け" }).count() === 0) {
     page.once("dialog", (dialog) => void dialog.accept());
     await Promise.all([
@@ -95,16 +96,19 @@ test("Information exposes bundle-generated latest and historical release section
 
   const button = informationButton(page);
   await expect(button).toHaveAccessibleName("Information（未読の更新があります）");
-  await expect(button.getByText("New", { exact: true })).toBeVisible();
+  await expect(button).not.toHaveClass(/information-warning/);
+  await expect(button.locator(".information-unread-dot")).toBeVisible();
 
   const dialog = await openInformation(page);
   await expect(dialog.getByRole("heading", { name: `v${latestRelease.version}` })).toBeVisible();
   await expect(dialog.getByText(latestRelease.date, { exact: true }).first()).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "追加", exact: true }).first()).toBeVisible();
-  await expect(dialog.getByText(/Issue #130で、HeaderのInformation/)).toBeVisible();
+  await expect(dialog.getByText("AutoNavLog のお知らせ", { exact: true })).toBeVisible();
+  await expect(dialog.locator(".information-known-issues")).toHaveCount(0);
+  await expect(dialog).not.toContainText(/Issue #|localStorage|JSON|Python|配布/);
   await expect(dialog.getByRole("heading", { name: "v1.9.5" })).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "修正", exact: true }).first()).toBeVisible();
-  await expect(dialog.getByText(/Issue #136で、EOC直前/)).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "更新履歴", exact: true })).toBeVisible();
 });
 
 test("Information traps focus, closes with Escape and backdrop, and keeps latest release seen after reload", async ({ page }) => {
@@ -129,7 +133,7 @@ test("Information traps focus, closes with Escape and backdrop, and keeps latest
   await page.reload();
   await expectBaseWorkflow(page);
   await expect(informationButton(page)).toHaveAccessibleName("Information");
-  await expect(informationButton(page).getByText("New", { exact: true })).toBeHidden();
+  await expect(informationButton(page).locator(".information-unread-dot")).toBeHidden();
   await expect(informationDialog(page)).toBeHidden();
 });
 
@@ -140,7 +144,7 @@ test("Information keeps the exact current update ID seen after reload", async ({
   ]);
   await page.goto("/");
   await expect(informationButton(page)).toHaveAccessibleName("Information");
-  await expect(informationButton(page).getByText("New", { exact: true })).toBeHidden();
+  await expect(informationButton(page).locator(".information-unread-dot")).toBeHidden();
 });
 
 test("Information treats the known same-version legacy baseline as unread after content changes", async ({ page }) => {
@@ -152,7 +156,7 @@ test("Information treats the known same-version legacy baseline as unread after 
   ]);
   await page.goto("/");
   await expect(informationButton(page)).toHaveAccessibleName("Information（未読の更新があります）");
-  await expect(informationButton(page).getByText("New", { exact: true })).toBeVisible();
+  await expect(informationButton(page).locator(".information-unread-dot")).toBeVisible();
 });
 
 test("legacy migration accepts only an exact controlled Information snapshot", () => {
@@ -225,9 +229,9 @@ test("Information tolerates unavailable local storage without blocking create, e
 
 test("Information remains reachable without displacing header actions or workflow regions", async ({ page }) => {
   await page.goto("/");
-  await expectBaseWorkflow(page);
+  await createEditCalculateAndSave(page);
 
-  for (const width of [390, 820, 1100, 1440] as const) {
+  for (const width of [320, 390, 820, 1100, 1440, 1600, 1273, 1242, 997, 996, 631, 630, 629] as const) {
     await page.setViewportSize({ width, height: 900 });
     const button = informationButton(page);
     const [header, information, save, newProject, input, route, status] = await Promise.all([
@@ -241,6 +245,32 @@ test("Information remains reachable without displacing header actions or workflo
     ]);
     if (!header || !information || !save || !newProject || !input || !route || !status) {
       throw new Error(`Information header or workflow geometry is missing at ${width}px`);
+    }
+    expect(header.height).toBeLessThanOrEqual(110);
+    const project = await page.locator(".header-project").boundingBox();
+    const nameInput = await page.locator("#project-name").boundingBox();
+    const label = await page.locator(".header-project-label").boundingBox();
+    if (!project || !nameInput || !label) throw new Error("Project geometry missing");
+    expect(label.height).toBeLessThan(20);
+    expect(label.width).toBeGreaterThan(50);
+    const revision = await page.locator(".header-revision").boundingBox();
+    if (!revision) throw new Error("Revision missing");
+    expect(revision.height).toBeLessThan(20);
+    await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
+    if ([390, 1100, 1242, 1440].includes(width)) {
+      await page.screenshot({ path: `/tmp/issue140-header-${width}.png` });
+    }
+    if (width <= 1320) {
+      expect(project.y).toBeGreaterThanOrEqual(information.y + information.height - 1);
+      expect(project.width).toBeGreaterThan(header.width - 75);
+      expect(nameInput.width).toBeGreaterThan(project.width - 145);
+    }
+    for (const control of [".saved-project-control select", ".saved-project-control button:first-of-type", ".saved-project-control button:last-of-type"]) {
+      const bounds = await page.locator(control).boundingBox();
+      if (!bounds) throw new Error("Saved control missing");
+      expect(bounds.x).toBeGreaterThanOrEqual(header.x);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(header.x + header.width);
+      expect(Math.abs(bounds.y - information.y)).toBeLessThanOrEqual(3);
     }
     expect(information.x).toBeGreaterThanOrEqual(header.x);
     expect(information.x + information.width).toBeLessThanOrEqual(header.x + header.width + 1);
@@ -261,4 +291,30 @@ test("Information remains reachable without displacing header actions or workflo
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth))
       .toBeLessThanOrEqual(1);
   }
+});
+
+
+test("compact header still saves, loads, deletes and starts a new project", async ({ page }) => {
+  await page.goto("/");
+  await createEditCalculateAndSave(page);
+  await page.setViewportSize({ width: 390, height: 900 });
+  const selector = page.locator("#saved-project");
+  const id = await selector.inputValue();
+  expect(id).not.toBe("");
+  const loaded = page.waitForResponse((response) => response.url().endsWith("/api/projects/load") && response.ok());
+  await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
+  await loaded;
+  await expect(page.getByLabel("プロジェクト")).toHaveValue("storage fallback");
+  await page.getByLabel("プロジェクト").fill("狭い画面で保存");
+  const saved = page.waitForResponse((response) => response.url().endsWith("/api/projects/save") && response.ok());
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saved;
+  page.once("dialog", (dialog) => void dialog.accept());
+  const deleted = page.waitForResponse((response) => response.request().method() === "DELETE" && response.url().includes("/api/projects/") && response.ok());
+  await page.getByRole("button", { name: "保存済みProjectを削除", exact: true }).click();
+  await deleted;
+  await expect(selector.locator(`option[value="${id}"]`)).toHaveCount(0);
+  page.once("dialog", (dialog) => void dialog.accept());
+  await Promise.all([page.waitForNavigation(), page.getByRole("button", { name: "新規", exact: true }).click()]);
+  await expect(page.getByRole("button", { name: "KMLを貼り付け" })).toBeVisible();
 });

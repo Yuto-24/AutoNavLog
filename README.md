@@ -8,7 +8,7 @@ Web 画面に表示します。
 利用者が根拠と警告を確認してください。航空大学校の公式様式や計算規則への準拠は
 主張していません。
 
-- 現在のバージョン: `1.10.0`
+- 現在のバージョン: `1.9.5`
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
@@ -306,11 +306,17 @@ docker run --rm autonavlog:test
 docker build --target runtime --tag autonavlog:runtime .
 ```
 
-リリース時は `1.10.0` が次の場所で一致していることを確認します。
+Issue対応では `changes/` に変更の断片を追加し、Versionは直接変更しません。
+Release時に全件を `scripts/prepare_release.py X.Y.Z` でまとめます。
+Dockerでの実行例・形式・例外は [Release運用](changes/README.md) を参照してください。
+Informationには [利用者向け更新履歴](RELEASE_NOTES.md) と [既知の不具合](KNOWN_ISSUES.md) を表示し、
+GitHub Release本文は引き続き開発者向けのCHANGELOGから作成します。
+
+リリース時は `1.9.5` が次の場所で一致していることを確認します。
 
 - `pyproject.toml`
 - `web/package.json` と `web/package-lock.json`
-- `README.md` と `CHANGELOG.md`
+- `README.md`、`CHANGELOG.md`、`RELEASE_NOTES.md`
 
 `src/autonavlog/version.py` は固定値を持たず、インストール済み Package Metadata から版番号を取得します。
 `jma-msm-wind==0.2.1` は別製品の版なので変更しません。

@@ -5,6 +5,24 @@ on:
   pull_request:
 
 jobs:
+  release-sources:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: docker build --target release-tools --tag autonavlog:release-tools .
+      - name: Validate release sources and PR fragments
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$PR_BASE" ]; then
+            docker run --rm -v "$PWD:/work:ro" -w /work autonavlog:release-tools python scripts/validate_release.py --base "$PR_BASE"
+          else
+            docker run --rm -v "$PWD:/work:ro" -w /work autonavlog:release-tools python scripts/validate_release.py
+          fi
+
   pytest:
     runs-on: ubuntu-latest
     steps:

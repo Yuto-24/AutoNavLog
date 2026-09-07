@@ -41,9 +41,9 @@ decorative cards. Shadows are reserved for temporary overlays.
 ## Component inventory
 
 - App header with app version, Information, project identity, storage state, Save, and New actions.
-  Information opens the scrollable release history without changing Project state; unread Information updates use
-  `New` on desktop and a notification dot at 820 px and below. Its seen state identifies the full
-  Information payload, so same-version additions remain unread.
+  Information opens notices and the full release history without changing Project state. Use an Info icon
+  and an unread dot at every width; only Known Issue additions/body changes use amber. The label is optional
+  and appears only when the entire Header has ample room on one row (currently 1600 px and above).
 - Three-step progress rail: Route, Flight plan, Review/calculation.
 - KML/KMZ drop zone and paste dialog.
 - Shape candidate list with a required route-use confirmation placed directly below the map.
@@ -63,6 +63,11 @@ decorative cards. Shadows are reserved for temporary overlays.
 
 ## Container and responsive rules
 
+- The Header uses one explicit row above 1320 px and two below it; never allow independent controls to
+  wrap into a third row. On two rows, put actions beside the brand and give the Project row all remaining
+  width. Project label/revision remain nowrap and non-shrinking; only the name input flexes.
+  At 630 px and below, Save/New show icons with their accessible labels and titles retained.
+  Verify 390/820/1100/1440 px and 1273/1242/997/996/631/630/629 px boundaries; also cover 320/1600 px.
 - Above 1240 px, use input / route workspace / readiness columns and allow the
   route map height to be adjusted from 320 to 900 px.
 - At 1240 px and below, keep one downward workflow: input, route and map,
@@ -86,10 +91,18 @@ Information is a low-priority utility in the Header. Its compact unread indicato
 copy-lock exception; it must not displace the workflow rail or move a workflow region.
 
 The generated Information snapshot uses a namespaced SHA-256 content ID over every user-visible
-entry, excluding parser source-line metadata and using stable key ordering. The browser stores that
+entry, excluding internal IDs, GitHub Issue references and parser source-line metadata, using stable key ordering. The browser stores that
 ID under `autonavlog.information.lastSeenUpdate`. The legacy `lastSeenRelease` value is retained and
 migrates only when the immutable `a4a92da` v1.10.0 baseline ID matches exactly; unknown, malformed,
-or same-version-changed values remain unread.
+or same-version-changed values remain unread. `autonavlog.information.knownIssuesSeen` separately stores
+Known Issue IDs and visible-body hashes. Additions/edits warn in amber and in the accessible name;
+removals/reordering produce only the normal dot. Opening the dialog marks everything read immediately.
+
+The dialog subtitle is `AutoNavLog のお知らせ`. Show `既知の不具合` first (hide the entire section at zero),
+then `更新履歴`, with all historical entries expanded. Known Issues use amber panels, distinct from runtime
+errors. User-facing content comes from `KNOWN_ISSUES.md` and `RELEASE_NOTES.md`, with no developer Issues,
+distribution section or implementation jargon. New releases display their static minute-level JST timestamp;
+historical releases keep date-only labels. See [source formats and release workflow](../../changes/README.md).
 
 ## NAV LOG layout revision (Issue #132)
 
@@ -118,7 +131,7 @@ layout at 390 px, 1,100 px, and 1,440 px.
 
 | Area | Concept | Implementation | Result |
 | --- | --- | --- | --- |
-| Header | Navy product bar, version, Information, project identity, save/new actions | Same hierarchy and action placement。未読更新はDesktopの`New`とモバイルの通知ドットだけで示す | Match |
+| Header | Navy product bar, version, Information, project identity, save/new actions | Explicit one/two-row Header; unread dot at every width, amber only for Known Issue additions/edits | Match |
 | Workflow | Three numbered stages directly below header | Route, flight plan, review/calculation rail with completed states | Match |
 | Desktop layout | Input / route / readiness columns | 24% / fluid / 25% three-column workspace | Match |
 | Route workspace | Map over compact POINT/ROLE/ALT/PHASE table | Leaflet/OSM route, airport/VREP/RCA/EOC markers, editable Leg table | Match |

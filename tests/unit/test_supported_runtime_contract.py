@@ -40,7 +40,10 @@ def test_docker_test_stage_contains_ci_contract_inputs() -> None:
 
     assert "COPY tests ./tests" in dockerfile
     assert "COPY scripts ./scripts" in dockerfile
-    assert "COPY CHANGELOG.md Dockerfile .dockerignore ./" in dockerfile
+    assert (
+        "COPY CHANGELOG.md RELEASE_NOTES.md KNOWN_ISSUES.md Dockerfile .dockerignore ./"
+        in dockerfile
+    )
     assert "COPY web/package.json web/package-lock.json ./web/" in dockerfile
     assert "COPY .github/workflows/test.yml ./.github/workflows/test.yml" in dockerfile
     assert "chmod 755 scripts/run_ci_checks.sh" in dockerfile

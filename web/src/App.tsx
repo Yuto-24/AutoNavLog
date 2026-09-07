@@ -36,7 +36,7 @@ import { StatusPanel } from "./components/StatusPanel";
 import { CalculationProgressOverlay } from "./components/CalculationProgressOverlay";
 import type { CheckPointInput, FlightPhase, NavSection, Project, WebState } from "./types";
 import { useModalFocusTrap } from "./useModalFocusTrap";
-import { hasUnreadInformation, markInformationSeen } from "./releaseNotes";
+import { hasUnreadInformation, hasUnreadKnownIssues, markInformationSeen } from "./releaseNotes";
 import type { InformationData } from "./releaseNotes";
 import releaseNotesData from "./generated/releaseNotes.json";
 
@@ -109,6 +109,7 @@ function App() {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [informationOpen, setInformationOpen] = useState(false);
   const [informationData] = useState<InformationData>(() => releaseNotesData as InformationData);
+  const [knownIssuesUnread, setKnownIssuesUnread] = useState(() => hasUnreadKnownIssues(releaseNotesData as InformationData));
   const [informationUnread, setInformationUnread] = useState(() => hasUnreadInformation(releaseNotesData as InformationData));
   const [pastedKml, setPastedKml] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -1382,6 +1383,7 @@ function App() {
         selectedProjectId={selectedProjectId}
         busy={busy}
         informationUnread={informationUnread}
+        knownIssuesUnread={knownIssuesUnread}
         onInformation={() => {
           setInformationOpen(true);
         }}
@@ -1549,10 +1551,12 @@ function App() {
       <InformationDialog
         open={informationOpen}
         releases={informationData.information.releases}
+        knownIssues={informationData.information.knownIssues ?? []}
         onClose={() => setInformationOpen(false)}
         onOpened={() => {
           markInformationSeen(informationData);
           setInformationUnread(false);
+          setKnownIssuesUnread(false);
         }}
       />
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { generateReleaseNotes, informationId, informationPayload, parseChangelog } from "./generate-release-notes.mjs";
+import { buildInformation, generateReleaseNotes, informationId, informationPayload, parseChangelog, parseKnownIssues, parseReleaseNotes } from "./generate-release-notes.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -49,21 +49,25 @@ test("parses the current changelog's adjacent 1.1.0 and 1.0.0 releases without d
 test("generates deterministic JSON and rejects a package version mismatch", async () => {
   const directory = await mkdtemp(join(tmpdir(), "autonavlog-release-notes-"));
   const changelogPath = join(directory, "CHANGELOG.md");
+  const releaseNotesPath = join(directory, "RELEASE_NOTES.md");
+  const knownIssuesPath = join(directory, "KNOWN_ISSUES.md");
+  await writeFile(releaseNotesPath, "## 2.0.0 - 2026-09-07\n\n### 追加\n\n- お知らせ\n");
+  await writeFile(knownIssuesPath, "# 既知の不具合\n");
   const packagePath = join(directory, "package.json");
   const outputPath = join(directory, "nested", "releaseNotes.json");
   await writeFile(changelogPath, "## 2.0.0 - 2026-09-07\n\nIntro.\n\n### Added\n\n- Item\n", "utf8");
   await writeFile(packagePath, '{"version":"2.0.0"}\n', "utf8");
-  await generateReleaseNotes({ changelogPath, packagePath, outputPath });
+  await generateReleaseNotes({ changelogPath, releaseNotesPath, knownIssuesPath, packagePath, outputPath });
   const first = await readFile(outputPath, "utf8");
   const generated = JSON.parse(first);
   assert.match(generated.information.id, /^information:sha256:[0-9a-f]{64}$/);
-  assert.equal(generated.information.releases[0].summary[0].line, undefined);
-  await generateReleaseNotes({ changelogPath, packagePath, outputPath });
+  assert.equal(generated.information.releases[0].sections[0].blocks[0].items[0].line, undefined);
+  await generateReleaseNotes({ changelogPath, releaseNotesPath, knownIssuesPath, packagePath, outputPath });
   assert.equal(await readFile(outputPath, "utf8"), first);
   await writeFile(packagePath, '{"version":"2.0.1"}\n', "utf8");
   await assert.rejects(
-    generateReleaseNotes({ changelogPath, packagePath, outputPath }),
-    /does not match CHANGELOG latest/,
+    generateReleaseNotes({ changelogPath, releaseNotesPath, knownIssuesPath, packagePath, outputPath }),
+    /does not match latest release/,
   );
 });
 
@@ -81,4 +85,35 @@ test("information ID includes all display content but excludes source line numbe
     informationId({ notices: noticeOnly.notices, releases: noticeOnly.releases }),
     informationId(noticeOnly),
   );
+});
+
+
+test("user notes reject developer sections, prose, Issue numbers, ordering and invalid minutes", () => {
+  for (const body of ["Intro", "### 配布\n- x", "### 修正\n- x\n### 追加\n- y",
+    "### 追加\n- Issue #130", "### 追加\nparagraph", "### 追加\n- x\n  continuation"]) {
+    assert.throws(() => parseReleaseNotes(`## 1.0.0 - 2026-09-07\n${body}`));
+  }
+  assert.throws(() => parseReleaseNotes("## 1.0.0 - 2026-09-07 24:30 JST\n### 追加\n- x"));
+  assert.equal(parseReleaseNotes("## 1.0.0 - 2026-09-07 14:30 JST\n### 追加\n- x")[0].date, "2026-09-07 14:30 JST");
+});
+
+test("Known Issues validate fixed structure and preserve order, hiding all management metadata from hashes", () => {
+  const issue = "<!-- id: saved-plan -->\n<!-- github-issue: 123 -->\n## 計画を開けません\n以前の計画で発生します。\n### 回避方法\n- 開き直してください。\n";
+  const parsed = parseKnownIssues(issue);
+  assert.deepEqual(parseKnownIssues(issue + "<!-- 以下は任意です。不要な項目は削除してください。 -->\n"), parsed);
+  const baseline = buildInformation([], parsed);
+  assert.equal(baseline.id, buildInformation([], parseKnownIssues(issue.replace("123", "456").replace("saved-plan", "renamed"))).id);
+  assert.notEqual(baseline.id, buildInformation([], parseKnownIssues(issue.replace("以前", "一部"))).id);
+  assert.deepEqual(parseKnownIssues("# 既知の不具合\n"), []);
+  for (const bad of [issue + issue, issue.replace("github-issue", "severity"),
+    issue.replace("### 回避方法", "### その他"), "<!-- id: missing -->", "## Title\nBody",
+    "<!-- id: missing -->\n## Title", issue.replace("- 開き直してください。", "not a bullet")]) {
+    assert.throws(() => parseKnownIssues(bad));
+  }
+  const second = parseKnownIssues(issue.replace("saved-plan", "second").replace("計画を開けません", "別のお知らせ"))[0];
+  const forward = buildInformation([], [...parsed, second]);
+  const reversed = buildInformation([], [second, ...parsed]);
+  assert.notEqual(forward.id, reversed.id);
+  assert.notEqual(forward.knownIssuesId, reversed.knownIssuesId);
+  assert.equal(forward.knownIssues[0].bodyHash, reversed.knownIssues[1].bodyHash);
 });
