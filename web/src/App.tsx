@@ -36,8 +36,8 @@ import { StatusPanel } from "./components/StatusPanel";
 import { CalculationProgressOverlay } from "./components/CalculationProgressOverlay";
 import type { CheckPointInput, FlightPhase, NavSection, Project, WebState } from "./types";
 import { useModalFocusTrap } from "./useModalFocusTrap";
-import { hasUnreadRelease, markLatestReleaseSeen } from "./releaseNotes";
-import type { ReleaseNote } from "./releaseNotes";
+import { hasUnreadInformation, markInformationSeen } from "./releaseNotes";
+import type { InformationData } from "./releaseNotes";
 import releaseNotesData from "./generated/releaseNotes.json";
 
 interface PendingKmz {
@@ -108,8 +108,8 @@ function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [informationOpen, setInformationOpen] = useState(false);
-  const [releaseNotes] = useState<ReleaseNote[]>(() => releaseNotesData.releases as ReleaseNote[]);
-  const [informationUnread, setInformationUnread] = useState(() => hasUnreadRelease(releaseNotesData.releases as ReleaseNote[]));
+  const [informationData] = useState<InformationData>(() => releaseNotesData as InformationData);
+  const [informationUnread, setInformationUnread] = useState(() => hasUnreadInformation(releaseNotesData as InformationData));
   const [pastedKml, setPastedKml] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [projectName, setProjectName] = useState("未保存の新規作業");
@@ -1548,10 +1548,10 @@ function App() {
 
       <InformationDialog
         open={informationOpen}
-        releases={releaseNotes}
+        releases={informationData.information.releases}
         onClose={() => setInformationOpen(false)}
         onOpened={() => {
-          markLatestReleaseSeen(releaseNotes);
+          markInformationSeen(informationData);
           setInformationUnread(false);
         }}
       />

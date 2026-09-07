@@ -1,6 +1,19 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { canMigrateLegacyRelease, type InformationData } from "../src/releaseNotes";
 
+const lastSeenUpdateKey = "autonavlog.information.lastSeenUpdate";
 const lastSeenReleaseKey = "autonavlog.information.lastSeenRelease";
+const informationData = JSON.parse(readFileSync(
+  new URL("../src/generated/releaseNotes.json", import.meta.url),
+  "utf8",
+)) as {
+  information: { id: string; releases: Array<{ version: string; date: string }> };
+  compatibility: { legacyReleaseInformationIds: Record<string, string> };
+};
+const latestInformationId = informationData.information.id;
+const latestRelease = informationData.information.releases[0]!;
+const legacy110BaselineId = informationData.compatibility.legacyReleaseInformationIds["1.10.0"];
 const routeKml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>RJFM-RJFO</name><LineString><coordinates>
 131.4486111111,31.8772222222,0 131.5000000000,32.4000000000,0 131.6500000000,33.1000000000,0 131.7372222222,33.4794444444,0
@@ -85,8 +98,8 @@ test("Information exposes bundle-generated latest and historical release section
   await expect(button.getByText("New", { exact: true })).toBeVisible();
 
   const dialog = await openInformation(page);
-  await expect(dialog.getByRole("heading", { name: "v1.10.0" })).toBeVisible();
-  await expect(dialog.getByText("2026-09-07", { exact: true }).first()).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: `v${latestRelease.version}` })).toBeVisible();
+  await expect(dialog.getByText(latestRelease.date, { exact: true }).first()).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "追加", exact: true }).first()).toBeVisible();
   await expect(dialog.getByText(/Issue #130で、HeaderのInformation/)).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "v1.9.5" })).toBeVisible();
@@ -120,21 +133,57 @@ test("Information traps focus, closes with Escape and backdrop, and keeps latest
   await expect(informationDialog(page)).toBeHidden();
 });
 
-for (const [name, storedValue] of [
-  ["an older release", "1.9.5"],
-  ["an unknown release", "0.0.0"],
-  ["a malformed release marker", "{"],
+test("Information keeps the exact current update ID seen after reload", async ({ page }) => {
+  await page.addInitScript(([key, value]) => window.localStorage.setItem(key, value), [
+    lastSeenUpdateKey,
+    latestInformationId,
+  ]);
+  await page.goto("/");
+  await expect(informationButton(page)).toHaveAccessibleName("Information");
+  await expect(informationButton(page).getByText("New", { exact: true })).toBeHidden();
+});
+
+test("Information treats the known same-version legacy baseline as unread after content changes", async ({ page }) => {
+  expect(legacy110BaselineId).toMatch(/^information:sha256:[a-f0-9]{64}$/);
+  expect(legacy110BaselineId).not.toBe(latestInformationId);
+  await page.addInitScript(([key, value]) => window.localStorage.setItem(key, value), [
+    lastSeenUpdateKey,
+    legacy110BaselineId,
+  ]);
+  await page.goto("/");
+  await expect(informationButton(page)).toHaveAccessibleName("Information（未読の更新があります）");
+  await expect(informationButton(page).getByText("New", { exact: true })).toBeVisible();
+});
+
+test("legacy migration accepts only an exact controlled Information snapshot", () => {
+  const controlledData: InformationData = {
+    information: { id: "information:sha256:controlled", releases: [] },
+    compatibility: { legacyReleaseInformationIds: { "1.10.0": "information:sha256:controlled" } },
+  };
+  expect(canMigrateLegacyRelease("1.10.0", controlledData)).toBe(true);
+  expect(canMigrateLegacyRelease("1.10.0", {
+    ...controlledData,
+    information: { ...controlledData.information, id: "information:sha256:changed" },
+  })).toBe(false);
+  expect(canMigrateLegacyRelease("1.9.5", controlledData)).toBe(false);
+});
+
+for (const [name, key, storedValue] of [
+  ["an older update ID", lastSeenUpdateKey, "information:sha256:" + "0".repeat(64)],
+  ["an unknown update ID", lastSeenUpdateKey, "information:sha256:" + "f".repeat(64)],
+  ["a malformed update marker", lastSeenUpdateKey, "{"],
+  ["a legacy release marker for the changed same-version content", lastSeenReleaseKey, "1.10.0"],
 ] as const) {
   test(`Information treats ${name} as unread without interrupting the workflow`, async ({ page }) => {
     await page.addInitScript(([key, value]) => window.localStorage.setItem(key, value), [
-      lastSeenReleaseKey,
+      key,
       storedValue,
     ]);
     await page.goto("/");
     await expectBaseWorkflow(page);
     await expect(informationDialog(page)).toBeHidden();
     await expect(informationButton(page)).toHaveAccessibleName("Information（未読の更新があります）");
-    await expect((await openInformation(page)).getByRole("heading", { name: "v1.10.0" })).toBeVisible();
+    await expect((await openInformation(page)).getByRole("heading", { name: `v${latestRelease.version}` })).toBeVisible();
   });
 }
 
@@ -157,7 +206,7 @@ test("Information tolerates unavailable local storage without blocking create, e
       if (requestedKey === key) throw new DOMException("storage disabled", "SecurityError");
       originalSetItem.call(this, requestedKey, value);
     };
-  }, lastSeenReleaseKey);
+  }, lastSeenUpdateKey);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await expect(page.getByRole("button", { name: "新規", exact: true })).toBeEnabled();

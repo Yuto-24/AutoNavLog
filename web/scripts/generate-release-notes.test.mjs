@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { generateReleaseNotes, parseChangelog } from "./generate-release-notes.mjs";
+import { generateReleaseNotes, informationId, informationPayload, parseChangelog } from "./generate-release-notes.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -55,11 +55,30 @@ test("generates deterministic JSON and rejects a package version mismatch", asyn
   await writeFile(packagePath, '{"version":"2.0.0"}\n', "utf8");
   await generateReleaseNotes({ changelogPath, packagePath, outputPath });
   const first = await readFile(outputPath, "utf8");
+  const generated = JSON.parse(first);
+  assert.match(generated.information.id, /^information:sha256:[0-9a-f]{64}$/);
+  assert.equal(generated.information.releases[0].summary[0].line, undefined);
   await generateReleaseNotes({ changelogPath, packagePath, outputPath });
   assert.equal(await readFile(outputPath, "utf8"), first);
   await writeFile(packagePath, '{"version":"2.0.1"}\n', "utf8");
   await assert.rejects(
     generateReleaseNotes({ changelogPath, packagePath, outputPath }),
     /does not match CHANGELOG latest/,
+  );
+});
+
+test("information ID includes all display content but excludes source line numbers", () => {
+  const first = parseChangelog("## 2.0.0 - 2026-09-07\n\nIntro\n\n### Added\n\n- Item\n");
+  const shifted = parseChangelog("\n\n## 2.0.0 - 2026-09-07\n\nIntro\n\n### Added\n\n- Item\n");
+  assert.equal(informationId(informationPayload(first)), informationId(informationPayload(shifted)));
+  const changed = parseChangelog("## 2.0.0 - 2026-09-07\n\nChanged\n\n### Added\n\n- Item\n");
+  assert.notEqual(informationId(informationPayload(first)), informationId(informationPayload(changed)));
+
+  const noticeOnly = { ...informationPayload(first), notices: [{ title: "Maintenance", text: "A" }] };
+  const changedNotice = { ...informationPayload(first), notices: [{ title: "Maintenance", text: "B" }] };
+  assert.notEqual(informationId(noticeOnly), informationId(changedNotice));
+  assert.equal(
+    informationId({ notices: noticeOnly.notices, releases: noticeOnly.releases }),
+    informationId(noticeOnly),
   );
 });

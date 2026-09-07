@@ -9,7 +9,8 @@ AutoNavLog の利用者に影響する変更を記録します。
 - Issue #130で、HeaderのInformationからアプリ内の変更履歴を確認できるようにしました。
   未確認の更新はDesktopでは`New`、モバイルでは通知ドットで表示します。
 - 変更履歴は`CHANGELOG.md`からbuild時に生成し、Version・日付・section・本文を画面に表示します。
-  最後に確認したVersionはこのブラウザに保存します。
+  Information payload全体から生成した更新IDを既読状態としてこのブラウザに保存するため、同じVersion内の
+  追記も未確認として通知します。旧Version markerはa4a92da時点の1.10.0内容と一致する場合だけ移行します。
 
 ### 配布
 

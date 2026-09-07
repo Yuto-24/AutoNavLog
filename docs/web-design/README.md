@@ -42,7 +42,8 @@ decorative cards. Shadows are reserved for temporary overlays.
 
 - App header with app version, Information, project identity, storage state, Save, and New actions.
   Information opens the scrollable release history without changing Project state; unread releases use
-  `New` on desktop and a notification dot at 820 px and below.
+  `New` on desktop and a notification dot at 820 px and below. Its seen state identifies the full
+  Information payload, so same-version additions remain unread.
 - Three-step progress rail: Route, Flight plan, Review/calculation.
 - KML/KMZ drop zone and paste dialog.
 - Shape candidate list with a required route-use confirmation placed directly below the map.

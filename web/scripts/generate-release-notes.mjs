@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,6 +6,11 @@ import { fileURLToPath } from "node:url";
 const releaseHeader = /^## ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) - (\d{4}-\d{2}-\d{2})$/;
 const sectionHeader = /^### (.+)$/;
 const bullet = /^- (.+)$/;
+// This is the content identifier produced from the v1.10.0 Information payload in a4a92da.
+// It permits a legacy release-version marker to migrate only when that exact content was seen.
+const legacyReleaseInformationIds = {
+  "1.10.0": "information:sha256:1aaa6d69025442f35549a1ea36157c30112fd54ff0ec7611ee40c8409e827ca0",
+};
 
 function fail(line, message) {
   throw new Error(`CHANGELOG.md:${line}: ${message}`);
@@ -118,6 +124,37 @@ export function parseChangelog(source) {
   return releases;
 }
 
+function withoutSourceLines(block) {
+  if (block.kind === "paragraph") return { kind: block.kind, text: block.text };
+  return { kind: block.kind, items: block.items.map((item) => ({ text: item.text })) };
+}
+
+export function informationPayload(releases) {
+  return {
+    releases: releases.map((release) => ({
+      version: release.version,
+      date: release.date,
+      summary: release.summary.map(withoutSourceLines),
+      sections: release.sections.map((section) => ({
+        title: section.title,
+        blocks: section.blocks.map(withoutSourceLines),
+      })),
+    })),
+  };
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export function informationId(payload) {
+  return `information:sha256:${createHash("sha256").update(stableJson(payload)).digest("hex")}`;
+}
+
 export async function generateReleaseNotes({ changelogPath, packagePath, outputPath }) {
   const [changelog, packageJson] = await Promise.all([
     readFile(changelogPath, "utf8"), readFile(packagePath, "utf8"),
@@ -129,7 +166,11 @@ export async function generateReleaseNotes({ changelogPath, packagePath, outputP
     throw new Error(`web/package.json: version '${packageVersion}' does not match CHANGELOG latest '${releases[0].version}'`);
   }
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify({ releases }, null, 2)}\n`, "utf8");
+  const information = informationPayload(releases);
+  await writeFile(outputPath, `${JSON.stringify({
+    information: { id: informationId(information), ...information },
+    compatibility: { legacyReleaseInformationIds },
+  }, null, 2)}\n`, "utf8");
 }
 
 const ownFile = fileURLToPath(import.meta.url);
