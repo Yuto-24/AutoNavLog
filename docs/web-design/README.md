@@ -41,7 +41,7 @@ decorative cards. Shadows are reserved for temporary overlays.
 ## Component inventory
 
 - App header with app version, Information, project identity, storage state, Save, and New actions.
-  Information opens the scrollable release history without changing Project state; unread releases use
+  Information opens the scrollable release history without changing Project state; unread Information updates use
   `New` on desktop and a notification dot at 820 px and below. Its seen state identifies the full
   Information payload, so same-version additions remain unread.
 - Three-step progress rail: Route, Flight plan, Review/calculation.
@@ -84,6 +84,12 @@ metrics, badges, and unrelated navigation are prohibited.
 
 Information is a low-priority utility in the Header. Its compact unread indicator is the only
 copy-lock exception; it must not displace the workflow rail or move a workflow region.
+
+The generated Information snapshot uses a namespaced SHA-256 content ID over every user-visible
+entry, excluding parser source-line metadata and using stable key ordering. The browser stores that
+ID under `autonavlog.information.lastSeenUpdate`. The legacy `lastSeenRelease` value is retained and
+migrates only when the immutable `a4a92da` v1.10.0 baseline ID matches exactly; unknown, malformed,
+or same-version-changed values remain unread.
 
 ## NAV LOG layout revision (Issue #132)
 
