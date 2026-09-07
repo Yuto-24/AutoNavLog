@@ -2,6 +2,19 @@
 
 AutoNavLog の利用者に影響する変更を記録します。
 
+## 1.9.5 - 2026-09-07
+
+### 修正
+
+- Issue #136で、EOC直前の実効CRUISE Calculation ZoneのCASを、以後のDESCENT全体の
+  共通CASとして自己整合的に採用するようにしました。
+- Issue #137で、RCA/EOCで分割されたPhysical Legの手動TASをeffective Flight Phase別に
+  保存・適用し、CLIMB、CRUISE、DESCENT間へoverrideが漏れないようにしました。
+
+### 配布
+
+- Python・Web のバージョンを `1.9.5` に更新しました。
+
 ## 1.9.4 - 2026-09-07
 
 ### 改善

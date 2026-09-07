@@ -492,6 +492,46 @@ def test_issue_43_golden_eoc_uses_vertical_time_plus_one_minute_and_raw_order(
     assert check_point.cumulative_distance_nm < eoc.along_route_distance_nm
 
 
+def test_issue_136_case_g_eoc_descent_cas_matches_preceding_cruise_zone(
+    golden_outcome: CalculationOutcome,
+) -> None:
+    eoc = next(
+        point for point in golden_outcome.derived_points if point.type.value == "EOC"
+    )
+    calculation_rows = [
+        row
+        for row in golden_outcome.display_rows
+        if row.row_type == "CALCULATION_ZONE"
+    ]
+    preceding_cruise_row = next(
+        row
+        for row in calculation_rows
+        if row.phase == FlightPhase.CRUISE
+        and row.to_name == "EOC"
+        and isinstance(row.distance.effective_value, (int, float))
+        and row.distance.effective_value > 0
+    )
+    assert eoc.along_route_distance_nm > 0
+    assert eoc.section_id == preceding_cruise_row.section_id
+    assert preceding_cruise_row.source_result_sequence is not None
+    preceding_cruise_zone = next(
+        zone
+        for zone in golden_outcome.sections
+        if zone.section_id == preceding_cruise_row.section_id
+        and zone.sequence == preceding_cruise_row.source_result_sequence
+    )
+    cruise_cas = preceding_cruise_zone.cas_kt.adopted()
+    assert cruise_cas is not None
+
+    descent_cas = [
+        zone.cas_kt.adopted()
+        for zone in golden_outcome.sections
+        if zone.phase == FlightPhase.DESCENT
+    ]
+    assert descent_cas
+    assert all(cas is not None and cas == cruise_cas for cas in descent_cas)
+
+
 def test_issue_43_eoc_does_not_snap_to_a_nearby_check_point(
     golden_airports: AirportRepository,
     golden_project: Project,

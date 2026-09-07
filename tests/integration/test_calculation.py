@@ -10,6 +10,7 @@ import pytest
 from autonavlog.application.calculation_service import (
     CalculationPolicies,
     CalculationService,
+    _ClimbPlan,
 )
 from autonavlog.application.navlog_display import (
     NavLogPhysicalLeg,
@@ -843,6 +844,10 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
     descent_project.sections[1].manual_wind_by_phase = {
         FlightPhase.CRUISE: ManualWind(direction_deg_from=270, speed_kt=20)
     }
+    descent_project.sections[1].manual_tas_kt_by_phase = {
+        FlightPhase.CRUISE: 140.0
+    }
+    descent_project.sections[1].manual_tas_kt = None
 
     outcome = CalculationService(airports, performance_repository).calculate(
         descent_project,
@@ -864,6 +869,12 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
     assert outcome.sections[-1].wind_speed_kt.adopted() == pytest.approx(30)
     assert outcome.sections[-2].wind_speed_kt.adopted_source == AdoptedSource.MANUAL
     assert outcome.sections[-1].wind_speed_kt.adopted_source == AdoptedSource.MANUAL
+    assert outcome.sections[-2].cas_kt.adopted() == pytest.approx(
+        outcome.sections[-1].cas_kt.adopted()
+    )
+    assert outcome.sections[-1].performance_metadata["cruise_cas_source_section_id"] == str(
+        descent_project.sections[1].id
+    )
     assert sum(
         section.zone_distance_nm.adopted() or 0.0 for section in outcome.sections
     ) == pytest.approx(
@@ -880,6 +891,36 @@ def test_descent_leg_is_automatically_split_at_eoc_without_losing_distance(
         abs=1e-6,
     )
     assert [point.type.value for point in outcome.derived_points] == ["EOC"]
+
+
+def test_eoc_descent_manual_tas_does_not_replace_the_pre_eoc_cruise_override(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    configured = project.model_copy(deep=True)
+    configured.sections[0].phase = FlightPhase.CRUISE
+    configured.sections[1].phase = FlightPhase.DESCENT
+    configured.sections[1].manual_tas_kt = None
+    configured.sections[1].manual_tas_kt_by_phase = {
+        FlightPhase.CRUISE: 140.0,
+        FlightPhase.DESCENT: 110.0,
+    }
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        configured,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    split_cruise = _section_for_source(
+        outcome, configured.sections[1].id, FlightPhase.CRUISE
+    )
+    descent_sections = [
+        section for section in outcome.sections if section.phase == FlightPhase.DESCENT
+    ]
+    assert split_cruise.tas_kt.adopted() == pytest.approx(140.0)
+    assert all(section.tas_kt.adopted() == pytest.approx(110.0) for section in descent_sections)
 
 
 def test_eoc_starts_from_descent_leg_altitude_before_using_previous_leg(
@@ -1509,6 +1550,7 @@ def test_eoc_integration_snap_threshold_preserves_profile_metadata(
     expected_source_id = str(sections[expected_eoc_source_index].id)
     assert eoc.section_id == sections[expected_eoc_source_index].id
     assert metadata["eoc_source_section_id"] == expected_source_id
+    assert metadata["cruise_cas_source_section_id"] == str(sections[1].id)
     assert metadata["constraint_section_ids"][0] == expected_source_id
     assert metadata["descent_path_section_ids"][0] == expected_source_id
     if expected_eoc_source_index == 2:
@@ -1542,6 +1584,69 @@ def test_eoc_integration_snap_threshold_preserves_profile_metadata(
         section.section_fuel_gal.adopted() or 0.0 for section in descent_sections
     ) == pytest.approx(12.0 * zone_seconds / 3600.0)
     assert descent_sections[-1].cumulative_ete_seconds.adopted() is not None
+
+
+def test_eoc_backtrack_uses_its_effective_cruise_zone_cas_for_all_descent_zones(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    routed, sections = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(2.0, 30.0, 10.0),
+        altitudes_ft_msl=(7_000, 6_500, 5_500),
+        manual_courses_deg=(0, 90, 180),
+    )
+    for section in sections:
+        section.manual_tas_kt = None
+    sections[1].manual_tas_kt_by_phase = {FlightPhase.CRUISE: 130.0}
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    cruise = _section_for_source(outcome, sections[1].id, FlightPhase.CRUISE)
+    descent_sections = [
+        section for section in outcome.sections if section.phase == FlightPhase.DESCENT
+    ]
+    assert descent_sections[0].performance_metadata["cruise_cas_source_section_id"] == str(
+        sections[1].id
+    )
+    assert all(
+        section.cas_kt.adopted() == pytest.approx(cruise.cas_kt.adopted())
+        for section in descent_sections
+    )
+
+
+def test_backward_eoc_snap_uses_the_preceding_cruise_zone_as_cas_source(
+    airports,
+    performance_repository,
+    project,
+) -> None:
+    """A snapped EOC at a turn must not retain the removed DESCENT-leg prefix."""
+    routed, sections = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(2.0, 6.0, 7.0),
+        altitudes_ft_msl=(7_000, 6_500, 4_000),
+        manual_courses_deg=(0, 90, 180),
+    )
+
+    outcome = CalculationService(airports, performance_repository).calculate(
+        routed,
+        FakeWeatherProvider(),
+    )
+
+    assert not outcome.blockers
+    eoc = next(point for point in outcome.derived_points if point.type.value == "EOC")
+    # The raw 8.2 NM position is within 0.5 NM of WP2 (8.0 NM), so the
+    # effective CRUISE zone ends on WP2 and belongs to the preceding leg.
+    assert eoc.along_route_distance_nm == pytest.approx(8.0)
+    descent = next(section for section in outcome.sections if section.phase == FlightPhase.DESCENT)
+    metadata = descent.performance_metadata
+    assert metadata["eoc_source_section_id"] == str(sections[2].id)
+    assert metadata["cruise_cas_source_section_id"] == str(sections[1].id)
 
 
 def test_eoc_split_positions_keep_parent_and_ttl_display_distance_stable(
@@ -2033,7 +2138,7 @@ def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
     assert magnetic_course == pytest.approx((true_course + 7.0) % 360.0)
 
 
-def test_incomplete_descent_output_and_missing_eoc_cannot_be_ready(
+def test_single_descent_leg_uses_its_effective_cruise_prefix(
     airports,
     performance_repository,
     project,
@@ -2043,6 +2148,8 @@ def test_incomplete_descent_output_and_missing_eoc_cannot_be_ready(
     descent = incomplete_project.sections[0]
     descent.to_node_id = destination.id
     descent.phase = FlightPhase.DESCENT
+    descent.manual_tas_kt = None
+    descent.manual_tas_kt_by_phase = {}
     incomplete_project.sections = [descent]
     incomplete_project.route_nodes = [departure, destination]
 
@@ -2051,24 +2158,59 @@ def test_incomplete_descent_output_and_missing_eoc_cannot_be_ready(
         FakeWeatherProvider(),
     )
 
-    incomplete = next(
-        item for item in outcome.blockers if item.code == "CALCULATION_OUTPUT_INCOMPLETE"
+    assert not outcome.blockers
+    assert outcome.status == ProjectStatus.READY_FOR_COPY
+    assert {point.type.value for point in outcome.derived_points} == {"EOC"}
+    descent_sections = [
+        section for section in outcome.sections if section.phase == FlightPhase.DESCENT
+    ]
+    assert descent_sections[0].performance_metadata["cruise_cas_source_section_id"] == str(
+        descent.id
     )
-    missing_point = next(
-        item for item in outcome.blockers if item.code == "DERIVED_PHASE_POINT_MISSING"
+
+
+def test_descent_blocks_when_rca_leaves_no_effective_cruise_zone(
+    airports,
+    performance_repository,
+    project,
+    monkeypatch,
+) -> None:
+    routed, sections = _eoc_backtracking_project(
+        project,
+        leg_distances_nm=(2.0, 30.0, 10.0),
+        altitudes_ft_msl=(7_000, 6_500, 5_500),
+        manual_courses_deg=(0, 90, 180),
     )
-    assert outcome.status == ProjectStatus.MANUAL_INPUT_REQUIRED
-    assert {
-        "cas_kt",
-        "tas_kt",
-        "ground_speed_kt",
-        "wca_deg",
-        "magnetic_heading_deg",
-    }.issubset(incomplete.metadata["missing_fields"])
-    assert missing_point.metadata == {
-        "phase": "DESCENT",
-        "required_point": "EOC",
-    }
+    sections[0].phase = FlightPhase.CLIMB
+    for section in sections:
+        section.manual_tas_kt = None
+        section.manual_tas_kt_by_phase = {}
+    service = CalculationService(airports, performance_repository)
+
+    # The profile's EOC is before 40 NM.  Supplying RCA at 40 NM leaves no
+    # positive effective CRUISE zone from which automatic descent CAS can be
+    # sourced, even though the physical legs before it carry other phases.
+    monkeypatch.setattr(
+        service,
+        "_build_climb_plan",
+        lambda *args: _ClimbPlan(
+            source_section_id=sections[0].id,
+            duration_seconds=1.0,
+            fuel_gal=0.0,
+            tas_kt=120.0,
+            route_end_distance_nm=40.0,
+            metadata={},
+        ),
+    )
+
+    outcome = service.calculate(routed, FakeWeatherProvider())
+
+    blocker = next(
+        issue
+        for issue in outcome.blockers
+        if issue.code == "DESCENT_CRUISE_CAS_SOURCE_UNAVAILABLE"
+    )
+    assert blocker.section_id == sections[2].id
 
 
 @pytest.mark.parametrize("manual_distance_nm", [None, 5.0])

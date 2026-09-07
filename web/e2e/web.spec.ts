@@ -1480,6 +1480,7 @@ test("autosaved last-good calculation survives reload and cookie loss until expl
           manual_wind_by_phase: section.manual_wind_by_phase ?? {},
           manual_temperature_c: section.manual_temperature_c,
           manual_temperature_c_by_phase: section.manual_temperature_c_by_phase ?? {},
+          manual_tas_kt_by_phase: section.manual_tas_kt_by_phase ?? {},
           manual_tas_kt: section.manual_tas_kt,
         })),
         visual_reporting_point_node_id: arrival?.visual_reporting_point_node_id ?? null,
@@ -2061,6 +2062,63 @@ test("destination altitude drafts validate locally and latest valid edit recalcu
   expect(recalculationPayloads[0]?.selected_pattern_altitude_ft_msl).toBe(1500);
   await expect(patternAltitude).toHaveValue("1500");
   await expect(page.locator(".route-table tbody .table-number-input").last()).toHaveValue("2000");
+});
+
+test("phase-specific TAS drafts on one RCA-split Physical Leg persist independently", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await calculateNavLog(page, false);
+
+  const tasInputs = page.locator(".nav-log-table").getByLabel(/手動TAS$/);
+  await expect.poll(() => tasInputs.count()).toBeGreaterThanOrEqual(2);
+  const recalculatedClimb = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project/recalculate")
+      && response.request().method() === "POST" && response.ok(),
+  );
+  await tasInputs.nth(0).fill("130");
+  await recalculatedClimb;
+  await expect(tasInputs.nth(0)).toHaveValue("130");
+
+  const recalculatedCruise = page.waitForResponse(
+    (response) => response.url().endsWith("/api/project/recalculate")
+      && response.request().method() === "POST" && response.ok(),
+  );
+  await tasInputs.nth(1).fill("140");
+  await recalculatedCruise;
+  await expect(tasInputs.nth(0)).toHaveValue("130");
+  await expect(tasInputs.nth(1)).toHaveValue("140");
+
+  const edited = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    return await response.json() as WebState;
+  });
+  if (!edited.project) throw new Error("project is missing");
+  const firstSection = edited.project.sections[0];
+  expect(firstSection?.manual_tas_kt_by_phase).toEqual({ CLIMB: 130, CRUISE: 140 });
+  expect(firstSection?.manual_tas_kt).toBeNull();
+
+  const saved = page.waitForResponse(
+    (response) => response.url().endsWith("/api/projects/save") && response.ok(),
+  );
+  await page.getByLabel("プロジェクト").fill("phase TAS");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saved;
+  await page.reload();
+
+  const restoredInputs = page.locator(".nav-log-table").getByLabel(/手動TAS$/);
+  await expect(restoredInputs.nth(0)).toHaveValue("130");
+  await expect(restoredInputs.nth(1)).toHaveValue("140");
+  const restored = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    return await response.json() as WebState;
+  });
+  expect(restored.project?.sections[0]?.manual_tas_kt_by_phase).toEqual({
+    CLIMB: 130,
+    CRUISE: 140,
+  });
+  await page.locator(".nav-log-table").screenshot({
+    path: "/tmp/autonavlog-phase-tas-reload.png",
+  });
 });
 
 test("stale destination pattern response cannot overwrite a loaded project or duplicate on rerender", async ({ page }) => {

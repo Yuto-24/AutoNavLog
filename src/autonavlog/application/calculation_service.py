@@ -911,7 +911,7 @@ class CalculationService:
         for index, geometry in enumerate(geometries):
             default_seconds = (
                 geometry.distance_nm
-                / (geometry.section.manual_tas_kt or ForecastService.estimate_speed_kt)
+                / ForecastService.estimate_speed_kt
                 * 3600.0
             )
             valid_time = previous_times.get(
@@ -943,7 +943,7 @@ class CalculationService:
         last_geometry = geometries[-1]
         last_default_seconds = (
             last_geometry.distance_nm
-            / (last_geometry.section.manual_tas_kt or ForecastService.estimate_speed_kt)
+            / ForecastService.estimate_speed_kt
             * 3600.0
         )
         last_midpoint_time = previous_times.get(str(last_geometry.section.id))
@@ -1295,7 +1295,8 @@ class CalculationService:
         representative_pressure_altitude_ft = (
             departure_pa + climb_environment.pressure_altitude_exact_ft
         ) / 2.0
-        if section.manual_tas_kt is None:
+        manual_climb_tas = section.manual_tas_for_phase(FlightPhase.CLIMB)
+        if manual_climb_tas is None:
             tas_kt = tas_from_cas(
                 111.0,
                 representative_pressure_altitude_ft,
@@ -1304,7 +1305,7 @@ class CalculationService:
             tas_method = "CAC_REV19_8-(3)_5_(1)_CAS_111_AT_REPRESENTATIVE_PRESSURE_ALTITUDE"
             cas_kt: float | None = 111.0
         else:
-            tas_kt = section.manual_tas_kt
+            tas_kt = manual_climb_tas
             tas_method = "MANUAL_OVERRIDE"
             cas_kt = None
         duration_seconds = climb.time_min * 60.0
@@ -1386,7 +1387,7 @@ class CalculationService:
             if temperature is None or wind_speed is None:
                 continue
             section = environment.geometry.section
-            tas = section.manual_tas_kt
+            tas = section.manual_tas_for_phase(FlightPhase.CRUISE)
             if tas is None:
                 try:
                     selected = cruise_policy.select(
@@ -1411,6 +1412,95 @@ class CalculationService:
                 temperature,
             )
         return last_cas
+
+    def _effective_cruise_cas_at_eoc(
+        self,
+        environments: list[_LegEnvironment],
+        geometries: list[_Geometry],
+        cruise_policy: CruisePerformanceSelectionPolicy,
+        *,
+        eoc_distance_nm: float,
+        rca_distance_nm: float | None,
+        descent_end_distance_nm: float,
+        nose_fairing_enabled: bool,
+        air_conditioning_enabled: bool,
+    ) -> tuple[float, int] | None:
+        """Resolve CAS from the positive effective CRUISE zone before EOC.
+
+        Physical Section phases deliberately do not participate here. An EOC
+        can split a DESCENT-designated section, and the resulting prefix is a
+        CRUISE calculation zone. Snap is applied before choosing the source:
+        a backward snap can remove that prefix altogether and therefore move
+        the source to the preceding physical leg.
+        """
+        offsets = self._route_leg_offsets(geometries)
+        interior_turns = tuple(
+            end
+            for _, end in offsets[:-1]
+            if abs(end - descent_end_distance_nm) > 1e-9
+        )
+        normalized_eoc_distance = eoc_distance_nm
+        if interior_turns:
+            nearest_turn = min(interior_turns, key=lambda turn: abs(turn - eoc_distance_nm))
+            if abs(nearest_turn - eoc_distance_nm) < 0.5:
+                normalized_eoc_distance = nearest_turn
+
+        cruise_start_distance = 0.0 if rca_distance_nm is None else rca_distance_nm
+        if normalized_eoc_distance <= cruise_start_distance + 1e-9:
+            return None
+
+        source_index = next(
+            (
+                index
+                for index in range(len(offsets) - 1, -1, -1)
+                if offsets[index][0] < normalized_eoc_distance - 1e-9
+            ),
+            None,
+        )
+        if source_index is None:
+            return None
+        source_start_distance, source_end_distance = offsets[source_index]
+        zone_start_distance = max(source_start_distance, cruise_start_distance)
+        zone_end_distance = min(source_end_distance, normalized_eoc_distance)
+        zone_distance_nm = zone_end_distance - zone_start_distance
+        if zone_distance_nm <= 1e-9:
+            return None
+
+        environment = environments[source_index]
+        phase_environment = environment.for_phase(FlightPhase.CRUISE)
+        temperature = phase_environment.temperature_c
+        wind_speed = phase_environment.wind_speed_kt
+        if temperature is None or wind_speed is None:
+            return None
+        section = environment.geometry.section
+        tas = section.manual_tas_for_phase(FlightPhase.CRUISE)
+        if tas is None:
+            try:
+                selected = cruise_policy.select(
+                    phase_environment.pressure_altitude_planning_ft,
+                    temperature - isa_temperature_c(
+                        phase_environment.pressure_altitude_planning_ft
+                    ),
+                    zone_distance_nm,
+                    environment.geometry.true_course_deg,
+                    phase_environment.wind_direction_deg_from,
+                    wind_speed,
+                )
+            except CruisePerformanceError:
+                return None
+            tas = _adjusted_cruise_ktas(
+                selected.row.ktas,
+                nose_fairing_enabled,
+                air_conditioning_enabled,
+            )
+        return (
+            cas_from_tas(
+                tas,
+                phase_environment.pressure_altitude_exact_ft,
+                temperature,
+            ),
+            source_index,
+        )
 
     def _build_rjfm_inbound_descent_plan(
         self, environments: list[_LegEnvironment], geometries: list[_Geometry],
@@ -1459,7 +1549,7 @@ class CalculationService:
         cruise_cas = self._preview_last_cruise_cas(
             environments, basis_index, cruise_policy, nose_fairing_enabled, air_conditioning_enabled
         )
-        manual_tas = source.manual_tas_kt
+        manual_tas = source.manual_tas_for_phase(FlightPhase.DESCENT)
         if manual_tas is None and cruise_cas is None:
             issues.append(
                 self._blocker(
@@ -1556,6 +1646,9 @@ class CalculationService:
         nose_fairing_enabled: bool,
         air_conditioning_enabled: bool,
         descent_rate_fpm: int,
+        rca_distance_nm: float | None = None,
+        _cruise_cas_seed_kt: float | None = None,
+        _cas_resolution_attempt: int = 0,
     ) -> _DescentPlan | None:
         descent_index = next(
             (
@@ -1575,18 +1668,41 @@ class CalculationService:
             destination,
             arrival_altitude_ft_msl,
         )
-        cruise_cas = self._preview_last_cruise_cas(
-            environments,
-            descent_index,
-            cruise_policy,
-            nose_fairing_enabled,
-            air_conditioning_enabled,
-        )
-        if section.manual_tas_kt is None and cruise_cas is None:
+        offsets = self._route_leg_offsets(geometries)
+        cruise_cas = _cruise_cas_seed_kt
+        if cruise_cas is None:
+            provisional = self._effective_cruise_cas_at_eoc(
+                environments,
+                geometries,
+                cruise_policy,
+                eoc_distance_nm=offsets[descent_index][1],
+                rca_distance_nm=rca_distance_nm,
+                descent_end_distance_nm=offsets[descent_index][1],
+                nose_fairing_enabled=nose_fairing_enabled,
+                air_conditioning_enabled=air_conditioning_enabled,
+            )
+            cruise_cas = None if provisional is None else provisional[0]
+        if section.manual_tas_for_phase(FlightPhase.DESCENT) is None and cruise_cas is None:
+            if (
+                rca_distance_nm is not None
+                and rca_distance_nm >= offsets[descent_index][1] - 1e-9
+            ):
+                issues.append(
+                    self._blocker(
+                        "DESCENT_CRUISE_CAS_SOURCE_UNAVAILABLE",
+                        "EOC直前に正の距離を持つCRUISE区間がないため、降下CASを確定できません。",
+                        section.id,
+                        metadata={
+                            "eoc_distance_nm": rca_distance_nm,
+                            "rca_distance_nm": rca_distance_nm,
+                        },
+                    )
+                )
+                return None
             issues.append(
                 self._blocker(
-                    "DESCENT_TAS_UNAVAILABLE",
-                    "降下TASの基準となる直前巡航CASを確定できません。",
+                    "DESCENT_CRUISE_CAS_SOURCE_UNAVAILABLE",
+                    "EOC直前の実効CRUISE区間から降下CASを確定できません。",
                     section.id,
                 )
             )
@@ -1597,7 +1713,7 @@ class CalculationService:
         # descent CAS with its own DESCENT-phase PA/OAT, just as the output
         # zones do.  The selected DESCENT basis Leg supplies one common wind;
         # TC and the resulting wind triangle remain Leg-specific.
-        manual_descent_tas = section.manual_tas_kt
+        manual_descent_tas = section.manual_tas_for_phase(FlightPhase.DESCENT)
         descent_wind_environment = descent_environment.for_phase(FlightPhase.DESCENT)
 
         ground_speeds: dict[int, float] = {}
@@ -1659,7 +1775,6 @@ class CalculationService:
             }
             return solution.ground_speed_kt
 
-        offsets = self._route_leg_offsets(geometries)
         route_end_distance = offsets[descent_index][1]
         eoc_leg_index = descent_index
         cruise_altitude: float | None = None
@@ -1813,6 +1928,61 @@ class CalculationService:
         assert cruise_altitude is not None
         assert vertical_descent_duration_seconds is not None
         duration_seconds = vertical_descent_duration_seconds + 60.0
+        resolved_cruise = self._effective_cruise_cas_at_eoc(
+            environments,
+            geometries,
+            cruise_policy,
+            eoc_distance_nm=route_start_distance,
+            rca_distance_nm=rca_distance_nm,
+            descent_end_distance_nm=route_end_distance,
+            nose_fairing_enabled=nose_fairing_enabled,
+            air_conditioning_enabled=air_conditioning_enabled,
+        )
+        if resolved_cruise is None:
+            if manual_descent_tas is None:
+                issues.append(
+                    self._blocker(
+                        "DESCENT_CRUISE_CAS_SOURCE_UNAVAILABLE",
+                        "EOC直前に正の距離を持つCRUISE区間がないため、降下CASを確定できません。",
+                        section.id,
+                        metadata={
+                            "eoc_distance_nm": route_start_distance,
+                            "rca_distance_nm": rca_distance_nm,
+                        },
+                    )
+                )
+                return None
+            cruise_cas_source_index: int | None = None
+        else:
+            resolved_cruise_cas, cruise_cas_source_index = resolved_cruise
+        if (
+            resolved_cruise is not None
+            and cruise_cas is not None
+            and abs(resolved_cruise_cas - cruise_cas) > 1e-9
+        ):
+            if _cas_resolution_attempt >= len(geometries):
+                issues.append(
+                    self._blocker(
+                        "DESCENT_CRUISE_CAS_RESOLUTION_UNSTABLE",
+                        "EOC位置と降下CASの自己整合解を確定できません。",
+                        section.id,
+                    )
+                )
+                return None
+            return self._build_descent_plan(
+                environments,
+                geometries,
+                destination,
+                cruise_policy,
+                issues,
+                arrival_altitude_ft_msl,
+                nose_fairing_enabled,
+                air_conditioning_enabled,
+                descent_rate_fpm,
+                rca_distance_nm,
+                resolved_cruise_cas,
+                _cas_resolution_attempt + 1,
+            )
         descent_path_section_ids = [
             str(geometries[index].section.id)
             for index in range(eoc_leg_index, descent_index + 1)
@@ -1860,6 +2030,15 @@ class CalculationService:
                 ],
                 "descent_wind_source_section_id": str(section.id),
                 "cruise_cas_kt": cruise_cas,
+                **(
+                    {}
+                    if cruise_cas_source_index is None
+                    else {
+                        "cruise_cas_source_section_id": str(
+                            geometries[cruise_cas_source_index].section.id
+                        )
+                    }
+                ),
                 "fuel_flow_gph": 12.0,
                 "boundary_method": "current-leg-first-continuous-backtracking",
             },
@@ -2197,6 +2376,7 @@ class CalculationService:
                 environments, geometries, destination, cruise_policy, issues,
                 arrival_altitude_ft_msl, project.nose_fairing_enabled,
                 project.air_conditioning_enabled, project.descent_rate_fpm,
+                None if climb_plan is None else climb_plan.route_end_distance_nm,
             )
         )
         segmentation = self._build_phase_segmentation(
@@ -2366,7 +2546,11 @@ class CalculationService:
 
             if segment.phase == FlightPhase.CLIMB:
                 if climb_plan is not None:
-                    manual_tas = None if climb_source is None else climb_source.manual_tas_kt
+                    manual_tas = (
+                        None
+                        if climb_source is None
+                        else climb_source.manual_tas_for_phase(FlightPhase.CLIMB)
+                    )
                     tas = climb_plan.tas_kt
                     tas_state = (
                         ValueState.MANUAL_OVERRIDE
@@ -2377,7 +2561,7 @@ class CalculationService:
                         cas = 111.0
                     performance_metadata.update(climb_plan.metadata)
                 else:
-                    manual_tas = section.manual_tas_kt
+                    manual_tas = section.manual_tas_for_phase(FlightPhase.CLIMB)
                     tas = manual_tas
                     tas_state = (
                         ValueState.MANUAL_OVERRIDE
@@ -2385,7 +2569,7 @@ class CalculationService:
                         else ValueState.UNAVAILABLE
                     )
             elif segment.phase == FlightPhase.CRUISE:
-                manual_tas = section.manual_tas_kt
+                manual_tas = section.manual_tas_for_phase(FlightPhase.CRUISE)
                 tas = manual_tas
                 tas_state = (
                     ValueState.MANUAL_OVERRIDE if manual_tas is not None else ValueState.UNAVAILABLE
@@ -2541,7 +2725,11 @@ class CalculationService:
                         )
             elif segment.phase == FlightPhase.DESCENT:
                 if descent_plan is not None:
-                    manual_tas = None if descent_source is None else descent_source.manual_tas_kt
+                    manual_tas = (
+                        None
+                        if descent_source is None
+                        else descent_source.manual_tas_for_phase(FlightPhase.DESCENT)
+                    )
                     if manual_tas is not None:
                         tas = manual_tas
                         tas_state = ValueState.MANUAL_OVERRIDE
@@ -2552,9 +2740,10 @@ class CalculationService:
                             temperature,
                         )
                         tas_state = ValueState.AUTO
+                        cas = descent_plan.cruise_cas_kt
                     performance_metadata.update(descent_plan.metadata)
                 else:
-                    manual_tas = section.manual_tas_kt
+                    manual_tas = section.manual_tas_for_phase(FlightPhase.DESCENT)
                     tas = manual_tas
                     tas_state = (
                         ValueState.MANUAL_OVERRIDE

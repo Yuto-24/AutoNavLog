@@ -7,6 +7,7 @@ from zipfile import ZipFile
 import pytest
 from pydantic import ValidationError
 
+from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.project import Project
 from autonavlog.importers.kml import (
     ImportLimits,
@@ -160,6 +161,25 @@ def test_project_descent_rate_accepts_only_supported_values(project) -> None:
 
     with pytest.raises(ValidationError):
         Project.model_validate(payload | {"descent_rate_fpm": 750})
+
+
+def test_legacy_scalar_tas_migrates_only_to_saved_section_phase(tmp_path, project) -> None:
+    repository = LocalProjectRepository(tmp_path)
+    saved = repository.save(project, expected_revision=0).project
+    path = tmp_path / "projects" / str(saved.id) / "project.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["sections"][0]["phase"] = "CLIMB"
+    payload["sections"][0]["manual_tas_kt"] = 130.0
+    payload["sections"][0].pop("manual_tas_kt_by_phase", None)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    migrated = repository.load(saved.id)
+
+    section = migrated.sections[0]
+    assert section.manual_tas_kt is None
+    assert section.manual_tas_kt_by_phase == {"CLIMB": 130.0}
+    assert section.manual_tas_for_phase(FlightPhase.CLIMB) == 130.0
+    assert section.manual_tas_for_phase(FlightPhase.CRUISE) is None
 
 
 def test_legacy_project_fields_migrate_without_resaving_obsolete_values(

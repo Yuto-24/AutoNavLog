@@ -100,7 +100,26 @@ class NavSection(DomainModel):
         FlightPhase,
         Annotated[float, Field(ge=-80, le=60)],
     ] = Field(default_factory=dict)
+    # ``manual_tas_kt`` is retained only while old Project JSON is being read.
+    # New writes use the effective calculation phase as the key; a Physical
+    # section can be split at RCA/EOC and must not share an override between
+    # those resulting zones.
+    manual_tas_kt_by_phase: dict[FlightPhase, Annotated[float, Field(gt=0)]] = Field(
+        default_factory=dict
+    )
     manual_tas_kt: float | None = Field(default=None, gt=0)
+
+    def manual_tas_for_phase(self, phase: FlightPhase) -> float | None:
+        """Return an override for one effective calculation phase.
+
+        The scalar fallback deliberately applies only to the physical
+        section's own phase.  It keeps in-memory legacy callers safe without
+        recreating the historical cross-phase leak.
+        """
+        return self.manual_tas_kt_by_phase.get(
+            phase,
+            self.manual_tas_kt if phase == self.phase else None,
+        )
 
     @model_validator(mode="after")
     def validate_manual_wind_pair(self) -> NavSection:

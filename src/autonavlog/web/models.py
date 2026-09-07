@@ -80,6 +80,10 @@ class SectionUpdate(WebRequestModel):
         ]
         | None
     ) = None
+    manual_tas_kt_by_phase: dict[
+        FlightPhase,
+        Annotated[float, Field(gt=0, le=300)],
+    ] | None = None
     manual_tas_kt: float | None = Field(default=None, gt=0, le=300)
 
     @field_validator("manual_wind_direction_deg")

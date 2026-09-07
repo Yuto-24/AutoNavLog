@@ -115,6 +115,16 @@ def _migrate_project_payload(payload: Any) -> tuple[Any, bool]:
                 if field in value:
                     value.pop(field, None)
                     migrated = True
+            legacy_tas = value.get("manual_tas_kt")
+            if legacy_tas is not None and "manual_tas_kt_by_phase" not in value:
+                # A historic scalar belonged to the section's saved phase.
+                # Do not copy it into every phase a later segmentation may
+                # create from this physical section.
+                phase = value.get("phase")
+                if isinstance(phase, str):
+                    value["manual_tas_kt_by_phase"] = {phase: legacy_tas}
+                    value["manual_tas_kt"] = None
+                    migrated = True
     return payload, _normalize_legacy_wind_directions(payload) or migrated
 
 

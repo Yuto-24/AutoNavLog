@@ -96,6 +96,7 @@ export interface NavSection {
   manual_wind_by_phase?: Partial<Record<FlightPhase, ManualWind>>;
   manual_temperature_c: number | null;
   manual_temperature_c_by_phase?: Partial<Record<FlightPhase, number>>;
+  manual_tas_kt_by_phase?: Partial<Record<FlightPhase, number>>;
   manual_tas_kt: number | null;
 }
 
