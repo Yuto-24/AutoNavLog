@@ -40,7 +40,9 @@ decorative cards. Shadows are reserved for temporary overlays.
 
 ## Component inventory
 
-- App header with app version, project identity, storage state, Save, and New actions.
+- App header with app version, Information, project identity, storage state, Save, and New actions.
+  Information opens the scrollable release history without changing Project state; unread releases use
+  `New` on desktop and a notification dot at 820 px and below.
 - Three-step progress rail: Route, Flight plan, Review/calculation.
 - KML/KMZ drop zone and paste dialog.
 - Shape candidate list with a required route-use confirmation placed directly below the map.
@@ -79,6 +81,9 @@ the imported route controls, flight-plan labels, `準備状況`, its next action
 reference provenance, and the current primary action. Marketing copy, claims,
 metrics, badges, and unrelated navigation are prohibited.
 
+Information is a low-priority utility in the Header. Its compact unread indicator is the only
+copy-lock exception; it must not displace the workflow rail or move a workflow region.
+
 ## NAV LOG layout revision (Issue #132)
 
 The historical calculated-review.png concept predates the NAV LOG Summary and
@@ -106,7 +111,7 @@ layout at 390 px, 1,100 px, and 1,440 px.
 
 | Area | Concept | Implementation | Result |
 | --- | --- | --- | --- |
-| Header | Navy product bar, version, project identity, save/new actions | Same hierarchy and action placement | Match |
+| Header | Navy product bar, version, Information, project identity, save/new actions | Same hierarchy and action placement。未読更新はDesktopの`New`とモバイルの通知ドットだけで示す | Match |
 | Workflow | Three numbered stages directly below header | Route, flight plan, review/calculation rail with completed states | Match |
 | Desktop layout | Input / route / readiness columns | 24% / fluid / 25% three-column workspace | Match |
 | Route workspace | Map over compact POINT/ROLE/ALT/PHASE table | Leaflet/OSM route, airport/VREP/RCA/EOC markers, editable Leg table | Match |

@@ -5,6 +5,7 @@ FROM node:22-bookworm-slim AS frontend
 WORKDIR /build
 COPY web/package.json web/package-lock.json ./web/
 RUN npm --prefix web ci
+COPY CHANGELOG.md ./CHANGELOG.md
 COPY web ./web
 RUN npm --prefix web run build
 

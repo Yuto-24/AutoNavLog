@@ -26,6 +26,7 @@ import type {
   NavLogEditDrafts, NavLogEditErrors, NavLogEditableField,
 } from "./navLogEditing";
 import { Header } from "./components/Header";
+import { InformationDialog } from "./components/InformationDialog";
 import { ImportPlanPanel } from "./components/ImportPlanPanel";
 import { NavLogTable } from "./components/NavLogTable";
 import { PasteDialog } from "./components/PasteDialog";
@@ -35,6 +36,9 @@ import { StatusPanel } from "./components/StatusPanel";
 import { CalculationProgressOverlay } from "./components/CalculationProgressOverlay";
 import type { CheckPointInput, FlightPhase, NavSection, Project, WebState } from "./types";
 import { useModalFocusTrap } from "./useModalFocusTrap";
+import { hasUnreadRelease, markLatestReleaseSeen } from "./releaseNotes";
+import type { ReleaseNote } from "./releaseNotes";
+import releaseNotesData from "./generated/releaseNotes.json";
 
 interface PendingKmz {
   filename: string;
@@ -103,6 +107,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [informationOpen, setInformationOpen] = useState(false);
+  const [releaseNotes] = useState<ReleaseNote[]>(() => releaseNotesData.releases as ReleaseNote[]);
+  const [informationUnread, setInformationUnread] = useState(() => hasUnreadRelease(releaseNotesData.releases as ReleaseNote[]));
   const [pastedKml, setPastedKml] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [projectName, setProjectName] = useState("未保存の新規作業");
@@ -130,6 +137,7 @@ function App() {
     selectedPatternAltitudeFtMsl?: number,
     invalidFallbackProject?: Project,
   ) => Record<string, unknown>>(() => ({}));
+
   const altitudeGuidanceBySection = useMemo(
     () => new Map(
       (state?.altitudeGuidance.sections ?? []).map((guidance) => [
@@ -1373,6 +1381,10 @@ function App() {
         savedProjects={state.savedProjects}
         selectedProjectId={selectedProjectId}
         busy={busy}
+        informationUnread={informationUnread}
+        onInformation={() => {
+          setInformationOpen(true);
+        }}
         onProjectNameChange={setProjectName}
         onSelectedProjectIdChange={setSelectedProjectId}
         onLoad={handleLoad}
@@ -1532,6 +1544,16 @@ function App() {
         onChange={setPastedKml}
         onClose={() => setPasteOpen(false)}
         onImport={handlePasteImport}
+      />
+
+      <InformationDialog
+        open={informationOpen}
+        releases={releaseNotes}
+        onClose={() => setInformationOpen(false)}
+        onOpened={() => {
+          markLatestReleaseSeen(releaseNotes);
+          setInformationUnread(false);
+        }}
       />
 
       {pendingKmz && (

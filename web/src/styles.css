@@ -180,6 +180,25 @@ h1, h2, h3, p { margin-top: 0; }
   border-color: #9db1c3;
 }
 
+.information-button { position: relative; }
+.information-icon-wrap { position: relative; display: inline-flex; }
+.information-unread-dot {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  width: 7px;
+  height: 7px;
+  background: #f3b54a;
+  border: 1px solid var(--navy-950);
+  border-radius: 50%;
+}
+.information-new {
+  color: #ffe1a0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
 .header-button:hover:not(:disabled), .header-icon-button:hover:not(:disabled) {
   background: #214969;
 }
@@ -1431,6 +1450,18 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 
 .compact-modal { width: min(520px, 100%); }
+.information-dialog { width: min(820px, 100%); }
+.information-release-list { display: grid; gap: 20px; }
+.information-release { padding-bottom: 20px; border-bottom: 1px solid var(--slate-200); }
+.information-release:last-child { padding-bottom: 0; border-bottom: 0; }
+.information-release > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.information-release h3 { margin: 0; color: var(--navy-950); font-size: 16px; }
+.information-release time { color: var(--slate-500); font-size: 12px; }
+.information-release h4 { margin: 14px 0 6px; color: var(--teal-700); font-size: 13px; }
+.information-release p, .information-release li { white-space: pre-line; line-height: 1.65; font-size: 13px; }
+.information-release p { margin: 8px 0; }
+.information-release ul { margin: 8px 0; padding-left: 22px; }
+.information-release code { padding: 1px 4px; color: var(--navy-950); background: var(--slate-100); border-radius: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
 .modal-heading { display: flex; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
 .modal-heading h2 { margin: 0; color: var(--navy-950); font-size: 18px; }
 .modal-heading p { margin: 5px 0 0; color: var(--slate-500); font-size: 11px; }
@@ -1473,6 +1504,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .saved-project-control { flex: 1 1 200px; }
   .saved-project-control select { width: 100%; }
   .header-project { order: 4; }
+  .information-button { width: 40px; min-width: 40px; padding: 0; }
+  .information-label, .information-new { display: none; }
   .progress-rail { padding: 0 14px; }
   .progress-step { font-size: 12px; }
   .progress-line { margin-right: 8px; }

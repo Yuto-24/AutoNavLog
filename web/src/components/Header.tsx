@@ -1,4 +1,4 @@
-import { CheckCircle2, FolderOpen, Plus, Save, Trash2 } from "lucide-react";
+import { CheckCircle2, CircleHelp, FolderOpen, Plus, Save, Trash2 } from "lucide-react";
 import type { SavedProject } from "../types";
 
 interface HeaderProps {
@@ -8,6 +8,8 @@ interface HeaderProps {
   savedProjects: SavedProject[];
   selectedProjectId: string;
   busy: boolean;
+  informationUnread: boolean;
+  onInformation: () => void;
   onProjectNameChange: (value: string) => void;
   onSelectedProjectIdChange: (value: string) => void;
   onLoad: () => void;
@@ -23,6 +25,8 @@ export function Header({
   savedProjects,
   selectedProjectId,
   busy,
+  informationUnread,
+  onInformation,
   onProjectNameChange,
   onSelectedProjectIdChange,
   onLoad,
@@ -55,6 +59,16 @@ export function Header({
         {revision !== null && <span className="header-revision">rev.{revision}</span>}
       </div>
       <div className="header-spacer" />
+      <button
+        className="header-button information-button"
+        type="button"
+        onClick={onInformation}
+        aria-label={informationUnread ? "Information（未読の更新があります）" : "Information"}
+      >
+        <span className="information-icon-wrap"><CircleHelp aria-hidden="true" size={18} />{informationUnread && <span className="information-unread-dot" />}</span>
+        <span className="information-label">Information</span>
+        {informationUnread && <span className="information-new">New</span>}
+      </button>
       <div className="storage-state" aria-label="保存先はローカルです">
         <CheckCircle2 aria-hidden="true" size={17} />
         <span>ローカル保存</span>
