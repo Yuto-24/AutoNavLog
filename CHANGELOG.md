@@ -2,6 +2,18 @@
 
 AutoNavLog の利用者に影響する変更を記録します。
 
+## 1.10.0 - 2026-09-08 00:55 JST
+
+### 追加
+
+- Issue #130で、InformationにRELEASE_NOTESとKNOWN_ISSUESを表示し、可視内容のhashで既読を管理します。Known Issueの追加・本文更新は通常更新と区別して通知します。
+- Headerを明示的な最大2行レイアウトにし、Information・保存・新規を狭い幅でアイコン表示にします。
+- change fragment、厳格な情報ソース検証、Docker release-toolsとprepare_release.pyによる一括リリース準備を導入します。
+
+### 配布
+
+- Python・Web のバージョンを `1.10.0` に更新しました。
+
 ## 1.9.5 - 2026-09-07
 
 ### 修正

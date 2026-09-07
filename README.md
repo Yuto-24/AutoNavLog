@@ -8,7 +8,7 @@ Web 画面に表示します。
 利用者が根拠と警告を確認してください。航空大学校の公式様式や計算規則への準拠は
 主張していません。
 
-- 現在のバージョン: `1.9.5`
+- 現在のバージョン: `1.10.0`
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
@@ -312,7 +312,7 @@ Dockerでの実行例・形式・例外は [Release運用](changes/README.md) �
 Informationには [利用者向け更新履歴](RELEASE_NOTES.md) と [既知の不具合](KNOWN_ISSUES.md) を表示し、
 GitHub Release本文は引き続き開発者向けのCHANGELOGから作成します。
 
-リリース時は `1.9.5` が次の場所で一致していることを確認します。
+リリース時は `1.10.0` が次の場所で一致していることを確認します。
 
 - `pyproject.toml`
 - `web/package.json` と `web/package-lock.json`
