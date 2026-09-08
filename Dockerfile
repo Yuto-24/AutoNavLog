@@ -1,10 +1,17 @@
 # syntax=docker/dockerfile:1.7
 
+FROM python:3.12-slim-bookworm AS release-tools
+
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+WORKDIR /work
+CMD ["python", "scripts/validate_release.py"]
+
 FROM node:22-bookworm-slim AS frontend
 
 WORKDIR /build
 COPY web/package.json web/package-lock.json ./web/
 RUN npm --prefix web ci
+COPY CHANGELOG.md RELEASE_NOTES.md KNOWN_ISSUES.md ./
 COPY web ./web
 RUN npm --prefix web run build
 
@@ -34,7 +41,8 @@ FROM python-base AS test
 
 COPY tests ./tests
 COPY scripts ./scripts
-COPY CHANGELOG.md Dockerfile .dockerignore ./
+COPY CHANGELOG.md RELEASE_NOTES.md KNOWN_ISSUES.md Dockerfile .dockerignore ./
+COPY changes ./changes
 COPY web/package.json web/package-lock.json ./web/
 COPY .github/workflows/test.yml ./.github/workflows/test.yml
 

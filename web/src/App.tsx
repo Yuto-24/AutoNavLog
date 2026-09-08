@@ -26,6 +26,7 @@ import type {
   NavLogEditDrafts, NavLogEditErrors, NavLogEditableField,
 } from "./navLogEditing";
 import { Header } from "./components/Header";
+import { InformationDialog } from "./components/InformationDialog";
 import { ImportPlanPanel } from "./components/ImportPlanPanel";
 import { NavLogTable } from "./components/NavLogTable";
 import { PasteDialog } from "./components/PasteDialog";
@@ -35,6 +36,9 @@ import { StatusPanel } from "./components/StatusPanel";
 import { CalculationProgressOverlay } from "./components/CalculationProgressOverlay";
 import type { CheckPointInput, FlightPhase, NavSection, Project, WebState } from "./types";
 import { useModalFocusTrap } from "./useModalFocusTrap";
+import { hasUnreadInformation, hasUnreadKnownIssues, markInformationSeen } from "./releaseNotes";
+import type { InformationData } from "./releaseNotes";
+import releaseNotesData from "./generated/releaseNotes.json";
 
 interface PendingKmz {
   filename: string;
@@ -103,6 +107,10 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [informationOpen, setInformationOpen] = useState(false);
+  const [informationData] = useState<InformationData>(() => releaseNotesData as InformationData);
+  const [knownIssuesUnread, setKnownIssuesUnread] = useState(() => hasUnreadKnownIssues(releaseNotesData as InformationData));
+  const [informationUnread, setInformationUnread] = useState(() => hasUnreadInformation(releaseNotesData as InformationData));
   const [pastedKml, setPastedKml] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [projectName, setProjectName] = useState("未保存の新規作業");
@@ -130,6 +138,7 @@ function App() {
     selectedPatternAltitudeFtMsl?: number,
     invalidFallbackProject?: Project,
   ) => Record<string, unknown>>(() => ({}));
+
   const altitudeGuidanceBySection = useMemo(
     () => new Map(
       (state?.altitudeGuidance.sections ?? []).map((guidance) => [
@@ -1373,6 +1382,11 @@ function App() {
         savedProjects={state.savedProjects}
         selectedProjectId={selectedProjectId}
         busy={busy}
+        informationUnread={informationUnread}
+        knownIssuesUnread={knownIssuesUnread}
+        onInformation={() => {
+          setInformationOpen(true);
+        }}
         onProjectNameChange={setProjectName}
         onSelectedProjectIdChange={setSelectedProjectId}
         onLoad={handleLoad}
@@ -1532,6 +1546,18 @@ function App() {
         onChange={setPastedKml}
         onClose={() => setPasteOpen(false)}
         onImport={handlePasteImport}
+      />
+
+      <InformationDialog
+        open={informationOpen}
+        releases={informationData.information.releases}
+        knownIssues={informationData.information.knownIssues ?? []}
+        onClose={() => setInformationOpen(false)}
+        onOpened={() => {
+          markInformationSeen(informationData);
+          setInformationUnread(false);
+          setKnownIssuesUnread(false);
+        }}
       />
 
       {pendingKmz && (

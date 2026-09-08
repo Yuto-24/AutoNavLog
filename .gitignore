@@ -18,4 +18,5 @@ web/*.tsbuildinfo
 web/dist/
 web/vite.config.js
 web/vite.config.d.ts
+web/src/generated/
 .env

@@ -1,12 +1,17 @@
 {
   "name": "autonavlog-web",
   "private": true,
-  "version": "1.9.5",
+  "version": "1.10.0",
   "type": "module",
   "scripts": {
+    "generate:release-notes": "node scripts/generate-release-notes.mjs",
+    "predev": "npm run generate:release-notes",
+    "prebuild": "npm run generate:release-notes",
+    "pretypecheck": "npm run generate:release-notes",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
+    "test:release-notes": "node --test scripts/generate-release-notes.test.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
