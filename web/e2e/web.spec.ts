@@ -1,3 +1,4 @@
+import { disableClipboardRead } from "./helpers/clipboard";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 import { parseGsiCivilTrainingAirspaceTile } from "../src/rjfmAirspace";
@@ -1103,6 +1104,7 @@ async function importKmlCandidate(page: Page): Promise<void> {
 }
 
 test.beforeEach(async ({ page, request }) => {
+  await disableClipboardRead(page);
   const reset = await request.delete("/api/session");
   expect(reset.status()).toBe(204);
   await installGsiAirspaceRoute(page);
