@@ -1,10 +1,12 @@
 import { X } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, type RefObject } from "react";
 import { useModalFocusTrap } from "../useModalFocusTrap";
 
 interface PasteDialogProps {
   open: boolean;
   value: string;
+  message: string | null;
+  returnFocusRef: RefObject<HTMLElement | null>;
   busy: boolean;
   onChange: (value: string) => void;
   onClose: () => void;
@@ -14,12 +16,14 @@ interface PasteDialogProps {
 export function PasteDialog({
   open,
   value,
+  message,
+  returnFocusRef,
   busy,
   onChange,
   onClose,
   onImport,
 }: PasteDialogProps) {
-  const dialogRef = useModalFocusTrap<HTMLElement>(open);
+  const dialogRef = useModalFocusTrap<HTMLElement>(open, returnFocusRef);
 
   useEffect(() => {
     if (!open) return;
@@ -47,6 +51,7 @@ export function PasteDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="paste-dialog-title"
+        aria-describedby={message ? "paste-dialog-message" : undefined}
         tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -65,8 +70,10 @@ export function PasteDialog({
             <X aria-hidden="true" size={20} />
           </button>
         </div>
+        {message && <p id="paste-dialog-message" role="alert">{message}</p>}
         <textarea
           data-modal-autofocus
+          aria-label="KML/XML"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           rows={16}

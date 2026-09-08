@@ -2,7 +2,7 @@
 
 ## Coordination and review
 
-- GPT-6 Astra plans and coordinates; it does not normally implement. Delegate implementation, investigation, and testing to a suitable non-Astra agent (for example, Terra or Luna). Do not make Astra the default for every sub-agent.
+- GPT-6 Astra should normally perform the work directly and use Sub Agents as little as possible. Sub Agents may be used only for simple tasks; do not check their progress.
 - Review code changes with a model independent of the implementer. Self-review alone is not sufficient.
 - Before substantive work, inspect the relevant repository documentation, Issues/PRs, prior decisions, and analogous code. Reuse prior knowledge only after checking it against the current code, specification, and dependencies.
 - Keep reusable, non-obvious findings in the appropriate external documentation. Do not turn AGENTS.md into a work log or duplicate detailed evidence.

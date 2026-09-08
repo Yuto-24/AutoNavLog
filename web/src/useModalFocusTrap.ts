@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -15,14 +15,18 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
   );
 }
 
-export function useModalFocusTrap<ElementType extends HTMLElement>(open: boolean) {
+export function useModalFocusTrap<ElementType extends HTMLElement>(
+  open: boolean,
+  returnFocusRef?: RefObject<HTMLElement | null>,
+) {
   const dialogRef = useRef<ElementType | null>(null);
 
   useEffect(() => {
     if (!open || !dialogRef.current) return;
     const dialog = dialogRef.current;
-    const previouslyFocused =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previouslyFocused = returnFocusRef?.current ?? (
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    );
     const initial =
       dialog.querySelector<HTMLElement>("[data-modal-autofocus]") ??
       focusableElements(dialog)[0] ??
@@ -54,7 +58,7 @@ export function useModalFocusTrap<ElementType extends HTMLElement>(open: boolean
       document.removeEventListener("keydown", trapTab);
       if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
-  }, [open]);
+  }, [open, returnFocusRef]);
 
   return dialogRef;
 }

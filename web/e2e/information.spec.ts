@@ -1,3 +1,4 @@
+import { disableClipboardRead } from "./helpers/clipboard";
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { canMigrateLegacyRelease, type InformationData } from "../src/releaseNotes";
@@ -84,7 +85,8 @@ async function createEditCalculateAndSave(page: Page) {
   await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
 }
 
-test.beforeEach(async ({ request }) => {
+test.beforeEach(async ({ page, request }) => {
+  await disableClipboardRead(page);
   const reset = await request.delete("/api/session");
   expect(reset.status()).toBe(204);
 });

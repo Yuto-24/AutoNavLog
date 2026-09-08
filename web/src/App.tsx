@@ -112,6 +112,9 @@ function App() {
   const [knownIssuesUnread, setKnownIssuesUnread] = useState(() => hasUnreadKnownIssues(releaseNotesData as InformationData));
   const [informationUnread, setInformationUnread] = useState(() => hasUnreadInformation(releaseNotesData as InformationData));
   const [pastedKml, setPastedKml] = useState("");
+  const [pasteMessage, setPasteMessage] = useState<string | null>(null);
+  const pasteInFlight = useRef(false);
+  const pasteReturnFocus = useRef<HTMLElement | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [projectName, setProjectName] = useState("未保存の新規作業");
   const [pendingKmz, setPendingKmz] = useState<PendingKmz | null>(null);
@@ -467,19 +470,56 @@ function App() {
     );
   };
 
-  const handlePasteImport = async () => {
-    invalidateDestinationPatternRequests();
-    const imported = await run(
-      async () =>
-        api.request<WebState>("/api/import", {
-          method: "POST",
-          body: { filename: "pasted.kml", kml_text: pastedKml },
-        }),
-      "貼付KMLから経路候補を読み込みました。",
-      { freshImport: true },
-    );
-    if (!imported) return;
-    setPasteOpen(false);
+  const handlePasteImport = async (source: "manual" | "clipboard" = "manual") => {
+    if (busy || pasteInFlight.current) return;
+    if (source === "clipboard") {
+      pasteReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+    pasteInFlight.current = true;
+    try {
+      await runTask(async () => {
+        let text = pastedKml;
+        const showManualPaste = (message: string) => {
+          setPasteMessage(message);
+          setPasteOpen(true);
+        };
+        if (source === "clipboard") {
+          if (!navigator.clipboard?.readText) {
+            showManualPaste("この環境ではクリップボードを読み取れません。下の欄にKMLを貼り付けてください。");
+            return;
+          }
+          try {
+            // Keep this call in the click's activation, before any other await.
+            text = await navigator.clipboard.readText();
+          } catch {
+            showManualPaste("クリップボードを読み取れませんでした。下の欄にKMLを貼り付けてください。");
+            return;
+          }
+        }
+        if (!text.trim()) {
+          showManualPaste("読み込むテキストがありません。下の欄にKMLを貼り付けてください。");
+          return;
+        }
+        setPastedKml(text);
+        setPasteMessage(null);
+        invalidateDestinationPatternRequests();
+        let next: WebState;
+        try {
+          next = await api.request<WebState>("/api/import", {
+            method: "POST",
+            body: { filename: "pasted.kml", kml_text: text },
+          });
+        } catch (reason) {
+          showManualPaste(reason instanceof Error ? reason.message : "KMLを読み込めません。内容を確認してください。");
+          return;
+        }
+        applyState(next, { freshImport: true });
+        setNotice("貼付KMLから経路候補を読み込みました。");
+        setPasteOpen(false);
+      });
+    } finally {
+      pasteInFlight.current = false;
+    }
   };
 
   const handleConfirmRoute = async () => {
@@ -1424,7 +1464,7 @@ function App() {
           projectExists={Boolean(state.project)}
           busy={busy}
           onFile={handleFile}
-          onPaste={() => setPasteOpen(true)}
+          onPaste={() => void handlePasteImport("clipboard")}
         />
         <RouteWorkspace
           candidate={selectedCandidate}
@@ -1542,10 +1582,12 @@ function App() {
       <PasteDialog
         open={pasteOpen}
         value={pastedKml}
+        message={pasteMessage}
+        returnFocusRef={pasteReturnFocus}
         busy={busy}
         onChange={setPastedKml}
         onClose={() => setPasteOpen(false)}
-        onImport={handlePasteImport}
+        onImport={() => void handlePasteImport()}
       />
 
       <InformationDialog
