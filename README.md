@@ -303,6 +303,10 @@ npm --prefix web run build
 npm --prefix web run test:e2e
 ```
 
+GitHub Actionsの`test` workflowは、PRでは`pull_request`、mainへの反映後は`push`で実行します。
+同じPRまたはbranchに新しいcommitをpushすると、古いworkflow runは自動でcancelされます。
+concurrencyの動作は[GitHub Actionsの公式ドキュメント](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)を参照してください。
+
 CIでは同じ backend 検査をDockerのtest stageで実行し、別のruntime jobで本番imageを既定の
 MSM起動設定のまま起動して`/healthz`を確認します。ローカルでも次のコマンドで再現できます。
 
