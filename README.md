@@ -8,7 +8,7 @@ Web 画面に表示します。
 利用者が根拠と警告を確認してください。航空大学校の公式様式や計算規則への準拠は
 主張していません。
 
-- 現在のバージョン: `1.11.0`
+- 現在のバージョン: `1.11.1`
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
@@ -303,6 +303,10 @@ npm --prefix web run build
 npm --prefix web run test:e2e
 ```
 
+GitHub Actionsの`test` workflowは、PRでは`pull_request`、mainへの反映後は`push`で実行します。
+同じPRまたはbranchに新しいcommitをpushすると、古いworkflow runは自動でcancelされます。
+concurrencyの動作は[GitHub Actionsの公式ドキュメント](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)を参照してください。
+
 CIでは同じ backend 検査をDockerのtest stageで実行し、別のruntime jobで本番imageを既定の
 MSM起動設定のまま起動して`/healthz`を確認します。ローカルでも次のコマンドで再現できます。
 
@@ -318,7 +322,7 @@ Dockerでの実行例・形式・例外は [Release運用](changes/README.md) �
 Informationには [利用者向け更新履歴](RELEASE_NOTES.md) と [既知の不具合](KNOWN_ISSUES.md) を表示し、
 GitHub Release本文は引き続き開発者向けのCHANGELOGから作成します。
 
-リリース時は `1.11.0` が次の場所で一致していることを確認します。
+リリース時は `1.11.1` が次の場所で一致していることを確認します。
 
 - `pyproject.toml`
 - `web/package.json` と `web/package-lock.json`
