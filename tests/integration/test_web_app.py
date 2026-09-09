@@ -814,60 +814,6 @@ async def test_route_vrep_altitude_edit_drives_calculation_and_survives_reload(
 
 
 @pytest.mark.anyio
-async def test_ftd_mode_calculates_with_fixed_wind_and_isa_without_fake_weather_blocker(
-    tmp_path: Path,
-) -> None:
-    app = create_app(
-        WebRuntimeConfig(
-            data_root=ROOT / "data",
-            storage_root=tmp_path / "storage",
-            weather_mode="fake",
-            trusted_local_identity="local-test-user",
-        )
-    )
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
-        assert (await client.post("/api/session")).status_code == 200
-        assert (
-            await client.post(
-                "/api/import",
-                json={"filename": "route.kml", "kml_text": KML},
-            )
-        ).status_code == 200
-        confirmed = await client.post(
-            "/api/route/confirm",
-            json=_route_payload()
-            | {
-                "weather_mode": "FTD",
-                "ftd_weather": {
-                    "surface_wind": {"direction_deg_from": 180, "speed_kt": 5},
-                    "wind_at_5000_ft": {"direction_deg_from": 270, "speed_kt": 20},
-                },
-            },
-        )
-        assert confirmed.status_code == 200, confirmed.text
-        state = confirmed.json()
-        assert state["project"]["weather_mode"] == "FTD"
-        assert state["project"]["ftd_weather"]["wind_at_5000_ft"]["speed_kt"] == 20
-
-        calculated_state = await _calculate(client)
-        assert calculated_state["project"]["selected_forecast_run_id"] == "ftd-fixed-v1"
-        assert calculated_state["destinationWind"]["reason_code"] == "FTD_MODE_NO_TAF"
-        assert calculated_state["destinationWind"]["source_label"] == "FTD固定気象"
-        assert all(
-            issue["code"] != "DEVELOPMENT_WEATHER_PROVIDER"
-            for issue in calculated_state["readiness"]["issues"]
-        )
-        automatic_metadata = [
-            section["temperature_c"]["automatic_metadata"]
-            for section in calculated_state["outcome"]["sections"]
-            if section["temperature_c"]["automatic_value"] is not None
-        ]
-        assert automatic_metadata
-        assert any(item.get("provider") == "ftd_fixed" for item in automatic_metadata)
-
-
-@pytest.mark.anyio
 async def test_checkpoint_crud_previews_projection_and_autosave_remains_authoritative(
     tmp_path: Path,
 ) -> None:
@@ -1237,7 +1183,7 @@ async def test_uncalculated_project_update_restores_draft_without_checkpoint(
 
 
 @pytest.mark.anyio
-async def test_autosaved_last_good_restores_without_cookie_or_server_session(
+async def test_ftd_calculation_and_last_good_restore_without_cookie_or_server_session(
     tmp_path: Path,
 ) -> None:
     storage_root = tmp_path / "storage"
@@ -1269,10 +1215,27 @@ async def test_autosaved_last_good_restores_without_cookie_or_server_session(
             },
         )
         assert confirmed.status_code == 200, confirmed.text
+        state = confirmed.json()
+        assert state["project"]["weather_mode"] == "FTD"
+        assert state["project"]["ftd_weather"]["wind_at_5000_ft"]["speed_kt"] == 20
+
         calculated = await _calculate(client)
+        assert calculated["project"]["selected_forecast_run_id"] == "ftd-fixed-v1"
+        assert calculated["destinationWind"]["reason_code"] == "FTD_MODE_NO_TAF"
+        assert calculated["destinationWind"]["source_label"] == "FTD固定気象"
+        assert all(
+            issue["code"] != "DEVELOPMENT_WEATHER_PROVIDER"
+            for issue in calculated["readiness"]["issues"]
+        )
+        automatic_metadata = [
+            section["temperature_c"]["automatic_metadata"]
+            for section in calculated["outcome"]["sections"]
+            if section["temperature_c"]["automatic_value"] is not None
+        ]
+        assert automatic_metadata
+        assert any(item.get("provider") == "ftd_fixed" for item in automatic_metadata)
         project_id = calculated["project"]["id"]
         assert calculated["outcome"] is not None
-        assert calculated["destinationWind"]["reason_code"] == "FTD_MODE_NO_TAF"
 
     async with httpx.AsyncClient(transport=transport, base_url="https://test") as fresh:
         restored = (await fresh.post("/api/session")).json()["state"]

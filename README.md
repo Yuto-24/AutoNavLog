@@ -285,6 +285,8 @@ cloudflared tunnel --url http://localhost:8123
 
 ## 開発
 
+テストレイヤーの使い分けと計測方法は[Backendテストガイド](docs/testing.md)を参照してください。
+
 backend CIはDockerのPython 3.12 test stageで実行します。次のhost側コマンドは開発時の検査用であり、
 host上でのアプリケーション実行をサポート対象にするものではありません。
 `jma-msm-wind` は `0.2.1` に固定しています。

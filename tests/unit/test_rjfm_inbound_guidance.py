@@ -9,6 +9,7 @@ import autonavlog.application.rjfm_inbound_geometry as geometry_module
 import autonavlog.application.rjfm_inbound_guidance as guidance_module
 from autonavlog.application.rjfm_inbound_guidance import (
     InboundGuidanceRequest,
+    InboundGuidanceSolution,
     InboundGuidanceStatus,
     solve_rjfm_inbound_west_extension,
 )
@@ -610,7 +611,9 @@ def test_solver_reports_convergence_failure_when_bearing_budget_cannot_cover_coa
     assert result.reason_code == "BEARING_EVALUATION_BUDGET_EXCEEDED"
 
 
-def test_solver_reports_convergence_failure_when_bearing_budget_stops_at_coarse_grid() -> None:
+def test_solver_reports_convergence_failure_when_bearing_budget_stops_at_coarse_grid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     umk = GeoPoint(0.0, 0.0)
     vrep = _point_on_course(umk, 257.4, 30.0)
     request = _request(
@@ -620,10 +623,47 @@ def test_solver_reports_convergence_failure_when_bearing_budget_stops_at_coarse_
         max_bearing_evaluations=9,
     )
 
+    # Budget handling owns the bearing loop, not distance search / polygon geometry.
+    # Supply feasible, converged per-bearing results so only the bearing budget
+    # can cause failure. Real numerical searches remain in the solver regressions.
+    searched = []
+
+    def search_bearing(request, bearing, direct_distance):
+        searched.append(bearing)
+        candidate = guidance_module._DistanceEvaluation(
+            bearing_magnetic_deg=bearing,
+            raw_turn_point=GeoPoint(0.0, -0.6),
+            rounded_turn_point=GeoPoint(0.0, -0.61),
+            raw_predicted_ete_min=18.5,
+            predicted_ete_min=18.6,
+            raw_extra_distance_nm=7.0 + abs(bearing - 257.4),
+            extra_distance_nm=7.5 + abs(bearing - 257.4),
+            raw_dme_nm=37.0,
+            rounded_dme_nm=37.5,
+            raw_turn_altitude_ft_msl=0.0,
+            rounded_turn_altitude_ft_msl=0.0,
+            raw_minimum_boundary_clearance_nm=100.0,
+            minimum_boundary_clearance_nm=100.0,
+            actual_bearing_magnetic_deg=bearing,
+            raw_feasible=True,
+            rounded_feasible=True,
+            acceptable=True,
+            adverse_wind=False,
+        )
+        return guidance_module._BearingSearchResult(candidate, candidate, False, False)
+
+    monkeypatch.setattr(guidance_module, "_search_bearing", search_bearing)
+
     result = solve_rjfm_inbound_west_extension(request)
 
     assert result.status is InboundGuidanceStatus.CONVERGENCE_FAILURE
     assert result.reason_code == "CONVERGENCE_FAILURE"
+    assert searched == list(range(250, 291, 5))
+    assert result == InboundGuidanceSolution(
+        status=InboundGuidanceStatus.CONVERGENCE_FAILURE,
+        reason_code="CONVERGENCE_FAILURE",
+        reference_revision=request.reference_revision,
+    )
 
 
 def test_solver_reports_convergence_failure_when_distance_budget_stops_at_seed_scan() -> None:
