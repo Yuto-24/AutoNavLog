@@ -12,8 +12,6 @@ export type ReleaseBlock = ReleaseTextBlock | ReleaseListBlock;
 
 export interface ReleaseNote {
   version: string;
-  date: string;
-  dateTime?: string;
   summary: ReleaseBlock[];
   sections: Array<{ title: string; blocks: ReleaseBlock[] }>;
 }

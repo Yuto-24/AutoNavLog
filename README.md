@@ -8,7 +8,7 @@ Web 画面に表示します。
 利用者が根拠と警告を確認してください。航空大学校の公式様式や計算規則への準拠は
 主張していません。
 
-- 現在のバージョン: `1.11.1`
+- [現在のバージョン](VERSION)
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
@@ -318,19 +318,18 @@ docker run --rm autonavlog:test
 docker build --target runtime --tag autonavlog:runtime .
 ```
 
-Issue対応では `changes/` に変更の断片を追加し、Versionは直接変更しません。
-Release時に全件を `scripts/prepare_release.py X.Y.Z` でまとめます。
-Dockerでの実行例・形式・例外は [Release運用](changes/README.md) を参照してください。
-Informationには [利用者向け更新履歴](RELEASE_NOTES.md) と [既知の不具合](KNOWN_ISSUES.md) を表示し、
-GitHub Release本文は引き続き開発者向けのCHANGELOGから作成します。
+Release対象PRでは root [`VERSION`](VERSION) と [`CHANGELOG.md`](CHANGELOG.md) を直接更新します。
+`VERSION` はAutoNavLog全体の唯一のVersion原本です。InformationにはCHANGELOGの「利用者向け」と [既知の不具合](KNOWN_ISSUES.md) を表示し、GitHub Release本文には同じVersionの利用者向け・開発者向けを掲載します。
 
-リリース時は `1.11.1` が次の場所で一致していることを確認します。
+PR本文には `Release: required` を記載します。Release不要の場合は `Release: not-required` と
+`Reason: <理由>` を記載し、`VERSION` は変更しません。docs・test・コメントのみの変更や、配布物を
+変えないCI設定変更などが該当します。UI文言の変更はRelease対象です。
+CIはVersionの増加とCHANGELOGの形式・整合性、および明確なruntime変更を検証します。
+major / minor / patchの選択と、変更の意味に基づくRelease要否は作成者とレビューで判断します。
+mainへのmerge後はGitHub Actionsが `vX.Y.Z` tagとGitHub Releaseを作成します。
+公開日時はGitHub Releaseが保持し、CHANGELOGへ書き戻しません。
 
-- `pyproject.toml`
-- `web/package.json` と `web/package-lock.json`
-- `README.md`、`CHANGELOG.md`、`RELEASE_NOTES.md`
-
-`src/autonavlog/version.py` は固定値を持たず、インストール済み Package Metadata から版番号を取得します。
+`src/autonavlog/version.py` は固定値を持たず、インストール済み Package Metadata から版番号を取得します。Python package metadataはroot `VERSION` から生成します。
 `jma-msm-wind==0.2.1` は別製品の版なので変更しません。
 
 ## リポジトリ

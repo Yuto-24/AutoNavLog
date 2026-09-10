@@ -100,9 +100,9 @@ removals/reordering produce only the normal dot. Opening the dialog marks everyt
 
 The dialog subtitle is `AutoNavLog のお知らせ`. Show `既知の不具合` first (hide the entire section at zero),
 then `更新履歴`, with all historical entries expanded. Known Issues use amber panels, distinct from runtime
-errors. User-facing content comes from `KNOWN_ISSUES.md` and `RELEASE_NOTES.md`, with no developer Issues,
-distribution section or implementation jargon. New releases display their static minute-level JST timestamp;
-historical releases keep date-only labels. See [source formats and release workflow](../../changes/README.md).
+errors. User-facing content comes from `KNOWN_ISSUES.md` and the 利用者向け section of `CHANGELOG.md`, with no developer Issues,
+distribution section or implementation jargon. Release dates are stored by GitHub Releases and are not
+displayed in Information. See [the release workflow](../../README.md#開発).
 
 ## NAV LOG layout revision (Issue #132)
 

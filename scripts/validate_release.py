@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Validate release sources, optionally checking clear PR fragment omissions."""
+"""Validate the explicit Release contract of a pull request."""
 
 from __future__ import annotations
 
 import argparse
-import json
+import ast
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
-from release_content import fragment_paths, parse_fragment, read_sources, validate_sources
+from release_content import parse_version_source, validate_sources, version_tuple
 
 
 def git(root: Path, *args: str) -> str:
@@ -18,11 +19,31 @@ def git(root: Path, *args: str) -> str:
     )
 
 
+def base_version(root: Path, commit: str) -> str:
+    if git(root, "ls-tree", "--name-only", commit, "--", "VERSION").strip():
+        value = parse_version_source(git(root, "show", f"{commit}:VERSION"))
+    else:
+        # Only the transition PR has a base without VERSION. An invalid existing
+        # VERSION must fail rather than silently use an obsolete package version.
+        content = git(root, "show", f"{commit}:pyproject.toml")
+        try:
+            value = tomllib.loads(content)["project"]["version"]
+        except (KeyError, tomllib.TOMLDecodeError) as error:
+            raise ValueError("base has no VERSION or legacy package version") from error
+    version_tuple(value)
+    return value
+
+
 def runtime_path(path: str) -> bool:
+    if path.startswith("web/") and re.search(r"\.(?:test|spec)\.[cm]?[jt]sx?$", path):
+        return False
     return (
-        path.startswith(("src/", "web/src/", "web/scripts/", "data/", ".github/workflows/"))
+        path.startswith(("src/", "web/src/", "web/public/", "web/scripts/", "data/", "vendor/"))
         or path
         in {
+            "VERSION",
+            "CHANGELOG.md",
+            "KNOWN_ISSUES.md",
             "Dockerfile",
             ".dockerignore",
             "compose.yaml",
@@ -30,102 +51,117 @@ def runtime_path(path: str) -> bool:
             "pyproject.toml",
             "web/package.json",
             "web/package-lock.json",
+            "web/index.html",
+            "MANIFEST.in",
+            "setup.py",
+            "setup.cfg",
         }
-        or bool(re.fullmatch(r"web/(?:vite|tsconfig|postcss|tailwind).*", path))
+        or bool(
+            re.fullmatch(
+                r"(?:compose[.\w-]*\.ya?ml|web/(?:vite|tsconfig|postcss|tailwind).*)", path
+            )
+        )
     )
 
 
-def meaningful_diff(diff: str, path: str = "") -> bool:
-    """Exempt clear comments and JSX copy; leave complex expressions to release review."""
-    comments = ("//", "/*", "*/", "<!--", "-->")
-    if path.endswith((".py", ".yml", ".yaml", ".toml", ".sh")) or path in (
-        "Dockerfile",
-        ".dockerignore",
-    ):
-        comments += ("#",)
-    before: list[str] = []
-    after: list[str] = []
-    changed = False
-    for line in diff.splitlines():
-        if line[:1] not in ("+", "-", " ") or line.startswith(("+++", "---")):
-            continue
-        content = line[1:].strip()
-        if not content or content.startswith(comments):
-            continue
-        changed |= line[0] in ("+", "-")
-        if line[0] != "+":
-            before.append(content)
-        if line[0] != "-":
-            after.append(content)
-    if path.endswith((".tsx", ".jsx")) and before and after:
-        # Only erase text inside JSX tags, never arbitrary strings such as URLs or schema keys.
-        literal = r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'"
-        conditional = rf"(?:!?[A-Za-z_$][\w.$]*\s*\?\s*(?:{literal})\s*:\s*)?"
-        attribute = (
-            rf"\b(aria-label|title|placeholder)=({literal}|\{{\s*{conditional}(?:{literal})\s*\}})"
+class _WithoutDocstrings(ast.NodeTransformer):
+    def visit_Module(self, node: ast.Module) -> ast.Module:
+        return self._strip(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
+        return self._strip(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+        return self._strip(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
+        return self._strip(node)
+
+    def _strip(self, node):
+        self.generic_visit(node)
+        if ast.get_docstring(node, clean=False) is not None:
+            node.body = node.body[1:]
+        return node
+
+
+def python_documentation_only(root: Path, base: str, path: str) -> bool:
+    """Exempt unchanged Python syntax apart from comments and docstrings.
+
+    File creation/deletion and syntax errors are never treated as documentation.
+    Other languages remain subject to file-level classification, without guessing
+    whether a comment-looking line might be inside a string literal.
+    """
+    if not path.endswith(".py"):
+        return False
+    try:
+        before = git(root, "show", f"{base}:{path}")
+        after = git(root, "show", f"HEAD:{path}")
+        trees = [
+            ast.dump(_WithoutDocstrings().visit(ast.parse(source))) for source in (before, after)
+        ]
+    except (subprocess.CalledProcessError, SyntaxError):
+        return False
+    return trees[0] == trees[1]
+
+
+def parse_contract(body: str) -> str:
+    lines = re.sub(r"<!--[\s\S]*?-->", "", body).splitlines()
+    markers = [
+        line.strip()
+        for line in lines
+        if re.fullmatch(r"Release: (?:required|not-required)", line.strip())
+    ]
+    if len(markers) != 1:
+        raise ValueError(
+            "PR body requires exactly one Release: required or Release: not-required line"
         )
-
-        def without_copy(source: str) -> str:
-            def attribute_copy(match: re.Match[str]) -> str:
-                value = match[2]
-                if value.startswith("{"):
-                    value = re.sub(literal, '"COPY"', value)
-                else:
-                    value = '"COPY"'
-                return f"{match[1]}={value}"
-
-            source = re.sub(
-                r"<[A-Za-z][^<>]*>",
-                lambda tag: re.sub(attribute, attribute_copy, tag[0]),
-                source,
-            )
-            return re.sub(r"(<[A-Za-z][^<>]*>)[^<>{}]+(?=</)", r"\1COPY", source)
-
-        if without_copy("\n".join(before)) == without_copy("\n".join(after)):
-            return False
-    return changed
+    kind = markers[0].removeprefix("Release: ")
+    if kind == "not-required" and not any(
+        re.fullmatch(r"Reason: \S.*", line.strip()) for line in lines
+    ):
+        raise ValueError("Release: not-required requires a Reason: line")
+    return kind
 
 
-def validate(root: Path, base: str | None = None) -> None:
-    current = validate_sources(read_sources(root))
-    paths = fragment_paths(root)
-    for path in paths:
-        try:
-            parse_fragment(path.read_text(encoding="utf-8"))
-        except ValueError as error:
-            raise ValueError(f"{path.name}: {error}") from error
+def validate(root: Path, base: str | None = None, pr_body: str | None = None) -> None:
+    current = validate_sources(root)
     if not base:
         return
-    # Use the PR merge base; main may have moved after the branch was created.
+    if pr_body is None:
+        raise ValueError("PR validation requires the PR body")
+    contract = parse_contract(pr_body)
     merge_base = git(root, "merge-base", base, "HEAD").strip()
-    previous = json.loads(git(root, "show", f"{merge_base}:web/package.json"))["version"]
-    if current != previous:
-        if paths:
-            raise ValueError("A finalized release must consume every fragment")
-        return
+    previous = base_version(root, base)
     changed = git(root, "diff", "--name-only", merge_base, "HEAD").splitlines()
-    required = [
-        path
-        for path in changed
-        if runtime_path(path)
-        and meaningful_diff(git(root, "diff", "--unified=3", merge_base, "HEAD", "--", path), path)
-    ]
-    added = git(
-        root, "diff", "--name-only", "--diff-filter=A", merge_base, "HEAD", "--", "changes/"
-    ).splitlines()
-    if required and not any(path != "changes/README.md" and path.endswith(".md") for path in added):
-        raise ValueError(
-            "Runtime/build changes require a new change fragment: " + ", ".join(required)
-        )
+    if contract == "required":
+        if version_tuple(current) <= version_tuple(previous):
+            raise ValueError("Release: required needs VERSION newer than base")
+        if "VERSION" not in changed or "CHANGELOG.md" not in changed:
+            raise ValueError("Release: required must change VERSION and CHANGELOG.md")
+    else:
+        if current != previous or "VERSION" in changed:
+            raise ValueError("Release: not-required must not change VERSION")
+        runtime = [
+            path
+            for path in changed
+            if runtime_path(path) and not python_documentation_only(root, merge_base, path)
+        ]
+        if runtime:
+            raise ValueError(
+                "Release: not-required cannot include production/runtime changes: "
+                + ", ".join(runtime)
+            )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base", help="PR base commit; omit for push validation")
+    parser.add_argument("--base")
+    parser.add_argument("--pr-body-file")
     args = parser.parse_args()
+    body = Path(args.pr_body_file).read_text(encoding="utf-8") if args.pr_body_file else None
     try:
-        validate(Path(__file__).resolve().parents[1], args.base)
-    except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
+        validate(Path(__file__).resolve().parents[1], args.base, body)
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Release validation failed: {error}\n")
     print("Release sources are valid.")
 

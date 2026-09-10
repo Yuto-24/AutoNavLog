@@ -3,11 +3,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const releaseHeader = /^## ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) - (\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2} JST)?)$/;
-const sectionHeader = /^### (.+)$/;
-const bullet = /^- (.+)$/;
-// This is the content identifier produced from the v1.10.0 Information payload in a4a92da.
-// It permits a legacy release-version marker to migrate only when that exact content was seen.
+const versionPattern = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
+const releaseHeader = /^## ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/;
+const allowedSections = ["追加", "改善", "変更", "修正"];
 const legacyReleaseInformationIds = {
   "1.10.0": "information:sha256:1aaa6d69025442f35549a1ea36157c30112fd54ff0ec7611ee40c8409e827ca0",
 };
@@ -16,133 +14,91 @@ function fail(line, message) {
   throw new Error(`CHANGELOG.md:${line}: ${message}`);
 }
 
-function validDate(value) {
-  const date = value.slice(0, 10);
-  const parsed = new Date(`${date}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === date
-    && (value.length === 10 || /^\d{4}-\d{2}-\d{2} (?:[01]\d|2[0-3]):[0-5]\d JST$/.test(value));
-}
-
 function compareVersions(left, right) {
-  const leftParts = left.split(".").map(Number);
-  const rightParts = right.split(".").map(Number);
-  for (let index = 0; index < leftParts.length; index += 1) {
-    if (leftParts[index] !== rightParts[index]) return leftParts[index] - rightParts[index];
+  const a = left.split(".").map(BigInt);
+  const b = right.split(".").map(BigInt);
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return a[index] > b[index] ? 1 : -1;
   }
   return 0;
 }
 
-function appendText(block, line, lineNumber) {
-  if (block.kind === "list") {
-    const item = block.items.at(-1);
-    if (!item) fail(lineNumber, "list continuation has no list item");
-    item.text += `\n${line.trim()}`;
-  } else {
-    block.text += `${block.text ? "\n" : ""}${line.trim()}`;
-  }
-}
-
-/** Parse the deliberately small CHANGELOG dialect used by this repository. */
+/** Validate the complete CHANGELOG and expose only user content to Information. */
 export function parseChangelog(source) {
-  const lines = source.replace(/\r\n/g, "\n").split("\n");
   const releases = [];
-  let release = null;
+  let current = null;
+  let audience = null;
   let section = null;
-  let block = null;
-
-  const finishBlock = () => { block = null; };
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const lineNumber = index + 1;
+  for (const [index, raw] of source.replace(/\r\n/g, "\n").split("\n").entries()) {
+    const line = raw.trimEnd();
+    const number = index + 1;
     const header = line.match(releaseHeader);
     if (header) {
-      finishBlock();
-      if (!validDate(header[2])) fail(lineNumber, `invalid release date '${header[2]}'`);
-      if (releases.some((item) => item.version === header[1])) {
-        fail(lineNumber, `duplicate release version '${header[1]}'`);
+      if (releases.length && compareVersions(header[1], releases.at(-1).version) >= 0) {
+        fail(number, "release versions must descend");
       }
-      release = { version: header[1], date: header[2], summary: [], sections: [] };
-      releases.push(release);
+      current = { version: header[1], sections: [], developer: [] };
+      releases.push(current);
+      audience = section = null;
+      continue;
+    }
+    if (line.startsWith("## ")) fail(number, "release header must be ## X.Y.Z");
+    if (!line.trim()) continue;
+    if (!current) {
+      if (line.startsWith("# ") || !line.startsWith("#")) continue;
+      fail(number, "invalid heading");
+    }
+    if (line === "### 利用者向け") {
+      if (audience) fail(number, "duplicate audience");
+      audience = "user";
+    } else if (line === "### 開発者向け") {
+      if (audience !== "user") fail(number, "開発者向け must follow 利用者向け");
+      audience = "developer";
       section = null;
-      continue;
-    }
-    if (!release) {
-      if (/^\s*#{2,}/.test(line)) fail(lineNumber, "release header must be '## X.Y.Z - YYYY-MM-DD'");
-      if (bullet.test(line)) {
-        fail(lineNumber, "content must follow a release header");
+    } else if (line.startsWith("#### ")) {
+      const title = line.slice(5);
+      if (audience !== "user" || !allowedSections.includes(title)
+        || current.sections.some((item) => item.title === title)) {
+        fail(number, "invalid user section");
       }
-      continue;
-    }
-    if (line.startsWith("## ")) fail(lineNumber, "release header must be '## X.Y.Z - YYYY-MM-DD'");
-    const nextSection = line.match(sectionHeader);
-    if (nextSection) {
-      finishBlock();
-      if (!nextSection[1].trim()) fail(lineNumber, "section title is required");
-      section = { title: nextSection[1], blocks: [] };
-      Object.defineProperty(section, "_line", { value: lineNumber });
-      release.sections.push(section);
-      continue;
-    }
-    if (line === "") { finishBlock(); continue; }
-    const destination = section ? section.blocks : release.summary;
-    const item = line.match(bullet);
-    if (item) {
-      block = { kind: "list", items: [{ text: item[1], line: lineNumber }] };
-      destination.push(block);
-      continue;
-    }
-    if (/^\s*(?:#{1,6}\s|`{3,}|~{3,}|={3,}|-{3,}|\*{3,}|_{3,})/.test(line)
-      || /^\s*(?:[-*+] |\d+\. |>|\|)/.test(line)) {
-      fail(lineNumber, "unsupported Markdown block");
-    }
-    if (/^\s+/.test(line)) {
-      if (!block) fail(lineNumber, "indented content must continue a paragraph or list item");
-      appendText(block, line, lineNumber);
-      continue;
-    }
-    if (block?.kind === "list") {
-      fail(lineNumber, "list items must start with '- ' or use an indented continuation");
-    } else if (block?.kind === "paragraph") {
-      appendText(block, line, lineNumber);
-    } else {
-      block = { kind: "paragraph", text: line, line: lineNumber };
-      destination.push(block);
+      if (section && allowedSections.indexOf(title) <= allowedSections.indexOf(section.title)) {
+        fail(number, "user sections must follow the defined order");
+      }
+      section = { title, items: [] };
+      current.sections.push(section);
+    } else if (/^- \S/.test(line)) {
+      if (audience === "user" && section) {
+        if (/\bIssue\s*#?\s*\d+|#\d+/i.test(line)) {
+          fail(number, "Issue references belong in 開発者向け");
+        }
+        section.items.push(line.slice(2));
+      } else if (audience === "developer") {
+        current.developer.push(line.slice(2));
+      } else fail(number, "bullet has no section");
+    } else if (audience === "developer" && line.startsWith("  ")) {
+      if (!current.developer.length) fail(number, "continuation has no bullet");
+      current.developer[current.developer.length - 1] += ` ${line.trim()}`;
+    } else fail(number, "unsupported changelog content");
+  }
+  if (!releases.length) fail(1, "no release entries found");
+  for (const release of releases) {
+    if (!release.sections.length || release.sections.some((item) => !item.items.length)
+      || !release.developer.length) {
+      throw new Error(`CHANGELOG.md: release ${release.version} requires nonempty 利用者向け and 開発者向け`);
     }
   }
-  if (releases.length === 0) fail(1, "no release entries found");
-  for (let releaseIndex = 0; releaseIndex < releases.length; releaseIndex += 1) {
-    const item = releases[releaseIndex];
-    const following = releases[releaseIndex + 1];
-    if (following && compareVersions(item.version, following.version) <= 0) {
-      fail(lines.findIndex((line) => line.includes(following.version)) + 1, "release versions must be in descending order");
-    }
-    if (item.summary.length === 0 && item.sections.length === 0) {
-      fail(lines.findIndex((line) => line.includes(item.version)) + 1, "release has no content");
-    }
-    for (const itemSection of item.sections) {
-      if (itemSection.blocks.length === 0) fail(itemSection._line, "section has no content");
-    }
-  }
-  return releases;
-}
-
-function withoutSourceLines(block) {
-  if (block.kind === "paragraph") return { kind: block.kind, text: block.text };
-  return { kind: block.kind, items: block.items.map((item) => ({ text: item.text })) };
+  return releases.map(({ version, sections }) => ({
+    version,
+    summary: [],
+    sections: sections.map(({ title, items }) => ({
+      title,
+      blocks: [{ kind: "list", items: items.map((text) => ({ text })) }],
+    })),
+  }));
 }
 
 export function informationPayload(releases) {
-  return {
-    releases: releases.map((release) => ({
-      version: release.version,
-      date: release.date,
-      summary: release.summary.map(withoutSourceLines),
-      sections: release.sections.map((section) => ({
-        title: section.title,
-        blocks: section.blocks.map(withoutSourceLines),
-      })),
-    })),
-  };
+  return { releases };
 }
 
 function stableJson(value) {
@@ -155,34 +111,6 @@ function stableJson(value) {
 
 export function informationId(payload) {
   return `information:sha256:${createHash("sha256").update(stableJson(payload)).digest("hex")}`;
-}
-
-const allowedSections = ["追加", "改善", "変更", "修正"];
-
-export function parseReleaseNotes(source) {
-  const releases = parseChangelog(source);
-  const before = source.split(/^## /m)[0];
-  if (before.split(/\r?\n/).some((line) => line.trim() && !line.startsWith("# "))) {
-    throw new Error("RELEASE_NOTES.md: unexpected content before releases");
-  }
-  for (const release of releases) {
-    if (release.summary.length) throw new Error("RELEASE_NOTES.md: version introduction is not allowed");
-    let previous = -1;
-    for (const section of release.sections) {
-      const order = allowedSections.indexOf(section.title);
-      if (order < 0 || order <= previous) throw new Error("RELEASE_NOTES.md: invalid or out-of-order section");
-      previous = order;
-      for (const block of section.blocks) {
-        if (block.kind !== "list" || block.items.some((item) => item.text.includes("\n"))) {
-          throw new Error("RELEASE_NOTES.md: only single-line bullets are allowed");
-        }
-        if (block.items.some((item) => /(?:Issue\s*#?\s*\d+|#\d+)/i.test(item.text))) {
-          throw new Error("RELEASE_NOTES.md: Issue numbers are developer metadata");
-        }
-      }
-    }
-  }
-  return releases;
 }
 
 export function parseKnownIssues(source) {
@@ -244,26 +172,20 @@ export function buildInformation(releases, knownIssues) {
   return { ...visible, id: informationId(visible), knownIssues: issues, knownIssuesId: informationId(visibleIssues) };
 }
 
-export async function generateReleaseNotes({ changelogPath, releaseNotesPath, knownIssuesPath, packagePath, outputPath }) {
-  const [changelog, userNotes, knownSource, packageJson] = await Promise.all([
-    readFile(changelogPath, "utf8"), readFile(releaseNotesPath, "utf8"),
-    readFile(knownIssuesPath, "utf8"), readFile(packagePath, "utf8"),
+export async function generateReleaseNotes({ changelogPath, knownIssuesPath, versionPath, outputPath }) {
+  const [changelog, knownSource, versionSource] = await Promise.all([
+    readFile(changelogPath, "utf8"),
+    readFile(knownIssuesPath, "utf8"),
+    readFile(versionPath, "utf8"),
   ]);
-  const developer = parseChangelog(changelog);
-  const releases = parseReleaseNotes(userNotes);
-  const versions = (items) => items.map(({ version, date }) => [version, date]);
-  if (JSON.stringify(versions(developer)) !== JSON.stringify(versions(releases))) {
-    throw new Error("CHANGELOG / RELEASE_NOTES version order and dates must match");
-  }
-  const packageVersion = JSON.parse(packageJson).version;
-  if (releases[0].version !== packageVersion) throw new Error("Package version does not match latest release");
-  const information = buildInformation(releases, parseKnownIssues(knownSource));
-  // date is the exact visible label; dateTime represents timed releases with an explicit zone.
-  information.releases = information.releases.map((release) => ({ ...release,
-    dateTime: release.date.length === 10 ? release.date : `${release.date.slice(0, 10)}T${release.date.slice(11, 16)}:00+09:00`,
-  }));
+  const version = versionSource.replace(/\r?\n$/, "");
+  if (!versionPattern.test(version)) throw new Error("VERSION must be X.Y.Z");
+  const releases = parseChangelog(changelog);
+  if (releases[0].version !== version) throw new Error("VERSION does not match latest release");
+  const information = { ...buildInformation(releases, parseKnownIssues(knownSource)), version };
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify({ information,
+  await writeFile(outputPath, `${JSON.stringify({
+    information,
     compatibility: { legacyReleaseInformationIds },
   }, null, 2)}\n`, "utf8");
 }
@@ -274,9 +196,11 @@ if (process.argv[1] && resolve(process.argv[1]) === ownFile) {
   const repositoryRoot = resolve(webRoot, "..");
   generateReleaseNotes({
     changelogPath: resolve(repositoryRoot, "CHANGELOG.md"),
-    releaseNotesPath: resolve(repositoryRoot, "RELEASE_NOTES.md"),
     knownIssuesPath: resolve(repositoryRoot, "KNOWN_ISSUES.md"),
-    packagePath: resolve(webRoot, "package.json"),
+    versionPath: resolve(repositoryRoot, "VERSION"),
     outputPath: resolve(webRoot, "src/generated/releaseNotes.json"),
-  }).catch((error) => { console.error(error.message); process.exitCode = 1; });
+  }).catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
 }

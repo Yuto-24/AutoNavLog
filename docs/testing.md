@@ -86,7 +86,7 @@ unit 578件、integration 173件、contract 3件です。
   実距離探索・幾何・予報風と本番参照の回帰は残します。
 
 上記モジュールの合計はJUnitのsetup/call/teardown時間、上位一覧はpytestのcall時間です。
-テスト・文書だけの整理のため、`changes/README.md`の例外に従いfragmentとVersion更新はありません。
+テスト・文書だけの整理のため、Release: not-required契約に従い、VERSION更新はありません。
 
 変更前のhosted CIは[mainのrun 34330643488](https://github.com/Yuto-24/AutoNavLog/actions/runs/34330643488)。
 pytest自身は754件・594.46秒、docker run stepは616秒、pytest jobは674秒でした。

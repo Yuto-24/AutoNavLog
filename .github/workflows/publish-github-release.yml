@@ -13,11 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate release sources
+        run: python3 scripts/validate_release.py
+
       - name: Read application version
         id: version
         shell: bash
         run: |
-          VERSION="$(python -c 'import tomllib, pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
+          VERSION="$(cat VERSION)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -34,7 +37,7 @@ jobs:
           fi
 
           awk -v version="$VERSION" '
-            $0 ~ "^## " version " - " { found = 1; next }
+            $0 == "## " version { found = 1; next }
             found && /^## / { exit }
             found { print }
           ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
