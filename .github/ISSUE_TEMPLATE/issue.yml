@@ -68,4 +68,4 @@ body:
     attributes:
       label: 補足情報
       description: 関連Issue / PR、スクリーンショット、ログ、資料URLなどがあれば記載してください。
-      placeholder: 例：Related: #123
+      placeholder: "例：Related: #123"
