@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -18,12 +19,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: docker build --target release-tools --tag autonavlog:release-tools .
-      - name: Validate release sources and PR fragments
+      - name: Validate release sources and PR contract
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           if [ -n "$PR_BASE" ]; then
-            docker run --rm -v "$PWD:/work:ro" -w /work autonavlog:release-tools python scripts/validate_release.py --base "$PR_BASE"
+            printf "%s" "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+            docker run --rm -v "$PWD:/work:ro" -v "$RUNNER_TEMP:/runner-temp:ro" -w /work autonavlog:release-tools python scripts/validate_release.py --base "$PR_BASE" --pr-body-file /runner-temp/pr-body.md
           else
             docker run --rm -v "$PWD:/work:ro" -w /work autonavlog:release-tools python scripts/validate_release.py
           fi
@@ -46,7 +49,7 @@ jobs:
       - run: docker build --target runtime --tag autonavlog:runtime .
       - name: Read expected version from the production image source
         run: |
-          expected_version="$(docker run --rm --entrypoint python autonavlog:runtime -c 'import tomllib; from pathlib import Path; print(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
+          expected_version="$(docker run --rm --entrypoint python autonavlog:runtime -c 'from pathlib import Path; print(Path("VERSION").read_text(encoding="utf-8").strip())')"
           test -n "$expected_version"
           echo "EXPECTED_VERSION=$expected_version" >> "$GITHUB_ENV"
       - name: Verify production image purity
@@ -67,7 +70,7 @@ jobs:
             test ! -d /opt/autonavlog/src/autonavlog.egg-info
             python -c "import sys; assert sys.version_info[:2] == (3, 12)"
             python -c "import importlib.util; assert all(importlib.util.find_spec(module) is None for module in (\"pytest\", \"ruff\", \"mypy\", \"build\"))"
-            expected_version="$(python -c '\''import tomllib; from pathlib import Path; print(tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])'\'')"
+            expected_version="$(python -c '\''from pathlib import Path; print(Path("VERSION").read_text(encoding="utf-8").strip())'\'')"
             installed_version="$(python -c '\''from importlib.metadata import version; print(version("autonavlog"))'\'')"
             test "$installed_version" = "$expected_version"
           '

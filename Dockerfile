@@ -11,7 +11,7 @@ FROM node:22-bookworm-slim AS frontend
 WORKDIR /build
 COPY web/package.json web/package-lock.json ./web/
 RUN npm --prefix web ci
-COPY CHANGELOG.md RELEASE_NOTES.md KNOWN_ISSUES.md ./
+COPY VERSION CHANGELOG.md KNOWN_ISSUES.md ./
 COPY web ./web
 RUN npm --prefix web run build
 
@@ -31,7 +31,7 @@ RUN groupadd --system --gid 10001 autonavlog \
     && mkdir -p /var/lib/autonavlog \
     && chown autonavlog:autonavlog /var/lib/autonavlog
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml VERSION README.md ./
 COPY src ./src
 COPY data ./data
 COPY vendor ./vendor
@@ -41,8 +41,7 @@ FROM python-base AS test
 
 COPY tests ./tests
 COPY scripts ./scripts
-COPY CHANGELOG.md RELEASE_NOTES.md KNOWN_ISSUES.md Dockerfile .dockerignore ./
-COPY changes ./changes
+COPY VERSION CHANGELOG.md KNOWN_ISSUES.md Dockerfile .dockerignore ./
 COPY web/package.json web/package-lock.json ./web/
 COPY .github/workflows/test.yml ./.github/workflows/test.yml
 

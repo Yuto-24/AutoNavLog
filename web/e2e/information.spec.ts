@@ -9,7 +9,7 @@ const informationData = JSON.parse(readFileSync(
   new URL("../src/generated/releaseNotes.json", import.meta.url),
   "utf8",
 )) as {
-  information: { id: string; releases: Array<{ version: string; date: string }> };
+  information: { id: string; releases: Array<{ version: string }> };
   compatibility: { legacyReleaseInformationIds: Record<string, string> };
 };
 const latestInformationId = informationData.information.id;
@@ -103,7 +103,6 @@ test("Information exposes bundle-generated latest and historical release section
 
   const dialog = await openInformation(page);
   await expect(dialog.getByRole("heading", { name: `v${latestRelease.version}` })).toBeVisible();
-  await expect(dialog.getByText(latestRelease.date, { exact: true }).first()).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "追加", exact: true }).first()).toBeVisible();
   await expect(dialog.getByText("AutoNavLog のお知らせ", { exact: true })).toBeVisible();
   await expect(dialog.locator(".information-known-issues")).toHaveCount(0);

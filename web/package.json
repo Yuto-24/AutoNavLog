@@ -1,7 +1,6 @@
 {
   "name": "autonavlog-web",
   "private": true,
-  "version": "1.11.1",
   "type": "module",
   "scripts": {
     "generate:release-notes": "node scripts/generate-release-notes.mjs",
