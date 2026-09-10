@@ -1,0 +1,71 @@
+name: Issue
+description: AutoNavLogの改善、不具合、運用変更などを起票します
+title: ""
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        実装方法ではなく、解決したい問題と完了条件を中心に記載してください。
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: 種別
+      description: このIssueに最も近い種別を選んでください。
+      options:
+        - Bug
+        - Feature
+        - Improvement
+        - Refactor
+        - Documentation
+        - CI / Repository
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景 / 問題
+      description: なぜこのIssueが必要なのか、現在困っていることや改善したい点を書いてください。
+      placeholder: 例：保存済みProjectを再読込すると、一部の入力値が失われる。
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: このIssueで達成したい状態を書いてください。
+      placeholder: 例：保存済みProjectを再読込しても、入力値をそのまま復元できるようにする。
+    validations:
+      required: true
+
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-Goals
+      description: 今回は扱わないことや、別Issueへ分けることを書いてください。
+      placeholder: ない場合は「なし」と記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: 受入条件
+      description: 完了したと判断できる、確認可能な条件を書いてください。
+      placeholder: |
+        - [ ] 保存済みProjectを再読込しても入力値が保持される
+        - [ ] 既存Projectの読込互換性を維持する
+        - [ ] 対象の回帰テストが追加される
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: 補足情報
+      description: 関連Issue / PR、スクリーンショット、ログ、資料URLなどがあれば記載してください。
+      placeholder: 例：Related: #123
