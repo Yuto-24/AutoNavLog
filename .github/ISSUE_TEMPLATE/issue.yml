@@ -46,10 +46,10 @@ body:
     id: non_goals
     attributes:
       label: Non-Goals
-      description: 今回は扱わないことや、別Issueへ分けることを書いてください。
-      placeholder: ない場合は「なし」と記載してください。
+      description: 今回は扱わないことや、別Issueへ分けることがあれば書いてください。
+      placeholder: 例：UI全体の再設計は別Issueで扱う。
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: acceptance_criteria
