@@ -11,6 +11,7 @@
 
 - At 1,240 px and below, the primary flow is input, route/map, readiness, NAV LOG, then NAV LOG guidance, in that order. Do not move a later step above an earlier one or require the user to scroll back up after checking the route/map. Above 1,240 px, retain the input / route / readiness three-column workspace unless the feature requires otherwise.
 - Any layout change needs browser coverage around 1,100 px and above 1,240 px, asserting workflow-region order/position rather than visibility alone. See `docs/web-design/README.md` for the UI reference.
+- For release-management, version metadata, documentation, or CI changes without user-facing behavior or layout changes, skip browser automation, screenshots, and visual checks unless the user explicitly requests them. Use focused source, build, and health checks instead.
 - Docker Compose is the supported runtime. Preserve the `autonavlog-data` volume: routine updates and stops must not use `docker compose down -v`. Follow `README.md` and `docs/cloudflare_tunnel.md` for environment-specific startup and exposure rules.
 - For a release-required Issue, update root `VERSION` and the latest `CHANGELOG.md` section directly. `VERSION` is the sole AutoNavLog version source; do not place it in web package manifests or README. Run `python scripts/validate_release.py`, `pytest tests/unit/test_version.py`, and `npm --prefix web run typecheck`. Do not change the separately managed `src/autonavlog/version.py` or `jma-msm-wind` version.
 
