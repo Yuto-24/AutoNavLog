@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import ceil, cos, hypot, isfinite, radians
 
-from autonavlog.nav.geodesy import _points_along_leg, geodesic_leg
+from autonavlog.nav.geodesy import (
+    _geodesic_distance_nm_and_initial_true_course_deg,
+    _points_along_leg,
+    geodesic_leg,
+)
 from autonavlog.storage.rjfm_inbound_reference import GeoPoint
 
 # The route search is capped at 240 NM and samples each WGS84 leg at <=0.5 NM.
@@ -74,13 +78,14 @@ def geometry_supported(points: tuple[GeoPoint, ...]) -> bool:
 
 
 def _route_distances(points: tuple[GeoPoint, ...]) -> tuple[float, ...]:
+    # Every chord still uses WGS84 inverse; its unused midpoint need not be constructed.
     return tuple(
-        geodesic_leg(
+        _geodesic_distance_nm_and_initial_true_course_deg(
             start.latitude_deg,
             start.longitude_deg,
             end.latitude_deg,
             end.longitude_deg,
-        ).distance_nm
+        )[0]
         for start, end in zip(points, points[1:], strict=False)
     )
 

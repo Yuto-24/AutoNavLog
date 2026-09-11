@@ -4,6 +4,7 @@ from math import ceil, cos, hypot, radians
 from random import Random
 
 import pytest
+from geographiclib.geodesic import Geodesic
 
 import autonavlog.application.rjfm_inbound_geometry as geometry_module
 from autonavlog.application.rjfm_inbound_geometry import (
@@ -451,14 +452,16 @@ def test_internal_sampled_route_intersection_skips_per_chord_geodesic_inverses(
         GeoPoint(0.2, -0.35),
     )
     geodesic_calls = 0
-    original_geodesic_leg = geometry_module.geodesic_leg
+    original_geodesic_leg = geometry_module._geodesic_distance_nm_and_initial_true_course_deg
 
     def counting_geodesic_leg(*args: float):
         nonlocal geodesic_calls
         geodesic_calls += 1
         return original_geodesic_leg(*args)
 
-    monkeypatch.setattr(geometry_module, "geodesic_leg", counting_geodesic_leg)
+    monkeypatch.setattr(
+        geometry_module, "_geodesic_distance_nm_and_initial_true_course_deg", counting_geodesic_leg
+    )
 
     assert _polyline_boundary_metrics_for_sampled_route(
         sampled_route, boundary
@@ -674,3 +677,34 @@ def test_boundary_model_error_blocks_a_route_clear_of_numeric_guard_only() -> No
     assert numeric_clearance_nm > 0.0
     assert blocked
     assert guarded_clearance_nm == 0.0
+
+
+@pytest.mark.parametrize(
+    "points",
+    [
+        (GeoPoint(0.0, 0.0), GeoPoint(0.0, 0.0)),
+        (GeoPoint(0.0, 0.0), _point_on_course(GeoPoint(0.0, 0.0), 257.4, 0.5)),
+        (GeoPoint(31.9, 131.4), GeoPoint(31.89, 131.1), GeoPoint(31.87, 131.0)),
+        (GeoPoint(45.0, 130.0), GeoPoint(44.9, 129.9)),
+        (GeoPoint(-10.0, 130.0), GeoPoint(-9.9, 129.9)),
+    ],
+)
+def test_route_distances_preserve_exact_wgs84_values_without_unused_midpoints(
+    points: tuple[GeoPoint, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expected = tuple(
+        geodesic_leg(a.latitude_deg, a.longitude_deg, b.latitude_deg, b.longitude_deg).distance_nm
+        for a, b in zip(points, points[1:], strict=False)
+    )
+    original_line = Geodesic.WGS84.Line
+    line_calls = 0
+
+    def counted_line(*args, **kwargs):
+        nonlocal line_calls
+        line_calls += 1
+        return original_line(*args, **kwargs)
+
+    monkeypatch.setattr(Geodesic.WGS84, "Line", counted_line)
+
+    assert geometry_module._route_distances(points) == expected
+    assert line_calls == 0
