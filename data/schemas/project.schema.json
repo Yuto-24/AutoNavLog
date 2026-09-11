@@ -285,7 +285,6 @@
       "enum": [
         "AIRPORT",
         "DEPARTURE_REFERENCE",
-        "TURN_POINT",
         "VISUAL_REPORTING_POINT",
         "ROUTE_POINT",
         "DESTINATION"

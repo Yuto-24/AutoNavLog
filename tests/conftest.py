@@ -122,7 +122,7 @@ def project() -> Project:
         name="TP1",
         latitude_deg=32.45,
         longitude_deg=131.55,
-        role=RouteNodeRole.TURN_POINT,
+        role=RouteNodeRole.ROUTE_POINT,
     )
     destination = RouteNode(
         sequence=2,
