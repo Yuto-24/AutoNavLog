@@ -1,4 +1,6 @@
 import type { ApiErrorPayload, WebState } from "./types";
+import { localMode } from "./executionMode";
+import type { LocalClient } from "./localClient";
 
 
 export class ApiError extends Error {
@@ -31,6 +33,17 @@ async function parseError(response: Response): Promise<ApiError> {
 }
 
 export class ApiClient {
+  private local: Promise<LocalClient> | undefined;
+
+  private async localRequest<T>(path: string, body?: unknown): Promise<T> {
+    const client = await (this.local ??= import("./localClient").then(({ LocalClient }) => new LocalClient()));
+    try {
+      return await client.request<T>(path, body);
+    } catch (error) {
+      throw new ApiError(error instanceof Error ? error.message : String(error), "LOCAL_FAILED", 0);
+    }
+  }
+
   private bootstrapInFlight: Promise<WebState> | null = null;
 
   private async createSession(): Promise<WebState> {
@@ -73,6 +86,7 @@ export class ApiClient {
   }
 
   async bootstrap(): Promise<WebState> {
+    if (localMode) return this.localRequest<WebState>("/api/state");
     if (this.bootstrapInFlight) return this.bootstrapInFlight;
     const pending = (async () => {
       try {
@@ -96,12 +110,14 @@ export class ApiClient {
     path: string,
     options: { method?: string; body?: unknown } = {},
   ): Promise<T> {
+    if (localMode) return this.localRequest<T>(path, options.body);
     return this.fetchJson<T>(path, options, true);
   }
 
   async calculate(
     onProgress?: (progress: { percent: number; message: string }) => void,
   ): Promise<WebState> {
+    if (localMode) return this.localRequest<WebState>("/api/calculate");
     type Job = {
       job_id: string;
       status: "queued" | "preparing_weather" | "calculating" | "succeeded" | "failed";
@@ -136,6 +152,11 @@ export class ApiClient {
   }
 
   async resetSession(): Promise<void> {
+    if (localMode) {
+      if (this.local) (await this.local).dispose();
+      this.local = undefined;
+      return;
+    }
     const response = await fetch("/api/session", {
       method: "DELETE",
       credentials: "same-origin",

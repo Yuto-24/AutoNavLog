@@ -1,3 +1,4 @@
+import { localMode } from "../executionMode";
 import { CheckCircle2, Info, FolderOpen, Plus, Save, Trash2 } from "lucide-react";
 import type { SavedProject } from "../types";
 
@@ -42,7 +43,7 @@ export function Header({
     <header className="app-header">
       <div className="brand-block">
         <div className="brand-name">AutoNavLog</div>
-        <div className="brand-subtitle">NAV2 地上準備 / v{appVersion}</div>
+        <div className="brand-subtitle">NAV2 地上準備 / v{appVersion}{localMode ? " / Pyodide Local PoC" : ""}</div>
       </div>
       <div className="header-project">
         <label className="header-project-label" htmlFor="project-name">
@@ -54,7 +55,7 @@ export function Header({
           type="text"
           value={projectName}
           maxLength={60}
-          disabled={revision === null || busy}
+          disabled={localMode || revision === null || busy}
           aria-invalid={revision !== null && normalizedProjectName.length === 0}
           onChange={(event) => onProjectNameChange(event.target.value)}
         />
@@ -70,9 +71,9 @@ export function Header({
           <span className="information-icon-wrap"><Info aria-hidden="true" size={18} />{informationUnread && <span className="information-unread-dot" />}</span>
           <span className="information-label">Information</span>
         </button>
-        <div className="storage-state" aria-label="保存先はローカルです">
+        <div className="storage-state" aria-label={localMode ? "再読込で入力を破棄します" : "保存先はローカルです"}>
           <CheckCircle2 aria-hidden="true" size={17} />
-          <span>ローカル保存</span>
+          <span>{localMode ? "再読込で入力を破棄" : "ローカル保存"}</span>
         </div>
         <div className="saved-project-control">
           <label htmlFor="saved-project">保存済み</label>
@@ -115,7 +116,7 @@ export function Header({
           title="保存"
           type="button"
           onClick={() => onSave(normalizedProjectName)}
-          disabled={revision === null || busy || normalizedProjectName.length === 0}
+          disabled={localMode || revision === null || busy || normalizedProjectName.length === 0}
         >
           <Save aria-hidden="true" size={18} />
           <span className="header-action-label">保存</span>
