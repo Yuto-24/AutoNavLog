@@ -13,6 +13,7 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 ### 開発者向け
 
 - Issue #154で数値回帰5件をprofileし、境界検証の各区間で使わない測地線中点の計算を除去しました。探索条件・golden・数値toleranceは維持し、計測手順と結果を`docs/testing.md`へ記録しました。
+- 通常の生成経路も確認対象の保存済みデータも使用していなかった`RouteNodeRole.TURN_POINT`を削除し、テスト入力を`ROUTE_POINT`へ統合しました。互換変換は追加していません。
 
 ## 1.11.2
 

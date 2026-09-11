@@ -168,7 +168,7 @@ def test_cruise_power_extrapolation_stays_in_metadata_for_each_zone(airports, pr
         name="TP2",
         latitude_deg=33.0,
         longitude_deg=131.6,
-        role=RouteNodeRole.TURN_POINT,
+        role=RouteNodeRole.ROUTE_POINT,
     )
     original_destination.sequence = 3
     boundary_project.route_nodes.append(middle)
@@ -828,7 +828,7 @@ def test_eoc_starts_from_descent_leg_altitude_before_using_previous_leg(
         name="WP3",
         latitude_deg=32.45,
         longitude_deg=131.55,
-        role=RouteNodeRole.TURN_POINT,
+        role=RouteNodeRole.ROUTE_POINT,
         manual_distance_nm=20.0,
     )
     vrep = RouteNode(
@@ -911,7 +911,7 @@ def _eoc_backtracking_project(
         name="WP1",
         latitude_deg=32.15,
         longitude_deg=131.50,
-        role=RouteNodeRole.TURN_POINT,
+        role=RouteNodeRole.ROUTE_POINT,
         manual_distance_nm=leg_distances_nm[1],
         manual_true_course_deg=manual_courses_deg[1],
     )
@@ -920,7 +920,7 @@ def _eoc_backtracking_project(
         name="WP2",
         latitude_deg=32.45,
         longitude_deg=131.55,
-        role=RouteNodeRole.TURN_POINT,
+        role=RouteNodeRole.ROUTE_POINT,
         manual_distance_nm=leg_distances_nm[2],
         manual_true_course_deg=manual_courses_deg[2],
     )
@@ -1961,7 +1961,7 @@ def test_three_leg_route_calculates_rca_eoc_and_magnetic_course(
         name="米ノ津",
         latitude_deg=32.11545443632519,
         longitude_deg=130.3371470683687,
-        role=RouteNodeRole.TURN_POINT,
+        role=RouteNodeRole.ROUTE_POINT,
     )
     vrep = RouteNode(
         sequence=2,

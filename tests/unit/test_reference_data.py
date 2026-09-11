@@ -54,7 +54,7 @@ def _point() -> PointSelection:
         name="Turn Point 1",
         latitude_deg=32.0,
         longitude_deg=131.5,
-        point_role=RouteNodeRole.TURN_POINT,
+        point_role=RouteNodeRole.ROUTE_POINT,
         source="fixture",
         source_revision="fixture-v1",
         notes="",

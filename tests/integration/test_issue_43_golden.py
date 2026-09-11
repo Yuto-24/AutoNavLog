@@ -81,8 +81,8 @@ def golden_project() -> Project:
     assert names == ["RJFM", "米ノ津", "玉名", "大牟田", "RJFS"]
     roles = [
         RouteNodeRole.AIRPORT,
-        RouteNodeRole.TURN_POINT,
-        RouteNodeRole.TURN_POINT,
+        RouteNodeRole.ROUTE_POINT,
+        RouteNodeRole.ROUTE_POINT,
         RouteNodeRole.VISUAL_REPORTING_POINT,
         RouteNodeRole.DESTINATION,
     ]

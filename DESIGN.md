@@ -1474,7 +1474,7 @@ checkpoints.csv
 - `airports.csv`: `id,icao,name,latitude_deg,longitude_deg,elevation_ft_msl,pattern_altitude_ft_msl,pattern_altitude_source,pattern_altitude_source_revision,pattern_altitude_validation_status,source,source_revision`
 - `points.csv`: `id,name,latitude_deg,longitude_deg,point_role,source,source_revision,notes`
 - `checkpoints.csv`: `id,name,latitude_deg,longitude_deg,source,source_revision,notes`
-- `point_role`: `DEPARTURE_REFERENCE / TURN_POINT / VISUAL_REPORTING_POINT / ROUTE_POINT`
+- `point_role`: `DEPARTURE_REFERENCE / VISUAL_REPORTING_POINT / ROUTE_POINT`
 - CPとLegの関連は経路ごとに変わるため、マスターCSVへは格納せずProject側で指定する
 - `pattern_altitude_validation_status`: `VERIFIED / UNVERIFIED / REJECTED` の閉集合。目的空港として採用できるのは `VERIFIED` かつ場周経路高度固有の出典・revisionが空でない行だけ
 
