@@ -36,7 +36,10 @@ export class ApiClient {
   private local: Promise<LocalClient> | undefined;
 
   private async localRequest<T>(path: string, body?: unknown): Promise<T> {
-    const client = await (this.local ??= import("./localClient").then(({ LocalClient }) => new LocalClient()));
+    // Keep the import behind Vite's literal build-time condition so Legacy never builds the Worker.
+    const client = await (this.local ??= import.meta.env.VITE_CALCULATION_MODE === "local"
+      ? import("./localClient").then(({ LocalClient }) => new LocalClient())
+      : Promise.reject(new Error("Local calculation is disabled in this build.")));
     try {
       return await client.request<T>(path, body);
     } catch (error) {
