@@ -2,17 +2,29 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
-## 1.11.4
+## 1.11.5
 
 ### 利用者向け
 
-#### 追加
+#### 改善
 
-- 開発環境で、FTDのNAV LOG計算をブラウザ内で試せるようになりました。
+- 内部処理を改善しました。AutoNavLogの使い方に変更はありません。
 
 ### 開発者向け
 
 - 開発・検証用のPyodide Local PoCを追加。FTD気象を使い、KML取込からNAV LOG表示までブラウザ内で実行できます。入力は再読込で失われます。
+
+## 1.11.4
+
+### 利用者向け
+
+#### 修正
+
+- 地図に「403 Access blocked」が表示される問題に対応するため、OpenStreetMapの標準タイル取得先を更新しました。
+
+### 開発者向け
+
+- Issue #163で、OSM TileLayerのURLを公式指定の `https://tile.openstreetmap.org/{z}/{x}/{y}.png` に変更しました。CSPの画像許可先も同ホストへ合わせ、既存LeafletのreferrerPolicyでタイル要求にoriginのRefererを送ります。既存のattributionは維持しています。
 
 ## 1.11.3
 
