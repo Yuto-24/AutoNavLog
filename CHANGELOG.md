@@ -2,6 +2,18 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.11.4
+
+### 利用者向け
+
+#### 修正
+
+- 地図に「403 Access blocked」が表示される問題に対応するため、OpenStreetMapの標準タイル取得先を更新しました。
+
+### 開発者向け
+
+- Issue #163で、OSM TileLayerのURLを公式指定の `https://tile.openstreetmap.org/{z}/{x}/{y}.png` に変更しました。CSPの画像許可先も同ホストへ合わせ、既存LeafletのreferrerPolicyでタイル要求にoriginのRefererを送ります。既存のattributionは維持しています。
+
 ## 1.11.3
 
 ### 利用者向け
