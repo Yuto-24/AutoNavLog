@@ -291,6 +291,7 @@ async def test_web_route_calculation_save_and_fail_closed_state(
         assert created.headers["cache-control"] == "no-store"
         assert created.headers["referrer-policy"] == "no-referrer"
         content_security_policy = created.headers["content-security-policy"]
+        assert "img-src 'self' data: https://tile.openstreetmap.org;" in content_security_policy
         assert "connect-src 'self' https://maps.gsi.go.jp" in content_security_policy
         assert "https://maps.gsi.go.jp" not in content_security_policy.split("img-src", 1)[1].split(
             ";", 1
