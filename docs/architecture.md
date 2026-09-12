@@ -84,5 +84,7 @@ FTDモードではTAFを取得せず、同欄へ`FTD_MODE_NO_TAF`を明示しま
 継承空欄、PA記号、目的空港情報、Leg間区切りを含みます。Reactは
 `NavLogDisplayCell.text`を表示し、display projectionから合計を作り直しません。
 
-開発用Pyodide Local pathの限定checkpointと再利用境界は
-[Local Calculation PoC](local_calculation_poc.md)を参照してください。最終移行方式は未決定です。
+Local CalculationはPython / Pyodideを採用し、Static Webを主方式として継続します。
+採用根拠・性能/外部気象の制約・後続Issueは
+[Architecture Decision](local_calculation_poc.md#architecture-decision-2026-09-13)を参照してください。
+上記FastAPI構成は移行中のLegacy runtimeとして維持します。
