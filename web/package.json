@@ -11,12 +11,20 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "test:release-notes": "node --test scripts/generate-release-notes.test.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "dev:local": "VITE_CALCULATION_MODE=local vite --host 127.0.0.1 --port 5174",
+    "build:local": "npm run generate:release-notes && VITE_CALCULATION_MODE=local tsc -b && VITE_CALCULATION_MODE=local vite build --outDir dist-local",
+    "prepare:local": "python3 ../scripts/prepare_local.py",
+    "prebuild:local": "npm run prepare:local",
+    "predev:local": "npm run generate:release-notes && npm run prepare:local",
+    "test:local": "playwright test --config playwright.local.config.ts"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-jp": "5.3.0",
+    "comlink": "4.4.2",
     "leaflet": "1.9.4",
     "lucide-react": "1.30.0",
+    "pyodide": "0.27.7",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-leaflet": "5.0.0"

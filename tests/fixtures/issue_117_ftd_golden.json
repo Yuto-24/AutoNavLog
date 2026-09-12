@@ -1,0 +1,2423 @@
+{
+  "physicalLegs": [
+    {
+      "from": 0,
+      "to": 1,
+      "phase": "CLIMB",
+      "altitude": 6500
+    },
+    {
+      "from": 1,
+      "to": 2,
+      "phase": "CRUISE",
+      "altitude": 7500
+    },
+    {
+      "from": 2,
+      "to": 3,
+      "phase": "DESCENT",
+      "altitude": 6500
+    },
+    {
+      "from": 3,
+      "to": 4,
+      "phase": "VISUAL_ARRIVAL",
+      "altitude": 2500
+    }
+  ],
+  "nodes": [
+    {
+      "name": "RJFM",
+      "latitude": 31.8772222222,
+      "longitude": 131.4486111111,
+      "role": "AIRPORT"
+    },
+    {
+      "name": "米ノ津",
+      "latitude": 32.1156353433264,
+      "longitude": 130.3376784271216,
+      "role": "ROUTE_POINT"
+    },
+    {
+      "name": "玉名",
+      "latitude": 32.89346338383958,
+      "longitude": 130.5368732463333,
+      "role": "ROUTE_POINT"
+    },
+    {
+      "name": "大牟田",
+      "latitude": 33.02960582095061,
+      "longitude": 130.4440880275259,
+      "role": "VISUAL_REPORTING_POINT"
+    },
+    {
+      "name": "RJFS",
+      "latitude": 33.1497222222,
+      "longitude": 130.3022222222,
+      "role": "DESTINATION"
+    }
+  ],
+  "zones": [
+    {
+      "sequence": 0,
+      "phase": "CLIMB",
+      "from_name": "RJFM",
+      "to_name": "RCA",
+      "from_latitude_deg": 31.8772222222,
+      "from_longitude_deg": 131.4486111111,
+      "to_latitude_deg": 31.919368356086224,
+      "to_longitude_deg": 131.25588969765627,
+      "planned_altitude_ft_msl": {
+        "value": 6500,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_exact_ft": {
+        "value": 3259.5,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_planning_ft": {
+        "value": 3259.5,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "true_course_deg": {
+        "value": 284.42869946167946,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "variation_deg_east": {
+        "value": 7,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_course_deg": {
+        "value": 291.42869946167946,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wind_direction_deg_from": {
+        "value": 284.948647428171,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wind_speed_kt": {
+        "value": 20.24204315897978,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wca_deg": {
+        "value": 0.09039206352236379,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_heading_deg": {
+        "value": 291.5190915252018,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "temperature_c": {
+        "value": 8.5422786,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cas_kt": {
+        "value": 111,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "tas_kt": {
+        "value": 116.43355265799397,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "ground_speed_kt": {
+        "value": 96.19219808200288,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_distance_nm": {
+        "value": 10.16219571112345,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_distance_nm": {
+        "value": 10.16219571112345,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_ete_seconds": {
+        "value": 380.32091260516796,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_ete_seconds": {
+        "value": 380.32091260516796,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "section_fuel_gal": {
+        "value": 2.2957059149198,
+        "status": "PERFORMANCE_TABLE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "remaining_fuel_gal": {
+        "value": 86.2042940850802,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      }
+    },
+    {
+      "sequence": 1,
+      "phase": "CRUISE",
+      "from_name": "RCA",
+      "to_name": "米ノ津",
+      "from_latitude_deg": 31.919368356086224,
+      "from_longitude_deg": 131.25588969765627,
+      "to_latitude_deg": 32.1156353433264,
+      "to_longitude_deg": 130.3376784271216,
+      "planned_altitude_ft_msl": {
+        "value": 6500,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_exact_ft": {
+        "value": 6500,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_planning_ft": {
+        "value": 6500,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "true_course_deg": {
+        "value": 284.42869946167946,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "variation_deg_east": {
+        "value": 7,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_course_deg": {
+        "value": 291.42869946167946,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wind_direction_deg_from": {
+        "value": 270,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wind_speed_kt": {
+        "value": 30,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wca_deg": {
+        "value": -2.746566579434681,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_heading_deg": {
+        "value": 288.6821328822448,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "temperature_c": {
+        "value": 2.1221999999999994,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cas_kt": {
+        "value": 141.75467955656865,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "tas_kt": {
+        "value": 156,
+        "status": "PERFORMANCE_TABLE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "ground_speed_kt": {
+        "value": 126.76704239696868,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_distance_nm": {
+        "value": 48.29168792559693,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_distance_nm": {
+        "value": 58.453883636720384,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_ete_seconds": {
+        "value": 1371.4138410497944,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_ete_seconds": {
+        "value": 1751.7347536549623,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "section_fuel_gal": {
+        "value": 5.866603653379676,
+        "status": "PERFORMANCE_TABLE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "remaining_fuel_gal": {
+        "value": 80.33769043170054,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      }
+    },
+    {
+      "sequence": 2,
+      "phase": "CRUISE",
+      "from_name": "米ノ津",
+      "to_name": "EOC",
+      "from_latitude_deg": 32.1156353433264,
+      "from_longitude_deg": 130.3376784271216,
+      "to_latitude_deg": 32.59594142055233,
+      "to_longitude_deg": 130.46026224609994,
+      "planned_altitude_ft_msl": {
+        "value": 7500,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_exact_ft": {
+        "value": 7500,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_planning_ft": {
+        "value": 7500,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "true_course_deg": {
+        "value": 12.190453616841243,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "variation_deg_east": {
+        "value": 8,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_course_deg": {
+        "value": 20.190453616841243,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wind_direction_deg_from": {
+        "value": 270,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wind_speed_kt": {
+        "value": 30,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wca_deg": {
+        "value": -10.695648027086982,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_heading_deg": {
+        "value": 9.494805589754261,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "temperature_c": {
+        "value": 0.14100000000000001,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cas_kt": {
+        "value": 141.42004642382696,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "tas_kt": {
+        "value": 158,
+        "status": "PERFORMANCE_TABLE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "ground_speed_kt": {
+        "value": 161.58990782474643,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_distance_nm": {
+        "value": 29.42659553304177,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_distance_nm": {
+        "value": 87.88047916976215,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_ete_seconds": {
+        "value": 655.5839120463129,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_ete_seconds": {
+        "value": 2407.318665701275,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "section_fuel_gal": {
+        "value": 2.8226529546438472,
+        "status": "PERFORMANCE_TABLE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "remaining_fuel_gal": {
+        "value": 77.5150374770567,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      }
+    },
+    {
+      "sequence": 3,
+      "phase": "DESCENT",
+      "from_name": "EOC",
+      "to_name": "玉名",
+      "from_latitude_deg": 32.59594142055233,
+      "from_longitude_deg": 130.46026224609994,
+      "to_latitude_deg": 32.89346338383958,
+      "to_longitude_deg": 130.5368732463333,
+      "planned_altitude_ft_msl": {
+        "value": 7500,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_exact_ft": {
+        "value": 7000,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_planning_ft": {
+        "value": 7000,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "true_course_deg": {
+        "value": 12.190453616841243,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "variation_deg_east": {
+        "value": 8,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_course_deg": {
+        "value": 20.190453616841243,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wind_direction_deg_from": {
+        "value": 270,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wind_speed_kt": {
+        "value": 30,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wca_deg": {
+        "value": -10.777781301055883,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_heading_deg": {
+        "value": 9.41267231578536,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "temperature_c": {
+        "value": 1.1315999999999988,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cas_kt": {
+        "value": 141.42004642382696,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "tas_kt": {
+        "value": 156.8100168746765,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "ground_speed_kt": {
+        "value": 160.37872151878682,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_distance_nm": {
+        "value": 18.23291315673498,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_distance_nm": {
+        "value": 106.11339232649713,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_ete_seconds": {
+        "value": 409.27179580089756,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_ete_seconds": {
+        "value": 2816.5904615021727,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "section_fuel_gal": {
+        "value": 1.3642393193363254,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "remaining_fuel_gal": {
+        "value": 76.15079815772037,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      }
+    },
+    {
+      "sequence": 4,
+      "phase": "DESCENT",
+      "from_name": "玉名",
+      "to_name": "大牟田",
+      "from_latitude_deg": 32.89346338383958,
+      "from_longitude_deg": 130.5368732463333,
+      "to_latitude_deg": 33.02960582095061,
+      "to_longitude_deg": 130.4440880275259,
+      "planned_altitude_ft_msl": {
+        "value": 6500,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_exact_ft": {
+        "value": 5000,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_planning_ft": {
+        "value": 5000,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "true_course_deg": {
+        "value": 330.1460687175243,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "variation_deg_east": {
+        "value": 8,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_course_deg": {
+        "value": 338.1460687175243,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wind_direction_deg_from": {
+        "value": 270,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wind_speed_kt": {
+        "value": 30,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wca_deg": {
+        "value": -9.844720966549344,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_heading_deg": {
+        "value": 328.30134775097497,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "temperature_c": {
+        "value": 5.093999999999999,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cas_kt": {
+        "value": 141.42004642382696,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "tas_kt": {
+        "value": 152.17647415611066,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "ground_speed_kt": {
+        "value": 135.00192028389114,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_distance_nm": {
+        "value": 9.402441398947332,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_distance_nm": {
+        "value": 115.51583372544447,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_ete_seconds": {
+        "value": 250.72820419910235,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_ete_seconds": {
+        "value": 3067.318665701275,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "section_fuel_gal": {
+        "value": 0.8357606806636745,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "remaining_fuel_gal": {
+        "value": 75.3150374770567,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      }
+    },
+    {
+      "sequence": 5,
+      "phase": "VISUAL_ARRIVAL",
+      "from_name": "大牟田",
+      "to_name": "RJFS",
+      "from_latitude_deg": 33.02960582095061,
+      "from_longitude_deg": 130.4440880275259,
+      "to_latitude_deg": 33.1497222222,
+      "to_longitude_deg": 130.3022222222,
+      "planned_altitude_ft_msl": {
+        "value": 2500,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_exact_ft": {
+        "value": 1253,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "pressure_altitude_planning_ft": {
+        "value": 1253,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "true_course_deg": {
+        "value": 315.2053062109437,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "variation_deg_east": {
+        "value": 8,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_course_deg": {
+        "value": 323.2053062109437,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wind_direction_deg_from": {
+        "value": null,
+        "status": "UNAVAILABLE",
+        "source": null,
+        "warnings": []
+      },
+      "wind_speed_kt": {
+        "value": 0,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "wca_deg": {
+        "value": 0,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "magnetic_heading_deg": {
+        "value": 323.2053062109437,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "temperature_c": {
+        "value": 12.5175564,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cas_kt": {
+        "value": 121,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "tas_kt": {
+        "value": 123.22473717684447,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "ground_speed_kt": {
+        "value": 123.22473717684447,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_distance_nm": {
+        "value": 10.143137929536337,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_distance_nm": {
+        "value": 125.6589716549808,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "zone_ete_seconds": {
+        "value": 296.33089412823284,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "cumulative_ete_seconds": {
+        "value": 3363.6495598295082,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "section_fuel_gal": {
+        "value": 0.9877696470941095,
+        "status": "FIXED_RULE",
+        "source": "AUTOMATIC",
+        "warnings": []
+      },
+      "remaining_fuel_gal": {
+        "value": 74.3272678299626,
+        "status": "AUTO",
+        "source": "AUTOMATIC",
+        "warnings": []
+      }
+    }
+  ],
+  "boundaries": [
+    {
+      "type": "RCA",
+      "latitude_deg": 31.919368356086224,
+      "longitude_deg": 131.25588969765627,
+      "along_route_distance_nm": 10.16219571112345,
+      "section": 0
+    },
+    {
+      "type": "EOC",
+      "latitude_deg": 32.59594142055233,
+      "longitude_deg": 130.46026224609994,
+      "along_route_distance_nm": 87.88047916976215,
+      "section": 1
+    }
+  ],
+  "display": [
+    {
+      "phase": "CLIMB",
+      "row_type": "PHYSICAL_LEG_SUMMARY",
+      "from_name": "RJFM",
+      "to_name": "米ノ津",
+      "pa_display_kind": "NUMERIC",
+      "pa": {
+        "text": "19",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": "15.0",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": "284",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": "+7",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": "291",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": "58.5 / 58.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": "29.5 / 29.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": "8.2 / 80.3",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "CLIMB",
+      "row_type": "CALCULATION_ZONE",
+      "from_name": "",
+      "to_name": "RCA",
+      "pa_display_kind": "CLIMB",
+      "pa": {
+        "text": "↗",
+        "state": "STATE_SYMBOL",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": "8.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": "111",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": "116",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": "285/20",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": "0",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": "291",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": "10.0",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": "96",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": "6.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": "2.3",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "CRUISE",
+      "row_type": "CALCULATION_ZONE",
+      "from_name": "",
+      "to_name": "米ノ津",
+      "pa_display_kind": "NUMERIC",
+      "pa": {
+        "text": "6500",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": "2.1",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": "142",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": "156",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": "270/30",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": "-3",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": "288",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": "48.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": "127",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": "23.0",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": "5.9",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "CLIMB",
+      "row_type": "LEG_SEPARATOR",
+      "from_name": "",
+      "to_name": "",
+      "pa_display_kind": "BLANK",
+      "pa": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "CRUISE",
+      "row_type": "PHYSICAL_LEG_SUMMARY",
+      "from_name": "米ノ津",
+      "to_name": "玉名",
+      "pa_display_kind": "NUMERIC",
+      "pa": {
+        "text": "7500",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": "0.1",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": "141",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": "158",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": "012",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": "+8",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": "020",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": "270/30",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": "-11",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": "009",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": "47.5 / 106.0",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": "18.0 / 47.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": "4.2 / 76.1",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "CRUISE",
+      "row_type": "CALCULATION_ZONE",
+      "from_name": "",
+      "to_name": "EOC",
+      "pa_display_kind": "DESCENT",
+      "pa": {
+        "text": "↘",
+        "state": "STATE_SYMBOL",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": "29.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": "162",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": "11.0",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": "2.8",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "DESCENT",
+      "row_type": "CALCULATION_ZONE",
+      "from_name": "",
+      "to_name": "玉名",
+      "pa_display_kind": "ESTIMATED",
+      "pa": {
+        "text": "(4089)",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": "1.1",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": "157",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": "270/30",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": "-11",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": "009",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": "18.0",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": "160",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": "7.0",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": "1.4",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "CRUISE",
+      "row_type": "LEG_SEPARATOR",
+      "from_name": "",
+      "to_name": "",
+      "pa_display_kind": "BLANK",
+      "pa": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "DESCENT",
+      "row_type": "PHYSICAL_LEG_SUMMARY",
+      "from_name": "玉名",
+      "to_name": "大牟田",
+      "pa_display_kind": "DESCENT",
+      "pa": {
+        "text": "↘",
+        "state": "STATE_SYMBOL",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": "5.1",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": "141",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": "152",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": "330",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": "+8",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": "338",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": "270/30",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": "-10",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": "328",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": "9.5 / 115.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": "135",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": "4.0 / 51.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": "0.8 / 75.3",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "DESCENT",
+      "row_type": "CALCULATION_ZONE",
+      "from_name": "",
+      "to_name": "大牟田",
+      "pa_display_kind": "NUMERIC",
+      "pa": {
+        "text": "2500",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": "9.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": null,
+        "state": "INHERIT",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": "4.0",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": "0.8",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "DESCENT",
+      "row_type": "LEG_SEPARATOR",
+      "from_name": "",
+      "to_name": "",
+      "pa_display_kind": "BLANK",
+      "pa": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "VISUAL_ARRIVAL",
+      "row_type": "PHYSICAL_LEG_SUMMARY",
+      "from_name": "大牟田",
+      "to_name": "RJFS",
+      "pa_display_kind": "DESCENT",
+      "pa": {
+        "text": "↘",
+        "state": "STATE_SYMBOL",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": "12.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": "121",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": "123",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": "315",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": "+8",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": "323",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": "CALM",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": "0",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": "323",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": "10.0 / 125.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": "123",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": "5.0 / 56.5",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": "1.0 / 74.3",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "VISUAL_ARRIVAL",
+      "row_type": "DESTINATION_INFO",
+      "from_name": "",
+      "to_name": "RJFS",
+      "pa_display_kind": "NUMERIC",
+      "pa": {
+        "text": "6",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": "15.0",
+        "state": "DISPLAY_VALUE",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": "未取得",
+        "state": "UNAVAILABLE",
+        "reason_code": "DESTINATION_WIND_UNAVAILABLE",
+        "manual": false
+      },
+      "wca": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      }
+    },
+    {
+      "phase": "VISUAL_ARRIVAL",
+      "row_type": "LEG_SEPARATOR",
+      "from_name": "",
+      "to_name": "",
+      "pa_display_kind": "BLANK",
+      "pa": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "toat": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "cas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tas": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "tc": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "variation": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "mc": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "wind": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "wca": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "mh": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "distance": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "gs": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ete": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "eto": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ato": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "ate": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      },
+      "fuel": {
+        "text": null,
+        "state": "BLANK",
+        "reason_code": null,
+        "manual": false
+      }
+    }
+  ],
+  "fuel": {
+    "total_usable_gal": 90,
+    "taxi_runup_minutes": 10,
+    "taxi_runup_gal": 1.5,
+    "climb_gal": 2.2957059149198,
+    "cruise_gal": 8.689256608023523,
+    "descent_gal": 3.1877696470941093,
+    "additional_gal": 2.8,
+    "tgl_gal": 0,
+    "reserve_gal": 12.4,
+    "bof_gal": 16.972732170037432,
+    "min_required_gal": 30.87273217003743,
+    "extra_gal": 59.12726782996257,
+    "extra_endurance_seconds": 12900.49479926456
+  },
+  "summary": {
+    "distance": {
+      "state": "DISPLAY_VALUE",
+      "text": "125.5",
+      "effective_value": 125.5,
+      "reason_code": null,
+      "manual": false
+    },
+    "time": {
+      "state": "DISPLAY_VALUE",
+      "text": "0:57",
+      "effective_value": 3390,
+      "reason_code": null,
+      "manual": false
+    }
+  },
+  "issues": [],
+  "readiness": [],
+  "status": "READY_FOR_COPY",
+  "converged": true,
+  "policy": "nav2-v14-selectable-descent-rate",
+  "performance": "Reissue A; LOEP checked through Revision A1 (Section 5 pages 5-30 through 5-34 remain Reissue A)"
+}

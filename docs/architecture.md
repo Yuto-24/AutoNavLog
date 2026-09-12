@@ -83,3 +83,6 @@ FTDモードではTAFを取得せず、同欄へ`FTD_MODE_NO_TAF`を明示しま
 唯一の集計元です。`display_rows`は`sections`から作る表示専用投影で、Physical Leg小計、
 継承空欄、PA記号、目的空港情報、Leg間区切りを含みます。Reactは
 `NavLogDisplayCell.text`を表示し、display projectionから合計を作り直しません。
+
+開発用Pyodide Local pathの限定checkpointと再利用境界は
+[Local Calculation PoC](local_calculation_poc.md)を参照してください。最終移行方式は未決定です。

@@ -20,3 +20,7 @@ web/vite.config.js
 web/vite.config.d.ts
 web/src/generated/
 .env
+
+web/dist-local/
+
+web/public-local/

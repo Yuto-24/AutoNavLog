@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from secrets import compare_digest, token_urlsafe
 from threading import RLock
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -89,10 +89,12 @@ from autonavlog.weather.destination_taf import (
     unavailable_destination_wind,
 )
 from autonavlog.weather.ftd_provider import FtdWeatherProvider
-from autonavlog.weather.prewarm import WeatherPrewarmer
 from autonavlog.weather.provider import WeatherProvider
 
-from .cloudflare_access import AccessTokenVerifier
+if TYPE_CHECKING:
+    from autonavlog.weather.prewarm import WeatherPrewarmer
+
+    from .cloudflare_access import AccessTokenVerifier
 from .cruising_altitude import (
     LEGAL_THRESHOLD_NOTE_JA,
     TERRAIN_LIMITATION_NOTE_JA,
