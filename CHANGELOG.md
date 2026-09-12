@@ -2,6 +2,19 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.11.6
+
+### 利用者向け
+
+#### 改善
+
+- 内部処理を改善しました。AutoNavLogの通常の使い方に変更はありません。
+
+### 開発者向け
+
+- Pyodide Local Calculationで固定MSM由来データによるFORECASTを実行可能にしました。FTDと同じCalculation Coreを使用し、既存Run固定・RJFM例外・手動入力・Check PointをPython Referenceと比較します。
+- Local wheelの正式インストールとassetハッシュ検証を追加し、Pyodide同梱PydanticでRJFM状態を厳格に復元できるようにしました。通常経路の切替、MSM/TAF本番取得、Local永続化は含みません。
+
 ## 1.11.5
 
 ### 利用者向け

@@ -88,3 +88,6 @@ Local CalculationはPython / Pyodideを採用し、Static Webを主方式とし�
 採用根拠・性能/外部気象の制約・後続Issueは
 [Architecture Decision](local_calculation_poc.md#architecture-decision-2026-09-13)を参照してください。
 上記FastAPI構成は移行中のLegacy runtimeとして維持します。
+
+取得済みFORECASTを含むPyodide Coreの適用範囲・固定MSM fixture・Run固定・
+Reference維持条件は[Calculation Core](local_calculation_core.md)を参照してください。

@@ -345,3 +345,33 @@ def test_result_is_json_serializable_without_pydantic() -> None:
     assert "partial_left_turn_angle_deg" not in serialized["selected_candidate"]
     assert "EXTENSION_TURN" in encoded
     assert "INITIAL_STRAIGHT" in encoded
+
+
+def test_guidance_json_roundtrip_keeps_strict_enum_validation():
+    import json
+
+    import pytest
+    from pydantic import ValidationError
+
+    from autonavlog.domain.planning import RjfmRunwayGuidance
+
+    data = {
+        "runway": "09",
+        "status": "VALID",
+        "turn_direction": "LEFT",
+        "turn_method": "FIXED_BANK_20",
+    }
+    result = RjfmRunwayGuidance.model_validate_json(json.dumps(data))
+    assert RjfmRunwayGuidance.model_validate_json(result.model_dump_json()) == result
+    with pytest.raises(ValidationError):
+        RjfmRunwayGuidance.model_validate(data)
+    for field, value in (("status", "unknown"), ("full_turns", "1"), ("full_turns", True)):
+        with pytest.raises(ValidationError):
+            RjfmRunwayGuidance.model_validate_json(json.dumps({**data, field: value}))
+
+    legacy = {**data, "full_left_turns": 0, "partial_left_turn_deg": 12.0}
+    assert RjfmRunwayGuidance.model_validate_json(json.dumps(legacy)).full_turns == 0
+    native = result.model_dump()
+    for extra in ({"full_left_turns": 0}, {"partial_left_turn_deg": 12.0}):
+        with pytest.raises(ValidationError):
+            RjfmRunwayGuidance.model_validate({**native, "turn_direction": "LEFT", **extra})

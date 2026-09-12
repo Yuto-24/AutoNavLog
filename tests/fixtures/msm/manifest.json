@@ -1,0 +1,109 @@
+{
+  "description": "Actual RISH JMA MSM forecast subsets; decoded using netCDF4 automatic scale/offset. No synthetic weather.",
+  "runs": [
+    {
+      "id": "20260912000000",
+      "file": "20260912000000.npz",
+      "sha256": "fbe81da1e04244c40cdc9af3c577209b58189330c208c2f034dfc7e8d6f21084",
+      "sources": [
+        {
+          "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/latest/20260912/MSM2026091200P.nc",
+          "time_units": "hours since 2026-09-12 00:00:00+00:00",
+          "variables": {
+            "z": {
+              "long_name": "geopotential height",
+              "units": "m",
+              "standard_name": "geopotential_height"
+            },
+            "u": {
+              "scale_factor": 0.006116208155,
+              "add_offset": 0.0,
+              "long_name": "eastward component of wind",
+              "units": "m/s",
+              "standard_name": "eastward_wind"
+            },
+            "v": {
+              "scale_factor": 0.006116208155,
+              "add_offset": 0.0,
+              "long_name": "northward component of wind",
+              "units": "m/s",
+              "standard_name": "northward_wind"
+            },
+            "temp": {
+              "scale_factor": 0.002613491379,
+              "add_offset": 255.4004974,
+              "long_name": "temperature",
+              "units": "K",
+              "standard_name": "air_temperature"
+            }
+          }
+        },
+        {
+          "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/latest/20260912/MSM2026091200S.nc",
+          "time_units": "hours since 2026-09-12 00:00:00+00:00",
+          "variables": {
+            "temp": {
+              "scale_factor": 0.002613491379,
+              "add_offset": 255.4004974,
+              "long_name": "temperature",
+              "units": "K",
+              "standard_name": "air_temperature"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "20260912030000",
+      "file": "20260912030000.npz",
+      "sha256": "194778b78813b3bfb02fd23a36503c3706023b656d0c9c13cb31bf0d635d4432",
+      "sources": [
+        {
+          "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/latest/20260912/MSM2026091203P.nc",
+          "time_units": "hours since 2026-09-12 03:00:00+00:00",
+          "variables": {
+            "z": {
+              "long_name": "geopotential height",
+              "units": "m",
+              "standard_name": "geopotential_height"
+            },
+            "u": {
+              "scale_factor": 0.006116208155,
+              "add_offset": 0.0,
+              "long_name": "eastward component of wind",
+              "units": "m/s",
+              "standard_name": "eastward_wind"
+            },
+            "v": {
+              "scale_factor": 0.006116208155,
+              "add_offset": 0.0,
+              "long_name": "northward component of wind",
+              "units": "m/s",
+              "standard_name": "northward_wind"
+            },
+            "temp": {
+              "scale_factor": 0.002613491379,
+              "add_offset": 255.4004974,
+              "long_name": "temperature",
+              "units": "K",
+              "standard_name": "air_temperature"
+            }
+          }
+        },
+        {
+          "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/latest/20260912/MSM2026091203S.nc",
+          "time_units": "hours since 2026-09-12 03:00:00+00:00",
+          "variables": {
+            "temp": {
+              "scale_factor": 0.002613491379,
+              "add_offset": 255.4004974,
+              "long_name": "temperature",
+              "units": "K",
+              "standard_name": "air_temperature"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

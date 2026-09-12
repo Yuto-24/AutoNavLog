@@ -9,35 +9,70 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from autonavlog.importers.kml import import_kml_text
-from autonavlog.web.models import ConfirmRouteRequest, UpdateProjectRequest
-from autonavlog.web.runtime import WebRuntimeConfig, build_web_application
+from autonavlog.web.models import (
+    ConfirmRouteRequest,
+    ReplaceCheckPointsRequest,
+    SaveProjectRequest,
+    UpdateProjectRequest,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def reference_state(*, strong_wind: bool = False) -> dict[str, Any]:
+def reference_state(
+    *,
+    strong_wind: bool = False,
+    forecast: bool = False,
+    route: str | None = None,
+    pinned: bool = False,
+    manual: bool = False,
+    local: bool = False,
+) -> dict[str, Any]:
     inputs = json.loads((ROOT / "tests/fixtures/issue_117_ftd.json").read_text())
+    if forecast:
+        inputs["confirm"].update(
+            weather_mode="FORECAST", flight_date="2026-09-12", departure_time_jst="12:00"
+        )
     if strong_wind:
         for wind in inputs["confirm"]["ftd_weather"].values():
             wind.update(direction_deg_from=360, speed_kt=200)
     with TemporaryDirectory() as temporary:
-        app = build_web_application(
-            WebRuntimeConfig(
-                data_root=ROOT / "data",
-                storage_root=Path(temporary),
+        if local:
+            from autonavlog.local import LocalApplication
+
+            local_application = LocalApplication(ROOT / "data")
+            app = local_application.app
+        else:
+            from autonavlog.web.runtime import WebRuntimeConfig, build_web_application
+
+            app = build_web_application(
+                WebRuntimeConfig(data_root=ROOT / "data", storage_root=Path(temporary))
             )
-        )
+        if forecast:
+            from autonavlog.weather.msm_fixture import (
+                FIXTURE_WEATHER_LABEL,
+                fixture_weather_provider,
+            )
+
+            if not local:
+                app.weather_factory = lambda: fixture_weather_provider(ROOT / "tests/fixtures/msm")
+            app.weather_label = FIXTURE_WEATHER_LABEL
+            app.destination_wind_provider = None
+            app.development_weather = False
         session = app.create_session("reference")
+        filename = f"issue_125_{route}.kml" if route else "issue_43_golden.kml"
         app.accept_import(
             session,
             result=import_kml_text(
-                (ROOT / "tests/fixtures/issue_43_golden.kml").read_text(),
-                filename="issue_43_golden.kml",
+                (ROOT / "tests/fixtures" / filename).read_text(),
+                filename=filename,
             ),
-            filename="issue_43_golden.kml",
+            filename=filename,
         )
         app.confirm_route(session, ConfirmRouteRequest.model_validate(inputs["confirm"]))
         assert session.project is not None
+        if route:
+            inputs["altitudes"] = [6500] * (len(session.project.sections) - 1) + [2500]
         update = {
             **{
                 key: inputs["confirm"][key]
@@ -63,17 +98,63 @@ def reference_state(*, strong_wind: bool = False) -> dict[str, Any]:
             "visual_reporting_point_node_id": str(session.project.route_nodes[-2].id),
             "selected_pattern_altitude_ft_msl": 1000,
         }
+        if manual:
+            update.update(descent_rate_fpm=1000, run_up_included=False, tgl_count=2)
+            update["sections"][0]["manual_tas_kt_by_phase"] = {"CLIMB": 125, "CRUISE": 145}
+            update["sections"][1]["manual_wind_by_phase"] = {
+                "CRUISE": {"direction_deg_from": 190, "speed_kt": 12}
+            }
+            update["sections"][2]["manual_tas_kt_by_phase"] = {"DESCENT": 135}
         app.update_project(session, UpdateProjectRequest.model_validate(update))
+        if manual:
+            from autonavlog.nav.geodesy import geodesic_leg
+
+            start, end = session.project.route_nodes[1:3]
+            geometry = geodesic_leg(
+                start.latitude_deg, start.longitude_deg, end.latitude_deg, end.longitude_deg
+            )
+            app.replace_check_points(
+                session,
+                ReplaceCheckPointsRequest.model_validate(
+                    {
+                        "check_points": [
+                            {
+                                "name": "MSM CORE CP",
+                                "latitude_deg": geometry.midpoint_latitude_deg,
+                                "longitude_deg": geometry.midpoint_longitude_deg,
+                                "linked_section_id": str(session.project.sections[1].id),
+                            }
+                        ]
+                    }
+                ),
+            )
+        if pinned:
+            session.project = session.project.model_copy(
+                update={"selected_forecast_run_id": "20260912000000"}
+            )
+            app.save(session, SaveProjectRequest(name="Pinned Forecast"))
+            session = app.create_session("reference")
+            assert session.project.selected_forecast_run_id == "20260912000000"
         return app.calculate(session)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--strong-wind", action="store_true")
+    parser.add_argument("--forecast", action="store_true")
+    parser.add_argument("--route", choices=["umk", "omaru", "inbound"])
+    parser.add_argument("--pinned", action="store_true")
+    parser.add_argument("--manual", action="store_true")
     arguments = parser.parse_args()
     print(
         json.dumps(
-            reference_state(strong_wind=arguments.strong_wind),
+            reference_state(
+                strong_wind=arguments.strong_wind,
+                forecast=arguments.forecast,
+                route=arguments.route,
+                pinned=arguments.pinned,
+                manual=arguments.manual,
+            ),
             ensure_ascii=False,
             allow_nan=False,
         )

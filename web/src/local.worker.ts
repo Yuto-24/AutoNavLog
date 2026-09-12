@@ -5,15 +5,37 @@ async function initialize() {
   const pyodide = await loadPyodide({
     indexURL: "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/",
   });
-  await pyodide.loadPackage(["pydantic", "micropip", "tzdata"]);
+  await pyodide.loadPackage(["pydantic", "micropip", "tzdata", "numpy"]);
   await pyodide.runPythonAsync(`
 import micropip
 await micropip.install(["defusedxml==0.7.1", "geographiclib==2.1"])
 `);
-  for (const filename of ["autonavlog.whl", "data.zip"]) {
-    const response = await fetch(new URL(`${import.meta.env.BASE_URL}local/${filename}`, self.location.origin));
+  const assetUrl = (name: string) => new URL(`${import.meta.env.BASE_URL}local/${name}`, self.location.origin);
+  const manifestResponse = await fetch(assetUrl("manifest.json"), { cache: "no-cache" });
+  if (!manifestResponse.ok) throw new Error(`Local asset: manifest (${manifestResponse.status})`);
+  const manifest = await manifestResponse.json() as { wheels: string[]; data: string; sha256: Record<string, string> };
+  for (const filename of [...manifest.wheels, manifest.data]) {
+    if (!/^[a-zA-Z0-9_.-]+$/.test(filename)) throw new Error("Invalid Local asset name");
+    const response = await fetch(assetUrl(filename));
     if (!response.ok) throw new Error(`Local asset: ${filename} (${response.status})`);
-    pyodide.unpackArchive(await response.arrayBuffer(), "zip", { extractDir: "/home/pyodide" });
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    // hashlib works on plain HTTP localhost as well as HTTPS (Safari acceptance uses HTTPS).
+    pyodide.globals.set("asset_bytes", bytes);
+    pyodide.globals.set("asset_hash", manifest.sha256[filename]);
+    pyodide.runPython(`
+import hashlib
+if hashlib.sha256(bytes(asset_bytes.to_py())).hexdigest() != asset_hash:
+    raise ValueError("Local asset SHA-256 mismatch")
+del asset_bytes, asset_hash
+`);
+    if (filename.endsWith(".whl")) {
+      pyodide.FS.writeFile(`/tmp/${filename}`, bytes);
+      pyodide.globals.set("wheel_path", `/tmp/${filename}`);
+      await pyodide.runPythonAsync(`await micropip.install("emfs:" + wheel_path, deps=False)`);
+      pyodide.FS.unlink(`/tmp/${filename}`);
+    } else {
+      pyodide.unpackArchive(bytes, "zip", { extractDir: "/home/pyodide" });
+    }
   }
   pyodide.runPython(`
 from pathlib import Path
