@@ -1,3 +1,5 @@
+import { ApplicationError } from "./application";
+import type { ApplicationErrorDetails } from "./application";
 import { wrap } from "comlink";
 import type { LocalWorker } from "./local.worker";
 
@@ -36,7 +38,14 @@ export class LocalClient {
           }, 10 * 60_000);
         }),
       ]);
-      return JSON.parse(json) as T;
+      const payload = JSON.parse(json) as T | {
+        error: { code: string; message: string; details?: ApplicationErrorDetails };
+      };
+      if (payload && typeof payload === "object" && "error" in payload) {
+        const error = payload.error;
+        throw new ApplicationError(error.message, error.code, error.details);
+      }
+      return payload as T;
     } finally {
       clearTimeout(timer);
     }

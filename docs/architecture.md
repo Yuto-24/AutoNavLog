@@ -1,6 +1,7 @@
 # アーキテクチャ
 
-AutoNavLogはReact SPA、FastAPI、application service、domain、adapterの順に依存します。
+React SPAは共通Application contractを呼び、Legacy HTTPまたはLocal Browser Adapterへ接続します。
+[Frontend Application境界](application_contract.md)を参照してください。以下はLegacy側の構成です。
 WebやMSM固有の型を計算コアへ持ち込みません。
 
 ```text

@@ -5,14 +5,21 @@ import "@fontsource-variable/noto-sans-jp";
 import "./styles.css";
 import "./flightPlanLayout.css";
 import App from "./App";
+import { createApplication } from "./createApplication";
 
 const root = document.getElementById("root");
 if (!root) {
   throw new Error("AutoNavLog root element is unavailable");
 }
 
-createRoot(root).render(
+const view = createRoot(root);
+createApplication().then(application => view.render(
   <StrictMode>
-    <App />
+    <App application={application} />
   </StrictMode>,
-);
+)).catch(() => view.render(
+  <main className="loading-screen">
+    <p role="alert">起動できませんでした。画面を再読み込みしてください。</p>
+    <button onClick={() => window.location.reload()}>再読み込み</button>
+  </main>,
+));

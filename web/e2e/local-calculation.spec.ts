@@ -51,9 +51,9 @@ test.beforeEach(async ({ page }) => {
       }
       postMessage(message: any, options?: any) {
         if (root.failLocalCalculation && message.type === "APPLY" &&
-            message.argumentList?.[0]?.value === "/api/calculate") {
+            message.argumentList?.[0]?.value === "calculate") {
           // Inject a Python validation exception through the real Comlink/Python path.
-          message.argumentList[0].value = "/api/project/recalculate";
+          message.argumentList[0].value = "updateAndRecalculate";
           message.argumentList[1].value = { weather_mode: "INVALID" };
         }
         super.postMessage(message, options);
@@ -123,7 +123,7 @@ for (const width of [1100, 1440]) {
     const previousTable = await page.locator(".nav-log-table").innerText();
     await page.evaluate(() => { (window as any).failLocalCalculation = true; });
     await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
-    await expect(page.getByRole("alert")).toContainText("validation error");
+    await expect(page.getByRole("alert")).toContainText("入力内容を確認してください。");
     expect(await page.locator(".nav-log-table").innerText()).toBe(previousTable);
     await page.evaluate(() => { (window as any).failLocalCalculation = false; });
 
@@ -156,7 +156,7 @@ for (const corrupt of [false, true]) {
       await page.context().route("**/local/manifest.json", route => route.fulfill({ status: 503, body: "" }));
     }
     await page.goto("/");
-    await expect(page.getByRole("alert")).toContainText(corrupt ? "Local asset SHA-256 mismatch" : "Local asset");
+    await expect(page.getByRole("alert")).toContainText("処理を実行できませんでした。画面を再読み込みしてください。");
     expect(apiRequests).toEqual([]);
   });
 }

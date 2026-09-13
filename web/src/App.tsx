@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
-import { ApiClient, ApiError, fileToBase64 } from "./api";
+import { ApplicationError } from "./application";
+import type { AutoNavLogApplication, UpdateProjectInput } from "./application";
+import { fileToBase64 } from "./fileInput";
 import {
   candidateFromKey,
   departureAirportForCandidate,
@@ -52,7 +54,7 @@ type DraftSaveWaiter = (saved: boolean) => void;
 interface DraftSaveRequest {
   generation: number;
   projectId: string;
-  payload: Record<string, unknown>;
+  payload: UpdateProjectInput;
   useCanonicalFallback: boolean;
   syncDerivedArrival: boolean;
   waiters: DraftSaveWaiter[];
@@ -83,8 +85,7 @@ function patternRequestBasis(next: WebState): string | null {
   ].join("|");
 }
 
-function App() {
-  const api = useMemo(() => new ApiClient(), []);
+function App({ application }: { application: AutoNavLogApplication }) {
   const [state, setState] = useState<WebState | null>(null);
   const [form, setForm] = useState<PlanningForm>(() => initialPlanningForm());
   const [altitudeInputs, setAltitudeInputs] = useState<Record<string, string>>({});
@@ -140,7 +141,7 @@ function App() {
     sectionOverrides?: NavSection[],
     selectedPatternAltitudeFtMsl?: number,
     invalidFallbackProject?: Project,
-  ) => Record<string, unknown>>(() => ({}));
+  ) => UpdateProjectInput>(() => { throw new Error("Projectがありません。"); });
 
   const altitudeGuidanceBySection = useMemo(
     () => new Map(
@@ -316,7 +317,7 @@ function App() {
 
   useEffect(() => {
     let active = true;
-    api
+    application
       .bootstrap()
       .then((next) => {
         if (!active) return;
@@ -337,7 +338,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [api, bootstrapAttempt]);
+  }, [application, bootstrapAttempt]);
 
   useEffect(() => {
     if (!state || state.project) return;
@@ -441,22 +442,19 @@ function App() {
   ) => {
     invalidateDestinationPatternRequests();
     try {
-      const next = await api.request<WebState>("/api/import", {
-        method: "POST",
-        body: {
-          filename,
-          content_base64: contentBase64,
-          kmz_kml_filename: kmzDocument ?? null,
-        },
+      const next = await application.importRoute({
+        filename,
+        content_base64: contentBase64,
+        kmz_kml_filename: kmzDocument ?? null,
       });
       applyState(next, { freshImport: true });
       setNotice("経路候補を読み込みました。地図と記載順を確認してください。");
       setPendingKmz(null);
       setSelectedKmzDocument("");
     } catch (reason) {
-      if (reason instanceof ApiError && reason.code === "KMZ_DOCUMENT_SELECTION_REQUIRED") {
-        setPendingKmz({ filename, contentBase64, candidates: reason.candidates });
-        setSelectedKmzDocument(reason.candidates[0] ?? "");
+      if (reason instanceof ApplicationError && reason.code === "KMZ_DOCUMENT_SELECTION_REQUIRED") {
+        setPendingKmz({ filename, contentBase64, candidates: reason.details.candidates ?? [] });
+        setSelectedKmzDocument(reason.details.candidates?.[0] ?? "");
       } else {
         throw reason;
       }
@@ -505,10 +503,7 @@ function App() {
         invalidateDestinationPatternRequests();
         let next: WebState;
         try {
-          next = await api.request<WebState>("/api/import", {
-            method: "POST",
-            body: { filename: "pasted.kml", kml_text: text },
-          });
+          next = await application.importRoute({ filename: "pasted.kml", kml_text: text });
         } catch (reason) {
           showManualPaste(reason instanceof Error ? reason.message : "KMLを読み込めません。内容を確認してください。");
           return;
@@ -556,28 +551,25 @@ function App() {
     invalidateDestinationPatternRequests();
     const confirmed = await run(
       () =>
-        api.request<WebState>("/api/route/confirm", {
-          method: "POST",
-          body: {
-            candidate_kind: candidate.kind,
-            candidate_index: candidate.index,
-            point_indices: [],
-            route_use_confirmed: form.routeUseConfirmed,
-            polygon_route_confirmed: form.polygonRouteConfirmed,
-            flight_date: form.flightDate,
-            departure_time_jst: form.departureTimeJst,
-            total_usable_fuel_gal: fuelGal,
-            default_variation_deg_east: form.variationDegEast,
-            weather_mode: form.weatherMode,
-            ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
-            run_up_included: form.runUpIncluded,
-            nose_fairing_enabled: form.noseFairingEnabled,
-            air_conditioning_enabled: form.airConditioningEnabled,
-            descent_rate_fpm: form.descentRateFpm,
-            tgl_count: tglCount,
-            all_leg_altitude_ft_msl: form.allLegAltitudeFtMsl,
-            use_penultimate_as_vrep: form.usePenultimateAsVrep,
-          },
+        application.confirmRoute({
+          candidate_kind: candidate.kind,
+          candidate_index: candidate.index,
+          point_indices: [],
+          route_use_confirmed: form.routeUseConfirmed,
+          polygon_route_confirmed: form.polygonRouteConfirmed,
+          flight_date: form.flightDate,
+          departure_time_jst: form.departureTimeJst,
+          total_usable_fuel_gal: fuelGal,
+          default_variation_deg_east: form.variationDegEast,
+          weather_mode: form.weatherMode,
+          ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
+          run_up_included: form.runUpIncluded,
+          nose_fairing_enabled: form.noseFairingEnabled,
+          air_conditioning_enabled: form.airConditioningEnabled,
+          descent_rate_fpm: form.descentRateFpm,
+          tgl_count: tglCount,
+          all_leg_altitude_ft_msl: form.allLegAltitudeFtMsl,
+          use_penultimate_as_vrep: form.usePenultimateAsVrep,
         }),
       "経路を確定し、目的空港の場周経路高度を適用しました。",
       { syncCalculationInputs: true },
@@ -684,10 +676,7 @@ function App() {
   };
 
   const handleRenameRouteNode = async (nodeId: string, name: string) => {
-    const next = await api.request<WebState>(
-      `/api/project/route-nodes/${encodeURIComponent(nodeId)}/name`,
-      { method: "PUT", body: { name } },
-    );
+    const next = await application.renameRouteNode(nodeId, name);
     applyState(next, { syncCalculationInputs: false });
   };
 
@@ -695,7 +684,7 @@ function App() {
     sectionOverrides?: NavSection[],
     selectedPatternAltitudeFtMsl?: number,
     invalidFallbackProject?: Project,
-  ) => {
+  ): UpdateProjectInput => {
     const payloadSections = sectionOverrides ?? state?.project?.sections ?? [];
     if (!state?.project) throw new Error("Projectがありません。");
     const fallbackProject = invalidFallbackProject?.id === state.project.id
@@ -849,10 +838,7 @@ function App() {
         draftAutosaveRunningRef.current = request;
         let saved = false;
         try {
-          const next = await api.request<WebState>("/api/project", {
-            method: "PUT",
-            body: request.payload,
-          });
+          const next = await application.updateProject(request.payload);
           saved = true;
           if (request.projectId === projectIdRef.current && next.project) {
             canonicalProjectRef.current = next.project;
@@ -1053,13 +1039,9 @@ function App() {
             requestBasis !== destinationPatternBasisRef.current
           ) return;
           try {
-            const next = await api.request<WebState>(
-              destinationPatternRecalculates ? "/api/project/recalculate" : "/api/project",
-              {
-                method: destinationPatternRecalculates ? "POST" : "PUT",
-                body: updatePayloadRef.current(undefined, selectedPattern),
-              },
-            );
+            const next = await (destinationPatternRecalculates
+              ? application.updateAndRecalculate(updatePayloadRef.current(undefined, selectedPattern))
+              : application.updateProject(updatePayloadRef.current(undefined, selectedPattern)));
             if (
               cancelled ||
               requestGeneration !== destinationPatternGenerationRef.current ||
@@ -1088,7 +1070,7 @@ function App() {
       window.clearTimeout(timeout);
     };
   }, [
-    api,
+    application,
     destinationPatternApplied,
     destinationPatternDestinationId,
     destinationPatternElevation,
@@ -1181,10 +1163,7 @@ function App() {
           const editedSections = state.project!.sections.map((section) =>
             applyDraftToSection(section, navLogDrafts[section.id]),
           );
-          const next = await api.request<WebState>("/api/project/recalculate", {
-            method: "POST",
-            body: updatePayload(editedSections),
-          });
+          const next = await application.updateAndRecalculate(updatePayload(editedSections));
           if (
             requestGeneration !== calculationInputGenerationRef.current ||
             !navLogEditPendingRef.current
@@ -1203,7 +1182,7 @@ function App() {
       });
     }, 700);
     return () => window.clearTimeout(timeout);
-  }, [altitudeInputs, api, form, navLogDrafts, navLogEditVersion, state?.outcome, state?.project]);
+  }, [altitudeInputs, application, form, navLogDrafts, navLogEditVersion, state?.outcome, state?.project]);
 
   const handleCalculate = async () => {
     cancelPendingRecalculation();
@@ -1212,7 +1191,7 @@ function App() {
     const calculated = await run(async () => {
       const saved = await flushDraftAutosave(true);
       if (!saved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-      return api.calculate(setCalculationProgress);
+      return application.calculate(setCalculationProgress);
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
       syncCalculationInputs: true,
       operation: "calculate",
@@ -1235,10 +1214,7 @@ function App() {
       async () => {
         const draftSaved = await flushDraftAutosave(true);
         if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-        return api.request<WebState>("/api/projects/save", {
-          method: "POST",
-          body: { name },
-        });
+        return application.saveProject(name);
       },
       "Projectをローカルへ保存しました。",
     );
@@ -1248,10 +1224,7 @@ function App() {
   const handleReplaceCheckPoints = async (checkPoints: CheckPointInput[]) => {
     const updated = await run(
       () =>
-        api.request<WebState>("/api/project/check-points", {
-          method: "PUT",
-          body: { check_points: checkPoints },
-        }),
+        application.replaceCheckPoints(checkPoints),
       "Check Pointを更新しました。NAV LOGを再計算してください。",
     );
     return updated !== undefined;
@@ -1265,10 +1238,7 @@ function App() {
       async () => {
         const draftSaved = await flushDraftAutosave(false);
         if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-        return api.request<WebState>("/api/projects/load", {
-          method: "POST",
-          body: { project_id: selectedProjectId },
-        });
+        return application.loadProject(selectedProjectId);
       },
       undefined,
       { syncCalculationInputs: true },
@@ -1302,9 +1272,7 @@ function App() {
           const draftSaved = await flushDraftAutosave(false);
           if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
         }
-        return api.request<WebState>(`/api/projects/${encodeURIComponent(selectedProjectId)}`, {
-          method: "DELETE",
-        });
+        return application.deleteProject(selectedProjectId);
       },
       { success: "保存済みProjectを削除しました。", fallbackError: "削除できませんでした。" },
     );
@@ -1324,7 +1292,7 @@ function App() {
       async () => {
         const draftSaved = await flushDraftAutosave(false);
         if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-        await api.resetSession();
+        await application.newWork();
         return true;
       },
       { fallbackError: "新規作業を開始できませんでした。" },
@@ -1334,10 +1302,7 @@ function App() {
 
   const handleAcknowledge = async (ackKey: string, checked: boolean) => {
     await run(() =>
-      api.request<WebState>(`/api/acknowledgements/${encodeURIComponent(ackKey)}`, {
-        method: "PUT",
-        body: { checked },
-      }),
+      application.acknowledge(ackKey, checked),
     );
   };
 

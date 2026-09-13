@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 from autonavlog.local import LocalApplication
@@ -25,13 +27,13 @@ def calculate(local, *, forecast=False):
             weather_mode="FORECAST", flight_date="2026-09-12", departure_time_jst="12:00"
         )
     local.dispatch(
-        "/api/import",
+        "importRoute",
         {
             "filename": "issue_43_golden.kml",
             "kml_text": (ROOT / "tests/fixtures/issue_43_golden.kml").read_text(),
         },
     )
-    state = json.loads(local.dispatch("/api/route/confirm", inputs["confirm"]))
+    state = json.loads(local.dispatch("confirmRoute", inputs["confirm"]))
     project = state["project"]
     update = {
         **{
@@ -56,8 +58,8 @@ def calculate(local, *, forecast=False):
         "visual_reporting_point_node_id": project["route_nodes"][-2]["id"],
         "selected_pattern_altitude_ft_msl": 1000,
     }
-    local.dispatch("/api/project", update)
-    return json.loads(local.dispatch("/api/calculate"))
+    local.dispatch("updateProject", update)
+    return json.loads(local.dispatch("calculate"))
 
 
 def test_local_ftd_golden_and_failed_calculation_preserves_last_good(local, monkeypatch):
@@ -90,7 +92,7 @@ def test_local_ftd_golden_and_failed_calculation_preserves_last_good(local, monk
 
     monkeypatch.setattr(local.session.calculation_service, "calculate", fail)
     with pytest.raises(RuntimeError, match="calculation failure"):
-        local.dispatch("/api/calculate")
+        local.dispatch("calculate")
     assert local.session.outcome is previous
 
 
@@ -98,9 +100,9 @@ def test_local_ftd_golden_and_failed_calculation_preserves_last_good(local, monk
     "path,payload",
     [
         ("/api/projects/save", {"name": "unsupported"}),
-        ("/api/import", {"filename": "route.kmz", "kml_text": "<kml/>"}),
-        ("/api/import", {"filename": "route.kml", "kml_text": "<broken"}),
-        ("/api/calculate", {}),
+        ("importRoute", {"filename": "route.kmz", "kml_text": "<kml/>"}),
+        ("importRoute", {"filename": "route.kml", "kml_text": "<broken"}),
+        ("calculate", {}),
     ],
 )
 def test_local_fails_closed(local, path, payload):
@@ -113,7 +115,7 @@ def test_new_local_instance_does_not_restore_project(local):
     calculate(local)
     another = LocalApplication(ROOT / "data", forecast_fixture=ROOT / "tests/fixtures/msm")
     try:
-        state = json.loads(another.dispatch("/api/state"))
+        state = json.loads(another.dispatch("bootstrap"))
         assert state["project"] is None
         assert state["outcome"] is None
         assert state["savedProjects"] == []
@@ -134,3 +136,133 @@ def test_local_forecast_uses_actual_fixture_without_network(local, monkeypatch):
     assert state["readiness"]["calculationIsCurrent"]
     assert state["savedProjects"] == []
     assert state["outcome"]["display_rows"][-2]["wind"]["reason_code"] == "TAF_PROVIDER_DISABLED"
+
+
+@pytest.mark.parametrize(
+    "operation,payload,code",
+    [
+        ("calculate", {}, "PROJECT_REQUIRED"),
+        ("confirmRoute", {}, "VALIDATION_FAILED"),
+        ("importRoute", {"filename": "a.kml", "kml_text": "<broken"}, "KML_IMPORT_FAILED"),
+        ("importRoute", {"filename": "a.kml", "content_base64": "!!"}, "UPLOAD_ENCODING_INVALID"),
+        ("importRoute", {"filename": "a.kmz", "kml_text": "<kml/>"}, "LOCAL_UNSUPPORTED"),
+    ],
+)
+def test_local_error_response_preserves_application_meaning(local, operation, payload, code):
+    error = json.loads(local.dispatch_response(operation, payload))["error"]
+    assert set(error) == {"code", "message", "details"}
+    assert error["code"] == code
+    assert error["message"]
+    assert "Traceback" not in error["message"]
+    if code == "VALIDATION_FAILED":
+        assert error["message"] == "入力内容を確認してください。"
+        assert {"location", "message", "type"} == set(error["details"]["issues"][0])
+    assert local.session.project is None
+
+
+def test_local_operations_keep_draft_last_good_and_failed_transaction(local, monkeypatch):
+    state = calculate(local)
+    project = local.session.project
+    node = state["project"]["route_nodes"][1]
+    renamed = json.loads(
+        local.dispatch_response(
+            "renameRouteNode",
+            {
+                "node_id": node["id"],
+                "name": "renamed",
+            },
+        )
+    )
+    assert renamed["project"]["route_nodes"][1]["name"] == "renamed"
+    assert renamed["outcome"] is not None
+    local.dispatch_response("acknowledge", {"key": "test/key", "checked": True})
+    local.dispatch_response("replaceCheckPoints", {"check_points": []})
+    # The facade commits the valid draft before calculation; failure retains it and last-good.
+    before_outcome = local.session.outcome.model_dump(mode="json")
+    update = {
+        "flight_date": "2026-09-11",
+        "departure_time_jst": "09:00",
+        "total_usable_fuel_gal": 75,
+        "default_variation_deg_east": 8,
+        "weather_mode": "FTD",
+        "ftd_weather": project.ftd_weather.model_dump(mode="json"),
+    }
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("calculation failure")
+
+    monkeypatch.setattr(local.session.calculation_service, "calculate", fail)
+    error = json.loads(local.dispatch_response("updateAndRecalculate", update))["error"]
+    assert error["message"] == "calculation failure"
+    assert local.session.project.total_usable_fuel_gal == 75
+    after_outcome = local.session.outcome.model_dump(mode="json")
+    # Readiness reclassifies stale status; canonical calculation values remain unchanged.
+    for key in before_outcome.keys() - {"status"}:
+        assert after_outcome[key] == before_outcome[key]
+    assert local.session.outcome is not None
+    # A plain update commits its draft, preserving the previous result for stale display.
+    draft = json.loads(local.dispatch_response("updateProject", update))
+    assert draft["project"]["total_usable_fuel_gal"] == 75
+    assert draft["outcome"] is not None
+    assert not draft["readiness"]["calculationIsCurrent"]
+
+
+@pytest.mark.parametrize(
+    "operation,endpoint,payload",
+    [
+        ("calculate", "/api/calculation-jobs", {}),
+        (
+            "renameRouteNode",
+            "/api/project/route-nodes/invalid/name",
+            {"node_id": "invalid", "name": "test"},
+        ),
+        ("confirmRoute", "/api/route/confirm", {}),
+        ("importRoute", "/api/import", {"filename": "a.kml", "kml_text": "<broken"}),
+        ("importRoute", "/api/import", {"filename": "a.kml", "content_base64": "!!"}),
+    ],
+)
+def test_local_and_fastapi_errors_have_the_same_application_meaning(
+    local, tmp_path, operation, endpoint, payload
+):
+    from autonavlog.web.app import create_app
+    from autonavlog.web.runtime import WebRuntimeConfig
+
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "legacy",
+            weather_mode="fake",
+            trusted_local_identity="issue118-test",
+            session_cookie_secure=False,
+        )
+    )
+
+    async def legacy_error():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="https://test"
+        ) as client:
+            await client.post("/api/session")
+            if operation == "renameRouteNode":
+                result = (await client.put(endpoint, json={"name": payload["name"]})).json()
+            else:
+                result = (await client.post(endpoint, json=payload)).json()
+            if operation == "calculate":
+                for _ in range(100):
+                    result = (await client.get(f"/api/calculation-jobs/{result['job_id']}")).json()
+                    if result["status"] == "failed":
+                        break
+                    await asyncio.sleep(0.01)
+                assert result["status"] == "failed"
+            return result
+
+    legacy = asyncio.run(legacy_error())
+    error = json.loads(local.dispatch_response(operation, payload))["error"]
+    if "detail" in legacy:
+        assert error["code"] == "VALIDATION_FAILED"
+        assert error["details"]["issues"] == [
+            {"location": item["loc"][1:], "message": item["msg"], "type": item["type"]}
+            for item in legacy["detail"]
+        ]
+    else:
+        assert error["code"] == legacy["error"]["code"]
+        assert error["message"] == legacy["error"]["message"]

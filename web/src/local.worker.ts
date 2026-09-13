@@ -56,7 +56,7 @@ const workerApi = {
       pyodide.globals.set("local_body_json", JSON.stringify(body ?? {}));
       return pyodide.runPython(`
 import json
-local_application.dispatch(local_path, json.loads(local_body_json))
+local_application.dispatch_response(local_path, json.loads(local_body_json))
 `) as string;
     });
     queue = result.then(() => undefined, () => undefined);

@@ -2,6 +2,18 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.11.7
+
+### 利用者向け
+
+#### 改善
+
+- 内部処理を改善しました。AutoNavLogの通常の使い方に変更はありません。
+
+### 開発者向け
+
+- UIを共通のApplication操作へ接続し、Legacy HTTPとLocal Browserの通信方式・失敗情報の変換をAdapterへ分離しました。既存の編集・自動保存・再計算とPython Coreを維持し、Local永続化は含みません。
+
 ## 1.11.6
 
 ### 利用者向け
