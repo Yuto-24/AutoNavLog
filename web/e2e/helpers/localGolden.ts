@@ -45,3 +45,34 @@ export function localGolden(state: any) {
     performance: state.outcome.performance_table_version,
   };
 }
+
+// Keep the #117 Golden unchanged; #125 additionally checks provenance and ownership.
+export function calculationCoreGolden(state: any) {
+  const ids = new Map<string, string>();
+  state.project.route_nodes.forEach((node: any, index: number) => ids.set(node.id, `node:${index}`));
+  state.project.sections.forEach((section: any, index: number) => ids.set(section.id, `section:${index}`));
+  ids.set(state.project.id, "project");
+  state.project.visual_references.forEach((point: any, index: number) => ids.set(point.id, `reference:${index}`));
+  function semantic(value: any, key = ""): any {
+    if (typeof value === "string") {
+      if (ids.has(value)) return ids.get(value);
+      // Compound request identities retain phase/sequence while replacing random owner UUIDs.
+      for (const [id, label] of ids) value = value.replaceAll(id, label);
+      return value;
+    }
+    if (Array.isArray(value)) return value.map(item => semantic(item));
+    if (value && typeof value === "object" && ["fuel", "ete", "distance"].includes(key) &&
+        typeof value.effective_value === "string" && /^-?[0-9.e+-]+\/-?[0-9.e+-]+$/.test(value.effective_value)) {
+      // These three cells encode *internal floats* as a pair; text is the display contract.
+      value = { ...value, effective_value: value.effective_value.split("/").map(Number) };
+    }
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value)
+      .map(([name, item]) => [semantic(name), name === "generated_against_fingerprint"
+        ? "<input-identity fingerprint>" : semantic(item, name)]));
+    return value;
+  }
+  return {
+    ...localGolden(state),
+    canonical: semantic(state.outcome),
+  };
+}

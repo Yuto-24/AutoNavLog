@@ -11,6 +11,7 @@ from pydantic import (
     Field,
     FiniteFloat,
     StringConstraints,
+    ValidationInfo,
     model_validator,
 )
 
@@ -161,10 +162,21 @@ class RjfmRunwayGuidance(PlanningModel):
 
     @model_validator(mode="before")
     @classmethod
-    def migrate_legacy_left_turn_fields(cls, value: Any) -> Any:
+    def migrate_legacy_left_turn_fields(cls, value: Any, info: ValidationInfo) -> Any:
         if not isinstance(value, dict):
             return value
         migrated = dict(value)
+        # Pydantic 2.10 (Pyodide) validates before-validator output as Python for
+        # strict enums, even when the caller used model_validate_json. Preserve
+        # JSON enum decoding without relaxing strict Python input validation.
+        if info.mode == "json":
+            for field, enum_type in (
+                ("status", RjfmGuidanceStatus),
+                ("turn_method", RjfmTurnMethod),
+                ("turn_direction", RjfmTurnDirection),
+            ):
+                if isinstance(migrated.get(field), str):
+                    migrated[field] = enum_type(migrated[field])
         has_legacy_full = "full_left_turns" in migrated
         has_legacy_partial = "partial_left_turn_deg" in migrated
         if not has_legacy_full and not has_legacy_partial:
@@ -173,7 +185,9 @@ class RjfmRunwayGuidance(PlanningModel):
         direction = migrated.get("turn_direction")
         if direction not in (None, "LEFT", RjfmTurnDirection.LEFT):
             raise ValueError("legacy left-turn fields conflict with turn_direction")
-        migrated["turn_direction"] = "LEFT"
+        migrated["turn_direction"] = (
+            RjfmTurnDirection.LEFT if info.mode == "json" else "LEFT"
+        )
 
         if has_legacy_full:
             legacy_full = migrated.pop("full_left_turns")

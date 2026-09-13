@@ -1,5 +1,8 @@
 # Issue #117: Pyodide checkpoint
 
+> この文書のcheckpointは履歴です。#125によるFTD/FORECASTの拡張・現行制約・
+> Safari実機確認条件は[Calculation Core](local_calculation_core.md)を参照してください。
+
 今回はPython / PyodideによるKML → 経路候補選択・確定 → FTD入力 → 計算 →
 NAV LOG表示の検証用checkpointです。#117を完了・採用決定とは扱いません。
 

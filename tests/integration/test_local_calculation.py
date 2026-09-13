@@ -13,12 +13,17 @@ INPUTS = json.loads((ROOT / "tests/fixtures/issue_117_ftd.json").read_text())
 
 @pytest.fixture
 def local():
-    application = LocalApplication(ROOT / "data")
+    application = LocalApplication(ROOT / "data", forecast_fixture=ROOT / "tests/fixtures/msm")
     yield application
     application.close()
 
 
-def calculate(local):
+def calculate(local, *, forecast=False):
+    inputs = json.loads(json.dumps(INPUTS))
+    if forecast:
+        inputs["confirm"].update(
+            weather_mode="FORECAST", flight_date="2026-09-12", departure_time_jst="12:00"
+        )
     local.dispatch(
         "/api/import",
         {
@@ -26,11 +31,11 @@ def calculate(local):
             "kml_text": (ROOT / "tests/fixtures/issue_43_golden.kml").read_text(),
         },
     )
-    state = json.loads(local.dispatch("/api/route/confirm", INPUTS["confirm"]))
+    state = json.loads(local.dispatch("/api/route/confirm", inputs["confirm"]))
     project = state["project"]
     update = {
         **{
-            key: INPUTS["confirm"][key]
+            key: inputs["confirm"][key]
             for key in (
                 "flight_date",
                 "departure_time_jst",
@@ -46,7 +51,7 @@ def calculate(local):
                 "phase": section["phase"],
                 "planned_altitude_ft_msl": altitude,
             }
-            for section, altitude in zip(project["sections"], INPUTS["altitudes"], strict=True)
+            for section, altitude in zip(project["sections"], inputs["altitudes"], strict=True)
         ],
         "visual_reporting_point_node_id": project["route_nodes"][-2]["id"],
         "selected_pattern_altitude_ft_msl": 1000,
@@ -93,7 +98,6 @@ def test_local_ftd_golden_and_failed_calculation_preserves_last_good(local, monk
     "path,payload",
     [
         ("/api/projects/save", {"name": "unsupported"}),
-        ("/api/route/confirm", {**INPUTS["confirm"], "weather_mode": "FORECAST"}),
         ("/api/import", {"filename": "route.kmz", "kml_text": "<kml/>"}),
         ("/api/import", {"filename": "route.kml", "kml_text": "<broken"}),
         ("/api/calculate", {}),
@@ -107,7 +111,7 @@ def test_local_fails_closed(local, path, payload):
 
 def test_new_local_instance_does_not_restore_project(local):
     calculate(local)
-    another = LocalApplication(ROOT / "data")
+    another = LocalApplication(ROOT / "data", forecast_fixture=ROOT / "tests/fixtures/msm")
     try:
         state = json.loads(another.dispatch("/api/state"))
         assert state["project"] is None
@@ -115,3 +119,18 @@ def test_new_local_instance_does_not_restore_project(local):
         assert state["savedProjects"] == []
     finally:
         another.close()
+
+
+def test_local_forecast_uses_actual_fixture_without_network(local, monkeypatch):
+    def fail_network(*args, **kwargs):
+        raise AssertionError("Local Calculation must not fetch weather")
+
+    monkeypatch.setattr("urllib.request.urlopen", fail_network)
+    state = calculate(local, forecast=True)
+    assert state["outcome"]["selected_forecast_run_id"] == "20260912030000"
+    assert state["outcome"]["status"] == "READY_FOR_COPY"
+    assert state["outcome"]["summary"]["time"]["text"] == "0:50"
+    assert state["outcome"]["summary"]["distance"]["text"] == "125.5"
+    assert state["readiness"]["calculationIsCurrent"]
+    assert state["savedProjects"] == []
+    assert state["outcome"]["display_rows"][-2]["wind"]["reason_code"] == "TAF_PROVIDER_DISABLED"
