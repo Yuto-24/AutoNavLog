@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from uuid import UUID
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from autonavlog.application.project_service import ProjectService
 from autonavlog.importers.kml import KmlImportError, import_kml_or_kmz, import_kml_text
@@ -37,6 +37,23 @@ from autonavlog.web.models import (
 
 class LocalRenameRouteNodeRequest(RenameRouteNodeRequest):
     node_id: UUID
+
+
+class _RequestValidationError(ValueError):
+    def __init__(self, error: ValidationError) -> None:
+        super().__init__("入力内容を確認してください。")
+        self.issues = [
+            {"location": list(issue["loc"]), "message": issue["msg"], "type": issue["type"]}
+            for issue in error.errors(include_url=False, include_context=False, include_input=False)
+        ]
+
+
+def _validate_request[T: BaseModel](model: type[T], payload: dict[str, Any]) -> T:
+    # Only request-model validation is a user input failure. Execution errors are not.
+    try:
+        return model.model_validate(payload)
+    except ValidationError as error:
+        raise _RequestValidationError(error) from error
 
 
 class LocalApplication:
@@ -74,7 +91,7 @@ class LocalApplication:
         if path == "bootstrap":
             state = self.app.present(self.session)
         elif path == "importRoute":
-            request = ImportRouteRequest.model_validate(payload)
+            request = _validate_request(ImportRouteRequest, payload)
             if not request.filename.lower().endswith(".kml") or request.kmz_kml_filename:
                 raise WebApplicationError(
                     "LOCAL_UNSUPPORTED", "Local PoCはKMLのみ対応しています。KMZは未対応です。"
@@ -106,10 +123,10 @@ class LocalApplication:
         elif path in {"confirmRoute", "updateProject", "updateAndRecalculate"}:
             if path == "confirmRoute":
                 state = self.app.confirm_route(
-                    self.session, ConfirmRouteRequest.model_validate(payload)
+                    self.session, _validate_request(ConfirmRouteRequest, payload)
                 )
             else:
-                update = UpdateProjectRequest.model_validate(payload)
+                update = _validate_request(UpdateProjectRequest, payload)
                 state = (
                     self.app.update_and_calculate(self.session, update)
                     if path == "updateAndRecalculate"
@@ -121,15 +138,17 @@ class LocalApplication:
             state = self.app.calculate(self.session)
         elif path == "replaceCheckPoints":
             state = self.app.replace_check_points(
-                self.session, ReplaceCheckPointsRequest.model_validate(payload)
+                self.session, _validate_request(ReplaceCheckPointsRequest, payload)
             )
         elif path == "renameRouteNode":
-            request_name = LocalRenameRouteNodeRequest.model_validate(payload)
+            request_name = _validate_request(LocalRenameRouteNodeRequest, payload)
             state = self.app.rename_route_node(
                 self.session, request_name.node_id, request_name.name
             )
         elif path == "acknowledge":
-            acknowledgement = AcknowledgeRequest.model_validate({"checked": payload.get("checked")})
+            acknowledgement = _validate_request(
+                AcknowledgeRequest, {"checked": payload.get("checked")}
+            )
             state = self.app.acknowledge(
                 self.session,
                 payload["key"],
@@ -146,21 +165,16 @@ class LocalApplication:
         details: dict[str, Any] = {}
         try:
             return self.dispatch(operation, body)
-        except ValidationError as error:
-            code, message = "VALIDATION_FAILED", "入力内容を確認してください。"
-            details["issues"] = [
-                {"location": list(issue["loc"]), "message": issue["msg"], "type": issue["type"]}
-                for issue in error.errors(
-                    include_url=False, include_context=False, include_input=False
-                )
-            ]
+        except _RequestValidationError as error:
+            code, message = "VALIDATION_FAILED", str(error)
+            details["issues"] = error.issues
         except WebApplicationError as error:
             code, message = error.code, str(error)
         except KmlImportError as error:
             code, message = "KML_IMPORT_FAILED", str(error)
-        except Exception as error:
+        except Exception:
             code = "CALCULATION_JOB_FAILED" if operation == "calculate" else "REQUEST_FAILED"
-            message = str(error)
+            message = "計算に失敗しました。" if operation == "calculate" else "処理に失敗しました。"
         return json.dumps(
             {"error": {"code": code, "message": message, "details": details}},
             ensure_ascii=False,

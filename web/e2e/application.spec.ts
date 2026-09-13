@@ -142,3 +142,17 @@ test("Local failure never invokes Legacy or emits successful progress", async ()
   await expect(unavailable.bootstrap()).rejects.toMatchObject({ code: "APPLICATION_UNAVAILABLE" });
   expect(calls).toEqual([]);
 });
+
+
+test("internal failures remain neutral at the Legacy UI boundary", async () => {
+  responses(new Response("Internal Server Error", { status: 500 }));
+  await expect(new LegacyApplication().updateAndRecalculate(update)).rejects.toMatchObject({
+    code: "REQUEST_FAILED", message: "処理に失敗しました。", details: {},
+  });
+  responses(json({ status: "failed", error: {
+    code: "CALCULATION_JOB_FAILED", message: "計算に失敗しました。", status: 500,
+  } }));
+  await expect(new LegacyApplication().calculate()).rejects.toMatchObject({
+    code: "CALCULATION_JOB_FAILED", message: "計算に失敗しました。", details: {},
+  });
+});

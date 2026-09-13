@@ -193,7 +193,7 @@ def test_local_operations_keep_draft_last_good_and_failed_transaction(local, mon
 
     monkeypatch.setattr(local.session.calculation_service, "calculate", fail)
     error = json.loads(local.dispatch_response("updateAndRecalculate", update))["error"]
-    assert error["message"] == "calculation failure"
+    assert error == {"code": "REQUEST_FAILED", "message": "処理に失敗しました。", "details": {}}
     assert local.session.project.total_usable_fuel_gal == 75
     after_outcome = local.session.outcome.model_dump(mode="json")
     # Readiness reclassifies stale status; canonical calculation values remain unchanged.
@@ -266,3 +266,104 @@ def test_local_and_fastapi_errors_have_the_same_application_meaning(
     else:
         assert error["code"] == legacy["error"]["code"]
         assert error["message"] == legacy["error"]["message"]
+
+
+@pytest.mark.parametrize("operation", ["calculate", "updateAndRecalculate"])
+@pytest.mark.parametrize("failure", ["validation", "runtime"])
+def test_internal_failure_semantics_match_legacy_and_preserve_draft(
+    local, tmp_path, monkeypatch, caplog, operation, failure
+):
+    from pydantic import BaseModel
+
+    from autonavlog.web.app import create_app
+    from autonavlog.web.runtime import WebRuntimeConfig
+
+    calculate(local)
+    old_outcome = local.session.outcome.model_dump(mode="json")
+    update = {
+        "flight_date": "2026-09-11",
+        "departure_time_jst": "09:00",
+        "total_usable_fuel_gal": 75,
+        "default_variation_deg_east": 8,
+        "weather_mode": "FTD",
+        "ftd_weather": local.session.project.ftd_weather.model_dump(mode="json"),
+    }
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "legacy",
+            weather_mode="fake",
+            trusted_local_identity="issue118-internal",
+            session_cookie_secure=False,
+        )
+    )
+    # Share the prepared input/result with the real HTTP facade without recalculating a fixture.
+    web = app.state.web_application
+    legacy_session = web.create_session("issue118-internal")
+    legacy_session.project = local.session.project.model_copy(deep=True)
+    legacy_session.outcome = local.session.outcome.model_copy(deep=True)
+    legacy_session.readiness = local.session.readiness
+
+    class InternalResult(BaseModel):
+        internal_count: int
+
+    def fail(*args, **kwargs):
+        if failure == "validation":
+            InternalResult.model_validate({"internal_count": "secret internal detail"})
+        raise RuntimeError("secret internal detail")
+
+    monkeypatch.setattr(local.session.calculation_service, "calculate", fail)
+    monkeypatch.setattr(legacy_session.calculation_service, "calculate", fail)
+
+    async def legacy_response():
+        from autonavlog.web.app import SESSION_COOKIE_NAME
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="https://test",
+            cookies={SESSION_COOKIE_NAME: legacy_session.token},
+        ) as client:
+            if operation == "updateAndRecalculate":
+                response = await client.post("/api/project/recalculate", json=update)
+                assert response.status_code == 500
+                assert response.text == "Internal Server Error"
+                # LegacyApplication's non-JSON HTTP normalization is covered by its TS test.
+                return {"code": "REQUEST_FAILED", "message": "処理に失敗しました。", "details": {}}
+            job = (await client.post("/api/calculation-jobs")).json()
+            for _ in range(100):
+                job = (await client.get(f"/api/calculation-jobs/{job['job_id']}")).json()
+                if job["status"] == "failed":
+                    break
+                await asyncio.sleep(0.01)
+            assert job["status"] == "failed"
+            assert job["error"] == {
+                "code": "CALCULATION_JOB_FAILED",
+                "message": "計算に失敗しました。",
+                "status": 500,
+            }
+            return {"code": job["error"]["code"], "message": job["error"]["message"], "details": {}}
+
+    try:
+        legacy = asyncio.run(legacy_response())
+        error = json.loads(local.dispatch_response(operation, update))["error"]
+        assert error == legacy
+        assert "secret" not in json.dumps(error)
+        assert error["code"] != "VALIDATION_FAILED"
+        if operation == "calculate":
+            records = [
+                record
+                for record in caplog.records
+                if record.name == "autonavlog.web.calculation_jobs"
+            ]
+            assert len(records) == 1
+            assert records[0].getMessage().startswith("Unexpected calculation failure for job ")
+            assert records[0].exc_info is not None
+        for session in (local.session, legacy_session):
+            assert session.project.total_usable_fuel_gal == (
+                75 if operation == "updateAndRecalculate" else 90
+            )
+            after = session.outcome.model_dump(mode="json")
+            for key in old_outcome.keys() - {"status"}:
+                assert after[key] == old_outcome[key]
+    finally:
+        app.state.calculation_jobs.shutdown()

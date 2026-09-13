@@ -14,11 +14,15 @@ choose HTTP methods, inspect session status, or invoke Worker RPC.
   No failure switches to the Legacy implementation.
 - `ApplicationError` exposes `code`, `message`, and `details`. Domain codes and
   messages are preserved. KMZ selection candidates live in `details.candidates`.
-  Request validation is `VALIDATION_FAILED`, with neutral message and field issues
+  Only request-model validation is `VALIDATION_FAILED`, with neutral message and field issues
   (`location`, `message`, `type`). HTTP's body/path/query prefix and Python traceback/context
   are excluded. Connection/runtime failures use `APPLICATION_UNAVAILABLE`.
   HTTP status and retry policy are internal to Legacy. Local Python failures are
   serialized explicitly because exception transport would discard custom fields.
+- Unexpected execution failures, including internal Pydantic validation, never expose
+  exception messages as input errors. Both runtimes use `CALCULATION_JOB_FAILED` /
+  `計算に失敗しました。` for calculation and `REQUEST_FAILED` / `処理に失敗しました。`
+  for synchronous operations. Explicit application errors keep their code/message/details.
 - Calculation progress is a callback with percent/message. Legacy forwards existing
   job progress; Local reports start and completion only, without invented intermediate
   percentages. Failures reject and never emit successful completion. Finer progress

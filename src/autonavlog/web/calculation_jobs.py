@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -8,6 +9,10 @@ from datetime import UTC, datetime
 from secrets import token_urlsafe
 from threading import BoundedSemaphore, RLock
 from typing import Any, Literal
+
+from .facade import WebApplicationError
+
+LOGGER = logging.getLogger(__name__)
 
 JobStatus = Literal[
     "queued",
@@ -111,13 +116,19 @@ class CalculationJobQueue:
             self._set_progress(job_id, "preparing_weather", 5, "計算条件を確認しています。")
             result = task(lambda percent, message: self.report_progress(job_id, percent, message))
         except Exception as error:
+            if not isinstance(error, WebApplicationError):
+                LOGGER.exception("Unexpected calculation failure for job %s", job_id)
             with self._lock:
                 job = self._jobs[job_id]
                 job.status = "failed"
                 job.error = {
-                    "code": str(getattr(error, "code", "CALCULATION_JOB_FAILED")),
-                    "message": str(error),
-                    "status": int(getattr(error, "status_code", 500)),
+                    "code": error.code
+                    if isinstance(error, WebApplicationError)
+                    else "CALCULATION_JOB_FAILED",
+                    "message": str(error)
+                    if isinstance(error, WebApplicationError)
+                    else "計算に失敗しました。",
+                    "status": error.status_code if isinstance(error, WebApplicationError) else 500,
                 }
                 job.updated_at_utc = datetime.now(UTC)
         else:
