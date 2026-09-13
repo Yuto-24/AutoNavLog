@@ -6,15 +6,17 @@ No browser persistence, HTTP server, forecast acquisition, or alternative calcul
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
-from urllib.parse import unquote
 from uuid import UUID
 
+from pydantic import BaseModel, ValidationError
+
 from autonavlog.application.project_service import ProjectService
-from autonavlog.importers.kml import import_kml_or_kmz, import_kml_text
+from autonavlog.importers.kml import KmlImportError, import_kml_or_kmz, import_kml_text
 from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.storage.airports import AirportRepository
 from autonavlog.storage.local import LocalProjectRepository
@@ -31,6 +33,27 @@ from autonavlog.web.models import (
     ReplaceCheckPointsRequest,
     UpdateProjectRequest,
 )
+
+
+class LocalRenameRouteNodeRequest(RenameRouteNodeRequest):
+    node_id: UUID
+
+
+class _RequestValidationError(ValueError):
+    def __init__(self, error: ValidationError) -> None:
+        super().__init__("入力内容を確認してください。")
+        self.issues = [
+            {"location": list(issue["loc"]), "message": issue["msg"], "type": issue["type"]}
+            for issue in error.errors(include_url=False, include_context=False, include_input=False)
+        ]
+
+
+def _validate_request[T: BaseModel](model: type[T], payload: dict[str, Any]) -> T:
+    # Only request-model validation is a user input failure. Execution errors are not.
+    try:
+        return model.model_validate(payload)
+    except ValidationError as error:
+        raise _RequestValidationError(error) from error
 
 
 class LocalApplication:
@@ -63,61 +86,72 @@ class LocalApplication:
         self.session = self.app.create_session("local-poc")
 
     def dispatch(self, path: str, body: dict[str, Any] | None = None) -> str:
-        """Retain current UI operation names until #118; these are not HTTP requests."""
+        """Execute application operations using the existing facade on transient MEMFS."""
         payload = body or {}
-        if path == "/api/state":
+        if path == "bootstrap":
             state = self.app.present(self.session)
-        elif path == "/api/import":
-            request = ImportRouteRequest.model_validate(payload)
+        elif path == "importRoute":
+            request = _validate_request(ImportRouteRequest, payload)
             if not request.filename.lower().endswith(".kml") or request.kmz_kml_filename:
-                raise ValueError("Local PoCはKMLのみ対応しています。KMZは未対応です。")
+                raise WebApplicationError(
+                    "LOCAL_UNSUPPORTED", "Local PoCはKMLのみ対応しています。KMZは未対応です。"
+                )
             if request.kml_text is not None:
                 content = request.kml_text.encode("utf-8")
             else:
                 encoded = request.content_base64 or ""
-                if len(encoded) > 4 * ((10 * 1024 * 1024 + 2) // 3):
-                    raise ValueError("KMLは10 MiB以下にしてください。")
-                content = base64.b64decode(encoded, validate=True)
+                if len(encoded) > 14 * 1024 * 1024:
+                    raise WebApplicationError(
+                        "UPLOAD_TOO_LARGE", "KML/KMZは10 MiB以下にしてください。"
+                    )
+                try:
+                    content = base64.b64decode(encoded, validate=True)
+                except (binascii.Error, ValueError) as error:
+                    raise WebApplicationError(
+                        "UPLOAD_ENCODING_INVALID", "アップロード内容を読み取れません。"
+                    ) from error
             if len(content) > 10 * 1024 * 1024:
-                raise ValueError("KMLは10 MiB以下にしてください。")
+                raise WebApplicationError("UPLOAD_TOO_LARGE", "KML/KMZは10 MiB以下にしてください。")
             if content.startswith(b"PK"):
-                raise ValueError("Local PoCはKMZに対応していません。")
+                raise WebApplicationError("LOCAL_UNSUPPORTED", "Local PoCはKMZに対応していません。")
             result = (
                 import_kml_text(request.kml_text, filename=request.filename)
                 if request.kml_text is not None
                 else import_kml_or_kmz(content, filename=request.filename)
             )
             state = self.app.accept_import(self.session, result=result, filename=request.filename)
-        elif path in {"/api/route/confirm", "/api/project", "/api/project/recalculate"}:
-            if path == "/api/route/confirm":
+        elif path in {"confirmRoute", "updateProject", "updateAndRecalculate"}:
+            if path == "confirmRoute":
                 state = self.app.confirm_route(
-                    self.session, ConfirmRouteRequest.model_validate(payload)
+                    self.session, _validate_request(ConfirmRouteRequest, payload)
                 )
             else:
-                update = UpdateProjectRequest.model_validate(payload)
+                update = _validate_request(UpdateProjectRequest, payload)
                 state = (
                     self.app.update_and_calculate(self.session, update)
-                    if path.endswith("/recalculate")
+                    if path == "updateAndRecalculate"
                     else self.app.update_project(self.session, update)
                 )
-        elif path == "/api/calculate":
+        elif path == "calculate":
             if self.session.project is None:
-                raise ValueError("先に経路を確定してください。")
+                raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             state = self.app.calculate(self.session)
-        elif path == "/api/project/check-points":
+        elif path == "replaceCheckPoints":
             state = self.app.replace_check_points(
-                self.session, ReplaceCheckPointsRequest.model_validate(payload)
+                self.session, _validate_request(ReplaceCheckPointsRequest, payload)
             )
-        elif path.startswith("/api/project/route-nodes/") and path.endswith("/name"):
-            request_name = RenameRouteNodeRequest.model_validate(payload)
+        elif path == "renameRouteNode":
+            request_name = _validate_request(LocalRenameRouteNodeRequest, payload)
             state = self.app.rename_route_node(
-                self.session, UUID(path.split("/")[-2]), request_name.name
+                self.session, request_name.node_id, request_name.name
             )
-        elif path.startswith("/api/acknowledgements/"):
-            acknowledgement = AcknowledgeRequest.model_validate(payload)
+        elif path == "acknowledge":
+            acknowledgement = _validate_request(
+                AcknowledgeRequest, {"checked": payload.get("checked")}
+            )
             state = self.app.acknowledge(
                 self.session,
-                unquote(path.removeprefix("/api/acknowledgements/")),
+                payload["key"],
                 acknowledgement.checked,
             )
         else:
@@ -125,6 +159,27 @@ class LocalApplication:
         # The existing facade's temporary autosave must not advertise durable storage.
         state["savedProjects"] = []
         return json.dumps(state, ensure_ascii=False, allow_nan=False)
+
+    def dispatch_response(self, operation: str, body: dict[str, Any] | None = None) -> str:
+        """Serialize errors explicitly: Comlink/Python exceptions lose custom fields."""
+        details: dict[str, Any] = {}
+        try:
+            return self.dispatch(operation, body)
+        except _RequestValidationError as error:
+            code, message = "VALIDATION_FAILED", str(error)
+            details["issues"] = error.issues
+        except WebApplicationError as error:
+            code, message = error.code, str(error)
+        except KmlImportError as error:
+            code, message = "KML_IMPORT_FAILED", str(error)
+        except Exception:
+            code = "CALCULATION_JOB_FAILED" if operation == "calculate" else "REQUEST_FAILED"
+            message = "計算に失敗しました。" if operation == "calculate" else "処理に失敗しました。"
+        return json.dumps(
+            {"error": {"code": code, "message": message, "details": details}},
+            ensure_ascii=False,
+            allow_nan=False,
+        )
 
     def close(self) -> None:
         self._temporary.cleanup()

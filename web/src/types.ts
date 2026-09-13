@@ -605,11 +605,3 @@ export interface WebState {
   destinationWind: DestinationWindForecast | null;
   readiness: ReadinessState;
 }
-
-export interface ApiErrorPayload {
-  error?: {
-    code?: string;
-    message?: string;
-    candidates?: string[];
-  };
-}
