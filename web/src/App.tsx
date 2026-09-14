@@ -1285,7 +1285,10 @@ function App({ application }: { application: AutoNavLogApplication }) {
       },
       "Projectをローカルへ保存しました。",
     );
-    if (saved?.project) setProjectName(saved.project.name);
+    if (saved?.project) {
+      setProjectName(saved.project.name);
+      setSelectedProjectId(saved.project.id);
+    }
   };
 
   const handleReplaceCheckPoints = async (checkPoints: CheckPointInput[]) => {

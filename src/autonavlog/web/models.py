@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -176,6 +176,37 @@ class LoadProjectRequest(WebRequestModel):
     project_id: UUID
 
 
+class WorkingCalculation(BaseModel):
+    """Calculation-time inputs retained with the last-good result for explicit save."""
+
+    model_config = ConfigDict(extra="forbid")
+    project: Project
+    outcome: CalculationOutcome
+    destination_wind: DestinationWindForecast | None
+    forecast_metadata: dict[str, Any] = Field(default_factory=dict)
+    calculation_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("outcome", mode="before")
+    @classmethod
+    def decode_outcome(cls, value: object) -> object:
+        if isinstance(value, dict):
+            return CalculationOutcome.model_validate_json(json.dumps(value))
+        return value
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> WorkingCalculation:
+        if self.project.id != self.outcome.project_id:
+            raise ValueError("calculation must belong to its Project")
+        ui_state = self.project.metadata.get("ui_state")
+        if not isinstance(ui_state, dict) or (
+            ui_state.get("calculated_against_fingerprint") != self.calculation_fingerprint
+        ):
+            raise ValueError("calculation fingerprint must match its Project")
+        if self.project.selected_forecast_run_id != self.outcome.selected_forecast_run_id:
+            raise ValueError("calculation forecast run must match its Project")
+        return self
+
+
 class WorkingRecovery(BaseModel):
     """Transient working copy, never a repository record or runtime handle."""
 
@@ -186,6 +217,7 @@ class WorkingRecovery(BaseModel):
     destination_wind: DestinationWindForecast | None
     import_result: KmlImportResult | None
     import_filename: str | None
+    last_calculation: WorkingCalculation | None = None
 
     @field_validator("outcome", mode="before")
     @classmethod
@@ -201,4 +233,8 @@ class WorkingRecovery(BaseModel):
             self.project is None or self.outcome.project_id != self.project.id
         ):
             raise ValueError("last-good calculation must belong to the working Project")
+        if self.last_calculation is not None and (
+            self.project is None or self.last_calculation.project.id != self.project.id
+        ):
+            raise ValueError("last calculation must belong to the working Project")
         return self

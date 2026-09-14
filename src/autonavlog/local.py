@@ -84,7 +84,9 @@ class LocalApplication:
             weather_label=FIXTURE_WEATHER_LABEL,
             development_weather=False,
         )
-        self.session = self.app.create_session("local-poc", restore_persisted=False)
+        self.session = self.app.create_session(
+            "local-poc", restore_persisted=False, persist_working=False
+        )
 
     def dispatch(self, path: str, body: dict[str, Any] | None = None) -> str:
         """Execute application operations using the existing facade on transient MEMFS."""

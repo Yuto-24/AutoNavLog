@@ -74,6 +74,7 @@ from autonavlog.nav.geodesy import geodesic_leg
 from autonavlog.nav.variation import variation_for_departure_latitude
 from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.storage.airports import AirportRepository
+from autonavlog.storage.local import RevisionConflictError
 from autonavlog.storage.reference_data import (
     ReferenceCatalog,
     ReferenceDataCatalogRepository,
@@ -108,6 +109,7 @@ from .models import (
     ReplaceCheckPointsRequest,
     SaveProjectRequest,
     UpdateProjectRequest,
+    WorkingCalculation,
     WorkingRecovery,
 )
 
@@ -189,6 +191,8 @@ class WebSession:
     destination_wind: DestinationWindForecast | None = None
     readiness: ReadinessEvaluation | None = None
     restore_warning: str | None = None
+    persist_working: bool = True
+    last_calculation: WorkingCalculation | None = None
 
 
 class AutoNavLogWebApplication:
@@ -230,10 +234,13 @@ class AutoNavLogWebApplication:
         self.weather_prewarmer = weather_prewarmer
         self.destination_wind_provider = destination_wind_provider
         self._session_order: list[str] = []
+        self._save_lock = RLock()
         self._projects_generation = 0
         self._lock = RLock()
 
-    def create_session(self, owner_id: str, *, restore_persisted: bool = True) -> WebSession:
+    def create_session(
+        self, owner_id: str, *, restore_persisted: bool = True, persist_working: bool = True
+    ) -> WebSession:
         with self._lock:
             while len(self._session_order) >= self.maximum_sessions:
                 expired = self._session_order.pop(0)
@@ -252,6 +259,7 @@ class AutoNavLogWebApplication:
                 token=token,
                 calculation_service=calculation,
                 owner_id=owner_id,
+                persist_working=persist_working,
                 weather_provider=weather,
                 readiness_service=ReadinessService(
                     calculation,
@@ -282,6 +290,9 @@ class AutoNavLogWebApplication:
                     self._assert_project_owner(existing.project, session.owner_id)
             if recovery.outcome is not None and recovery.project is None:
                 raise WebApplicationError("SESSION_RECOVERY_INVALID", "作業状態を復元できません。")
+            if recovery.last_calculation is not None:
+                self._assert_project_owner(recovery.last_calculation.project, session.owner_id)
+            session.last_calculation = recovery.last_calculation
             session.project = recovery.project
             session.outcome = recovery.outcome
             session.destination_wind = recovery.destination_wind
@@ -291,6 +302,7 @@ class AutoNavLogWebApplication:
             try:
                 return self.present(session)
             except Exception as error:
+                session.last_calculation = None
                 session.project = None
                 session.outcome = None
                 session.destination_wind = None
@@ -997,7 +1009,7 @@ class AutoNavLogWebApplication:
             return self.present(session)
 
     def save(self, session: WebSession, request: SaveProjectRequest) -> dict[str, Any]:
-        with session.lock:
+        with session.lock, self._save_lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "保存するProjectがありません。")
             self._assert_project_owner(session.project, session.owner_id)
@@ -1006,7 +1018,14 @@ class AutoNavLogWebApplication:
                 project_to_save.name = self._normalize_project_name(request.name)
                 project_to_save.metadata["project_name_auto"] = False
             self._persist_draft(session, project_to_save)
-            saved = self.project_service.save(project_to_save)
+            try:
+                saved = self.project_service.save(project_to_save)
+            except RevisionConflictError as error:
+                raise WebApplicationError(
+                    "PROJECT_REVISION_CONFLICT",
+                    "別のタブでProjectが保存されています。現在の編集を確認してから読み込み直してください。",
+                    status_code=409,
+                ) from error
             try:
                 self.project_service.autosave(saved.project)
             except Exception:
@@ -1015,6 +1034,16 @@ class AutoNavLogWebApplication:
                     saved.project.id,
                 )
             session.project = saved.project
+            if not session.persist_working:
+                last = session.last_calculation
+                if last is not None and last.project.id == saved.project.id:
+                    self.project_service.replace_last_calculation(
+                        owner_id=session.owner_id, project=last.project, outcome=last.outcome,
+                        destination_wind=last.destination_wind,
+                        forecast_metadata=last.forecast_metadata,
+                        calculation_fingerprint=last.calculation_fingerprint,
+                    )
+                self.project_service.set_last_opened_project(session.owner_id, saved.project.id)
             self._projects_changed(session)
             self._evaluate(session)
             return self.present(session)
@@ -1059,6 +1088,8 @@ class AutoNavLogWebApplication:
         *,
         set_last_opened: bool = False,
     ) -> None:
+        if not session.persist_working:
+            return
         try:
             self.project_service.autosave(project, set_last_opened=set_last_opened)
         except Exception as error:
@@ -1071,6 +1102,8 @@ class AutoNavLogWebApplication:
         self._projects_changed(session)
 
     def _set_last_opened(self, session: WebSession, project_id: UUID) -> None:
+        if not session.persist_working:
+            return
         try:
             self.project_service.set_last_opened_project(session.owner_id, project_id)
         except Exception as error:
@@ -1093,6 +1126,15 @@ class AutoNavLogWebApplication:
             for item in materialized.evaluation.effective_issues
         )
         if has_effective_blocker or materialized.outcome is None:
+            return
+        session.last_calculation = WorkingCalculation(
+            project=materialized.project.model_copy(deep=True),
+            outcome=materialized.outcome.model_copy(deep=True),
+            destination_wind=destination_wind,
+            forecast_metadata=dict(session.calculation_service.last_forecast_metadata),
+            calculation_fingerprint=materialized.fingerprints.calculation_input,
+        )
+        if not session.persist_working:
             return
         try:
             self.project_service.replace_last_calculation(
@@ -1141,7 +1183,9 @@ class AutoNavLogWebApplication:
         explicit: bool,
     ) -> None:
         try:
-            loaded = self.project_service.load_with_recovery(project_id)
+            loaded = self.project_service.load_with_recovery(
+                project_id, repair_index=session.persist_working
+            )
         except (FileNotFoundError, JsonStorageError, ValueError) as error:
             raise WebApplicationError(
                 "PROJECT_NOT_FOUND",
@@ -1165,6 +1209,14 @@ class AutoNavLogWebApplication:
         except (JsonStorageError, OSError, ValueError):
             LOGGER.exception("Ignoring invalid last-good calculation")
             restore_warning = "前回の計算結果を安全に復元できませんでした。再計算してください。"
+        session.last_calculation = (
+            None if record is None else WorkingCalculation(
+                project=record.project, outcome=record.outcome,
+                destination_wind=record.destination_wind,
+                forecast_metadata=record.forecast_metadata,
+                calculation_fingerprint=record.calculation_fingerprint,
+            )
+        )
         materialized = session.readiness_service.evaluate(
             project,
             None if record is None else record.outcome,
@@ -1297,6 +1349,11 @@ class AutoNavLogWebApplication:
                 destination_wind=session.destination_wind,
                 import_result=session.import_result,
                 import_filename=session.import_filename,
+                last_calculation=(
+                    session.last_calculation
+                    if session.project is not None and session.last_calculation is not None
+                    and session.last_calculation.project.id == session.project.id else None
+                ),
             ).model_dump(mode="json"),
             "runtime": {
                 "appVersion": __version__,

@@ -1423,7 +1423,11 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
     throw new Error("calculated Project and outcome are required");
   }
   const projectId = calculated.project.id;
-  expect(calculated.savedProjects.some((project) => project.id === projectId)).toBe(true);
+  expect(calculated.savedProjects.some((project) => project.id === projectId)).toBe(false);
+  const saved = page.waitForResponse(response =>
+    response.url().endsWith("/api/projects/save") && response.ok());
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saved;
   await expect(page.getByLabel("保存済み", { exact: true })).toHaveValue(projectId);
 
   await page.reload();
@@ -1712,7 +1716,7 @@ test("manual save flushes a pending destination pattern exactly once before chec
   await expect(patternAltitude).toHaveValue("1300");
 });
 
-test("autosave-only projects collapse into Latest and become named saved projects", async ({
+test("tab-only drafts become shared projects only after explicit save", async ({
   page,
 }) => {
   await page.goto("/");
@@ -1727,15 +1731,15 @@ test("autosave-only projects collapse into Latest and become named saved project
   });
   await expect.poll(async () => {
     const current = await readState();
-    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
-  }).toBe(1);
+    return current.project !== null;
+  }).toBe(true);
   const latestState = await readState();
-  const latest = latestState.savedProjects.find((project) => project.kind === "LATEST");
-  if (!latest) throw new Error("Latest autosave project is missing");
+  const latest = latestState.project;
+  if (!latest) throw new Error("tab Project is missing");
   expect(latest.revision).toBe(0);
-  expect(latestState.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(1);
-  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(1);
-  await expect(page.locator("#saved-project")).toHaveValue(latest.id);
+  expect(latestState.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(0);
+  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
+  expect(latestState.savedProjects.some(project => project.id === latest.id)).toBe(false);
 
   const routeAltitudes = page.locator(
     ".route-table tbody tr:not(.vrep-row) .table-number-input",
@@ -1759,7 +1763,7 @@ test("autosave-only projects collapse into Latest and become named saved project
   }
   await altitudeSaved;
 
-  const projectName = `Latestから保存-${latest.id.slice(0, 8)}`;
+  const projectName = `タブから保存-${latest.id.slice(0, 8)}`;
   await page.getByLabel("プロジェクト").fill(projectName);
   const saveResponse = page.waitForResponse(
     (response) => response.url().endsWith("/api/projects/save") && response.ok(),
@@ -1799,14 +1803,14 @@ test("autosave-only projects collapse into Latest and become named saved project
   await page.getByRole("button", { name: "経路を確定" }).click();
   await expect.poll(async () => {
     const current = await readState();
-    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
-  }).toBe(1);
+    return current.project !== null;
+  }).toBe(true);
   const afterNew = await readState();
   expect(afterNew.savedProjects.some(
     (project) => project.id === latest.id && project.kind === "SAVED" && project.name === projectName,
   )).toBe(true);
-  expect(afterNew.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(1);
-  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(1);
+  expect(afterNew.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(0);
+  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
   await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(1);
 
   // Keep the persistent Compose volume clean while exercising explicit deletion.
@@ -1817,7 +1821,7 @@ test("autosave-only projects collapse into Latest and become named saved project
   await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(0);
 });
 
-test("a newer unsaved route replaces the previous owner Latest", async ({ page }) => {
+test("new work replaces only the tab draft and does not create shared Latest", async ({ page }) => {
   await page.goto("/");
   await importKmlCandidate(page);
   await page.getByLabel("地図とKML記載順を確認しました").check();
@@ -1830,14 +1834,14 @@ test("a newer unsaved route replaces the previous owner Latest", async ({ page }
   });
   await expect.poll(async () => {
     const current = await readState();
-    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
-  }).toBe(1);
+    return current.project !== null;
+  }).toBe(true);
   const first = await readState();
   if (!first.project) throw new Error("first autosaved Project is missing");
   const firstProjectId = first.project.id;
   expect(first.savedProjects.some(
-    (project) => project.id === firstProjectId && project.kind === "LATEST",
-  )).toBe(true);
+    (project) => project.id === firstProjectId,
+  )).toBe(false);
 
   page.once("dialog", (dialog) => dialog.accept());
   await Promise.all([
@@ -1850,8 +1854,8 @@ test("a newer unsaved route replaces the previous owner Latest", async ({ page }
 
   await expect.poll(async () => {
     const current = await readState();
-    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
-  }).toBe(1);
+    return current.project !== null;
+  }).toBe(true);
   const second = await readState();
   if (!second.project) throw new Error("second autosaved Project is missing");
   const secondProjectId = second.project.id;
@@ -1859,17 +1863,15 @@ test("a newer unsaved route replaces the previous owner Latest", async ({ page }
   expect(second.savedProjects.some(
     (project) => project.id === firstProjectId,
   )).toBe(false);
-  expect(second.savedProjects.filter((project) => project.kind === "LATEST")).toEqual([
-    expect.objectContaining({ id: secondProjectId, kind: "LATEST" }),
-  ]);
+  expect(second.savedProjects.some(project => project.id === secondProjectId)).toBe(false);
 
   await page.reload();
   await expect.poll(async () => (await readState()).project?.id).toBe(secondProjectId);
   const restored = await readState();
   expect(restored.savedProjects.some((project) => project.id === firstProjectId)).toBe(false);
   expect(restored.savedProjects.some(
-    (project) => project.id === secondProjectId && project.kind === "LATEST",
-  )).toBe(true);
+    (project) => project.id === secondProjectId,
+  )).toBe(false);
 });
 
 test("a newer planning edit prevents a pending destination recalculation transaction", async ({

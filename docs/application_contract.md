@@ -97,6 +97,26 @@ Cookie-based endpoints remain for Legacy compatibility, but do not select the UI
 Owner checks remain Legacy authorization behavior, not a new frontend identity contract.
 A 401 retry creates a private session using the Adapter's latest working copy.
 
+Frontend Legacy sessions keep edits, autosave updates, and calculated results in their
+own working runtime. They do not implicitly write the shared repository, its autosave,
+last-good file, or owner marker. An abandoned calculation may finish on the server, but
+can only update its abandoned runtime. No cancellation protocol is required for this
+isolation (#160 still owns cancellation). Two tabs may independently edit/calculate the
+same Project without either tab's unsaved work becoming the other's saved input.
+
+Frontend drafts are therefore not published as the old owner-wide Latest entry in the
+saved-Project list. Reload uses the tab snapshot; explicit load lists shared saved data.
+Only explicit Legacy save commits this work to the existing repository. Its existing
+revision check runs before canonical autosave or last-good writes; a stale save reports
+PROJECT_REVISION_CONFLICT and leaves the tab's working copy intact. Checkpoint and
+associated snapshot writes are serialized across explicit saves. The recovery also
+retains the last successful calculation's original Project and forecast metadata, so
+saving a subsequently edited draft does not relabel its old result as a new calculation.
+The old Cookie-session API retains its compatibility autosave behavior; Frontend
+Application sessions do not use that path. This is Legacy adapter behavior, not #124
+durable Local storage.
+
+
 Recovery priority is: **same-tab ephemeral session, then #124 durable data, then new work**.
 Until #124 supplies durable Local startup selection, absent recovery starts blank.
 Legacy saved Projects remain available by explicit load; a fresh tab does not implicitly

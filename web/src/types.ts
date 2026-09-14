@@ -598,6 +598,7 @@ export interface WorkingRecovery {
   outcome: CalculationOutcome | null;
   destination_wind: DestinationWindForecast | null;
   // Parsed importer content is validated by the existing importer types on restore.
+  last_calculation?: unknown;
   import_result: unknown;
   import_filename: string | null;
 }

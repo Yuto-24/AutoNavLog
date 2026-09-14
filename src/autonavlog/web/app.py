@@ -229,7 +229,9 @@ def create_app(
         request: Request,
         recovery: WorkingRecovery | None = None,
     ) -> dict[str, Any]:
-        session = web.create_session(_owner_identity(request), restore_persisted=False)
+        session = web.create_session(
+            _owner_identity(request), restore_persisted=False, persist_working=False
+        )
         try:
             state = (
                 web.present(session) if recovery is None else web.restore_working(session, recovery)
