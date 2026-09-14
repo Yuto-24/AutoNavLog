@@ -4,7 +4,9 @@
 `VITE_CALCULATION_MODE=local` のCalculation Coreを拡張し、FTDと取得済みFORECASTを
 同じPython `CalculationService` で実行します。起動は
 [Local起動手順](local_calculation_poc.md#起動と切替)のままです。
-MSMの実予報取得・TAF取得・永続化を含むStatic Webのproduction移行完了を意味しません。
+MSMの実予報取得・TAF取得を含むStatic Webのproduction移行完了を意味しません。
+現行の端末内Project保存は[#124 Local Persistence](local_persistence.md)、同一タブreloadは
+[#119 Application Session](application_contract.md#frontend-application-session--lifecycle-119)を参照してください。
 
 ## 実装範囲
 
@@ -61,8 +63,8 @@ TAF providerは接続しません。目的地情報行は`TAF_PROVIDER_DISABLED`
 新規FORECASTは互換Runを選択します。保存済み00 UTC Runを既存repositoryで保存・復元し、
 03 UTC Runが利用可能でも00 UTCで再計算して`FORECAST_UPDATE_AVAILABLE`を出すことを
 Python/Pyodideで確認します。保存済みRunが非互換ならBlockerになり、最新Runへ切り替えません。
-この保存試験は既存repositoryを一時filesystem上で使い、Browser永続化は実装しません。
-Local画面の明示保存は引き続き無効で、reloadで入力を失います。
+この#125保存試験は既存repositoryを一時filesystem上で使ったものです。
+現行のLocal画面では#124で端末内への明示保存が可能となり、#119で同一タブreload時の作業を復元します。
 
 `localGolden`と既存#117 Goldenは維持します。追加の`calculationCoreGolden`はcanonical
 outcome全体（Section/Derived Point/表示cell/Performance metadata/Warning等）を比較します。

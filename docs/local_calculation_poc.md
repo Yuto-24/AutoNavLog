@@ -2,6 +2,7 @@
 
 > この文書のcheckpointは履歴です。#125によるFTD/FORECASTの拡張・現行制約・
 > Safari実機確認条件は[Calculation Core](local_calculation_core.md)を参照してください。
+> 現行のSession復元は[#119のApplication境界](application_contract.md)、端末内保存は[#124のLocal Persistence](local_persistence.md)を参照してください。
 
 今回はPython / PyodideによるKML → 経路候補選択・確定 → FTD入力 → 計算 →
 NAV LOG表示の検証用checkpointです。#117を完了・採用決定とは扱いません。
@@ -11,7 +12,7 @@ NAV LOG表示の検証用checkpointです。#117を完了・採用決定とは�
 Legacyは従来どおりDocker Composeの `http://127.0.0.1:8123`。
 Localはビルド時の開発設定 `VITE_CALCULATION_MODE=local` で明示選択します。
 通常画面には方式選択を追加していません。Local画面のヘッダーは
-`Pyodide Local PoC` と `再読込で入力を破棄` を表示します。
+`Pyodide Local PoC` と `端末内に保存` を表示します。
 
 WSLでrepository rootから、Python 3.12の開発venv（build/setuptools/wheelを含む）を有効にします。
 
@@ -61,8 +62,9 @@ python -m http.server 4174 --bind 127.0.0.1 --directory web/dist-local
   PerformanceとReferenceは実データをzipで同梱し、既存repositoryで検証・読込します。
   Golden数値や専用経路は実装へ埋め込んでいません。
 - 既存ProjectRepositoryはPyodide標準MEMFS上の一時directoryで再利用します。
-  Browser storageにはmountせず、reloadで消えます。保存/復元の新実装はありません。
-  明示保存は無効、保存済み一覧は空です。#124の永続化とは別物です。
+  この#117 checkpoint時点ではBrowser storageへmountせず、明示保存は無効でした。
+  現行では#119のSession復元と、[#124のIndexedDB Repository](local_persistence.md)が
+  この一時runtimeとは独立して保存・一覧・読込・削除を担います。
 
 ## Runtimeと制約
 
@@ -88,7 +90,8 @@ Loader失敗はそのsession内で自動retryせず、再読込で再試行し�
 Workerの致命的エラー・10分の処理timeoutも失敗として示します。ユーザー操作による
 計算キャンセルや新しい進捗UIはありません。
 
-FTDのみ対応し、FORECAST・KMZ・Project保存は明示的に拒否します。
+#117 checkpoint時点ではFTDのみ対応し、FORECAST・KMZ・Project保存を明示的に拒否していました。
+現行では#125でFORECAST、#124でProject保存に対応しています。KMZは引き続き#120の対象です。
 地図tileは従来の外部配信を利用します。LocalでAPIへ自動fallbackしません。
 既存LegacyのAPI・認証・永続化は維持します。
 
