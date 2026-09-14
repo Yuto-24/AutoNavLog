@@ -71,9 +71,9 @@ export function Header({
           <span className="information-icon-wrap"><Info aria-hidden="true" size={18} />{informationUnread && <span className="information-unread-dot" />}</span>
           <span className="information-label">Information</span>
         </button>
-        <div className="storage-state" aria-label={localMode ? "再読込で入力を破棄します" : "保存先はローカルです"}>
+        <div className="storage-state" aria-label={localMode ? "このタブの再読込で作業を復元します" : "保存先はローカルです"}>
           <CheckCircle2 aria-hidden="true" size={17} />
-          <span>{localMode ? "再読込で入力を破棄" : "ローカル保存"}</span>
+          <span>{localMode ? "タブ内で作業を保持" : "ローカル保存"}</span>
         </div>
         <div className="saved-project-control">
           <label htmlFor="saved-project">保存済み</label>

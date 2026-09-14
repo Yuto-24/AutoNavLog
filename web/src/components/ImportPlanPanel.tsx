@@ -12,6 +12,8 @@ interface ImportPlanPanelProps {
   busy: boolean;
   onFile: (file: File) => void;
   onPaste: () => void;
+  onResumeKmz?: () => void;
+  onResumePaste?: () => void;
 }
 
 function destinationAirportLabel(airport: AirportOption): string {
@@ -54,6 +56,8 @@ export function ImportPlanPanel({
   busy,
   onFile,
   onPaste,
+  onResumeKmz,
+  onResumePaste,
 }: ImportPlanPanelProps) {
   const update = <Key extends keyof PlanningForm>(key: Key, value: PlanningForm[Key]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -81,6 +85,12 @@ export function ImportPlanPanel({
 
   return (
     <aside className="input-rail" aria-label="経路と飛行計画">
+      {onResumePaste && (
+        <button className="secondary-button" onClick={onResumePaste}>貼付KMLの編集を続ける</button>
+      )}
+      {onResumeKmz && (
+        <button className="secondary-button" onClick={onResumeKmz}>KMZ文書の選択を続ける</button>
+      )}
       <section className="rail-section">
         <div className="section-heading-row">
           <h2>経路を取り込む</h2>

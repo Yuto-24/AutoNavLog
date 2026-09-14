@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from threading import Event
 
 import httpx
 import pytest
@@ -1983,3 +1984,200 @@ async def test_calculation_job_snapshot_prune_race_returns_minimal_payload(
         "created_at_utc": submitted.created_at_utc.isoformat(),
         "updated_at_utc": submitted.updated_at_utc.isoformat(),
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("corrupt_autosave", [False, True])
+async def test_frontend_recovery_isolates_tabs_and_hydrates_without_storage_writes(
+    tmp_path, corrupt_autosave
+):
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "storage",
+            weather_mode="fake",
+            trusted_local_identity="recovery-user",
+            session_cookie_secure=False,
+        )
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
+    ) as client:
+        one = (await client.post("/api/application-session")).json()
+        two = (await client.post("/api/application-session")).json()
+        first = {"X-AutoNavLog-Session": one["token"]}
+        second = {"X-AutoNavLog-Session": two["token"]}
+        imported = (
+            await client.post(
+                "/api/import", headers=first, json={"filename": "route.kml", "kml_text": KML}
+            )
+        ).json()
+        assert (await client.get("/api/state", headers=second)).json()["import"]["filename"] is None
+        restored = (
+            await client.post("/api/application-session", json=imported["workingRecovery"])
+        ).json()
+        third = {"X-AutoNavLog-Session": restored["token"]}
+        assert restored["state"]["import"] == imported["import"]
+        confirmed = await client.post("/api/route/confirm", headers=third, json=_route_payload())
+        assert confirmed.status_code == 200
+        working = confirmed.json()["workingRecovery"]
+        if corrupt_autosave:
+            saved = await client.post("/api/projects/save", headers=third, json={"name": "Saved"})
+            assert saved.status_code == 200, saved.text
+            working = saved.json()["workingRecovery"]
+            confirmed = saved
+            autosave = next((tmp_path / "storage").rglob("autosave.json"))
+            autosave.write_text("{broken")
+            # A fallback would normally repair the index. Recovery ownership checks
+            # must remain read-only, even when durable records need repair.
+            index = next((tmp_path / "storage").rglob("index.json"))
+            index.write_text(index.read_text().replace("Saved", "Older saved name"))
+        before = {str(p): p.read_bytes() for p in (tmp_path / "storage").rglob("*.json")}
+        resumed = await client.post("/api/application-session", json=working)
+        assert resumed.status_code == 200
+        assert resumed.json()["state"]["project"] == confirmed.json()["project"]
+        assert {str(p): p.read_bytes() for p in (tmp_path / "storage").rglob("*.json")} == before
+        assert (await client.post("/api/application-session")).json()["state"]["project"] is None
+        assert (await client.delete("/api/application-session", headers=first)).status_code == 204
+        assert (await client.get("/api/state", headers=third)).status_code == 200
+        assert (
+            await client.post("/api/application-session", json={"version": 99})
+        ).status_code == 422
+        assert {str(p): p.read_bytes() for p in (tmp_path / "storage").rglob("*.json")} == before
+
+
+@pytest.mark.anyio
+async def test_real_old_job_cannot_overwrite_restored_or_other_tab_work(tmp_path, monkeypatch):
+    app = create_app(WebRuntimeConfig(
+        data_root=ROOT / "data", storage_root=tmp_path / "storage",
+        weather_mode="fake", trusted_local_identity="tab-user", session_cookie_secure=False,
+    ))
+    web = app.state.web_application
+    entered, release = Event(), Event()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
+    ) as client:
+        first = (await client.post("/api/application-session")).json()
+        old_headers = {"X-AutoNavLog-Session": first["token"]}
+        client.headers.update(old_headers)
+        assert (await client.post("/api/import", json={
+            "filename": "route.kml", "kml_text": KML,
+        })).status_code == 200
+        assert (await client.post("/api/route/confirm", json=_route_payload() | {
+            "weather_mode": "FTD", "ftd_weather": {
+                "surface_wind": {"direction_deg_from": 180, "speed_kt": 5},
+                "wind_at_5000_ft": {"direction_deg_from": 270, "speed_kt": 20},
+            },
+        })).status_code == 200
+        initial = await _calculate(client)
+        saved = await client.post("/api/projects/save", json={"name": "Shared"})
+        assert saved.status_code == 200, saved.text
+        recovery = saved.json()["workingRecovery"]
+        assert recovery["last_calculation"] is not None
+
+        original = web._calculate_outcome
+
+        def delayed(session, *args, **kwargs):
+            if session.token == first["token"]:
+                entered.set()
+                assert release.wait(20), "test did not release old calculation"
+            return original(session, *args, **kwargs)
+
+        monkeypatch.setattr(web, "_calculate_outcome", delayed)
+        old_job = (await client.post("/api/calculation-jobs")).json()
+        try:
+            assert await asyncio.to_thread(entered.wait, 5)
+            restored = (await client.post("/api/application-session", json=recovery)).json()
+            client.headers["X-AutoNavLog-Session"] = restored["token"]
+            update = await client.put("/api/project", json=_update_payload(
+                restored["state"]["project"], fuel_gal=75,
+            ))
+            assert update.status_code == 200, update.text
+            newer = await _calculate(client)
+            # Explicitly commit newer draft and last-good before the old job completes.
+            saved_new = await client.post("/api/projects/save", json={"name": "Newer"})
+            assert saved_new.status_code == 200, saved_new.text
+            expected = saved_new.json()["workingRecovery"]
+            before = {str(p): p.read_bytes() for p in (tmp_path / "storage").rglob("*.json")}
+        finally:
+            release.set()
+        for _ in range(200):
+            job = (await client.get(
+                f"/api/calculation-jobs/{old_job['job_id']}", headers=old_headers,
+            )).json()
+            if job["status"] in {"succeeded", "failed"}:
+                break
+            await asyncio.sleep(0.02)
+        assert job["status"] == "succeeded", job
+        assert job["state"]["project"]["total_usable_fuel_gal"] == 90
+        assert (await client.get("/api/state")).json()["workingRecovery"] == expected
+        assert {str(p): p.read_bytes() for p in (tmp_path / "storage").rglob("*.json")} == before
+        assert newer["outcome"] != initial["outcome"]
+
+        # A second tab can keep editing and calculating the same Project independently.
+        other = (await client.post("/api/application-session", json=recovery)).json()
+        client.headers["X-AutoNavLog-Session"] = other["token"]
+        assert (await client.put("/api/project", json=_update_payload(
+            other["state"]["project"], fuel_gal=65,
+        ))).status_code == 200
+        other_result = await _calculate(client)
+        assert other_result["project"]["total_usable_fuel_gal"] == 65
+        assert {str(p): p.read_bytes() for p in (tmp_path / "storage").rglob("*.json")} == before
+        fresh_state = (await client.get("/api/state", headers={
+            "X-AutoNavLog-Session": restored["token"],
+        })).json()
+        assert fresh_state["workingRecovery"] == expected
+        # Existing revision conflicts must occur before touching canonical autosave/last-good.
+        conflict = await client.post("/api/projects/save", json={"name": "Stale"})
+        assert conflict.status_code == 409
+        assert conflict.json()["error"]["code"] == "PROJECT_REVISION_CONFLICT"
+        after = {str(p): p.read_bytes() for p in (tmp_path / "storage").rglob("*.json")
+                 if "project-conflict-" not in p.name}
+        assert after == before
+    app.state.calculation_jobs.shutdown()
+
+
+@pytest.mark.anyio
+async def test_explicit_save_after_reload_keeps_calculation_time_inputs(tmp_path):
+    app = create_app(WebRuntimeConfig(
+        data_root=ROOT / "data", storage_root=tmp_path / "storage",
+        weather_mode="fake", trusted_local_identity="tab-user", session_cookie_secure=False,
+    ))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
+    ) as client:
+        first = (await client.post("/api/application-session")).json()
+        client.headers["X-AutoNavLog-Session"] = first["token"]
+        await client.post("/api/import", json={"filename": "route.kml", "kml_text": KML})
+        await client.post("/api/route/confirm", json=_route_payload() | {
+            "weather_mode": "FTD", "ftd_weather": {
+                "surface_wind": {"direction_deg_from": 180, "speed_kt": 5},
+                "wind_at_5000_ft": {"direction_deg_from": 270, "speed_kt": 20},
+            },
+        })
+        calculated = await _calculate(client)
+        updated = (await client.put("/api/project", json=_update_payload(
+            calculated["project"], fuel_gal=75,
+        ))).json()
+        assert list((tmp_path / "storage").rglob("autosave.json")) == []
+        assert list((tmp_path / "storage").rglob("last-calculation.json")) == []
+        restored = (await client.post(
+            "/api/application-session", json=updated["workingRecovery"],
+        )).json()
+        client.headers["X-AutoNavLog-Session"] = restored["token"]
+        saved = await client.post("/api/projects/save", json={"name": "Draft and last-good"})
+        assert saved.status_code == 200, saved.text
+        record = json.loads(next((tmp_path / "storage").rglob("last-calculation.json")).read_text())
+        assert record["project"]["total_usable_fuel_gal"] == 90
+        assert record["outcome"] == calculated["workingRecovery"]["outcome"]
+        assert saved.json()["project"]["total_usable_fuel_gal"] == 75
+        loaded = await client.post("/api/projects/load", json={
+            "project_id": saved.json()["project"]["id"],
+        })
+        assert loaded.status_code == 200
+        assert loaded.json()["project"]["total_usable_fuel_gal"] == 75
+        assert loaded.json()["outcome"] == {
+            **calculated["outcome"], "status": "MANUAL_INPUT_REQUIRED",
+        }
+        assert loaded.json()["readiness"]["calculationIsCurrent"] is False
+    app.state.calculation_jobs.shutdown()

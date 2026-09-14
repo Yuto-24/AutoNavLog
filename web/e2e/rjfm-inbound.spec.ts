@@ -1,3 +1,4 @@
+import { observeLegacySession } from "./helpers/legacySession";
 import { expect, test, type Page } from "@playwright/test";
 
 const inboundKml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -85,7 +86,8 @@ async function readState(page: Page): Promise<State> {
   });
 }
 
-test.beforeEach(async ({ request }) => {
+test.beforeEach(async ({ page, request }) => {
+  await observeLegacySession(page);
   const reset = await request.delete("/api/session");
   expect(reset.status()).toBe(204);
 });
@@ -152,6 +154,9 @@ test("real RJFO inbound KML keeps physical route and places EOC at UMK", async (
   for (const select of await page.locator(".altitude-candidate-select").all()) {
     await select.selectOption({ index: 0 });
   }
+  // This fixed FTD wind needs the existing feasible manual entry plan; the
+  // automatic 1,500 ft plan correctly returns NO_SOLUTION in the current core.
+  await page.locator(".vrep-row .table-number-input").fill("2500");
   const calculateButton = page.locator(".status-actions .primary-button");
   await expect(calculateButton).toHaveText("NAV LOGを作る");
   await calculateButton.click();

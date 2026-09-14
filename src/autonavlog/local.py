@@ -32,6 +32,7 @@ from autonavlog.web.models import (
     RenameRouteNodeRequest,
     ReplaceCheckPointsRequest,
     UpdateProjectRequest,
+    WorkingRecovery,
 )
 
 
@@ -83,13 +84,19 @@ class LocalApplication:
             weather_label=FIXTURE_WEATHER_LABEL,
             development_weather=False,
         )
-        self.session = self.app.create_session("local-poc")
+        self.session = self.app.create_session(
+            "local-poc", restore_persisted=False, persist_working=False
+        )
 
     def dispatch(self, path: str, body: dict[str, Any] | None = None) -> str:
         """Execute application operations using the existing facade on transient MEMFS."""
         payload = body or {}
         if path == "bootstrap":
-            state = self.app.present(self.session)
+            state = (
+                self.app.restore_working(self.session, _validate_request(WorkingRecovery, payload))
+                if payload
+                else self.app.present(self.session)
+            )
         elif path == "importRoute":
             request = _validate_request(ImportRouteRequest, payload)
             if not request.filename.lower().endswith(".kml") or request.kmz_kml_filename:

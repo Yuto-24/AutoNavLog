@@ -1,3 +1,4 @@
+import { observeLegacySession } from "./helpers/legacySession";
 import { disableClipboardRead } from "./helpers/clipboard";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
@@ -799,11 +800,12 @@ async function reloadWithGsiFixtureMode(
   state: WebState,
 ): Promise<void> {
   setGsiFixtureMode(page, mode);
-  await page.route("**/api/state", async (route) => {
+  await page.route("**/api/application-session", async (route) => {
+    const bootstrap = await (await route.fetch()).json();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(state),
+      body: JSON.stringify({ ...bootstrap, state: state }),
     });
   }, { times: 1 });
   await page.reload();
@@ -1084,11 +1086,12 @@ async function reloadWithCurrentRjfmGuidance(
   guidanceState.outcome.rjfm_departure_guidance = guidance;
   guidanceState.rjfmMapReference = rjfmMapReferenceFixture;
   guidanceState.readiness.calculationIsCurrent = true;
-  await page.route("**/api/state", async (route) => {
+  await page.route("**/api/application-session", async (route) => {
+    const bootstrap = await (await route.fetch()).json();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(guidanceState),
+      body: JSON.stringify({ ...bootstrap, state: guidanceState }),
     });
   }, { times: 1 });
   await page.reload();
@@ -1104,6 +1107,7 @@ async function importKmlCandidate(page: Page): Promise<void> {
 }
 
 test.beforeEach(async ({ page, request }) => {
+  await observeLegacySession(page);
   await disableClipboardRead(page);
   const reset = await request.delete("/api/session");
   expect(reset.status()).toBe(204);
@@ -1356,11 +1360,12 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
     };
     return next;
   });
-  await page.route("**/api/state", async (route) => {
+  await page.route("**/api/application-session", async (route) => {
+    const bootstrap = await (await route.fetch()).json();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(unavailableState),
+      body: JSON.stringify({ ...bootstrap, state: unavailableState }),
     });
   }, { times: 1 });
   await page.reload();
@@ -1383,7 +1388,7 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
   expect(pageErrors).toEqual([]);
 });
 
-test("autosaved last-good calculation survives reload and cookie loss until explicit delete", async ({
+test("tab last-good calculation survives reload and cookie loss until explicit delete", async ({
   context,
   page,
 }, testInfo) => {
@@ -1418,23 +1423,19 @@ test("autosaved last-good calculation survives reload and cookie loss until expl
     throw new Error("calculated Project and outcome are required");
   }
   const projectId = calculated.project.id;
-  expect(calculated.savedProjects.some((project) => project.id === projectId)).toBe(true);
+  expect(calculated.savedProjects.some((project) => project.id === projectId)).toBe(false);
+  const saved = page.waitForResponse(response =>
+    response.url().endsWith("/api/projects/save") && response.ok());
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await saved;
   await expect(page.getByLabel("保存済み", { exact: true })).toHaveValue(projectId);
 
   await page.reload();
-  await expect(page.getByText(
-    "最後に開いたProjectと最後の計算結果を復元しました。",
-    { exact: true },
-  )).toBeVisible();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
   await expect(page.getByLabel("保存済み", { exact: true })).toHaveValue(projectId);
 
   await context.clearCookies();
   await page.reload();
-  await expect(page.getByText(
-    "最後に開いたProjectと最後の計算結果を復元しました。",
-    { exact: true },
-  )).toBeVisible();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
   const cookieRestored = await page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -1449,62 +1450,16 @@ test("autosaved last-good calculation survives reload and cookie loss until expl
     fullPage: true,
   });
 
-  const stale = await page.evaluate(async () => {
-    const stateResponse = await fetch("/api/state");
-    if (!stateResponse.ok) throw new Error(`state request failed: ${stateResponse.status}`);
-    const state = await stateResponse.json() as WebState;
-    const project = state.project;
-    if (project === null) throw new Error("Project is missing");
-    const arrival = project.metadata.ui_state?.arrival_plan ?? null;
-    const response = await fetch("/api/project", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        flight_date: project.flight_date,
-        departure_time_jst: project.planned_departure_time_jst.slice(11, 16),
-        pilot_name: project.pilot_name,
-        ship_identifier: project.ship_identifier,
-        total_usable_fuel_gal: project.total_usable_fuel_gal - 1,
-        default_variation_deg_east: project.default_variation_deg_east,
-        weather_mode: project.weather_mode,
-        ftd_weather: project.ftd_weather,
-        run_up_included: project.run_up_included,
-        nose_fairing_enabled: project.nose_fairing_enabled,
-        air_conditioning_enabled: project.air_conditioning_enabled,
-        descent_rate_fpm: project.descent_rate_fpm,
-        tgl_count: project.tgl_count,
-        sections: project.sections.map((section) => ({
-          section_id: section.id,
-          planned_altitude_ft_msl: section.planned_altitude_ft_msl,
-          phase: section.phase,
-          manual_wind_direction_deg: section.manual_wind_direction_deg,
-          manual_wind_speed_kt: section.manual_wind_speed_kt,
-          manual_wind_by_phase: section.manual_wind_by_phase ?? {},
-          manual_temperature_c: section.manual_temperature_c,
-          manual_temperature_c_by_phase: section.manual_temperature_c_by_phase ?? {},
-          manual_tas_kt_by_phase: section.manual_tas_kt_by_phase ?? {},
-          manual_tas_kt: section.manual_tas_kt,
-        })),
-        visual_reporting_point_node_id: arrival?.visual_reporting_point_node_id ?? null,
-        selected_pattern_altitude_ft_msl: arrival?.selected_pattern_altitude_ft_msl ?? null,
-        arrival_altitude_mode: arrival?.altitude_mode ?? "STANDARD_DISTANCE_RULE",
-        manual_vrep_altitude_ft_msl: arrival?.manual_vrep_altitude_ft_msl ?? null,
-        manual_vrep_reason: arrival?.manual_override_reason ?? null,
-      }),
-    });
-    if (!response.ok) {
-      throw new Error(`Project update failed: ${response.status} ${await response.text()}`);
-    }
-    return await response.json() as WebState;
-  });
+  // Edit through the UI: same-tab recovery intentionally outranks backend copies.
+  const edited = page.waitForResponse(response =>
+    response.url().endsWith("/api/project") && response.ok() &&
+    response.request().method() === "PUT");
+  await page.getByLabel("FUEL gal").fill(String(calculated.project.total_usable_fuel_gal - 1));
+  const stale = await (await edited).json() as WebState;
   expect(stale.outcome).not.toBeNull();
   expect(stale.readiness.calculationIsCurrent).toBe(false);
 
   await page.reload();
-  await expect(page.getByText(
-    "最後に開いたProjectと直前の計算結果を復元しました。入力が変更されているため再計算してください。",
-    { exact: true },
-  )).toBeVisible();
   await expect(page.getByText("RECALCULATION_REQUIRED", { exact: true })).toBeVisible();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
   await page.screenshot({
@@ -1636,7 +1591,7 @@ test("valid planning drafts autosave before calculation and coalesce rapid edits
   expect(checkpointRequested).toBe(false);
   await expect(routeAltitudes.nth(1)).toHaveValue("");
   await page.reload();
-  await expect(routeAltitudes.nth(1)).toHaveValue("6500");
+  await expect(routeAltitudes.nth(1)).toHaveValue("");
   expect(pageErrors).toEqual([]);
 });
 
@@ -1761,7 +1716,7 @@ test("manual save flushes a pending destination pattern exactly once before chec
   await expect(patternAltitude).toHaveValue("1300");
 });
 
-test("autosave-only projects collapse into Latest and become named saved projects", async ({
+test("tab-only drafts become shared projects only after explicit save", async ({
   page,
 }) => {
   await page.goto("/");
@@ -1776,15 +1731,15 @@ test("autosave-only projects collapse into Latest and become named saved project
   });
   await expect.poll(async () => {
     const current = await readState();
-    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
-  }).toBe(1);
+    return current.project !== null;
+  }).toBe(true);
   const latestState = await readState();
-  const latest = latestState.savedProjects.find((project) => project.kind === "LATEST");
-  if (!latest) throw new Error("Latest autosave project is missing");
+  const latest = latestState.project;
+  if (!latest) throw new Error("tab Project is missing");
   expect(latest.revision).toBe(0);
-  expect(latestState.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(1);
-  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(1);
-  await expect(page.locator("#saved-project")).toHaveValue(latest.id);
+  expect(latestState.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(0);
+  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
+  expect(latestState.savedProjects.some(project => project.id === latest.id)).toBe(false);
 
   const routeAltitudes = page.locator(
     ".route-table tbody tr:not(.vrep-row) .table-number-input",
@@ -1808,7 +1763,7 @@ test("autosave-only projects collapse into Latest and become named saved project
   }
   await altitudeSaved;
 
-  const projectName = `Latestから保存-${latest.id.slice(0, 8)}`;
+  const projectName = `タブから保存-${latest.id.slice(0, 8)}`;
   await page.getByLabel("プロジェクト").fill(projectName);
   const saveResponse = page.waitForResponse(
     (response) => response.url().endsWith("/api/projects/save") && response.ok(),
@@ -1848,14 +1803,14 @@ test("autosave-only projects collapse into Latest and become named saved project
   await page.getByRole("button", { name: "経路を確定" }).click();
   await expect.poll(async () => {
     const current = await readState();
-    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
-  }).toBe(1);
+    return current.project !== null;
+  }).toBe(true);
   const afterNew = await readState();
   expect(afterNew.savedProjects.some(
     (project) => project.id === latest.id && project.kind === "SAVED" && project.name === projectName,
   )).toBe(true);
-  expect(afterNew.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(1);
-  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(1);
+  expect(afterNew.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(0);
+  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
   await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(1);
 
   // Keep the persistent Compose volume clean while exercising explicit deletion.
@@ -1866,7 +1821,7 @@ test("autosave-only projects collapse into Latest and become named saved project
   await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(0);
 });
 
-test("a newer unsaved route replaces the previous owner Latest", async ({ page }) => {
+test("new work replaces only the tab draft and does not create shared Latest", async ({ page }) => {
   await page.goto("/");
   await importKmlCandidate(page);
   await page.getByLabel("地図とKML記載順を確認しました").check();
@@ -1879,14 +1834,14 @@ test("a newer unsaved route replaces the previous owner Latest", async ({ page }
   });
   await expect.poll(async () => {
     const current = await readState();
-    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
-  }).toBe(1);
+    return current.project !== null;
+  }).toBe(true);
   const first = await readState();
   if (!first.project) throw new Error("first autosaved Project is missing");
   const firstProjectId = first.project.id;
   expect(first.savedProjects.some(
-    (project) => project.id === firstProjectId && project.kind === "LATEST",
-  )).toBe(true);
+    (project) => project.id === firstProjectId,
+  )).toBe(false);
 
   page.once("dialog", (dialog) => dialog.accept());
   await Promise.all([
@@ -1899,8 +1854,8 @@ test("a newer unsaved route replaces the previous owner Latest", async ({ page }
 
   await expect.poll(async () => {
     const current = await readState();
-    return current.savedProjects.filter((project) => project.kind === "LATEST").length;
-  }).toBe(1);
+    return current.project !== null;
+  }).toBe(true);
   const second = await readState();
   if (!second.project) throw new Error("second autosaved Project is missing");
   const secondProjectId = second.project.id;
@@ -1908,17 +1863,15 @@ test("a newer unsaved route replaces the previous owner Latest", async ({ page }
   expect(second.savedProjects.some(
     (project) => project.id === firstProjectId,
   )).toBe(false);
-  expect(second.savedProjects.filter((project) => project.kind === "LATEST")).toEqual([
-    expect.objectContaining({ id: secondProjectId, kind: "LATEST" }),
-  ]);
+  expect(second.savedProjects.some(project => project.id === secondProjectId)).toBe(false);
 
   await page.reload();
   await expect.poll(async () => (await readState()).project?.id).toBe(secondProjectId);
   const restored = await readState();
   expect(restored.savedProjects.some((project) => project.id === firstProjectId)).toBe(false);
   expect(restored.savedProjects.some(
-    (project) => project.id === secondProjectId && project.kind === "LATEST",
-  )).toBe(true);
+    (project) => project.id === secondProjectId,
+  )).toBe(false);
 });
 
 test("a newer planning edit prevents a pending destination recalculation transaction", async ({
@@ -2185,11 +2138,12 @@ test("stale destination pattern response cannot overwrite a loaded project or du
       calculationIsCurrent: false,
     },
   };
-  await page.route("**/api/state", async (route) => {
+  await page.route("**/api/application-session", async (route) => {
+    const bootstrap = await (await route.fetch()).json();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ ...currentState, savedProjects: replacementState.savedProjects }),
+      body: JSON.stringify({ ...bootstrap, state: { ...currentState, savedProjects: replacementState.savedProjects } }),
     });
   }, { times: 1 });
   await page.reload();
@@ -2540,11 +2494,12 @@ test("cruise boundary cards separate calculation conditions from interpolation c
       calculationIsCurrent: true,
     },
   };
-  await page.route("**/api/state", async (route) => {
+  await page.route("**/api/application-session", async (route) => {
+    const bootstrap = await (await route.fetch()).json();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(boundaryState),
+      body: JSON.stringify({ ...bootstrap, state: boundaryState }),
     });
   }, { times: 1 });
   await page.route("**/api/acknowledgements/**", async (route) => {
@@ -2777,8 +2732,9 @@ test("RJFM inbound guidance remains below NAV LOG at intermediate and wide width
       },
     },
   };
-  await page.route("**/api/state", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inboundState) });
+  await page.route("**/api/application-session", async (route) => {
+    const bootstrap = await (await route.fetch()).json();
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...bootstrap, state: inboundState }) });
   }, { times: 1 });
   await page.reload();
   const navLog = page.getByLabel("計算済みNAV LOG");
@@ -2812,11 +2768,12 @@ test("RJFM inbound guidance remains below NAV LOG at intermediate and wide width
     ...inboundState,
     readiness: { ...inboundState.readiness, calculationIsCurrent: false },
   };
-  await page.route("**/api/state", async (route) => {
+  await page.route("**/api/application-session", async (route) => {
+    const bootstrap = await (await route.fetch()).json();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(staleState),
+      body: JSON.stringify({ ...bootstrap, state: staleState }),
     });
   }, { times: 1 });
   await page.reload();
@@ -3030,11 +2987,12 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(19);
 
   guidanceState.readiness.calculationIsCurrent = false;
-  await page.route("**/api/state", async (route) => {
+  await page.route("**/api/application-session", async (route) => {
+    const bootstrap = await (await route.fetch()).json();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(guidanceState),
+      body: JSON.stringify({ ...bootstrap, state: guidanceState }),
     });
   }, { times: 1 });
   await page.reload();
@@ -3054,12 +3012,19 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(19);
 
   guidanceState.readiness.calculationIsCurrent = true;
+  await page.evaluate(() => {
+    const key = "autonavlog.working-session.v1";
+    const session = JSON.parse(sessionStorage.getItem(key)!);
+    session.calculationInputsAreLocallyCurrent = true;
+    sessionStorage.setItem(key, JSON.stringify(session));
+  });
   guidanceState.outcome.rjfm_departure_guidance = rjfmValidUnavailableGuidanceFixture;
-  await page.route("**/api/state", async (route) => {
+  await page.route("**/api/application-session", async (route) => {
+    const bootstrap = await (await route.fetch()).json();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(guidanceState),
+      body: JSON.stringify({ ...bootstrap, state: guidanceState }),
     });
   }, { times: 1 });
   await page.reload();
@@ -3423,7 +3388,7 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
 
   const toat = page.locator(".nav-log-table").getByLabel(/手動気温$/).first();
   const tas = page.locator(".nav-log-table").getByLabel(/手動TAS$/).first();
-  for (const [input, value] of [[altitude, "25000"], [toat, "-80.0"], [tas, "300"]] as const) {
+  for (const [input, value] of [[altitudeInput, "25000"], [toat, "-80.0"], [tas, "300"]] as const) {
     const response = page.waitForResponse(
       (item) => item.url().endsWith("/api/project/recalculate") && item.ok(),
     );

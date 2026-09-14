@@ -1,4 +1,4 @@
-import type { ArrivalPlan, CheckPointInput, NavSection, Project, WebState } from "./types";
+import type { ArrivalPlan, CheckPointInput, NavSection, Project, WebState, WorkingRecovery } from "./types";
 
 // Transitional snapshot only. Application Session/lifecycle is designed in #119.
 export type ApplicationSnapshot = WebState;
@@ -45,7 +45,7 @@ export type ProgressListener = (progress: CalculationProgress) => void;
 
 // Operation boundaries intentionally preserve draft commits and atomic update/recalculate.
 export interface AutoNavLogApplication {
-  bootstrap(): Promise<ApplicationSnapshot>;
+  bootstrap(recovery?: WorkingRecovery): Promise<ApplicationSnapshot>;
   importRoute(input: ImportRouteInput): Promise<ApplicationSnapshot>;
   confirmRoute(input: ConfirmRouteInput): Promise<ApplicationSnapshot>;
   updateProject(input: UpdateProjectInput): Promise<ApplicationSnapshot>;

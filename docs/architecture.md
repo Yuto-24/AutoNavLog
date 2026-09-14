@@ -21,7 +21,9 @@ Msm/Fake/FTD adapter       Local adapter
 ```
 
 `CalculationService.calculate()`はProjectをdeep copyし、同じ入力、性能データversion、
-Policy version、Forecast Runから同じ結果を生成します。Web sessionは表示中の状態を保持しますが、
+Policy version、Forecast Runから同じ結果を生成します。以下のWeb sessionはLegacy内部の状態です。Frontendのタブ単位reload復元は
+[Application Session](application_contract.md#frontend-application-session--lifecycle-119)を参照してください。
+Legacyでは
 Project入力と最後に正常完了した計算はlocal repositoryにも永続化し、新しいsessionで復元します。
 
 Project保存は4層に分けます。

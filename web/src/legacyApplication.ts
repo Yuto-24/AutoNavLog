@@ -1,6 +1,6 @@
 import { ApplicationError } from "./application";
 import type { ApplicationErrorDetails, AutoNavLogApplication, ImportRouteInput, ConfirmRouteInput, UpdateProjectInput, ProgressListener } from "./application";
-import type { CheckPointInput, WebState } from "./types";
+import type { CheckPointInput, WebState, WorkingRecovery } from "./types";
 
 async function parseError(response: Response): Promise<ApplicationError> {
   let payload: {
@@ -40,16 +40,26 @@ export class LegacyApplication implements AutoNavLogApplication {
 
   private bootstrapInFlight: Promise<WebState> | null = null;
 
-  private async createSession(): Promise<WebState> {
-    const response = await this.fetch("/api/session", {
+  private token: string | undefined;
+  private recovery: WorkingRecovery | undefined;
+
+  private async createSession(recovery?: WorkingRecovery): Promise<WebState> {
+    const response = await this.fetch("/api/application-session", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(recovery ?? null),
       credentials: "same-origin",
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) {
       throw await parseError(response);
     }
-    const payload = await this.readJson<{ state: WebState }>(response);
+    const payload = await this.readJson<{ state: WebState; token: string }>(response);
+    if (typeof payload.token !== "string" || !payload.token || !payload.state) {
+      throw new ApplicationError("処理結果を読み取れませんでした。", "APPLICATION_RESPONSE_INVALID");
+    }
+    this.token = payload.token;
+    this.recovery = payload.state.workingRecovery;
     return payload.state;
   }
 
@@ -58,7 +68,7 @@ export class LegacyApplication implements AutoNavLogApplication {
     options: { method?: string; body?: unknown },
     retryOnUnauthorized: boolean,
   ): Promise<T> {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = this.token ? { "X-AutoNavLog-Session": this.token } : {};
     if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
     }
@@ -70,7 +80,7 @@ export class LegacyApplication implements AutoNavLogApplication {
       signal: AbortSignal.timeout(30_000),
     });
     if (response.status === 401 && retryOnUnauthorized) {
-      await this.createSession();
+      await this.createSession(this.recovery);
       return this.fetchJson<T>(path, options, false);
     }
     if (!response.ok) {
@@ -79,16 +89,9 @@ export class LegacyApplication implements AutoNavLogApplication {
     return await this.readJson<T>(response);
   }
 
-  async bootstrap(): Promise<WebState> {
+  async bootstrap(recovery?: WorkingRecovery): Promise<WebState> {
     if (this.bootstrapInFlight) return this.bootstrapInFlight;
-    const pending = (async () => {
-      const response = await this.fetch("/api/state", {
-        credentials: "same-origin", signal: AbortSignal.timeout(30_000),
-      });
-      if (response.status === 401) return this.createSession();
-      if (!response.ok) throw await parseError(response);
-      return await this.readJson<WebState>(response);
-    })();
+    const pending = this.createSession(recovery);
     this.bootstrapInFlight = pending;
     try { return await pending; }
     finally { if (this.bootstrapInFlight === pending) this.bootstrapInFlight = null; }
@@ -98,7 +101,11 @@ export class LegacyApplication implements AutoNavLogApplication {
     path: string,
     options: { method?: string; body?: unknown } = {},
   ): Promise<T> {
-    return this.fetchJson<T>(path, options, true);
+    const result = await this.fetchJson<T>(path, options, true);
+    if (result && typeof result === "object" && "workingRecovery" in result) {
+      this.recovery = (result as unknown as WebState).workingRecovery;
+    }
+    return result;
   }
 
   async calculate(
@@ -133,18 +140,22 @@ export class LegacyApplication implements AutoNavLogApplication {
     if (!job.state) {
       throw new ApplicationError("計算結果がありません。", "CALCULATION_RESULT_MISSING");
     }
+    this.recovery = job.state.workingRecovery;
     return job.state;
   }
 
   async newWork(): Promise<void> {
-    const response = await this.fetch("/api/session", {
+    const response = await this.fetch("/api/application-session", {
       method: "DELETE",
+      headers: this.token ? { "X-AutoNavLog-Session": this.token } : {},
       credentials: "same-origin",
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok && response.status !== 401) {
       throw await parseError(response);
     }
+    this.token = undefined;
+    this.recovery = undefined;
   }
 
   importRoute(input: ImportRouteInput) { return this.request<WebState>("/api/import", { method: "POST", body: input }); }
