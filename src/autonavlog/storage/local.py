@@ -452,11 +452,15 @@ class LocalProjectRepository:
     def load(self, project_id: UUID) -> Project:
         return self.load_with_recovery(project_id).project
 
-    def load_with_recovery(self, project_id: UUID) -> ProjectLoadResult:
+    def load_with_recovery(
+        self, project_id: UUID, *, repair_index: bool = True
+    ) -> ProjectLoadResult:
         with self._lock:
-            return self._load_with_recovery_locked(project_id)
+            return self._load_with_recovery_locked(project_id, repair_index=repair_index)
 
-    def _load_with_recovery_locked(self, project_id: UUID) -> ProjectLoadResult:
+    def _load_with_recovery_locked(
+        self, project_id: UUID, *, repair_index: bool = True
+    ) -> ProjectLoadResult:
         autosave_path = self._project_path(project_id, "autosave.json")
         path = self._project_path(project_id, "project.json")
         backup_path = self._project_path(project_id, "project.json.bak")
@@ -508,7 +512,7 @@ class LocalProjectRepository:
             should_update_index = recovered_from_fallback
         else:
             raise FileNotFoundError(f"project not found: {project_id}")
-        if should_update_index:
+        if should_update_index and repair_index:
             self._update_index(project)
         return ProjectLoadResult(
             project=project,

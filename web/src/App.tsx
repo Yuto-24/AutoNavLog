@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApplicationError } from "./application";
 import type { AutoNavLogApplication, UpdateProjectInput } from "./application";
+import { readSession, writeSession, clearSession, RECOVERY_FAILED, emptyCheckPointDraft, projectDraft, restoreProjectDraft } from "./applicationSession";
+import type { ApplicationSession, PendingKmz, NodeNameDraft, VorColumn } from "./applicationSession";
 import { fileToBase64 } from "./fileInput";
 import {
   candidateFromKey,
@@ -42,12 +44,6 @@ import { hasUnreadInformation, hasUnreadKnownIssues, markInformationSeen } from 
 import type { InformationData } from "./releaseNotes";
 import releaseNotesData from "./generated/releaseNotes.json";
 
-interface PendingKmz {
-  filename: string;
-  contentBase64: string;
-  candidates: string[];
-}
-
 type ActiveOperation = "calculate" | null;
 type DraftSaveWaiter = (saved: boolean) => void;
 
@@ -86,6 +82,17 @@ function patternRequestBasis(next: WebState): string | null {
 }
 
 function App({ application }: { application: AutoNavLogApplication }) {
+  const [recovery] = useState(readSession);
+  const [vorColumns, setVorColumns] = useState<VorColumn[]>([{ id: 0, stationIdentifier: null }]);
+  const [checkPointDraft, setCheckPointDraft] = useState(emptyCheckPointDraft);
+  const [nodeNameDraft, setNodeNameDraft] = useState<NodeNameDraft>({ id: null, name: "" });
+  const [sessionReady, setSessionReady] = useState(false);
+  const sessionDiscarded = useRef(false);
+  const latestSession = useRef<ApplicationSession | null>(null);
+  const restoredPattern = useRef<string | null>(null);
+  const lifecycle = useRef(0);
+  const restoredCandidate = useRef<string | null>(null);
+  const [kmzOpen, setKmzOpen] = useState(false);
   const [state, setState] = useState<WebState | null>(null);
   const [form, setForm] = useState<PlanningForm>(() => initialPlanningForm());
   const [altitudeInputs, setAltitudeInputs] = useState<Record<string, string>>({});
@@ -122,7 +129,7 @@ function App({ application }: { application: AutoNavLogApplication }) {
   const [selectedKmzDocument, setSelectedKmzDocument] = useState("");
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const navLogRef = useRef<HTMLDivElement | null>(null);
-  const kmzDialogRef = useModalFocusTrap<HTMLElement>(Boolean(pendingKmz));
+  const kmzDialogRef = useModalFocusTrap<HTMLElement>(kmzOpen && Boolean(pendingKmz));
   const calculationInputGenerationRef = useRef(0);
   const navLogEditPendingRef = useRef(false);
   const navLogDraftsRef = useRef<NavLogEditDrafts>({});
@@ -205,7 +212,12 @@ function App({ application }: { application: AutoNavLogApplication }) {
     if (syncCalculationInputs) {
       setCalculationInputsAreLocallyCurrent(true);
     }
-    if (projectChanged) cancelPendingRecalculation();
+    if (projectChanged) {
+      cancelPendingRecalculation();
+      setVorColumns([{ id: 0, stationIdentifier: null }]);
+      setCheckPointDraft(emptyCheckPointDraft());
+      setNodeNameDraft({ id: null, name: "" });
+    }
     canonicalProjectRef.current = next.project;
     projectIdRef.current = nextProjectId;
     destinationPatternBasisRef.current = nextPatternBasis;
@@ -317,31 +329,72 @@ function App({ application }: { application: AutoNavLogApplication }) {
 
   useEffect(() => {
     let active = true;
-    application
-      .bootstrap()
-      .then((next) => {
-        if (!active) return;
-        applyState(next);
-        if (next.project) {
-          setNotice(
-            next.outcome
-              ? next.readiness.calculationIsCurrent
-                ? "最後に開いたProjectと最後の計算結果を復元しました。"
-                : "最後に開いたProjectと直前の計算結果を復元しました。入力が変更されているため再計算してください。"
-              : "最後に開いたProjectを復元しました。NAV LOGを計算してください。",
-          );
+    lifecycle.current += 1;
+    const bootstrap = async () => {
+      let restored = recovery.session;
+      let failed = recovery.failed;
+      let next: WebState;
+      try {
+        next = await application.bootstrap(restored?.working);
+      } catch (reason) {
+        if (!restored || !(reason instanceof ApplicationError) ||
+            !["VALIDATION_FAILED", "SESSION_RECOVERY_INVALID", "PROJECT_NOT_FOUND"].includes(reason.code)) throw reason;
+        restored = undefined;
+        failed = true;
+        clearSession();
+        next = await application.bootstrap();
+      }
+      if (!active) return;
+      applyState(next);
+      if (restored) {
+        // Canonical project remains the validated Application snapshot; raw UI values stay separate.
+        if (next.project && restored.projectDraft) {
+          setState({ ...next, project: restoreProjectDraft(next.project, restored.projectDraft) });
         }
-      })
-      .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : "起動に失敗しました。");
-      });
-    return () => {
-      active = false;
+        setForm(restored.form);
+        restoredPattern.current = restored.form.destinationPatternAltitudeFtMsl;
+        restoredCandidate.current = restored.form.candidateKey;
+        setAltitudeInputs(restored.altitudeInputs);
+        navLogDraftsRef.current = restored.navLogDrafts;
+        setNavLogDrafts(restored.navLogDrafts);
+        setCalculationInputsAreLocallyCurrent(restored.calculationInputsAreLocallyCurrent);
+        setVorColumns(restored.vorColumns);
+        setCheckPointDraft(restored.checkPointDraft);
+        setNodeNameDraft(restored.nodeNameDraft);
+        setPastedKml(restored.pastedKml);
+        setProjectName(restored.projectName);
+        setSelectedProjectId(restored.selectedProjectId);
+        setPendingKmz(restored.pendingKmz);
+        setSelectedKmzDocument(restored.selectedKmzDocument);
+      }
+      if (failed) setNotice(RECOVERY_FAILED);
+      setSessionReady(true);
     };
+    void bootstrap().catch((reason: unknown) => {
+      if (active) setError(reason instanceof Error ? reason.message : "起動に失敗しました。");
+    });
+    return () => { active = false; lifecycle.current += 1; };
   }, [application, bootstrapAttempt]);
+
+  useLayoutEffect(() => {
+    if (!sessionReady || !state?.workingRecovery || sessionDiscarded.current) return;
+    const snapshot: ApplicationSession = {
+      checkPointDraft, nodeNameDraft, vorColumns,
+      version: 1, working: state.workingRecovery, form, altitudeInputs, navLogDrafts,
+      projectDraft: projectDraft(state.project), calculationInputsAreLocallyCurrent, pastedKml,
+      projectName, selectedProjectId, pendingKmz, selectedKmzDocument,
+    };
+    latestSession.current = snapshot;
+    if (!writeSession(snapshot)) {
+      setNotice("作業状態を一時保存できません。再読み込みすると未保存の作業を失う可能性があります。");
+    }
+  }, [sessionReady, state, form, altitudeInputs, navLogDrafts, checkPointDraft, nodeNameDraft, vorColumns,
+    calculationInputsAreLocallyCurrent, pastedKml, projectName, selectedProjectId, pendingKmz, selectedKmzDocument]);
 
   useEffect(() => {
     if (!state || state.project) return;
+    if (restoredCandidate.current === form.candidateKey) return;
+    restoredCandidate.current = null;
     const candidate = candidateFromKey(state.import.candidates, form.candidateKey);
     if (!candidate) return;
     const departure = departureAirportForCandidate(candidate, state.airports);
@@ -372,7 +425,7 @@ function App({ application }: { application: AutoNavLogApplication }) {
   }, [form.candidateKey, state]);
 
   useEffect(() => {
-    if (!pendingKmz) return;
+    if (!pendingKmz) { setKmzOpen(false); return; }
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !busy) {
         setPendingKmz(null);
@@ -393,16 +446,19 @@ function App({ application }: { application: AutoNavLogApplication }) {
       operation?: Exclude<ActiveOperation, null>;
     } = {},
   ): Promise<Result | undefined> => {
+    const epoch = lifecycle.current;
     setBusy(true);
     setActiveOperation(options.operation ?? null);
     setError(null);
     setNotice(null);
     try {
       const result = await action();
+      if (epoch !== lifecycle.current) return undefined;
       options.apply?.(result);
       if (options.success) setNotice(options.success);
       return result;
     } catch (reason) {
+      if (epoch !== lifecycle.current) return undefined;
       setError(
         reason instanceof Error
           ? reason.message
@@ -410,8 +466,10 @@ function App({ application }: { application: AutoNavLogApplication }) {
       );
       return undefined;
     } finally {
-      setBusy(false);
-      setActiveOperation(null);
+      if (epoch === lifecycle.current) {
+        setBusy(false);
+        setActiveOperation(null);
+      }
     }
   };
 
@@ -423,11 +481,17 @@ function App({ application }: { application: AutoNavLogApplication }) {
       operation?: Exclude<ActiveOperation, null>;
       freshImport?: boolean;
     } = {},
-  ) => runTask(action, {
-    apply: (next) => applyState(next, options),
-    success,
-    operation: options.operation,
-  });
+  ) => {
+    const generation = calculationInputGenerationRef.current;
+    return runTask(action, {
+      apply: (next) => applyState(next, {
+        ...options,
+        syncCalculationInputs: options.syncCalculationInputs &&
+          generation === calculationInputGenerationRef.current,
+      }),
+      success, operation: options.operation,
+    });
+  };
 
   const setTrackedForm: typeof setForm = (value) => {
     invalidateCalculationInputs();
@@ -454,6 +518,7 @@ function App({ application }: { application: AutoNavLogApplication }) {
     } catch (reason) {
       if (reason instanceof ApplicationError && reason.code === "KMZ_DOCUMENT_SELECTION_REQUIRED") {
         setPendingKmz({ filename, contentBase64, candidates: reason.details.candidates ?? [] });
+        setKmzOpen(true);
         setSelectedKmzDocument(reason.details.candidates?.[0] ?? "");
       } else {
         throw reason;
@@ -1015,6 +1080,8 @@ function App({ application }: { application: AutoNavLogApplication }) {
   const destinationPatternRecalculates = Boolean(state?.outcome);
 
   useEffect(() => {
+    if (restoredPattern.current === form.destinationPatternAltitudeFtMsl) return;
+    restoredPattern.current = null;
     const selectedPattern = patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl);
     if (
       !destinationPatternRecalculates ||
@@ -1290,14 +1357,27 @@ function App({ application }: { application: AutoNavLogApplication }) {
     invalidateDestinationPatternRequests();
     const reset = await runTask(
       async () => {
-        const draftSaved = await flushDraftAutosave(false);
-        if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-        await application.newWork();
+        await discardPendingDraftAutosave();
+        try {
+          clearSession();
+        } catch {
+          throw new Error("作業状態を破棄できませんでした。ブラウザのストレージ設定を確認してください。");
+        }
+        sessionDiscarded.current = true;
+        try {
+          await application.newWork();
+        } catch (reason) {
+          sessionDiscarded.current = false;
+          if (latestSession.current) writeSession(latestSession.current);
+          throw reason;
+        }
         return true;
       },
       { fallbackError: "新規作業を開始できませんでした。" },
     );
-    if (reset) window.location.reload();
+    if (reset) {
+      window.location.reload();
+    }
   };
 
   const handleAcknowledge = async (ackKey: string, checked: boolean) => {
@@ -1428,10 +1508,16 @@ function App({ application }: { application: AutoNavLogApplication }) {
           setForm={setTrackedForm}
           projectExists={Boolean(state.project)}
           busy={busy}
+          onResumePaste={pastedKml && !pasteOpen ? () => setPasteOpen(true) : undefined}
+          onResumeKmz={pendingKmz && !kmzOpen ? () => setKmzOpen(true) : undefined}
           onFile={handleFile}
           onPaste={() => void handlePasteImport("clipboard")}
         />
         <RouteWorkspace
+          checkPointDraft={checkPointDraft}
+          setCheckPointDraft={setCheckPointDraft}
+          nodeNameDraft={nodeNameDraft}
+          setNodeNameDraft={setNodeNameDraft}
           candidate={selectedCandidate}
           project={state.project}
           altitudeGuidance={state.altitudeGuidance}
@@ -1492,6 +1578,8 @@ function App({ application }: { application: AutoNavLogApplication }) {
           aria-label="計算済みNAV LOG"
         >
           <NavLogTable
+            vorColumns={vorColumns}
+            setVorColumns={setVorColumns}
             outcome={state.outcome}
             destinationWind={state.destinationWind}
             altitudeGuidance={state.altitudeGuidance}
@@ -1567,7 +1655,7 @@ function App({ application }: { application: AutoNavLogApplication }) {
         }}
       />
 
-      {pendingKmz && (
+      {pendingKmz && kmzOpen && (
         <div
           className="modal-backdrop"
           role="presentation"

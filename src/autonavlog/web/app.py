@@ -41,6 +41,7 @@ from .models import (
     ReplaceCheckPointsRequest,
     SaveProjectRequest,
     UpdateProjectRequest,
+    WorkingRecovery,
 )
 from .runtime import (
     WeatherMode,
@@ -127,7 +128,9 @@ def _owner_identity(request: Request) -> str:
 
 
 def require_session(request: Request) -> WebSession:
-    session_token = request.cookies.get(SESSION_COOKIE_NAME)
+    session_token = request.headers.get("X-AutoNavLog-Session") or request.cookies.get(
+        SESSION_COOKIE_NAME
+    )
     if not session_token:
         raise WebApplicationError(
             "SESSION_REQUIRED",
@@ -220,6 +223,26 @@ def create_app(
     @app.get("/healthz")
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
+
+    @app.post("/api/application-session")
+    def application_session(
+        request: Request,
+        recovery: WorkingRecovery | None = None,
+    ) -> dict[str, Any]:
+        session = web.create_session(_owner_identity(request), restore_persisted=False)
+        try:
+            state = (
+                web.present(session) if recovery is None else web.restore_working(session, recovery)
+            )
+        except Exception:
+            web.invalidate_session(session.token, session.owner_id)
+            raise
+        return {"state": state, "token": session.token}
+
+    @app.delete("/api/application-session", status_code=204)
+    def close_application_session(session: SessionDependency) -> Response:
+        web.invalidate_session(session.token, session.owner_id)
+        return Response(status_code=204)
 
     @app.post("/api/session")
     def create_session(request: Request, response: Response) -> dict[str, Any]:

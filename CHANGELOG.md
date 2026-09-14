@@ -2,6 +2,19 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.12.0
+
+### 利用者向け
+
+#### 改善
+
+- 同じタブの再読み込み後に、作業中の経路・入力途中の値・NAV LOG編集と直前の計算結果へ戻れるようにしました。計算中の再読み込みでは計算を再開しません。
+- 別タブの未保存作業を分離し、「新規」で閉じた作業は再読み込み後に復元しません。
+
+### 開発者向け
+
+- Legacy / Local共通のFrontend Application Sessionを追加しました。タブ内の一時的なreload recoveryと永続Project保存を分離し、Local Persistenceは引き続き#124の責務です。
+
 ## 1.11.7
 
 ### 利用者向け

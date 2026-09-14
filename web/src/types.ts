@@ -592,7 +592,18 @@ export interface SavedProject {
   updatedAt: string;
 }
 
+export interface WorkingRecovery {
+  version: 1;
+  project: Project | null;
+  outcome: CalculationOutcome | null;
+  destination_wind: DestinationWindForecast | null;
+  // Parsed importer content is validated by the existing importer types on restore.
+  import_result: unknown;
+  import_filename: string | null;
+}
+
 export interface WebState {
+  workingRecovery?: WorkingRecovery;
   runtime: RuntimeState;
   airports: AirportOption[];
   savedProjects: SavedProject[];

@@ -38,18 +38,18 @@ test("UI and application contract have no transport dependencies", () => {
 });
 
 test("bootstrap shares initialization and contains session creation", async () => {
-  const calls = responses(json({}, 401), json({ state }));
+  const calls = responses(json({ state, token: "tab-one" }));
   const app: AutoNavLogApplication = new LegacyApplication();
   expect(await Promise.all([app.bootstrap(), app.bootstrap()])).toEqual([state, state]);
-  expect(calls.map(call => call.path)).toEqual(["/api/state", "/api/session"]);
+  expect(calls.map(call => call.path)).toEqual(["/api/application-session"]);
   expect(calls.every(call => call.options?.credentials === "same-origin")).toBe(true);
 });
 
 test("Legacy retries an operation once and does not expose HTTP status", async () => {
-  const calls = responses(json({}, 401), json({ state }), json({ error: { code: "SESSION_REQUIRED", message: "session missing" } }, 401));
+  const calls = responses(json({}, 401), json({ state, token: "adapter-token" }), json({ error: { code: "SESSION_REQUIRED", message: "session missing" } }, 401));
   const app: AutoNavLogApplication = new LegacyApplication();
   await expect(app.updateProject(update)).rejects.toMatchObject({ code: "SESSION_REQUIRED", message: "session missing" });
-  expect(calls.map(call => call.path)).toEqual(["/api/project", "/api/session", "/api/project"]);
+  expect(calls.map(call => call.path)).toEqual(["/api/project", "/api/application-session", "/api/project"]);
   expect(calls[0].options?.body).toBe(calls[2].options?.body);
   responses(json({ error: { code: "PROJECT_REQUIRED", message: "先に経路を確定してください。" } }, 400));
   const error = await app.calculate().catch(error => error);
@@ -85,7 +85,7 @@ test("Legacy keeps update/recalculate atomic and maps all project operations", a
     ["/api/project/recalculate", "POST"], ["/api/projects/save", "POST"],
     ["/api/projects/load", "POST"], ["/api/projects/project%2Fa", "DELETE"],
     ["/api/project/route-nodes/node%2Fa/name", "PUT"], ["/api/acknowledgements/key%2Fa", "PUT"],
-    ["/api/session", "DELETE"],
+    ["/api/application-session", "DELETE"],
   ]);
   expect(JSON.parse(calls[0].options!.body as string)).toEqual(update);
 });
@@ -155,4 +155,42 @@ test("internal failures remain neutral at the Legacy UI boundary", async () => {
   await expect(new LegacyApplication().calculate()).rejects.toMatchObject({
     code: "CALCULATION_JOB_FAILED", message: "計算に失敗しました。", details: {},
   });
+});
+
+test("Legacy tab handles and recovery retries remain adapter-private", async () => {
+  const recovery = { version: 1, project: null, outcome: null, destination_wind: null, import_result: null, import_filename: null } as const;
+  const restored = { ...state, workingRecovery: recovery };
+  const calls = responses(json({ state: restored, token: "one" }), json({ state, token: "two" }),
+    json({}, 401), json({ state: restored, token: "replacement" }), json(restored));
+  const one = new LegacyApplication(), two = new LegacyApplication();
+  await one.bootstrap(recovery);
+  await two.bootstrap();
+  await one.updateProject(update);
+  expect(JSON.parse(calls[0].options!.body as string)).toEqual(recovery);
+  expect(JSON.parse(calls[1].options!.body as string)).toBeNull();
+  expect(calls[2].options!.headers).toMatchObject({ "X-AutoNavLog-Session": "one" });
+  expect(JSON.parse(calls[3].options!.body as string)).toEqual(recovery);
+  expect(calls[4].options!.headers).toMatchObject({ "X-AutoNavLog-Session": "replacement" });
+});
+
+test("session decoding preserves invalid text and rejects incompatible UI shapes", async () => {
+  const { decodeSession, emptyCheckPointDraft } = await import("../src/applicationSession");
+  const { initialPlanningForm } = await import("../src/forms");
+  const session = {
+    version: 1, working: { version: 1, project: null, outcome: null, destination_wind: null,
+      import_result: null, import_filename: null },
+    form: { ...initialPlanningForm(), tglCount: "abc", totalUsableFuelGal: "", destinationPatternAltitudeFtMsl: "123" },
+    altitudeInputs: { a: "-7" }, navLogDrafts: {}, projectDraft: null,
+    calculationInputsAreLocallyCurrent: false, pastedKml: "<incomplete", projectName: "",
+    selectedProjectId: "", pendingKmz: null, selectedKmzDocument: "",
+    checkPointDraft: { ...emptyCheckPointDraft(), latitude: "invalid" },
+    nodeNameDraft: { id: null, name: "" }, vorColumns: [{ id: 0, stationIdentifier: null }],
+  };
+  expect(decodeSession(JSON.stringify(session))).toEqual(session);
+  for (const malformed of [
+    { ...session, version: 99 }, { ...session, form: {} },
+    { ...session, navLogDrafts: { a: null } }, { ...session, pendingKmz: {} },
+    { ...session, projectDraft: { id: "x", sections: [] } },
+    { ...session, checkPointDraft: [] }, { ...session, vorColumns: [null] },
+  ]) expect(() => decodeSession(JSON.stringify(malformed))).toThrow();
 });

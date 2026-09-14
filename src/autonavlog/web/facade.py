@@ -108,6 +108,7 @@ from .models import (
     ReplaceCheckPointsRequest,
     SaveProjectRequest,
     UpdateProjectRequest,
+    WorkingRecovery,
 )
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -232,7 +233,7 @@ class AutoNavLogWebApplication:
         self._projects_generation = 0
         self._lock = RLock()
 
-    def create_session(self, owner_id: str) -> WebSession:
+    def create_session(self, owner_id: str, *, restore_persisted: bool = True) -> WebSession:
         with self._lock:
             while len(self._session_order) >= self.maximum_sessions:
                 expired = self._session_order.pop(0)
@@ -259,10 +260,46 @@ class AutoNavLogWebApplication:
                     require_defaults_review=False,
                 ),
             )
-            self._restore_last_opened_project(session)
+            if restore_persisted:
+                self._restore_last_opened_project(session)
             self._sessions[token] = session
             self._session_order.append(token)
             return session
+
+    def restore_working(self, session: WebSession, recovery: WorkingRecovery) -> dict[str, Any]:
+        # Validate before committing. No autosave, marker update, calculation or replay.
+        with session.lock:
+            if recovery.project is not None:
+                self._assert_project_owner(recovery.project, session.owner_id)
+                # A client-supplied copy cannot replace a different owner's existing Project.
+                try:
+                    existing = self.project_service.load_with_recovery(
+                        recovery.project.id, repair_index=False
+                    )
+                except FileNotFoundError:
+                    pass
+                else:
+                    self._assert_project_owner(existing.project, session.owner_id)
+            if recovery.outcome is not None and recovery.project is None:
+                raise WebApplicationError("SESSION_RECOVERY_INVALID", "作業状態を復元できません。")
+            session.project = recovery.project
+            session.outcome = recovery.outcome
+            session.destination_wind = recovery.destination_wind
+            session.import_result = recovery.import_result
+            session.import_filename = recovery.import_filename
+            session.readiness = None
+            try:
+                return self.present(session)
+            except Exception as error:
+                session.project = None
+                session.outcome = None
+                session.destination_wind = None
+                session.import_result = None
+                session.import_filename = None
+                session.readiness = None
+                raise WebApplicationError(
+                    "SESSION_RECOVERY_INVALID", "作業状態を復元できません。"
+                ) from error
 
     def session(self, token: str, owner_id: str) -> WebSession:
         with self._lock:
@@ -1253,6 +1290,14 @@ class AutoNavLogWebApplication:
         summaries = self._owned_project_summaries(session)
         check_point_planning = self._check_point_planning(session.project)
         return {
+            "workingRecovery": WorkingRecovery(
+                version=1,
+                project=session.project,
+                outcome=session.outcome,
+                destination_wind=session.destination_wind,
+                import_result=session.import_result,
+                import_filename=session.import_filename,
+            ).model_dump(mode="json"),
             "runtime": {
                 "appVersion": __version__,
                 "weatherLabel": self.weather_label,

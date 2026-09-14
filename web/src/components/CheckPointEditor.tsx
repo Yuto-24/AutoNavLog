@@ -1,3 +1,6 @@
+import type { Dispatch, SetStateAction } from "react";
+import { emptyCheckPointDraft as initialDraft } from "../applicationSession";
+import type { CheckPointDraft as Draft } from "../applicationSession";
 import { useEffect, useMemo, useState } from "react";
 import { Crosshair, Pencil, Plus, Trash2, X } from "lucide-react";
 import type {
@@ -18,6 +21,8 @@ interface PickedCoordinate {
 }
 
 interface CheckPointEditorProps {
+  draft: Draft;
+  setDraft: Dispatch<SetStateAction<Draft>>;
   nodes: RouteNode[];
   sections: NavSection[];
   checkPoints: VisualReference[];
@@ -30,25 +35,8 @@ interface CheckPointEditorProps {
   onReplace: (checkPoints: CheckPointInput[]) => Promise<boolean>;
 }
 
-interface Draft {
-  id: string | null;
-  name: string;
-  latitude: string;
-  longitude: string;
-  linkedSectionId: string;
-}
-
-function initialDraft(): Draft {
-  return {
-    id: null,
-    name: "",
-    latitude: "",
-    longitude: "",
-    linkedSectionId: "",
-  };
-}
-
 export function CheckPointEditor({
+  draft, setDraft,
   nodes,
   sections,
   checkPoints,
@@ -60,7 +48,6 @@ export function CheckPointEditor({
   onPickedCoordinateClear,
   onReplace,
 }: CheckPointEditorProps) {
-  const [draft, setDraft] = useState<Draft>(initialDraft);
   const [editorOpen, setEditorOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
@@ -191,6 +178,9 @@ export function CheckPointEditor({
         </button>
       </div>
 
+      {!editorOpen && (draft.name || draft.latitude || draft.longitude) && (
+        <button className="secondary-button" onClick={() => setEditorOpen(true)}>チェックポイントの編集を続ける</button>
+      )}
       {editorOpen && (
         <div className="checkpoint-form">
           <div className="checkpoint-form-heading">

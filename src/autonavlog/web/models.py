@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from autonavlog.domain.calculation import CalculationOutcome
 from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.planning import ArrivalAltitudeMode
-from autonavlog.domain.project import FtdWeatherSettings, ManualWind
+from autonavlog.domain.project import FtdWeatherSettings, ManualWind, Project
+from autonavlog.importers.kml import KmlImportResult
+from autonavlog.weather.destination_taf import DestinationWindForecast
 
 
 class WebRequestModel(BaseModel):
@@ -170,3 +174,31 @@ class SaveProjectRequest(WebRequestModel):
 
 class LoadProjectRequest(WebRequestModel):
     project_id: UUID
+
+
+class WorkingRecovery(BaseModel):
+    """Transient working copy, never a repository record or runtime handle."""
+
+    model_config = ConfigDict(extra="forbid")
+    version: Literal[1]
+    project: Project | None
+    outcome: CalculationOutcome | None
+    destination_wind: DestinationWindForecast | None
+    import_result: KmlImportResult | None
+    import_filename: str | None
+
+    @field_validator("outcome", mode="before")
+    @classmethod
+    def decode_outcome(cls, value: object) -> object:
+        # Strict nested domain dataclasses need JSON-mode UUID decoding.
+        if isinstance(value, dict):
+            return CalculationOutcome.model_validate_json(json.dumps(value))
+        return value
+
+    @model_validator(mode="after")
+    def validate_project_identity(self) -> WorkingRecovery:
+        if self.outcome is not None and (
+            self.project is None or self.outcome.project_id != self.project.id
+        ):
+            raise ValueError("last-good calculation must belong to the working Project")
+        return self

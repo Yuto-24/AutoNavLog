@@ -1,3 +1,5 @@
+import type { Dispatch, SetStateAction } from "react";
+import type { CheckPointDraft, NodeNameDraft } from "../applicationSession";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import {
@@ -40,6 +42,10 @@ import { RouteConfirmation } from "./RouteConfirmation";
 import "./RouteWorkspacePhase.css";
 
 interface RouteWorkspaceProps {
+  checkPointDraft: CheckPointDraft;
+  setCheckPointDraft: Dispatch<SetStateAction<CheckPointDraft>>;
+  nodeNameDraft: NodeNameDraft;
+  setNodeNameDraft: Dispatch<SetStateAction<NodeNameDraft>>;
   candidate: RouteCandidate | null;
   project: Project | null;
   outcome: CalculationOutcome | null;
@@ -169,6 +175,7 @@ function CheckPointMapPicker({
 }
 
 export function RouteWorkspace({
+  checkPointDraft, setCheckPointDraft, nodeNameDraft: nodeDraft, setNodeNameDraft: setNodeDraft,
   candidate,
   project,
   outcome,
@@ -195,8 +202,10 @@ export function RouteWorkspace({
   const [mapHeight, setMapHeight] = useState(425);
   const [pickingCheckPoint, setPickingCheckPoint] = useState(false);
   const [phaseEditing, setPhaseEditing] = useState(false);
-  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
-  const [nodeNameDraft, setNodeNameDraft] = useState("");
+  const editingNodeId = nodeDraft.id;
+  const nodeNameDraft = nodeDraft.name;
+  const setEditingNodeId = (id: string | null) => setNodeDraft(current => ({ ...current, id }));
+  const setNodeNameDraft = (name: string) => setNodeDraft(current => ({ ...current, name }));
   const [nodeNameError, setNodeNameError] = useState<string | null>(null);
   const [nodeNameSaving, setNodeNameSaving] = useState(false);
   const [pickedCoordinate, setPickedCoordinate] = useState<{
@@ -245,8 +254,6 @@ export function RouteWorkspace({
   );
   useEffect(() => {
     setPhaseEditing(false);
-    setEditingNodeId(null);
-    setNodeNameDraft("");
     setNodeNameError(null);
   }, [project?.id]);
   const cancelNodeNameEdit = () => {
@@ -886,6 +893,8 @@ export function RouteWorkspace({
 
       {project && (
         <CheckPointEditor
+          draft={checkPointDraft}
+          setDraft={setCheckPointDraft}
           nodes={nodes}
           sections={sections}
           checkPoints={checkPoints}

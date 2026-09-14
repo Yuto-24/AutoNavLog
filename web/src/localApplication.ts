@@ -1,6 +1,6 @@
 import { ApplicationError } from "./application";
 import type { AutoNavLogApplication, ImportRouteInput, ConfirmRouteInput, UpdateProjectInput, ProgressListener } from "./application";
-import type { CheckPointInput, WebState } from "./types";
+import type { CheckPointInput, WebState, WorkingRecovery } from "./types";
 import { LocalClient } from "./localClient";
 
 export class LocalApplication implements AutoNavLogApplication {
@@ -16,7 +16,7 @@ export class LocalApplication implements AutoNavLogApplication {
     }
   }
 
-  bootstrap() { return this.execute("bootstrap"); }
+  bootstrap(recovery?: WorkingRecovery) { return this.execute("bootstrap", recovery); }
   importRoute(input: ImportRouteInput) { return this.execute("importRoute", input); }
   confirmRoute(input: ConfirmRouteInput) { return this.execute("confirmRoute", input); }
   updateProject(input: UpdateProjectInput) { return this.execute("updateProject", input); }

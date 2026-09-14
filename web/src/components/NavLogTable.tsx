@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
+import type { VorColumn } from "../applicationSession";
+import { useMemo } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 import {
@@ -71,11 +73,6 @@ const BASE_NAV_LOG_WIDTH_PX = Object.values(NAV_LOG_COLUMN_WIDTHS_PX)
   .filter((_, index) => index > 0)
   .reduce((total, width) => total + width, 0);
 const VOR_COLUMN_WIDTH_PX = NAV_LOG_COLUMN_WIDTHS_PX.vor;
-
-interface VorColumn {
-  id: number;
-  stationIdentifier: string | null;
-}
 
 function numberValue(
   value: AdoptedValue<number>,
@@ -560,6 +557,7 @@ function NavLogSummary({
 }
 
 export function NavLogTable({
+  vorColumns, setVorColumns,
   outcome,
   destinationWind,
   altitudeGuidance,
@@ -570,6 +568,8 @@ export function NavLogTable({
   editStatus,
   onEdit,
 }: {
+  vorColumns: VorColumn[];
+  setVorColumns: Dispatch<SetStateAction<VorColumn[]>>;
   outcome: CalculationOutcome;
   destinationWind: DestinationWindForecast | null;
   altitudeGuidance: AltitudeGuidance;
@@ -586,9 +586,6 @@ export function NavLogTable({
   ) => void;
 }) {
   const displayRows: NavLogDisplayRow[] = outcome.display_rows;
-  const [vorColumns, setVorColumns] = useState<VorColumn[]>([
-    { id: 0, stationIdentifier: null },
-  ]);
   const automaticVorStation = useMemo(() => {
     const firstFromRow = displayRows.find(
       (row) => row.from_latitude_deg != null && row.from_longitude_deg != null,

@@ -367,3 +367,48 @@ def test_internal_failure_semantics_match_legacy_and_preserve_draft(
                 assert after[key] == old_outcome[key]
     finally:
         app.state.calculation_jobs.shutdown()
+
+
+def test_reload_working_recovery_restores_import_and_last_good_without_calculation(
+    local, monkeypatch
+):
+    imported = json.loads(
+        local.dispatch(
+            "importRoute",
+            {
+                "filename": "route.kml",
+                "kml_text": (ROOT / "tests/fixtures/issue_43_golden.kml").read_text(),
+            },
+        )
+    )
+    replacement = LocalApplication(ROOT / "data", forecast_fixture=ROOT / "tests/fixtures/msm")
+    try:
+        restored = json.loads(replacement.dispatch("bootstrap", imported["workingRecovery"]))
+        assert restored["import"] == imported["import"]
+        confirmed = json.loads(replacement.dispatch("confirmRoute", INPUTS["confirm"]))
+        assert confirmed["project"]
+    finally:
+        replacement.close()
+
+    calculated = calculate(local)
+    replacement = LocalApplication(ROOT / "data", forecast_fixture=ROOT / "tests/fixtures/msm")
+    try:
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("reload must never calculate")
+
+        monkeypatch.setattr(replacement.app, "calculate", forbidden)
+        restored = json.loads(replacement.dispatch("bootstrap", calculated["workingRecovery"]))
+        assert restored["project"] == calculated["project"]
+        assert restored["outcome"] == calculated["outcome"]
+        assert restored["readiness"] == calculated["readiness"]
+        assert restored["savedProjects"] == []
+    finally:
+        replacement.close()
+
+def test_recovery_rejects_last_good_from_another_project(local):
+    from uuid import uuid4
+    state = calculate(local)
+    state["workingRecovery"]["outcome"]["project_id"] = str(uuid4())
+    result = json.loads(local.dispatch_response("bootstrap", state["workingRecovery"]))
+    assert result["error"]["code"] == "VALIDATION_FAILED"

@@ -163,8 +163,10 @@ class ProjectService:
     def load(self, project_id: UUID) -> Project:
         return self._normalize_ui_state(self.repository.load(project_id))
 
-    def load_with_recovery(self, project_id: UUID) -> ProjectLoadResult:
-        loaded = self.repository.load_with_recovery(project_id)
+    def load_with_recovery(
+        self, project_id: UUID, *, repair_index: bool = True
+    ) -> ProjectLoadResult:
+        loaded = self.repository.load_with_recovery(project_id, repair_index=repair_index)
         return loaded.model_copy(
             update={"project": self._normalize_ui_state(loaded.project)}
         )

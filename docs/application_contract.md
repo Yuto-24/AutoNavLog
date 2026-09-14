@@ -42,11 +42,11 @@ contract. Local save/load/delete reject with `LOCAL_PERSISTENCE_UNAVAILABLE` and
 `details.issue = 124`; they never pretend to save or invoke Legacy. Existing Local
 save controls remain disabled and the saved list stays empty. The reused repository
 on Pyodide MEMFS remains transient, with no IndexedDB, OPFS, or persistent mount.
-New work disposes the transient runtime; the existing UI reload completes the flow.
+New work disposes the transient runtime and clears the tab recovery before reloading.
 
 `ApplicationSnapshot` aliases the current `WebState` solely as a **transitional
-snapshot**. This is not the permanent session/store contract. #119 owns session and
-lifecycle redesign; #124 owns Local persistence; #120 owns platform capabilities.
+snapshot**. This is not a durable storage contract. The reload lifecycle below is shared by both adapters;
+#124 owns Local persistence and #120 owns platform capabilities.
 File/base64 conversion remains a small existing helper, without a capability framework.
 The existing development-only mode label/default weather and persistence affordances
 remain unchanged. There is no UI redesign, new default mode, or calculation rewrite.
@@ -61,3 +61,66 @@ remain unchanged. There is no UI redesign, new default mode, or calculation rewr
   then `AUTONAVLOG_LOCAL_URL=http://127.0.0.1:4174 npm --prefix web run test:local`.
   Existing differential tests retain canonical result/Golden tolerances, API blocking,
   Python validation failure, Worker failure, and corrupt/failed asset coverage.
+
+## Frontend Application Session / lifecycle (#119)
+
+applicationSession.ts defines a versioned, ephemeral working snapshot. It contains
+the Application's working Project and last-good result, parsed importer content (including
+full coordinates needed for confirmation, not just the map preview), and raw UI drafts:
+planning text, section altitude/phase edits, NAV LOG edits, route name/Check Point input,
+VOR selection, pasted KML, and pending KMZ bytes/document choice. Validity of an input is
+not a condition for retaining it. The canonical validated Project remains separate from
+raw edits; existing autosave and update/update-and-recalculate semantics remain in use.
+
+Browser recovery uses only the dedicated sessionStorage key
+autonavlog.working-session.v1. It is a temporary copy, not the source of truth for saved
+Projects or Last Calculation. No IndexedDB, OPFS, persistent mount, Project repository,
+migration framework, capability adapter, or new calculation core is introduced.
+Storage denial/quota exhaustion is visible to the user; a failed write is not reported as
+saved. Large imports/results remain subject to the browser's sessionStorage quota.
+
+Only navigation classified by the browser as **reload** adopts a stored snapshot.
+A fresh navigation clears only this key, including the sessionStorage copy browsers may
+give an opener-created/duplicated tab. Tabs have separate UI snapshots and separate
+Adapter working runtimes. Tab-close or browser-restart recovery is not guaranteed.
+Browser history/focus/scroll and modal visibility are not session data. Pending KMZ and
+Check Point inputs have explicit continuation controls while their editors start closed.
+
+On startup, bootstrap(recovery) hydrates the Application without replaying operations:
+Legacy creates a new private working session, Local hydrates its new transient Python
+runtime. Existing domain/importer models validate the recovery and existing readiness
+evaluation computes the presentation. Snapshot hydration performs no calculation, autosave,
+last-good write, marker update, or index repair. The existing Legacy saved-Project listing
+may still repair its own index or retry pending cleanup while assembling the presentation.
+Legacy's working handle stays inside its Adapter and travels in its own request header;
+Cookie-based endpoints remain for Legacy compatibility, but do not select the UI's work.
+Owner checks remain Legacy authorization behavior, not a new frontend identity contract.
+A 401 retry creates a private session using the Adapter's latest working copy.
+
+Recovery priority is: **same-tab ephemeral session, then #124 durable data, then new work**.
+Until #124 supplies durable Local startup selection, absent recovery starts blank.
+Legacy saved Projects remain available by explicit load; a fresh tab does not implicitly
+adopt another tab's owner-wide Latest. Existing server repository storage is unchanged.
+
+Restored execution is always idle: no busy/progress, dialogs, notices, errors, focus, or
+scroll state are saved. NAV LOG and destination-pattern automatic recalculation timers
+are not armed by hydration. Reload during calculation abandons that execution and keeps
+draft plus last-good; it never starts or resends a calculation. The next user edit or
+explicit calculation follows the normal workflow. New page execution and a new Legacy
+working handle prevent old responses/jobs from writing into restored UI state. Existing
+input generations and autosave guards still reject superseded edits; action results do
+not canonicalize input edited while they were in flight.
+
+Explicit new work drains/discards pending autosave, clears only this tab's recovery,
+then resets the Adapter and reloads. If storage refuses removal, it reports the failure
+before disposing the working runtime; a failed Adapter reset restores the recovery copy. It does not delete saved Projects, Last Calculation, another
+tab, or #124 data. Malformed/version-incompatible UI snapshots or invalid Application
+recovery start a safe blank session with a visible recovery-failure notice. Connection
+failures keep the retry screen and the recovery data, rather than silently losing work.
+
+Verification: shared e2e/session.spec.ts runs against Legacy and production Local
+(npm --prefix web run test:local -- session.spec.ts).
+Local blocks /api/**; KMZ is exercised in Legacy because Local KMZ remains #120 scope.
+Adapter/codec tests run in test:application; Python integration verifies parsed import
+continuation, last-good hydration without calculation, separate Legacy handles and no
+persistence writes during restore.
