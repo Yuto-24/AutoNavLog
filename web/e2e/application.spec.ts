@@ -6,6 +6,7 @@ import type { AutoNavLogApplication, UpdateProjectInput } from "../src/applicati
 import type { WebState } from "../src/types";
 import { LegacyApplication } from "../src/legacyApplication";
 import { LocalApplication } from "../src/localApplication";
+import type { LocalProjectRepository } from "../src/localProjectRepository";
 
 const originalFetch = globalThis.fetch;
 test.afterEach(() => { globalThis.fetch = originalFetch; });
@@ -102,16 +103,18 @@ test("Legacy calculation progress and job failure retain application meaning", a
   expect(error).not.toHaveProperty("status");
 });
 
-test("Local uses common operations, real progress milestones, and explicit unavailable persistence", async () => {
+test("Local uses common operations, real progress milestones, and durable repository composition", async () => {
   let created = 0, disposed = 0;
   const operations: string[] = [];
+  const repository = { list: async () => ({ projects: [], unavailable: [] }), delete: async () => {},
+    read: async () => { throw new ApplicationError("missing", "LOCAL_PROJECT_UNAVAILABLE"); } } as unknown as LocalProjectRepository;
   const app: AutoNavLogApplication = new LocalApplication(() => {
     created++;
     return {
       request: async <T>(operation: string) => { operations.push(operation); return state as T; },
       dispose: () => { disposed++; },
     };
-  });
+  }, repository);
   const progress: number[] = [];
   await app.bootstrap();
   await app.updateProject(update);
@@ -122,10 +125,9 @@ test("Local uses common operations, real progress milestones, and explicit unava
   expect(await app.calculate(value => progress.push(value.percent))).toBe(state);
   expect(progress).toEqual([0, 100]);
   expect(operations).toEqual(["bootstrap", "updateProject", "updateAndRecalculate", "renameRouteNode", "replaceCheckPoints", "acknowledge", "calculate"]);
-  for (const operation of [() => app.saveProject("name"), () => app.loadProject("id"), () => app.deleteProject("id")]) {
-    await expect(operation()).rejects.toMatchObject({ code: "LOCAL_PERSISTENCE_UNAVAILABLE", details: { issue: 124 } });
-  }
-  expect(operations).toHaveLength(7);
+  await expect(app.saveProject("name")).rejects.toMatchObject({ code: "PROJECT_REQUIRED" });
+  await expect(app.loadProject("id")).rejects.toMatchObject({ code: "LOCAL_PROJECT_UNAVAILABLE" });
+  await app.deleteProject("id");
   await app.newWork();
   await app.bootstrap();
   expect([created, disposed]).toEqual([2, 1]);
@@ -193,4 +195,31 @@ test("session decoding preserves invalid text and rejects incompatible UI shapes
     { ...session, projectDraft: { id: "x", sections: [] } },
     { ...session, checkPointDraft: [] }, { ...session, vorColumns: [null] },
   ]) expect(() => decodeSession(JSON.stringify(malformed))).toThrow();
+});
+
+test("failed durable hydration restores the previous runtime working copy", async () => {
+  const previous = { version: 1, project: { id: "previous" }, outcome: null,
+    destination_wind: null, import_result: null, import_filename: null };
+  let current: unknown = previous;
+  let opened = false;
+  const repository = {
+    list: async () => ({ projects: [], unavailable: [] }),
+    read: async () => ({ id: "next", draft: { id: "next" }, lastCalculation: null }),
+    open: async () => { opened = true; },
+  } as unknown as LocalProjectRepository;
+  const app = new LocalApplication(() => ({
+    request: async <T>(operation: string, input?: any) => {
+      if (operation === "bootstrap") {
+        current = input;
+        if (input.project.id === "next") {
+          current = null;
+          throw new ApplicationError("unavailable reference", "SESSION_RECOVERY_INVALID");
+        }
+      }
+      return { ...state, workingRecovery: current } as T;
+    }, dispose() {},
+  }), repository);
+  await expect(app.loadProject("next")).rejects.toMatchObject({ code: "SESSION_RECOVERY_INVALID" });
+  expect(current).toEqual(previous);
+  expect(opened).toBe(false);
 });

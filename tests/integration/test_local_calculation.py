@@ -406,9 +406,68 @@ def test_reload_working_recovery_restores_import_and_last_good_without_calculati
     finally:
         replacement.close()
 
+
 def test_recovery_rejects_last_good_from_another_project(local):
     from uuid import uuid4
+
     state = calculate(local)
     state["workingRecovery"]["outcome"]["project_id"] = str(uuid4())
     result = json.loads(local.dispatch_response("bootstrap", state["workingRecovery"]))
     assert result["error"]["code"] == "VALIDATION_FAILED"
+
+
+@pytest.mark.parametrize("forecast", [False, True])
+def test_durable_record_load_keeps_original_calculation_and_run(local, monkeypatch, forecast):
+    from uuid import uuid4
+
+    from autonavlog.local_persistence import migrate_record
+
+    calculated = calculate(local, forecast=forecast)
+    working = calculated["workingRecovery"]
+    last = working["last_calculation"]
+    assert last is not None
+    draft = dict(working["project"])
+    draft["total_usable_fuel_gal"] = 73
+    record = migrate_record(
+        {
+            "schemaVersion": 2,
+            "id": draft["id"],
+            "token": str(uuid4()),
+            "draft": draft,
+            "checkpoint": working["project"],
+            "lastCalculation": last,
+            "updatedAt": draft["updated_at"],
+        }
+    ).model_dump(mode="json")
+    assert "web_owner_id" not in record["draft"]["metadata"]
+    assert "web_owner_id" not in record["lastCalculation"]["project"]["metadata"]
+    with_local = LocalApplication(ROOT / "data", forecast_fixture=ROOT / "tests/fixtures/msm")
+    try:
+
+        def unexpected_calculation(*args, **kwargs):
+            raise AssertionError("opening durable data must not calculate")
+
+        monkeypatch.setattr(
+            with_local.session.calculation_service, "calculate", unexpected_calculation
+        )
+        restored = json.loads(
+            with_local.dispatch(
+                "bootstrap",
+                {
+                    "version": 1,
+                    "project": record["draft"],
+                    "last_calculation": record["lastCalculation"],
+                    "outcome": last["outcome"],
+                    "destination_wind": last["destination_wind"],
+                    "import_result": None,
+                    "import_filename": None,
+                },
+            )
+        )
+        assert restored["workingRecovery"]["last_calculation"] == last
+        assert restored["project"]["selected_forecast_run_id"] == draft["selected_forecast_run_id"]
+        assert restored["project"]["total_usable_fuel_gal"] == 73
+        assert restored["outcome"] is not None
+        assert not restored["readiness"]["calculationIsCurrent"]
+    finally:
+        with_local.close()

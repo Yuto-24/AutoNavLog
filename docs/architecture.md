@@ -94,3 +94,9 @@ Local CalculationはPython / Pyodideを採用し、Static Webを主方式とし�
 
 取得済みFORECASTを含むPyodide Coreの適用範囲・固定MSM fixture・Run固定・
 Reference維持条件は[Calculation Core](local_calculation_core.md)を参照してください。
+
+## Local durable Repository (#124)
+
+Local Browser mode uses the IndexedDB Repository described in [local_persistence.md](local_persistence.md).
+Project checkpoint/draft and Last Calculation are independent of ephemeral tab recovery and disposable
+Weather cache. The server persistence semantics above remain Legacy-only.

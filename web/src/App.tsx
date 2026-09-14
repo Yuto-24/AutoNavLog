@@ -1503,6 +1503,8 @@ function App({ application }: { application: AutoNavLogApplication }) {
         </div>
       )}
 
+      {state.storageWarning && <div className="message-bar message-error" role="alert">{state.storageWarning}</div>}
+
       <main className="app-workspace">
         <ImportPlanPanel
           importState={state.import}

@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   metadata: { applicationMode: "local" },
-  testMatch: ["local-calculation.spec.ts", "session.spec.ts"],
+  testMatch: ["local-calculation.spec.ts", "session.spec.ts", "persistence.spec.ts"],
   timeout: 120_000,
   expect: { timeout: 30_000 },
   workers: 1,

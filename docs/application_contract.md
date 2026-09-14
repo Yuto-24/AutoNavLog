@@ -38,18 +38,17 @@ flush before save/load/calculation, and explicit reset/reload behavior stay in p
 Renaming, checkpoints, and acknowledgements keep their existing facade behavior.
 
 `saveProject`, `loadProject`, `deleteProject`, and `newWork` belong to the same
-contract. Local save/load/delete reject with `LOCAL_PERSISTENCE_UNAVAILABLE` and
-`details.issue = 124`; they never pretend to save or invoke Legacy. Existing Local
-save controls remain disabled and the saved list stays empty. The reused repository
-on Pyodide MEMFS remains transient, with no IndexedDB, OPFS, or persistent mount.
-New work disposes the transient runtime and clears the tab recovery before reloading.
+contract. Local persistence now uses the IndexedDB Local Project Repository from #124;
+see [durable storage semantics](local_persistence.md). The Pyodide facade remains a
+transient working runtime. New work disposes that runtime and clears tab recovery;
+its previously persisted Latest follows the Repository's replacement/explicit-open rules.
 
 `ApplicationSnapshot` aliases the current `WebState` solely as a **transitional
 snapshot**. This is not a durable storage contract. The reload lifecycle below is shared by both adapters;
 #124 owns Local persistence and #120 owns platform capabilities.
 File/base64 conversion remains a small existing helper, without a capability framework.
-The existing development-only mode label/default weather and persistence affordances
-remain unchanged. There is no UI redesign, new default mode, or calculation rewrite.
+The existing development-only mode label/default weather remain unchanged.
+Local save/name controls are enabled by #124. There is no UI redesign, new default mode, or calculation rewrite.
 
 ## Verification
 
@@ -74,8 +73,8 @@ raw edits; existing autosave and update/update-and-recalculate semantics remain 
 
 Browser recovery uses only the dedicated sessionStorage key
 autonavlog.working-session.v1. It is a temporary copy, not the source of truth for saved
-Projects or Last Calculation. No IndexedDB, OPFS, persistent mount, Project repository,
-migration framework, capability adapter, or new calculation core is introduced.
+Projects or Last Calculation. The session codec itself introduces no durable repository or calculation core.
+#124 supplies the separate IndexedDB repository described in local_persistence.md.
 Storage denial/quota exhaustion is visible to the user; a failed write is not reported as
 saved. Large imports/results remain subject to the browser's sessionStorage quota.
 
@@ -118,7 +117,7 @@ durable Local storage.
 
 
 Recovery priority is: **same-tab ephemeral session, then #124 durable data, then new work**.
-Until #124 supplies durable Local startup selection, absent recovery starts blank.
+Absent recovery starts blank; #124 durable Local Projects are opened only by explicit selection.
 Legacy saved Projects remain available by explicit load; a fresh tab does not implicitly
 adopt another tab's owner-wide Latest. Existing server repository storage is unchanged.
 

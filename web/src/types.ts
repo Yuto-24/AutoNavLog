@@ -593,6 +593,7 @@ export interface SavedProject {
 }
 
 export interface WorkingRecovery {
+  durableToken?: string | null;
   version: 1;
   project: Project | null;
   outcome: CalculationOutcome | null;
@@ -604,6 +605,7 @@ export interface WorkingRecovery {
 }
 
 export interface WebState {
+  storageWarning?: string;
   workingRecovery?: WorkingRecovery;
   runtime: RuntimeState;
   airports: AirportOption[];
