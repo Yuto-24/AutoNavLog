@@ -1,5 +1,5 @@
-import { ClipboardPaste, FileUp, Route } from "lucide-react";
-import type { Dispatch, DragEvent, SetStateAction } from "react";
+import { ClipboardPaste, Route } from "lucide-react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { PlanningForm } from "../forms";
 import type { AirportOption, ImportState } from "../types";
 
@@ -10,7 +10,7 @@ interface ImportPlanPanelProps {
   setForm: Dispatch<SetStateAction<PlanningForm>>;
   projectExists: boolean;
   busy: boolean;
-  onFile: (file: File) => void;
+  fileInput: ReactNode;
   onPaste: () => void;
   onResumeKmz?: () => void;
   onResumePaste?: () => void;
@@ -54,7 +54,7 @@ export function ImportPlanPanel({
   setForm,
   projectExists,
   busy,
-  onFile,
+  fileInput,
   onPaste,
   onResumeKmz,
   onResumePaste,
@@ -76,12 +76,6 @@ export function ImportPlanPanel({
     );
   }
   const routeSelectionRequired = importState.candidates.length > 0 && !form.candidateKey;
-  const acceptDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    if (busy) return;
-    const file = event.dataTransfer.files[0];
-    if (file) onFile(file);
-  };
 
   return (
     <aside className="input-rail" aria-label="経路と飛行計画">
@@ -98,34 +92,7 @@ export function ImportPlanPanel({
         </div>
         {!projectExists && (
           <>
-            <div
-              className={`drop-zone ${busy ? "is-disabled" : ""}`}
-              aria-disabled={busy}
-              onDragOver={(event) => {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = busy ? "none" : "copy";
-              }}
-              onDrop={acceptDrop}
-            >
-              <FileUp aria-hidden="true" size={26} />
-              <strong>KML / KMZをドロップ</strong>
-              <span>10 MiB以下</span>
-              <label className="file-picker" htmlFor="route-file">
-                ファイルを選択
-              </label>
-              <input
-                id="route-file"
-                className="visually-hidden"
-                type="file"
-                accept=".kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) onFile(file);
-                  event.target.value = "";
-                }}
-                disabled={busy}
-              />
-            </div>
+            {fileInput}
             <button
               className="secondary-button full-width"
               type="button"

@@ -48,7 +48,9 @@ its previously persisted Latest follows the Repository's replacement/explicit-op
 `ApplicationSnapshot` aliases the current `WebState` solely as a **transitional
 snapshot**. This is not a durable storage contract. The reload lifecycle below is shared by both adapters;
 #124 owns Local persistence and #120 owns platform capabilities.
-File/base64 conversion remains a small existing helper, without a capability framework.
+The composition root injects [Browser Platform capabilities](platform_capabilities.md).
+File bytes and metadata converge on the existing Importer contract; Application receives
+no filesystem paths or DOM File objects. Local and Legacy both support KML/KMZ.
 The existing development-only mode label/default weather remain unchanged.
 Local save/name controls are enabled by #124. There is no UI redesign, new default mode, or calculation rewrite.
 
@@ -141,7 +143,7 @@ failures keep the retry screen and the recovery data, rather than silently losin
 
 Verification: shared e2e/session.spec.ts runs against Legacy and production Local
 (npm --prefix web run test:local -- session.spec.ts).
-Local blocks /api/**; KMZ is exercised in Legacy because Local KMZ remains #120 scope.
+Local blocks /api/**; KMZ document selection and reload continuation run in both modes.
 Adapter/codec tests run in test:application; Python integration verifies parsed import
 continuation, last-good hydration without calculation, separate Legacy handles and no
 persistence writes during restore.

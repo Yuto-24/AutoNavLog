@@ -102,7 +102,9 @@ not create Weather data or duplicate Pyodide's bundled fixed fixture. Weather ca
 never removes calculation provenance or prevents saved NAV LOG display. Full historical
 Weather replay is not guaranteed.
 
-`navigator.storage.persist()` is requested best-effort. Unsupported, denied, and rejected
+[Platform persistence access](platform_capabilities.md) supplies the existing IndexedDB
+Repository factory, the disposable-cache eviction callback, and best-effort
+`navigator.storage.persist()`. Repository transaction/migration/quota semantics stay here. Unsupported, denied, and rejected
 requests do not warn or block use. Actual storage operation failures do. Browser-managed
 site eviction and user deletion of site data are outside the transaction guarantee;
 private browsing and separate profiles/origins have separate storage lifetimes.

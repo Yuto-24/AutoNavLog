@@ -2,8 +2,7 @@ import { ApplicationError } from "./application";
 import type { AutoNavLogApplication, ImportRouteInput, ConfirmRouteInput, UpdateProjectInput, ProgressListener } from "./application";
 import type { CheckPointInput, WebState, WorkingRecovery } from "./types";
 import { LocalClient } from "./localClient";
-import { IndexedDbProjectRepository, requestPersistentStorage } from "./localProjectRepository";
-import type { LocalProjectRepository, LocalProjectRecord } from "./localProjectRepository";
+import type { LocalProjectRepository, LocalProjectRecord, LocalProjectRepositoryFactory } from "./localProjectRepository";
 
 export class LocalApplication implements AutoNavLogApplication {
   private client: Pick<LocalClient, "request" | "dispose"> | undefined;
@@ -11,9 +10,11 @@ export class LocalApplication implements AutoNavLogApplication {
   private tokens = new Map<string, string>();
   private listedTokens = new Map<string, string>();
   private queue: Promise<unknown> = Promise.resolve();
-  constructor(private readonly createClient: () => Pick<LocalClient, "request" | "dispose"> = () => new LocalClient(), repository?: LocalProjectRepository) {
-    this.repository = repository ?? new IndexedDbProjectRepository(record => this.request<LocalProjectRecord>("validateRecord", record));
+  constructor(createRepository: LocalProjectRepositoryFactory,
+    private readonly createClient: () => Pick<LocalClient, "request" | "dispose"> = () => new LocalClient()) {
+    this.repository = createRepository(record => this.request<LocalProjectRecord>("validateRecord", record));
   }
+
   private async request<T>(operation: string, input?: unknown): Promise<T> {
     try { return await (this.client ??= this.createClient()).request<T>(operation, input); }
     catch (error) {
@@ -98,7 +99,6 @@ export class LocalApplication implements AutoNavLogApplication {
   }
   bootstrap(recovery?: WorkingRecovery) {
     return this.serial(async () => {
-      requestPersistentStorage();
       const { durableToken, ...working } = recovery ?? {};
       if (recovery?.project && durableToken) this.tokens.set(recovery.project.id, durableToken);
       const state = await this.request<WebState>("bootstrap", recovery ? working : undefined);

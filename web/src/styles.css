@@ -1648,3 +1648,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .information-known-issue h5 { margin: 12px 0 6px; font-size: 13px; }
 .information-known-issue p, .information-known-issue li { white-space: pre-line; line-height: 1.65; font-size: 13px; }
 .information-known-issue ul { padding-left: 20px; margin-bottom: 0; }
+
+.navlog-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}

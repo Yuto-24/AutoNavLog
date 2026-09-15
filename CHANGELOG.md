@@ -2,6 +2,19 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.14.0
+
+### 利用者向け
+
+#### 改善
+
+- LocalモードでもKMZを読み込み、複数のKMLが入っている場合は使用する文書を選択できるようにしました。
+- 表示中のNAV LOG計算結果をファイルとしてダウンロード、またはクリップボードへコピーできるようにしました。
+
+### 開発者向け
+
+- BrowserのFile・Clipboard・外部URL・通信状態・保存先アクセスをPlatform Capability境界へ集約しました。Application / Session / Local Repositoryの既存責務を維持し、Importerへは内容とメタデータを渡します。
+
 ## 1.13.0
 
 ### 利用者向け
