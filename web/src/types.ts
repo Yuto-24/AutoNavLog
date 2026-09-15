@@ -113,6 +113,7 @@ export interface ArrivalPlan {
 // Components consume these validated fields directly; UI-only state uses camelCase.
 export interface Project {
   id: string;
+  updated_at: string;
   name: string;
   revision: number;
   status: string;
@@ -593,6 +594,7 @@ export interface SavedProject {
 }
 
 export interface WorkingRecovery {
+  durableToken?: string | null;
   version: 1;
   project: Project | null;
   outcome: CalculationOutcome | null;
@@ -604,6 +606,7 @@ export interface WorkingRecovery {
 }
 
 export interface WebState {
+  storageWarning?: string;
   workingRecovery?: WorkingRecovery;
   runtime: RuntimeState;
   airports: AirportOption[];

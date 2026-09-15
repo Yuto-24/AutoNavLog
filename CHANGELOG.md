@@ -2,6 +2,21 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.13.0
+
+### 利用者向け
+
+#### 改善
+
+- LocalモードのProjectと最後の正常計算を端末内へ保存し、ブラウザ再起動後も一覧から開けるようにしました。
+- 自動保存と名前付きの保存を分け、未保存の作業は端末内のLatestとして1件保持します。
+- 保存容量不足や一部データの破損を通知し、既存のProjectと計算結果を保護します。
+- 自動再計算が失敗した後も、同一タブの再読み込みから自動保存を継続できるようにしました。
+
+### 開発者向け
+
+- IndexedDB Local Repository、Project単位のschema migration、atomicなLatest置換と競合検出を追加しました。Session復元とWeather cacheを独立させ、Local失敗時にLegacyへfallbackしません。
+
 ## 1.12.0
 
 ### 利用者向け

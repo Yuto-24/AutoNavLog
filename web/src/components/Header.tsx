@@ -55,7 +55,7 @@ export function Header({
           type="text"
           value={projectName}
           maxLength={60}
-          disabled={localMode || revision === null || busy}
+          disabled={revision === null || busy}
           aria-invalid={revision !== null && normalizedProjectName.length === 0}
           onChange={(event) => onProjectNameChange(event.target.value)}
         />
@@ -71,9 +71,9 @@ export function Header({
           <span className="information-icon-wrap"><Info aria-hidden="true" size={18} />{informationUnread && <span className="information-unread-dot" />}</span>
           <span className="information-label">Information</span>
         </button>
-        <div className="storage-state" aria-label={localMode ? "このタブの再読込で作業を復元します" : "保存先はローカルです"}>
+        <div className="storage-state" aria-label={localMode ? "保存先はこの端末のブラウザです" : "保存先はローカルです"}>
           <CheckCircle2 aria-hidden="true" size={17} />
-          <span>{localMode ? "タブ内で作業を保持" : "ローカル保存"}</span>
+          <span>{localMode ? "端末内に保存" : "ローカル保存"}</span>
         </div>
         <div className="saved-project-control">
           <label htmlFor="saved-project">保存済み</label>
@@ -116,7 +116,7 @@ export function Header({
           title="保存"
           type="button"
           onClick={() => onSave(normalizedProjectName)}
-          disabled={localMode || revision === null || busy || normalizedProjectName.length === 0}
+          disabled={revision === null || busy || normalizedProjectName.length === 0}
         >
           <Save aria-hidden="true" size={18} />
           <span className="header-action-label">保存</span>

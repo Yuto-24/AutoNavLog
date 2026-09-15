@@ -45,7 +45,7 @@ test.beforeEach(async ({ page }) => {
         this.addEventListener("error", () => { root.localWorkerFailed = true; });
         this.addEventListener("message", (event) => {
           if (typeof event.data.value === "string") {
-            try { root.localStates.push(JSON.parse(event.data.value)); } catch { /* not a state */ }
+            try { const value = JSON.parse(event.data.value); if (value.workingRecovery || value.error) root.localStates.push(value); } catch { /* not a state */ }
           }
         });
       }
@@ -118,7 +118,7 @@ for (const width of [1100, 1440]) {
     expect(apiRequests).toEqual([]);
     expect(errors).toEqual([]);
     await expect(page.locator("vite-error-overlay")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
     await page.screenshot({ path: `/tmp/issue117-local-${width}.png`, fullPage: true });
     const previousTable = await page.locator(".nav-log-table").innerText();
     await page.evaluate(() => { (window as any).failLocalCalculation = true; });

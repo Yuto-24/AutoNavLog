@@ -17,6 +17,7 @@ from pydantic import BaseModel, ValidationError
 
 from autonavlog.application.project_service import ProjectService
 from autonavlog.importers.kml import KmlImportError, import_kml_or_kmz, import_kml_text
+from autonavlog.local_persistence import migrate_record
 from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.storage.airports import AirportRepository
 from autonavlog.storage.local import LocalProjectRepository
@@ -57,6 +58,13 @@ def _validate_request[T: BaseModel](model: type[T], payload: dict[str, Any]) -> 
         raise _RequestValidationError(error) from error
 
 
+class _LocalFacade(AutoNavLogWebApplication):
+    @staticmethod
+    def _assert_project_owner(project: Any, owner_id: str) -> None:
+        # Local-only data has no authentication/owner boundary.
+        pass
+
+
 class LocalApplication:
     def __init__(self, data_root: Path, *, forecast_fixture: Path | None = None) -> None:
         # Reuse existing repository behavior on MEMFS; never mount IDBFS/OPFS.
@@ -66,7 +74,7 @@ class LocalApplication:
             storage / "reference", bundled_default=data_root / "reference/default"
         )
         catalog = references.open_active()
-        self.app = AutoNavLogWebApplication(
+        self.app = _LocalFacade(
             project_service=ProjectService(LocalProjectRepository(storage)),
             airports=AirportRepository.from_reference_catalog(catalog),
             performance=PerformanceRepository.from_directory_for_application(
@@ -91,7 +99,11 @@ class LocalApplication:
     def dispatch(self, path: str, body: dict[str, Any] | None = None) -> str:
         """Execute application operations using the existing facade on transient MEMFS."""
         payload = body or {}
-        if path == "bootstrap":
+        if path == "validateRecord":
+            return migrate_record(payload).model_dump_json()
+        if path == "state":
+            state = self.app.present(self.session)
+        elif path == "bootstrap":
             state = (
                 self.app.restore_working(self.session, _validate_request(WorkingRecovery, payload))
                 if payload
@@ -163,7 +175,21 @@ class LocalApplication:
             )
         else:
             raise WebApplicationError("LOCAL_UNSUPPORTED", "この操作はLocal PoCの対象外です。")
-        # The existing facade's temporary autosave must not advertise durable storage.
+        # The reused facade's owner metadata is a Legacy detail, never Local data.
+        for project in [
+            self.session.project,
+            self.session.last_calculation.project if self.session.last_calculation else None,
+        ]:
+            if project is not None:
+                project.metadata.pop("web_owner_id", None)
+        for project in [
+            state.get("project"),
+            state["workingRecovery"].get("project"),
+            (state["workingRecovery"].get("last_calculation") or {}).get("project"),
+        ]:
+            if project is not None:
+                project["metadata"].pop("web_owner_id", None)
+        # Durable summaries are supplied by the browser Repository.
         state["savedProjects"] = []
         return json.dumps(state, ensure_ascii=False, allow_nan=False)
 
