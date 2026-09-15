@@ -113,6 +113,7 @@ export interface ArrivalPlan {
 // Components consume these validated fields directly; UI-only state uses camelCase.
 export interface Project {
   id: string;
+  updated_at: string;
   name: string;
   revision: number;
   status: string;

@@ -85,6 +85,10 @@ test("browser process restart retains named draft and Last Calculation, opens on
     await save(page, "Restart route");
     const saved = (await records(page))[0];
     expect(saved.draft.revision).toBe(initial.draft.revision + 1);
+    expect(Date.parse(saved.draft.updated_at)).toBeGreaterThan(Date.parse(initial.draft.updated_at));
+    expect(saved.draft.updated_at).toBe(saved.checkpoint.updated_at);
+    expect(saved.draft.updated_at).toBe(saved.updatedAt);
+    expect((await working(page)).project.updated_at).toBe(saved.draft.updated_at);
     await page.getByLabel("FUEL gal", { exact: true }).fill("76");
     await expect.poll(async () => (await records(page))[0].draft.total_usable_fuel_gal).toBe(76);
     const edited = (await records(page))[0];
@@ -251,3 +255,48 @@ test("a stale selector cannot delete a Project updated by another tab", async ({
   await other.getByRole("button", { name: "保存済みProjectを削除", exact: true }).click();
   await expect.poll(async () => (await records(other)).length).toBe(0);
 });
+
+for (const edit of ["navlog", "pattern"] as const) {
+test(`failed updateAndRecalculate (${edit}) commits session recovery and can autosave after reload`, async ({ page }) => {
+  // Fail inside Python calculation, after the real update has committed its validated draft.
+  await page.route("**/assets/local.worker-*.js", async route => {
+    const response = await route.fetch();
+    const source = await response.text();
+    const initialization = 'local_application = LocalApplication(Path("/home/pyodide/data"))';
+    expect(source).toContain(initialization);
+    await route.fulfill({ response, body: source.replace(initialization, `${initialization}
+_original_calculate = local_application.app._calculate_outcome
+def _fail_recalculation(*args, **kwargs):
+    if local_path == "updateAndRecalculate":
+        from autonavlog.web.facade import WebApplicationError
+        raise WebApplicationError("TEST_CALCULATION_FAILED", "Injected calculation failure")
+    return _original_calculate(*args, **kwargs)
+local_application.app._calculate_outcome = _fail_recalculation
+`) });
+  });
+  await start(page); await confirm(page); await calculate(page); await save(page, "Failure recovery");
+  const before = (await records(page))[0];
+  const field = () => edit === "navlog"
+    ? page.locator(".nav-log-table").getByLabel(/手動TAS$/).first()
+    : page.getByLabel("今回採用する場周経路高度");
+  const value = edit === "navlog" ? "120" : "1400";
+  await field().fill(value);
+  await expect(page.getByText(/Injected calculation failure/)).toBeVisible();
+  const failed = (await records(page))[0];
+  expect(failed.token).not.toBe(before.token);
+  expect(failed.draft.sections).not.toEqual(before.draft.sections);
+  expect(failed.lastCalculation).toEqual(before.lastCalculation);
+  await expect.poll(async () => (await working(page)).durableToken).toBe(failed.token);
+  expect((await working(page)).project).toEqual(failed.draft);
+  await expect(field()).toHaveValue(value);
+  await page.reload();
+  await expect(field()).toHaveValue(value);
+  expect((await working(page)).durableToken).toBe(failed.token);
+  await page.getByLabel("FUEL gal", { exact: true }).fill("72");
+  await expect.poll(async () => (await records(page))[0].draft.total_usable_fuel_gal).toBe(72);
+  const after = (await records(page))[0];
+  expect(after.token).not.toBe(failed.token);
+  expect(after.lastCalculation).toEqual(before.lastCalculation);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+}

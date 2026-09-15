@@ -32,7 +32,7 @@ automatically open the last Project**. The user selects a Project explicitly.
 ## Writes and selection
 
 Validated edits autosave without advancing revision. Explicit Save advances revision by
-one and commits the checkpoint and working draft together. Once saved, a Project keeps
+one, updates the domain `Project.updated_at`, and commits the checkpoint and working draft together. Once saved, a Project keeps
 its own draft and is never removed by Latest cleanup.
 
 There is at most one usable autosave-only Latest per browser origin/profile. A successful
@@ -46,7 +46,10 @@ is explicitly opened. Closing a tab does not delete durable data.
 Calculation writes use only the facade's last successful, non-blocked calculation.
 Failed or blocked calculations and uncalculated edits do not clear it. An
 update-and-recalculate failure still autosaves the validated working draft that the
-facade committed before the calculation error. Loading presents the saved last-good
+facade committed before the calculation error. The application error carries that committed
+state, including the new durable token, so the UI refreshes canonical session recovery
+without replacing raw input drafts or hiding the calculation error. A same-tab reload can
+then continue autosaving without conflicting with its own preceding write. Loading presents the saved last-good
 snapshot and reevaluates readiness; it does not calculate or change the selected
 Forecast Run. The original calculation's provenance remains separate from the edited draft.
 

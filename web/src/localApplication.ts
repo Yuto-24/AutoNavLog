@@ -52,7 +52,9 @@ export class LocalApplication implements AutoNavLogApplication {
     const existing = expected ? await this.repository.read(draft.id) : undefined;
     if (existing && existing.draft.revision !== draft.revision) throw new ApplicationError(
       "別のタブでProjectが保存されています。開き直してください。", "PROJECT_REVISION_CONFLICT");
+    const updatedAt = new Date().toISOString();
     if (name !== undefined) {
+      draft.updated_at = updatedAt;
       draft.name = name.trim().slice(0, 60) || "route";
       draft.revision += 1;
       draft.metadata.project_name_auto = false;
@@ -61,7 +63,7 @@ export class LocalApplication implements AutoNavLogApplication {
       schemaVersion: 2, id: draft.id, token: crypto.randomUUID(),
       draft, checkpoint: name !== undefined ? structuredClone(draft) : existing?.checkpoint ?? null,
       lastCalculation: working.last_calculation ?? existing?.lastCalculation ?? null,
-      updatedAt: new Date().toISOString(),
+      updatedAt,
     };
     await this.repository.write(record, expected, !record.checkpoint);
     this.tokens.set(record.id, record.token);
@@ -77,7 +79,18 @@ export class LocalApplication implements AutoNavLogApplication {
       try { state = await this.request<WebState>(operation, input); }
       catch (error) {
         // update/recalculate may have committed its validated draft before calculation failed.
-        if (operation === "updateAndRecalculate") await this.persist(await this.request<WebState>("state"));
+        if (operation === "updateAndRecalculate") {
+          const committed = await this.request<WebState>("state");
+          let presented: WebState;
+          try { presented = await this.persist(committed); }
+          catch (storageError) {
+            if (storageError instanceof ApplicationError) throw new ApplicationError(
+              storageError.message, storageError.code, storageError.details, await this.present(committed));
+            throw storageError;
+          }
+          if (error instanceof ApplicationError) throw new ApplicationError(
+            error.message, error.code, error.details, presented);
+        }
         throw error;
       }
       return operation === "importRoute" ? this.present(state) : this.persist(state);

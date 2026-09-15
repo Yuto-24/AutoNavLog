@@ -12,7 +12,9 @@ choose HTTP methods, inspect session status, or invoke Worker RPC.
   Python `LocalApplication` dispatches operation names to the existing facade.
   FTD and fixed-fixture FORECAST still use the same Python CalculationService.
   No failure switches to the Legacy implementation.
-- `ApplicationError` exposes `code`, `message`, and `details`. Domain codes and
+- `ApplicationError` exposes `code`, `message`, and `details`, plus optional `committedState`
+  when an operation fails after committing a draft. UI applies that canonical recovery
+  without replacing raw drafts, while still showing the error. Domain codes and
   messages are preserved. KMZ selection candidates live in `details.candidates`.
   Only request-model validation is `VALIDATION_FAILED`, with neutral message and field issues
   (`location`, `message`, `type`). HTTP's body/path/query prefix and Python traceback/context

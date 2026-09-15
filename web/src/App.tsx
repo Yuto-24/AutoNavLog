@@ -437,6 +437,16 @@ function App({ application }: { application: AutoNavLogApplication }) {
     };
   }, [busy, pendingKmz]);
 
+  const applyCommittedFailure = (reason: unknown) => {
+    if (reason instanceof ApplicationError && reason.committedState &&
+        reason.committedState.project?.id === projectIdRef.current) {
+      // Retain raw UI drafts while advancing canonical recovery and its storage token.
+      applyState(reason.committedState, { syncCalculationInputs: false });
+      return true;
+    }
+    return false;
+  };
+
   const runTask = async <Result,>(
     action: () => Promise<Result>,
     options: {
@@ -459,6 +469,7 @@ function App({ application }: { application: AutoNavLogApplication }) {
       return result;
     } catch (reason) {
       if (epoch !== lifecycle.current) return undefined;
+      applyCommittedFailure(reason);
       setError(
         reason instanceof Error
           ? reason.message
@@ -1105,6 +1116,7 @@ function App({ application }: { application: AutoNavLogApplication }) {
             calculationGeneration !== calculationInputGenerationRef.current ||
             requestBasis !== destinationPatternBasisRef.current
           ) return;
+          const requestEpoch = lifecycle.current;
           try {
             const next = await (destinationPatternRecalculates
               ? application.updateAndRecalculate(updatePayloadRef.current(undefined, selectedPattern))
@@ -1118,6 +1130,8 @@ function App({ application }: { application: AutoNavLogApplication }) {
             ) return;
             applyState(next, { syncCalculationInputs: true });
           } catch (reason) {
+            if (requestEpoch !== lifecycle.current) return;
+            applyCommittedFailure(reason);
             if (
               cancelled ||
               requestGeneration !== destinationPatternGenerationRef.current ||
@@ -1226,6 +1240,7 @@ function App({ application }: { application: AutoNavLogApplication }) {
           !navLogEditPendingRef.current
         ) return;
         setNavLogEditStatus({ kind: "saving", message: "自動再計算中…" });
+        const requestEpoch = lifecycle.current;
         try {
           const editedSections = state.project!.sections.map((section) =>
             applyDraftToSection(section, navLogDrafts[section.id]),
@@ -1240,7 +1255,13 @@ function App({ application }: { application: AutoNavLogApplication }) {
           setNavLogEditVersion(0);
           setNavLogEditStatus({ kind: "saved", message: "自動再計算しました。" });
         } catch (reason) {
+          if (requestEpoch !== lifecycle.current) return;
+          const committed = applyCommittedFailure(reason);
           if (requestGeneration !== calculationInputGenerationRef.current) return;
+          if (committed) {
+            navLogEditPendingRef.current = false;
+            setNavLogEditVersion(0);
+          }
           setNavLogEditStatus({
             kind: "error",
             message: `${reason instanceof Error ? reason.message : "自動再計算に失敗しました。"} 直前の正常な計算結果を表示中です。`,

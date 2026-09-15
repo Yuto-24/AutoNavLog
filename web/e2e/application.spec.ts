@@ -223,3 +223,46 @@ test("failed durable hydration restores the previous runtime working copy", asyn
   expect(current).toEqual(previous);
   expect(opened).toBe(false);
 });
+
+for (const storageFails of [false, true]) {
+  test(`Local failed recalculation exposes canonical recovery with ${storageFails ? "unchanged" : "committed"} token`, async () => {
+    const project = { id: "draft", revision: 0, name: "Draft", metadata: {}, total_usable_fuel_gal: 90 };
+    let recovery: any = { version: 1, project, last_calculation: { retained: true }, durableToken: "before" };
+    let stored: any = { id: project.id, token: "before", draft: project, checkpoint: null, lastCalculation: recovery.last_calculation };
+    const client = () => ({
+      request: async <T>(operation: string, input?: any) => {
+        if (operation === "bootstrap") recovery = input;
+        if (operation === "updateAndRecalculate" || operation === "updateProject") {
+          recovery = { ...recovery, project: { ...recovery.project, total_usable_fuel_gal: input.total_usable_fuel_gal } };
+          if (operation === "updateAndRecalculate") throw new ApplicationError("calculation failed", "CALCULATION_JOB_FAILED", { retained: true });
+        }
+        return structuredClone({ ...state, project: recovery.project, workingRecovery: recovery }) as T;
+      }, dispose() {},
+    });
+    const repository = {
+      list: async () => ({ projects: [], unavailable: [] }),
+      read: async () => structuredClone(stored),
+      write: async (record: any, expected: string) => {
+        if (storageFails) throw new ApplicationError("storage failed", "LOCAL_STORAGE_FAILED");
+        expect(expected).toBe(stored.token);
+        stored = structuredClone(record);
+      },
+    } as unknown as LocalProjectRepository;
+    const app = new LocalApplication(client, repository);
+    await app.bootstrap(recovery);
+    const failure = await app.updateAndRecalculate({ ...update, total_usable_fuel_gal: 72 }).catch(error => error);
+    expect(failure).toBeInstanceOf(ApplicationError);
+    expect(failure.code).toBe(storageFails ? "LOCAL_STORAGE_FAILED" : "CALCULATION_JOB_FAILED");
+    expect(failure.committedState.workingRecovery.project.total_usable_fuel_gal).toBe(72);
+    expect(failure.committedState.workingRecovery.last_calculation).toEqual({ retained: true });
+    expect(failure.committedState.workingRecovery.durableToken).toBe(stored.token);
+    if (!storageFails) {
+      expect(failure.message).toBe("calculation failed");
+      expect(failure.details).toEqual({ retained: true });
+      const reloaded = new LocalApplication(client, repository);
+      await reloaded.bootstrap(failure.committedState.workingRecovery);
+      await reloaded.updateProject({ ...update, total_usable_fuel_gal: 71 });
+      expect(stored.draft.total_usable_fuel_gal).toBe(71);
+    }
+  });
+}

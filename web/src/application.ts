@@ -35,7 +35,7 @@ export interface ApplicationErrorDetails {
   [key: string]: unknown;
 }
 export class ApplicationError extends Error {
-  constructor(message: string, readonly code: string, readonly details: ApplicationErrorDetails = {}) {
+  constructor(message: string, readonly code: string, readonly details: ApplicationErrorDetails = {}, readonly committedState?: ApplicationSnapshot) {
     super(message);
     this.name = "ApplicationError";
   }
