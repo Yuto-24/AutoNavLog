@@ -60,6 +60,8 @@ External reference links use a shared link component and `openExternalUrl`, allo
 only HTTP(S), and open with `noopener noreferrer`. Standard anchor affordances
 (modifier clicks, context menus and URL copying) are retained. Leaflet's map
 attribution remains Leaflet-owned native link markup.
+Opening a reference does not enter or finish an Application operation, so it cannot
+clear another operation's busy/progress state or unlock a pending Project save.
 
 ## Storage and network
 
@@ -90,7 +92,7 @@ background polling, connectivity UI, share sheet or preference framework is adde
 - `platform.spec.ts` runs in both Legacy and production Local Browser suites:
   compressed KMZ picker, KML drop, cancellation/failure preservation, Clipboard
   activation and manual fallback, actual download/copy and denial, external links,
-  and workflow positions at 1100/1440 px. Local blocks `/api/**` and also exercises
+  pending-save isolation, and workflow positions at 1100/1440 px. Local blocks `/api/**` and also exercises
   calculation/export offline after assets have loaded.
 - `session.spec.ts` covers KMZ selection/reload in both runtimes, with no Local skip.
 - Existing Local calculation/IndexedDB and Legacy Clipboard/Session regressions

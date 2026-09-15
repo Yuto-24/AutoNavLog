@@ -129,7 +129,7 @@ test("download and Clipboard export the displayed result, survive denial, and re
 
 });
 
-test("source links open outside the application without an opener", async ({ page, context }) => {
+test("source links open without an opener and cannot unlock a pending save", async ({ page, context }) => {
   await open(page);
   await page.getByLabel("気象モード").selectOption("FTD");
   await drop(page, "route.kml", kml);
@@ -138,10 +138,50 @@ test("source links open outside the application without an opener", async ({ pag
   const link = page.getByRole("link", { name: "国土交通省", exact: true });
   const href = (await link.getAttribute("href"))!;
   await context.route(href, route => route.fulfill({ contentType: "text/html", body: "<title>Reference</title>" }));
-  const popup = page.waitForEvent("popup");
-  await link.click();
-  const reference = await popup;
-  await expect(reference).toHaveURL(href);
-  expect(await reference.evaluate(() => window.opener)).toBeNull();
-  await expect(page.getByLabel("TGL", { exact: true })).toBeEnabled();
+  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+    await page.getByLabel(name + "出発Legの計画高度", { exact: true }).fill(altitude);
+  }
+  const save = page.getByRole("button", { name: "保存", exact: true });
+  await page.getByLabel("プロジェクト", { exact: true }).fill("External reference during save");
+  await expect(save).toBeEnabled();
+  let held = false;
+  let release = () => {};
+  if (isLocal()) {
+    await page.evaluate(() => {
+      const original = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function(message: any, ...rest: any[]) {
+        if (message.type === "APPLY" && message.argumentList?.[0]?.value === "state") {
+          (window as any).resumePlatformSave = () => {
+            Worker.prototype.postMessage = original;
+            (original as any).call(this, message, ...rest);
+          };
+          return;
+        }
+        return (original as any).call(this, message, ...rest);
+      };
+    });
+  } else {
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    await page.route("**/api/projects/save", async route => {
+      held = true;
+      await pending;
+      await route.continue();
+    });
+  }
+  await save.click();
+  if (isLocal()) await page.waitForFunction(() => (window as any).resumePlatformSave);
+  else await expect.poll(() => held).toBe(true);
+  try {
+    const popup = page.waitForEvent("popup");
+    await link.click();
+    const reference = await popup;
+    await expect(reference).toHaveURL(href);
+    expect(await reference.evaluate(() => window.opener)).toBeNull();
+    await expect(save).toBeDisabled({ timeout: 1000 });
+    await expect(page.getByRole("button", { name: "新規", exact: true })).toBeDisabled();
+  } finally {
+    if (isLocal()) await page.evaluate(() => (window as any).resumePlatformSave());
+    else release();
+  }
+  await expect(save).toBeEnabled();
 });

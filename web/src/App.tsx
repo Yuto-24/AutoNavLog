@@ -1545,7 +1545,12 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           onPaste={() => void handlePasteImport("clipboard")}
         />
         <RouteWorkspace
-          onOpenExternalUrl={(url) => { void runTask(async () => platform.openExternalUrl(url)); }}
+          onOpenExternalUrl={(url) => {
+            try { platform.openExternalUrl(url); }
+            catch (reason) {
+              setError(reason instanceof Error ? reason.message : "外部リンクを開けません。");
+            }
+          }}
           checkPointDraft={checkPointDraft}
           setCheckPointDraft={setCheckPointDraft}
           nodeNameDraft={nodeNameDraft}
