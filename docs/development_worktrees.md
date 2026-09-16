@@ -1,13 +1,13 @@
 # Codex Worktree 開発環境
 
-Codex の Worktree で複数の変更を並列に進める場合、通常の AutoNavLog runtime と別 Worktree の runtime を共有しません。
+Codex の Worktree で複数の変更を並列に進める場合、通常の NavMate runtime と別 Worktree の runtime を共有しません。
 Worktree ごとに Compose project、Docker image、host port、named volume を分離します。
 
 この仕組みは Codex のローカル環境向けです。通常 checkout の `autonavlog` project、`autonavlog:local` image、8123番 port、既存の `autonavlog-data` は変更しません。
 
 ## Codex のローカル環境設定
 
-Codex の Settings > Environments で AutoNavLog の Linux 設定を次のようにします。
+Codex の Settings > Environments で NavMate の Linux 設定を次のようにします。
 
 セットアップスクリプト:
 
@@ -71,7 +71,7 @@ docker compose down --remove-orphans
 ## Worktree のクリーンアップ
 
 Codex が Worktree を破棄するときだけ `cleanup_worktree.sh` を使います。
-この script は `.env` が AutoNavLog の Worktree setup で生成されたことと、project/image 名が `autonavlog-wt-<8 hex>` 形式であることを確認してから、その Worktree の container と volume を削除します。Worktree 固有 image も best-effort で削除します。
+この script は `.env` が NavMate の Worktree setup で生成されたことと、project/image 名が `autonavlog-wt-<8 hex>` 形式であることを確認してから、その Worktree の container と volume を削除します。Worktree 固有 image も best-effort で削除します。
 
 通常の `autonavlog` runtime に対して `docker compose down -v` を実行してはいけません。Worktree の volume 削除は cleanup script に限定します。
 
@@ -87,7 +87,7 @@ Start:
 docker compose up -d --build
 docker compose ps
 . ./.env
-printf 'AutoNavLog: http://127.0.0.1:%s\n' "$AUTONAVLOG_HOST_PORT"
+printf 'NavMate: http://127.0.0.1:%s\n' "$AUTONAVLOG_HOST_PORT"
 ```
 
 Stop:
