@@ -14,4 +14,13 @@
 - Weather取得失敗時もProject / Last Calculationを保持
 - OOM、予期しないreload、page crashなし
 
-端末は物理iPad、browserはSafari。iPadOS / Safariの詳細versionとMSM Run IDは、この確認記録では取得していない。
+## 実施環境の記録
+
+- Device: 物理iPad
+- Browser: Safari
+- iPadOS version: 未記録
+- Safari version: 未記録
+- MSM Run ID: 未記録
+
+上記3項目は実施時点で採取しておらず、事後に一意に復元できる一次記録も残っていない。
+推測値では補完しない。次回以降の実機acceptanceでは `docs/local_weather.md` の記録項目に従って採取する。
