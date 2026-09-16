@@ -20,6 +20,7 @@ web/vite.config.js
 web/vite.config.d.ts
 web/src/generated/
 .env
+web/.env.local
 .autonavlog-worktree/
 
 web/dist-local/
