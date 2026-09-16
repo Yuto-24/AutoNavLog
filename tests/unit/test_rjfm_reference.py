@@ -36,7 +36,7 @@ def _rewrite_payload(root: Path, payload: dict[str, object]) -> None:
 def test_bundled_rjfm_pack_loads_source_backed_values() -> None:
     pack = RjfmReferencePack.from_directory(PACK_ROOT)
 
-    assert pack.revision == "2026-08-21-rjfm-umk-guidance-v4"
+    assert pack.revision == "2026-09-16-rjfm-umk-guidance-v5"
     assert pack.content_fingerprint == hashlib.sha256(
         (PACK_ROOT / "rjfm-reference.json").read_bytes()
     ).hexdigest()
@@ -110,7 +110,13 @@ def test_bundled_pca_and_departure_policy_keep_source_and_operational_values_sep
         if source.id == "user-approved-rjfm-rwy-turn-policy-2026-08-17"
     )
     assert turn_source.distribution == "USER_DECISION"
-    assert "attached training document" in turn_source.notes
+    internal_source = next(
+        source for source in pack.data.sources if source.id == "cac-rjfm-training-reference"
+    )
+    assert internal_source.sha256 is None
+    assert internal_source.pages_or_sections == [
+        "詳細な資料対応は公開Repositoryに収録しません。"
+    ]
 
 
 def test_bundled_live_airspace_reference_is_display_only_and_not_fingerprinted() -> None:
