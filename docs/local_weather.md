@@ -37,9 +37,16 @@ catalogはsource listing本文、Runとpayload hash/size/file、生成/失効日
 
 運用では3時間ごとを目安に生成し、payloadを先に配信してcatalogを最後に置換する。
 catalog lifetimeは6時間。失敗した生成は既存catalogを更新しない。
+producerと端末の時計ずれにより生成時刻が未来になる場合は5分まで許容する。
+5分を超える未来の生成時刻は拒否し、`expires_at <= 端末の現在時刻`は猶予なしで失効とする。
+この許容はcatalogの6時間のlifetimeやBrowser cacheのTTLを延長しない。
 7日以内の旧Run assetとそのsource listingを保持し、再利用前にlibraryでhash/formatを検証する。
 新listingを取得したURLは新しい内容を優先する。参照されなくなったpayloadも7日間の猶予後に除去する。
 static hostはcatalogをrevalidateし、hash付きpayloadをimmutableとして配信できる。
+feedのcatalogとpayloadはcookie・HTTP認証などのcredential不要で取得できるpathへ配信する。
+Browser transportは`credentials: "omit"`を使用するため、ログイン必須pathや
+認証画面へのredirectは利用できない。#121でこの公開配信契約を維持する。
+認証が必要になる場合は#121側でtransport契約を明示的に見直す。
 `prepare_local.py`はfeed省略時に古い生成済みfeedを除去する。feedなしでFORECASTが成功することはない。
 
 配信範囲/時間の不足はmodelの範囲外とは異なる。最新compatible Runが未生成なら

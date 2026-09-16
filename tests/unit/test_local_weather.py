@@ -125,6 +125,40 @@ def test_failure_kinds_do_not_become_model_coverage(project, requirement, catalo
     assert error.value.code == code
 
 
+@pytest.mark.parametrize(
+    "generated_offset,expires_offset,accepted",
+    [(180, 21780, True), (300, 21900, True), (301, 21901, False),
+     (-21600, 0, False), (-21601, -1, False), (-21599, 1, True)],
+)
+def test_catalog_clock_skew_preserves_expiry(
+    project, requirement, catalog, monkeypatch, generated_offset, expires_offset, accepted
+):
+    from autonavlog.weather import local_msm
+
+    now = datetime(2026, 9, 16, 4, tzinfo=UTC)
+
+    class DeviceClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz)
+
+    monkeypatch.setattr(local_msm, "datetime", DeviceClock)
+    catalog.update(
+        generated_at=(now + timedelta(seconds=generated_offset)).isoformat(),
+        expires_at=(now + timedelta(seconds=expires_offset)).isoformat(),
+    )
+    weather = LocalMsmWeather()
+    if accepted:
+        asset = json.loads(weather.plan(project, requirement, json.dumps(catalog)))
+        assert asset["run"] == NEW
+        weather.accept((FEED / asset["file"]).read_bytes(), asset["sha256"])
+    else:
+        with pytest.raises(LocalWeatherError) as error:
+            weather.plan(project, requirement, json.dumps(catalog))
+        assert error.value.code == "WEATHER_CATALOG_EXPIRED"
+        assert weather.client.catalog is None
+
+
 @pytest.mark.parametrize("damage", ["hash", "zip", "wrong_run", "missing_field"])
 def test_payload_failure_never_reuses_previous_arrays(project, requirement, catalog, damage):
     weather, asset = setup_weather(project, requirement, catalog, OLD)
