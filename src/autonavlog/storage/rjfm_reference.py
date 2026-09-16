@@ -192,7 +192,9 @@ class CivilTrainingTestAirspaceReference(RjfmReferenceModel):
                 "civil training airspace reference uses an unapproved URL: "
                 + ", ".join(mismatched_urls)
             )
-        expected_polygon_names_by_tile = {
+        expected_polygon_names_by_tile: dict[
+            tuple[Literal[8], int, int], list[str]
+        ] = {
             (8, 221, 103): ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5"],
             (8, 221, 104): [
                 "KS4-2",
