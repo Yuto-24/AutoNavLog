@@ -42,7 +42,7 @@ export function Header({
   return (
     <header className="app-header">
       <div className="brand-block">
-        <div className="brand-name">AutoNavLog</div>
+        <div className="brand-name">NavMate</div>
         <div className="brand-subtitle">NAV2 地上準備 / v{appVersion}{localMode ? " / Pyodide Local PoC" : ""}</div>
       </div>
       <div className="header-project">
