@@ -1,6 +1,6 @@
-# AutoNavLog
+# NavMate
 
-AutoNavLog は、航空大学校の宮崎課程 NAV2 で使う航法 LOG の地上準備を支援する、
+NavMate は、航空大学校の宮崎課程 NAV2 で使う航法 LOG の地上準備を支援する、
 SR22 G6 向けの Web アプリです。KML または KMZ の経路を読み込み、NAV LOG の計算結果を
 Web 画面に表示します。
 
@@ -89,7 +89,7 @@ LineStringがないPoint-only KMLでは従来のPoint候補を利用できます
 - MSM の取得先と AviationWeather.gov へ接続できるネットワーク
 - 外部公開時は Cloudflare Tunnel と Cloudflare Access
 
-AutoNavLog のサポート対象runtimeは Docker / Docker Compose のみです。アプリケーションの
+NavMate のサポート対象runtimeは Docker / Docker Compose のみです。アプリケーションの
 containerは Python 3.12 を使用します。hostへのPython packageのinstallやhost上での直接実行は、
 動作する場合があってもサポート対象ではありません。
 
@@ -102,7 +102,7 @@ containerは Python 3.12 を使用します。hostへのPython packageのinstall
 操作対象を明確にするため、以降の例では checkout を変数にします。
 
 ```bash
-REPO_DIR=/path/to/AutoNavLog
+REPO_DIR=/path/to/NavMate
 cd "$REPO_DIR"
 ```
 
@@ -325,7 +325,7 @@ docker build --target runtime --tag autonavlog:runtime .
 ```
 
 Release対象PRでは root [`VERSION`](VERSION) と [`CHANGELOG.md`](CHANGELOG.md) を直接更新します。
-`VERSION` はAutoNavLog全体の唯一のVersion原本です。InformationにはCHANGELOGの「利用者向け」と [既知の不具合](KNOWN_ISSUES.md) を表示し、GitHub Release本文には同じVersionの利用者向け・開発者向けを掲載します。
+`VERSION` はNavMate全体の唯一のVersion原本です。InformationにはCHANGELOGの「利用者向け」と [既知の不具合](KNOWN_ISSUES.md) を表示し、GitHub Release本文には同じVersionの利用者向け・開発者向けを掲載します。
 
 PR本文には `Release: required` を記載します。Release不要の場合は `Release: not-required` と
 `Reason: <理由>` を記載し、`VERSION` は変更しません。docs・test・コメントのみの変更や、配布物を
@@ -358,9 +358,3 @@ mainへのmerge後はGitHub Actionsが `vX.Y.Z` tagとGitHub Releaseを作成し
 `pyproject.toml` では `LicenseRef-Proprietary` を指定しています。利用と再配布の条件は
 リポジトリ所有者へ確認してください。不具合や変更要望は
 [GitHub Issues](https://github.com/Yuto-24/AutoNavLog/issues)へ登録してください。
-
-## 開発用 Local Calculation PoC
-
-Issue #117のPyodide checkpointは、FTDによる計算を静的Webで検証できます。
-[起動・操作手順と制約](docs/local_calculation_poc.md)を参照してください。
-通常のLegacy runtimeは引き続きDocker Composeです。
