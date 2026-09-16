@@ -4,7 +4,6 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from math import sqrt
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, TypeVar
 
@@ -23,11 +22,6 @@ class RjfmReferenceModel(BaseModel):
 class GeoPoint(RjfmReferenceModel):
     latitude_deg: float = Field(ge=-90.0, le=90.0)
     longitude_deg: float = Field(ge=-180.0, le=180.0)
-
-
-class PixelPoint(RjfmReferenceModel):
-    x: int = Field(ge=0)
-    y: int = Field(ge=0)
 
 
 class SourceArtifact(RjfmReferenceModel):
@@ -117,85 +111,10 @@ class RadioNavaidReference(RjfmReferenceModel):
     source_ids: list[str] = Field(min_length=1)
 
 
-class AffinePixelToWgs84(RjfmReferenceModel):
-    type: Literal["AFFINE_PIXEL_TO_WGS84"] = "AFFINE_PIXEL_TO_WGS84"
-    latitude_deg_coefficients: list[float] = Field(min_length=3, max_length=3)
-    longitude_deg_coefficients: list[float] = Field(min_length=3, max_length=3)
-
-    def apply(self, pixel: PixelPoint) -> GeoPoint:
-        lat_x, lat_y, lat_offset = self.latitude_deg_coefficients
-        lon_x, lon_y, lon_offset = self.longitude_deg_coefficients
-        return GeoPoint(
-            latitude_deg=lat_x * pixel.x + lat_y * pixel.y + lat_offset,
-            longitude_deg=lon_x * pixel.x + lon_y * pixel.y + lon_offset,
-        )
-
-
-class MapControlPoint(RjfmReferenceModel):
-    id: str = Field(min_length=1)
-    label: str = Field(min_length=1)
-    pixel: PixelPoint
-    position: GeoPoint
-    residual_nm: float = Field(ge=0.0)
-    coordinate_source_id: str = Field(min_length=1)
-
-
-class MapGeoreference(RjfmReferenceModel):
-    source_id: str = Field(min_length=1)
-    source_page: int = Field(ge=1)
-    rendered_width_px: int = Field(gt=0)
-    rendered_height_px: int = Field(gt=0)
-    coordinate_frame: Literal["FULL_PAGE_PIXELS_TOP_LEFT_ORIGIN"]
-    target_symbol_anchor: Literal["OPEN_TRIANGLE_CENTROID"]
-    transform: AffinePixelToWgs84
-    control_points: list[MapControlPoint] = Field(min_length=4)
-    rms_residual_nm: float = Field(ge=0.0)
-    max_residual_nm: float = Field(ge=0.0)
-    maximum_allowed_residual_nm: float = Field(gt=0.0, le=0.5)
-    estimated_target_error_nm: float = Field(gt=0.0)
-    estimated_target_error_basis: str = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_fit(self) -> MapGeoreference:
-        ids = [control.id for control in self.control_points]
-        if len(ids) != len(set(ids)):
-            raise ValueError("map control point IDs must be unique")
-        residuals: list[float] = []
-        for control in self.control_points:
-            if (
-                control.pixel.x >= self.rendered_width_px
-                or control.pixel.y >= self.rendered_height_px
-            ):
-                raise ValueError("map control pixel is outside the rendered page")
-            fitted = self.transform.apply(control.pixel)
-            residual_nm = (
-                Geodesic.WGS84.Inverse(
-                    control.position.latitude_deg,
-                    control.position.longitude_deg,
-                    fitted.latitude_deg,
-                    fitted.longitude_deg,
-                )["s12"]
-                / 1852.0
-            )
-            if abs(residual_nm - control.residual_nm) > 1e-6:
-                raise ValueError(f"stored residual does not match transform for {control.id}")
-            residuals.append(residual_nm)
-        calculated_rms = sqrt(sum(value * value for value in residuals) / len(residuals))
-        calculated_max = max(residuals)
-        if abs(calculated_rms - self.rms_residual_nm) > 1e-6:
-            raise ValueError("stored map RMS residual does not match transform")
-        if abs(calculated_max - self.max_residual_nm) > 1e-6:
-            raise ValueError("stored map maximum residual does not match transform")
-        if self.max_residual_nm > self.maximum_allowed_residual_nm:
-            raise ValueError("map georeference exceeds maximum allowed residual")
-        return self
-
-
 class DigitizedRoutePoint(RjfmReferenceModel):
     id: Literal["UMK", "OVER_FIELD", "OMARU"]
     name: str = Field(min_length=1)
     position: GeoPoint
-    map_pixel: PixelPoint
     estimated_error_nm: float = Field(gt=0.0)
     validation_status: Literal["UNVERIFIED_MAP_DIGITIZATION"]
     source_ids: list[str] = Field(min_length=1)
@@ -286,9 +205,7 @@ class CivilTrainingTestAirspaceReference(RjfmReferenceModel):
                 "KS4-8",
             ],
         }
-        tiles_by_coordinate: dict[
-            tuple[int, int, int], GsiGeoJsonTileReference
-        ] = {
+        tiles_by_coordinate = {
             (tile.zoom, tile.x, tile.y): tile for tile in self.tiles
         }
         if set(tiles_by_coordinate) != set(expected_polygon_names_by_tile):
@@ -310,11 +227,7 @@ class CivilTrainingTestAirspaceReference(RjfmReferenceModel):
             raise ValueError(
                 "civil training airspace reference must cite the approved MLIT/GSI sources"
             )
-        required_caution_phrases = (
-            "参照専用",
-            "NAV LOG計算",
-            "PCA判定",
-        )
+        required_caution_phrases = ("参照専用", "NAV LOG計算", "PCA判定")
         if not all(phrase in self.caution_jp for phrase in required_caution_phrases):
             raise ValueError(
                 "civil training airspace caution must preserve display-only limitations"
@@ -355,7 +268,9 @@ class RunwayDeparturePolicy(RjfmReferenceModel):
         if (self.initial_straight_distance_nm is None) == (
             self.initial_straight_until_altitude_ft_msl is None
         ):
-            raise ValueError("runway policy must define exactly one initial-straight end condition")
+            raise ValueError(
+                "runway policy must define exactly one initial-straight end condition"
+            )
         if self.initial_turn_angle_deg != 45.0:
             raise ValueError("implemented initial runway turn angle is 45 degrees")
         signed_angle = (
@@ -453,13 +368,12 @@ class RjfmDeparturePolicy(RjfmReferenceModel):
 
 
 class RjfmReferenceData(RjfmReferenceModel):
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     validation_status: Literal["SOURCE_BACKED_WITH_UNVERIFIED_MAP_POINTS"]
     sources: list[SourceArtifact] = Field(min_length=1)
     airport: AirportReference
     runway: RunwayReference
     mze: RadioNavaidReference
-    georeferencing: MapGeoreference
     points: dict[str, DigitizedRoutePoint]
     pca: PcaReference
     civil_training_test_airspace: CivilTrainingTestAirspaceReference
@@ -475,8 +389,6 @@ class RjfmReferenceData(RjfmReferenceModel):
             *self.airport.source_ids,
             *(source for end in self.runway.ends.values() for source in end.source_ids),
             *self.mze.source_ids,
-            self.georeferencing.source_id,
-            *(control.coordinate_source_id for control in self.georeferencing.control_points),
             *(source for point in self.points.values() for source in point.source_ids),
             *self.pca.source_ids,
             *self.civil_training_test_airspace.source_ids,
@@ -491,28 +403,9 @@ class RjfmReferenceData(RjfmReferenceModel):
         if any(key != point.id for key, point in self.points.items()):
             raise ValueError("route point keys must match their IDs")
         for point in self.points.values():
-            if (
-                point.map_pixel.x >= self.georeferencing.rendered_width_px
-                or point.map_pixel.y >= self.georeferencing.rendered_height_px
-            ):
-                raise ValueError(f"map pixel is outside rendered page for {point.id}")
-            fitted = self.georeferencing.transform.apply(point.map_pixel)
-            error_m = Geodesic.WGS84.Inverse(
-                point.position.latitude_deg,
-                point.position.longitude_deg,
-                fitted.latitude_deg,
-                fitted.longitude_deg,
-            )["s12"]
-            if error_m > 0.01:
-                raise ValueError(f"digitized coordinate does not match transform for {point.id}")
-            minimum_estimated_error_nm = max(
-                self.georeferencing.max_residual_nm,
-                self.georeferencing.estimated_target_error_nm,
-            )
-            if point.estimated_error_nm < minimum_estimated_error_nm:
+            if point.estimated_error_nm < 0.35:
                 raise ValueError(
-                    "estimated error understates the georeference target uncertainty "
-                    f"for {point.id}"
+                    "digitized point uncertainty must not understate the reviewed reference"
                 )
         return self
 
@@ -660,13 +553,13 @@ __all__ = [
     "CivilTrainingTestAirspaceReference",
     "DigitizedRoutePoint",
     "GeoPoint",
-    "MapGeoreference",
     "PcaReference",
     "RadioNavaidReference",
     "RjfmDeparturePolicy",
     "RjfmReferenceData",
     "RjfmReferenceDataError",
     "RjfmReferencePack",
+    "RunwayDeparturePolicy",
     "RunwayEndReference",
     "RunwayReference",
 ]

@@ -1,22 +1,20 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "validation_status": "SOURCE_BACKED_WITH_UNVERIFIED_MAP_POINTS",
   "sources": [
     {
-      "id": "cac-rjfm-training-r6-5-1",
-      "title": "宮崎空港及びその周辺における航空大学校所属機の訓練飛行実施要領",
-      "publisher": "独立行政法人航空大学校宮崎本校運用課",
+      "id": "cac-rjfm-training-reference",
+      "title": "航空大学校の運用参照資料",
+      "publisher": "独立行政法人航空大学校",
       "distribution": "ATTACHED_DOCUMENT",
       "url": null,
-      "effective_date": "2024-05-01",
+      "effective_date": null,
       "retrieved_date": "2026-08-16",
-      "sha256": "29b21992454cc2c9995512dec2f011004ddd839ef9b7784d5b4696fa13e4eab7",
+      "sha256": null,
       "pages_or_sections": [
-        "PDF p.8 / document p.5: IV departure procedures",
-        "PDF p.13 / document p.10: VI traffic pattern altitude",
-        "PDF p.35 / Appendix 9: Newtabaru routes"
+        "詳細な資料対応は公開Repositoryに収録しません。"
       ],
-      "notes": "The attachment is the controlling source for the training procedure. Appendix 9 specifies 5,500 ft northbound and the CENTER route reporting sequence; its map does not publish coordinates for UMK, OVER FIELD, or OMARU."
+      "notes": "AutoNavLogのRJFM運用Policyを設計・検証するために参照した内部資料です。章節、ページ、原文要約、ファイルhashは公開しません。"
     },
     {
       "id": "aip-rjfm-2026-03-01-public-mirror",
@@ -62,25 +60,6 @@
         "宮崎DME row: MZE, 1158 MHz, N31°53′ E131°26′"
       ],
       "notes": "The official notice independently confirms the MZE identifier, frequency, and coarse location. Second-level coordinates, station declination, and DME antenna elevation remain sourced from the AIP snapshot."
-    },
-    {
-      "id": "gsi-address-search-controls-2026-08-17",
-      "title": "国土地理院住所検索APIによる庁舎位置",
-      "publisher": "国土地理院",
-      "distribution": "OFFICIAL_GSI_API",
-      "url": "https://msearch.gsi.go.jp/address-search/AddressSearch",
-      "effective_date": null,
-      "retrieved_date": "2026-08-17",
-      "sha256": null,
-      "pages_or_sections": [
-        "query 日向市役所, addressCode 45206, dataSource 3",
-        "query 都農町役場, addressCode 45406, dataSource 3",
-        "query 川南町役場, addressCode 45405, dataSource 3",
-        "query 高鍋町役場, addressCode 45401, dataSource 3",
-        "query 西都市役所, addressCode 45208, dataSource 3",
-        "query 国富町役場, addressCode 45382, dataSource 3"
-      ],
-      "notes": "Six government-office symbols distributed across Appendix 9 were used as control points. API coordinates are retained verbatim in the control-point records."
     },
     {
       "id": "mlit-civil-training-test-airspace-map-2026-08-17",
@@ -150,7 +129,7 @@
       "pages_or_sections": [
         "Conversation decision finalized 2026-08-17"
       ],
-      "notes": "This user decision, rather than the attached training document, specifies LEFT extension turns for RWY09 and RIGHT extension turns for RWY27. RWY27 therefore uses RIGHT for both its initial cut and subsequent extension turn."
+      "notes": "This user decision specifies LEFT extension turns for RWY09 and RIGHT extension turns for RWY27. RWY27 therefore uses RIGHT for both its initial cut and subsequent extension turn."
     }
   ],
   "airport": {
@@ -163,7 +142,7 @@
     "traffic_pattern_altitude_ft_msl": 1000.0,
     "source_ids": [
       "aip-rjfm-2026-03-01-public-mirror",
-      "cac-rjfm-training-r6-5-1"
+      "cac-rjfm-training-reference"
     ]
   },
   "runway": {
@@ -218,82 +197,6 @@
       "mlit-radio-navigation-aids-mze"
     ]
   },
-  "georeferencing": {
-    "source_id": "cac-rjfm-training-r6-5-1",
-    "source_page": 35,
-    "rendered_width_px": 2105,
-    "rendered_height_px": 2977,
-    "coordinate_frame": "FULL_PAGE_PIXELS_TOP_LEFT_ORIGIN",
-    "target_symbol_anchor": "OPEN_TRIANGLE_CENTROID",
-    "transform": {
-      "type": "AFFINE_PIXEL_TO_WGS84",
-      "latitude_deg_coefficients": [
-        7.146179172877757e-7,
-        -0.0002392703225390959,
-        32.51802753883745
-      ],
-      "longitude_deg_coefficients": [
-        0.00028354652459481016,
-        -1.3316485675263223e-6,
-        131.25118437334615
-      ]
-    },
-    "control_points": [
-      {
-        "id": "HYUGA_CITY_HALL",
-        "label": "日向市役所",
-        "pixel": {"x": 1317, "y": 403},
-        "position": {"latitude_deg": 32.42248717, "longitude_deg": 131.62440541},
-        "residual_nm": 0.01693341034924787,
-        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
-      },
-      {
-        "id": "TSUNO_TOWN_HALL",
-        "label": "都農町役場",
-        "pixel": {"x": 1095, "y": 1098},
-        "position": {"latitude_deg": 32.25666667, "longitude_deg": 131.5597222},
-        "residual_nm": 0.04233510835434205,
-        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
-      },
-      {
-        "id": "KAWAMINAMI_TOWN_HALL",
-        "label": "川南町役場",
-        "pixel": {"x": 976, "y": 1366},
-        "position": {"latitude_deg": 32.19194444, "longitude_deg": 131.5258333},
-        "residual_nm": 0.01442004379341962,
-        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
-      },
-      {
-        "id": "TAKANABE_TOWN_HALL",
-        "label": "高鍋町役場",
-        "pixel": {"x": 895, "y": 1631},
-        "position": {"latitude_deg": 32.12797446, "longitude_deg": 131.50328098},
-        "residual_nm": 0.03656952763352949,
-        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
-      },
-      {
-        "id": "SAITO_CITY_HALL",
-        "label": "西都市役所",
-        "pixel": {"x": 537, "y": 1713},
-        "position": {"latitude_deg": 32.1078619, "longitude_deg": 131.40094833},
-        "residual_nm": 0.04218371221255373,
-        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
-      },
-      {
-        "id": "KUNITOMI_TOWN_HALL",
-        "label": "国富町役場",
-        "pixel": {"x": 265, "y": 2207},
-        "position": {"latitude_deg": 31.99068685, "longitude_deg": 131.32354028},
-        "residual_nm": 0.03325883228611923,
-        "coordinate_source_id": "gsi-address-search-controls-2026-08-17"
-      }
-    ],
-    "rms_residual_nm": 0.032939048004967386,
-    "max_residual_nm": 0.04233510835434205,
-    "maximum_allowed_residual_nm": 0.5,
-    "estimated_target_error_nm": 0.35,
-    "estimated_target_error_basis": "Maximum control residual plus conservative half-width of the open-triangle reporting-point symbol at the rendered map scale."
-  },
   "points": {
     "UMK": {
       "id": "UMK",
@@ -302,14 +205,12 @@
         "latitude_deg": 31.985137767624444,
         "longitude_deg": 131.42429852046251
       },
-      "map_pixel": {"x": 621, "y": 2229},
       "estimated_error_nm": 0.35,
       "validation_status": "UNVERIFIED_MAP_DIGITIZATION",
       "source_ids": [
-        "cac-rjfm-training-r6-5-1",
-        "gsi-address-search-controls-2026-08-17"
+        "cac-rjfm-training-reference"
       ],
-      "notes": "Open-triangle centroid digitized from Appendix 9. Use a matching KML coordinate in preference to this master value when available."
+      "notes": "Reviewed operational-map coordinate. Use a matching KML coordinate in preference to this master value when available."
     },
     "OVER_FIELD": {
       "id": "OVER_FIELD",
@@ -318,14 +219,12 @@
         "latitude_deg": 32.08521636344042,
         "longitude_deg": 131.4500907902527
       },
-      "map_pixel": {"x": 710, "y": 1811},
       "estimated_error_nm": 0.35,
       "validation_status": "UNVERIFIED_MAP_DIGITIZATION",
       "source_ids": [
-        "cac-rjfm-training-r6-5-1",
-        "gsi-address-search-controls-2026-08-17"
+        "cac-rjfm-training-reference"
       ],
-      "notes": "Open-triangle centroid digitized from Appendix 9. This guidance point is not asserted to be the published RJFN ARP."
+      "notes": "Reviewed operational-map coordinate. This guidance point is not asserted to be the published RJFN ARP."
     },
     "OMARU": {
       "id": "OMARU",
@@ -334,23 +233,33 @@
         "latitude_deg": 32.16255070087476,
         "longitude_deg": 131.47036916946163
       },
-      "map_pixel": {"x": 780, "y": 1488},
       "estimated_error_nm": 0.35,
       "validation_status": "UNVERIFIED_MAP_DIGITIZATION",
       "source_ids": [
-        "cac-rjfm-training-r6-5-1",
-        "gsi-address-search-controls-2026-08-17"
+        "cac-rjfm-training-reference"
       ],
-      "notes": "Open-triangle centroid digitized from Appendix 9. Use a matching KML coordinate in preference to this master value when available."
+      "notes": "Reviewed operational-map coordinate. Use a matching KML coordinate in preference to this master value when available."
     }
   },
   "pca": {
     "name": "MIYAZAKI_SPECIAL_CONTROL_AREA",
     "polygon_vertices": [
-      {"latitude_deg": 31.934444444444445, "longitude_deg": 131.52},
-      {"latitude_deg": 31.834444444444443, "longitude_deg": 131.5327777777778},
-      {"latitude_deg": 31.851666666666667, "longitude_deg": 131.74166666666665},
-      {"latitude_deg": 31.951666666666664, "longitude_deg": 131.73111111111112}
+      {
+        "latitude_deg": 31.934444444444445,
+        "longitude_deg": 131.52
+      },
+      {
+        "latitude_deg": 31.834444444444443,
+        "longitude_deg": 131.5327777777778
+      },
+      {
+        "latitude_deg": 31.851666666666667,
+        "longitude_deg": 131.74166666666665
+      },
+      {
+        "latitude_deg": 31.951666666666664,
+        "longitude_deg": 131.73111111111112
+      }
     ],
     "exclusion_center": {
       "latitude_deg": 31.883333333333333,
@@ -380,7 +289,12 @@
         "zoom": 8,
         "x": 221,
         "y": 103,
-        "expected_polygon_names": ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5"]
+        "expected_polygon_names": [
+          "KS4-1/4",
+          "KS4-1",
+          "KS4-3",
+          "KS4-5"
+        ]
       },
       {
         "zoom": 8,
@@ -411,8 +325,15 @@
     "scope": "RJFM_NORTHBOUND_OITA_ONLY",
     "target_altitude_ft_msl": 5500.0,
     "southbound_reference_altitude_ft_msl": 4500.0,
-    "center_route_sequence": ["UMK", "OVER_FIELD", "OMARU"],
-    "trigger_point_ids": ["UMK", "OMARU"],
+    "center_route_sequence": [
+      "UMK",
+      "OVER_FIELD",
+      "OMARU"
+    ],
+    "trigger_point_ids": [
+      "UMK",
+      "OMARU"
+    ],
     "trigger_radius_nm": 1.0,
     "runways": {
       "09": {
@@ -456,7 +377,7 @@
     "tangent_course_tolerance_deg": 0.1,
     "pca_violation_severity": "HARD_INVALID",
     "source_ids": [
-      "cac-rjfm-training-r6-5-1",
+      "cac-rjfm-training-reference",
       "user-approved-rjfm-guidance-policy-2026-08-16",
       "user-approved-rjfm-rwy-turn-policy-2026-08-17"
     ]

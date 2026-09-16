@@ -19,5 +19,5 @@ The policy accepts either of these independent identifiers:
 | SHIRAHAMA | WGS-84 direct solution from RJFM ARP, true bearing 160 degrees, 5.8 NM | Reference note: hotel at the tip of Tozaki Cape (戸崎鼻先端のホテル). RJFM ARP is 31.8772222222, 131.4486111111 from `data/reference/default/airports.csv`. |
 
 All other destinations and VREPs continue to use the normal distance rule. The calculation
-outcome records `automatic_altitude_rule`, `automatic_altitude_reason`, and rule version
-`CAC_REV19_8_4_9_V5` so the selected policy is auditable.
+outcome records `automatic_altitude_rule`, `automatic_altitude_reason`, and an AutoNavLog
+rule version so the selected policy is auditable without publishing an internal-source section mapping.

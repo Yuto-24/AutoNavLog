@@ -200,8 +200,6 @@ def build_rjfm_departure_guidance(
                     float(reference_pack.policy.turn_bank_angle_deg),
                 ),
                 pca_region=_pca_region(reference_pack),
-                # Constraint checks retain quarter-second sampling.  Only the
-                # persisted display polyline is reduced after classification.
                 sample_interval_s=0.25,
             )
         )
@@ -489,7 +487,7 @@ def _constraint_message(code: str, passed: bool) -> str:
 
 def _source_effective_dates(pack: RjfmReferencePack) -> dict[str, str]:
     labels = {
-        "cac-rjfm-training-r6-5-1": "訓練要領",
+        "cac-rjfm-training-reference": "内部運用資料",
         "aip-rjfm-2026-03-01-public-mirror": "AIP RJFM",
         "mlit-special-control-area-consolidated-2024-02-08": "PCA告示",
         "user-approved-rjfm-guidance-policy-2026-08-16": "運用設定",
@@ -506,7 +504,7 @@ def _limitations(pack: RjfmReferencePack) -> list[str]:
     point_error = max(float(point.estimated_error_nm) for point in pack.points.values())
     return [
         (
-            "UMK・OVER FIELD・OMARUは添付図からの未検証デジタイズです"
+            "UMK・OVER FIELD・OMARUはレビュー済み運用参照図からの未検証デジタイズです"
             f"（推定誤差 最大{point_error:.2f} NM）。KML座標がある点はKMLを優先します。"
         ),
         (
