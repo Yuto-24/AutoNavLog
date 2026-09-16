@@ -1,3 +1,4 @@
+import { evictWeatherCache } from "./browserStorage";
 import { ApplicationError } from "./application";
 import type { Project, SavedProject, WorkingRecovery } from "./types";
 
@@ -17,8 +18,8 @@ export interface LocalProjectRepository {
   open(record: LocalProjectRecord): Promise<void>;
   delete(id: string, expectedToken: string | null): Promise<void>;
 }
+export type LocalProjectRepositoryFactory = (validate: (record: unknown) => Promise<LocalProjectRecord>) => LocalProjectRepository;
 export const LOCAL_DATABASE = "autonavlog.projects";
-export const WEATHER_CACHE_PREFIX = "autonavlog.weather.";
 export const storageFailure = () => new ApplicationError(
   "端末への保存に失敗しました。空き容量やブラウザの保存設定を確認して再試行してください。", "LOCAL_STORAGE_FAILED");
 // Compare only transaction identity/version markers. Invalid structured-clone payloads
@@ -31,15 +32,6 @@ const conflict = () => new ApplicationError(
   "別のタブでProjectが更新または削除されています。編集内容を確認してから開き直してください。", "PROJECT_REVISION_CONFLICT");
 const unavailable = (id: string) => new ApplicationError(
   "このProjectの保存データを読み込めません。元データは保持されています。", "LOCAL_PROJECT_UNAVAILABLE", { projectId: id });
-
-// #144 owns acquisition, TTL and storage. Only its dedicated disposable namespace is evicted.
-export async function evictWeatherCache(): Promise<void> {
-  if (typeof caches === "undefined") return;
-  for (const key of await caches.keys()) if (key.startsWith(WEATHER_CACHE_PREFIX)) await caches.delete(key);
-}
-export function requestPersistentStorage(): void {
-  try { void globalThis.navigator?.storage?.persist?.().catch(() => undefined); } catch { /* best effort */ }
-}
 
 export class IndexedDbProjectRepository implements LocalProjectRepository {
   constructor(

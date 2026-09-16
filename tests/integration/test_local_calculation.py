@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+from io import BytesIO
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import httpx
 import pytest
@@ -100,7 +103,7 @@ def test_local_ftd_golden_and_failed_calculation_preserves_last_good(local, monk
     "path,payload",
     [
         ("/api/projects/save", {"name": "unsupported"}),
-        ("importRoute", {"filename": "route.kmz", "kml_text": "<kml/>"}),
+        ("importRoute", {"filename": "route.kmz", "content_base64": "bm90IGEgemlw"}),
         ("importRoute", {"filename": "route.kml", "kml_text": "<broken"}),
         ("calculate", {}),
     ],
@@ -145,7 +148,11 @@ def test_local_forecast_uses_actual_fixture_without_network(local, monkeypatch):
         ("confirmRoute", {}, "VALIDATION_FAILED"),
         ("importRoute", {"filename": "a.kml", "kml_text": "<broken"}, "KML_IMPORT_FAILED"),
         ("importRoute", {"filename": "a.kml", "content_base64": "!!"}, "UPLOAD_ENCODING_INVALID"),
-        ("importRoute", {"filename": "a.kmz", "kml_text": "<kml/>"}, "LOCAL_UNSUPPORTED"),
+        (
+            "importRoute",
+            {"filename": "a.kmz", "content_base64": "bm90IGEgemlw"},
+            "KML_IMPORT_FAILED",
+        ),
     ],
 )
 def test_local_error_response_preserves_application_meaning(local, operation, payload, code):
@@ -471,3 +478,30 @@ def test_durable_record_load_keeps_original_calculation_and_run(local, monkeypat
         assert not restored["readiness"]["calculationIsCurrent"]
     finally:
         with_local.close()
+
+
+def test_local_kmz_uses_shared_importer_and_preserves_document_selection(local):
+    kml = (ROOT / "tests/fixtures/issue_43_golden.kml").read_bytes()
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
+        archive.writestr("one.kml", kml)
+        archive.writestr("folder/two.kml", kml)
+    request = {
+        "filename": "routes.kmz",
+        "content_base64": base64.b64encode(buffer.getvalue()).decode(),
+    }
+    error = json.loads(local.dispatch_response("importRoute", request))["error"]
+    assert error["code"] == "KMZ_DOCUMENT_SELECTION_REQUIRED"
+    assert set(error["details"]["candidates"]) == {"one.kml", "folder/two.kml"}
+    selected = json.loads(
+        local.dispatch("importRoute", {**request, "kmz_kml_filename": "folder/two.kml"})
+    )
+    plain = json.loads(
+        local.dispatch("importRoute", {"filename": "route.kml", "kml_text": kml.decode()})
+    )
+    assert selected["import"]["candidates"] == plain["import"]["candidates"]
+    invalid = json.loads(
+        local.dispatch_response("importRoute", {**request, "kmz_kml_filename": "missing.kml"})
+    )
+    assert invalid["error"]["code"] == "KML_IMPORT_FAILED"
+    assert json.loads(local.dispatch("bootstrap"))["import"] == plain["import"]

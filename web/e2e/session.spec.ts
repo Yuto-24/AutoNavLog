@@ -156,9 +156,8 @@ test("calculation interrupted by reload is not resent and late result cannot rep
 });
 
 test("KMZ document choice resumes after reload with modal closed", async ({ page }) => {
-  test.skip(isLocal(), "KMZ remains unsupported in Local (#120)");
   const { execFileSync } = await import("node:child_process");
-  const bytes = execFileSync("../.venv/bin/python", ["-c",
+  const bytes = execFileSync("python3", ["-c",
     "import io,zipfile,sys; b=io.BytesIO(); z=zipfile.ZipFile(b,'w'); s=open('../tests/fixtures/issue_43_golden.kml').read(); z.writestr('a.kml',s); z.writestr('b.kml',s); z.close(); sys.stdout.buffer.write(b.getvalue())"]);
   await open(page);
   await page.locator('input[type="file"]').setInputFiles({ name: "routes.kmz", mimeType: "application/vnd.google-earth.kmz", buffer: bytes });

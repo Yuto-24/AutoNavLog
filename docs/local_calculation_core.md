@@ -109,7 +109,7 @@ OOM・予期しないreload・crashの有無をPRへ記録してください。�
 
 Python Core・desktop Reference・既存Goldenを移行期間中維持します。廃止/削減判断は#146より
 前に行いません。#118のApplication境界全面整理、#124の永続化、#144の本番MSM取得、
-#145のTAF/Proxy、#121のStatic production、#123の配信CI、#146のLegacy削除、KMZ/PWA、
+#145のTAF/Proxy、#121のStatic production、#123の配信CI、#146のLegacy削除、PWA、
 #159/#160の進捗/cancel、#165/#166のSafari UXは本変更に含めません。
 
 ## 2026-09-13 JSTの計測
@@ -147,3 +147,6 @@ Chromium Local E2E 8件です。Independent Reviewのstrict Python legacy-input�
 Local Composeは1.11.6を`127.0.0.1:8123`で起動し、`/healthz`と
 既存`autonavlog_autonavlog-data` volumeの保持を確認しています。
 Safari実機FORECASTとhosted CI/reviewの結果はPRを正本とします。
+
+KML/KMZのcontent / metadata importとBrowser依存機能の境界は
+[#120 Platform Capability](platform_capabilities.md)を参照してください。

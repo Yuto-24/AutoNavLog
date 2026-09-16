@@ -1,10 +1,13 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApplicationError } from "./application";
 import type { AutoNavLogApplication, UpdateProjectInput } from "./application";
 import { readSession, writeSession, clearSession, RECOVERY_FAILED, emptyCheckPointDraft, projectDraft, restoreProjectDraft } from "./applicationSession";
 import type { ApplicationSession, PendingKmz, NodeNameDraft, VorColumn } from "./applicationSession";
-import { fileToBase64 } from "./fileInput";
+import { routeImportInput } from "./fileInput";
+import { PlatformError, type PlatformCapabilities, type FileContentSource } from "./platform";
+import type { FileInputProps } from "./BrowserFileInput";
+import { exportNavLog } from "./navLogExport";
 import {
   candidateFromKey,
   departureAirportForCandidate,
@@ -40,7 +43,7 @@ import { StatusPanel } from "./components/StatusPanel";
 import { CalculationProgressOverlay } from "./components/CalculationProgressOverlay";
 import type { CheckPointInput, FlightPhase, NavSection, Project, WebState } from "./types";
 import { useModalFocusTrap } from "./useModalFocusTrap";
-import { hasUnreadInformation, hasUnreadKnownIssues, markInformationSeen } from "./releaseNotes";
+import { createInformationState } from "./releaseNotes";
 import type { InformationData } from "./releaseNotes";
 import releaseNotesData from "./generated/releaseNotes.json";
 
@@ -81,8 +84,10 @@ function patternRequestBasis(next: WebState): string | null {
   ].join("|");
 }
 
-function App({ application }: { application: AutoNavLogApplication }) {
-  const [recovery] = useState(readSession);
+function App({ application, platform, FileInput }: { application: AutoNavLogApplication; platform: PlatformCapabilities; FileInput: ComponentType<FileInputProps> }) {
+  const [informationState] = useState(() => createInformationState(platform.persistence.values));
+  const { hasUnreadInformation, hasUnreadKnownIssues, markInformationSeen } = informationState;
+  const [recovery] = useState(() => readSession(platform.session));
   const [vorColumns, setVorColumns] = useState<VorColumn[]>([{ id: 0, stationIdentifier: null }]);
   const [checkPointDraft, setCheckPointDraft] = useState(emptyCheckPointDraft);
   const [nodeNameDraft, setNodeNameDraft] = useState<NodeNameDraft>({ id: null, name: "" });
@@ -341,7 +346,7 @@ function App({ application }: { application: AutoNavLogApplication }) {
             !["VALIDATION_FAILED", "SESSION_RECOVERY_INVALID", "PROJECT_NOT_FOUND"].includes(reason.code)) throw reason;
         restored = undefined;
         failed = true;
-        clearSession();
+        clearSession(platform.session.storage);
         next = await application.bootstrap();
       }
       if (!active) return;
@@ -385,7 +390,7 @@ function App({ application }: { application: AutoNavLogApplication }) {
       projectName, selectedProjectId, pendingKmz, selectedKmzDocument,
     };
     latestSession.current = snapshot;
-    if (!writeSession(snapshot)) {
+    if (!writeSession(snapshot, platform.session.storage)) {
       setNotice("作業状態を一時保存できません。再読み込みすると未保存の作業を失う可能性があります。");
     }
   }, [sessionReady, state, form, altitudeInputs, navLogDrafts, checkPointDraft, nodeNameDraft, vorColumns,
@@ -537,9 +542,12 @@ function App({ application }: { application: AutoNavLogApplication }) {
     }
   };
 
-  const handleFile = async (file: File) => {
+  const handleFile = async (file: FileContentSource) => {
     await runTask(
-      async () => importEncodedFile(file.name, await fileToBase64(file)),
+      async () => {
+        const input = routeImportInput(await platform.files.read(file));
+        await importEncodedFile(input.filename, input.content_base64);
+      },
       { fallbackError: "ファイルを読み込めません。" },
     );
   };
@@ -558,15 +566,12 @@ function App({ application }: { application: AutoNavLogApplication }) {
           setPasteOpen(true);
         };
         if (source === "clipboard") {
-          if (!navigator.clipboard?.readText) {
-            showManualPaste("この環境ではクリップボードを読み取れません。下の欄にKMLを貼り付けてください。");
-            return;
-          }
           try {
             // Keep this call in the click's activation, before any other await.
-            text = await navigator.clipboard.readText();
-          } catch {
-            showManualPaste("クリップボードを読み取れませんでした。下の欄にKMLを貼り付けてください。");
+            text = await platform.clipboard.readText();
+          } catch (reason) {
+            const message = reason instanceof PlatformError ? reason.message : "クリップボードを読み取れませんでした。";
+            showManualPaste(`${message}下の欄にKMLを貼り付けてください。`);
             return;
           }
         }
@@ -1383,7 +1388,7 @@ function App({ application }: { application: AutoNavLogApplication }) {
       async () => {
         await discardPendingDraftAutosave();
         try {
-          clearSession();
+          clearSession(platform.session.storage);
         } catch {
           throw new Error("作業状態を破棄できませんでした。ブラウザのストレージ設定を確認してください。");
         }
@@ -1392,7 +1397,7 @@ function App({ application }: { application: AutoNavLogApplication }) {
           await application.newWork();
         } catch (reason) {
           sessionDiscarded.current = false;
-          if (latestSession.current) writeSession(latestSession.current);
+          if (latestSession.current) writeSession(latestSession.current, platform.session.storage);
           throw reason;
         }
         return true;
@@ -1536,10 +1541,16 @@ function App({ application }: { application: AutoNavLogApplication }) {
           busy={busy}
           onResumePaste={pastedKml && !pasteOpen ? () => setPasteOpen(true) : undefined}
           onResumeKmz={pendingKmz && !kmzOpen ? () => setKmzOpen(true) : undefined}
-          onFile={handleFile}
+          fileInput={<FileInput busy={busy} onFile={handleFile} />}
           onPaste={() => void handlePasteImport("clipboard")}
         />
         <RouteWorkspace
+          onOpenExternalUrl={(url) => {
+            try { platform.openExternalUrl(url); }
+            catch (reason) {
+              setError(reason instanceof Error ? reason.message : "外部リンクを開けません。");
+            }
+          }}
           checkPointDraft={checkPointDraft}
           setCheckPointDraft={setCheckPointDraft}
           nodeNameDraft={nodeNameDraft}
@@ -1603,6 +1614,16 @@ function App({ application }: { application: AutoNavLogApplication }) {
           tabIndex={-1}
           aria-label="計算済みNAV LOG"
         >
+          <div className="navlog-export-actions">
+            <button className="secondary-button" disabled={busy} onClick={() => void runTask(
+              () => platform.files.save(exportNavLog(state)),
+              { success: "NAV LOG JSONのダウンロードを開始しました。" },
+            )}>NAV LOG JSONをダウンロード</button>
+            <button className="secondary-button" disabled={busy} onClick={() => void runTask(
+              () => platform.clipboard.writeText(new TextDecoder().decode(exportNavLog(state).content)),
+              { success: "NAV LOG JSONをコピーしました。" },
+            )}>NAV LOG JSONをコピー</button>
+          </div>
           <NavLogTable
             vorColumns={vorColumns}
             setVorColumns={setVorColumns}

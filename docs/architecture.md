@@ -100,3 +100,10 @@ Reference維持条件は[Calculation Core](local_calculation_core.md)を参照�
 Local Browser mode uses the IndexedDB Repository described in [local_persistence.md](local_persistence.md).
 Project checkpoint/draft and Last Calculation are independent of ephemeral tab recovery and disposable
 Weather cache. The server persistence semantics above remain Legacy-only.
+
+## Platform Capability (#120)
+
+[Platform Capability境界](platform_capabilities.md)へFile / Clipboard / 外部URL /
+通信状態と保存先アクセスを集約します。起動時にBrowser実装とfile picker/drop controlを
+注入し、Domain / Calculation Coreは依存させません。Session復元方針と#124の
+Project / Latest / migration / transaction semanticsはそれぞれ既存境界に残します。

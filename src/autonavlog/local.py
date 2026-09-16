@@ -16,7 +16,12 @@ from uuid import UUID
 from pydantic import BaseModel, ValidationError
 
 from autonavlog.application.project_service import ProjectService
-from autonavlog.importers.kml import KmlImportError, import_kml_or_kmz, import_kml_text
+from autonavlog.importers.kml import (
+    KmlDocumentSelectionRequired,
+    KmlImportError,
+    import_kml_or_kmz,
+    import_kml_text,
+)
 from autonavlog.local_persistence import migrate_record
 from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.storage.airports import AirportRepository
@@ -111,10 +116,6 @@ class LocalApplication:
             )
         elif path == "importRoute":
             request = _validate_request(ImportRouteRequest, payload)
-            if not request.filename.lower().endswith(".kml") or request.kmz_kml_filename:
-                raise WebApplicationError(
-                    "LOCAL_UNSUPPORTED", "Local PoCはKMLのみ対応しています。KMZは未対応です。"
-                )
             if request.kml_text is not None:
                 content = request.kml_text.encode("utf-8")
             else:
@@ -131,12 +132,12 @@ class LocalApplication:
                     ) from error
             if len(content) > 10 * 1024 * 1024:
                 raise WebApplicationError("UPLOAD_TOO_LARGE", "KML/KMZは10 MiB以下にしてください。")
-            if content.startswith(b"PK"):
-                raise WebApplicationError("LOCAL_UNSUPPORTED", "Local PoCはKMZに対応していません。")
             result = (
                 import_kml_text(request.kml_text, filename=request.filename)
                 if request.kml_text is not None
-                else import_kml_or_kmz(content, filename=request.filename)
+                else import_kml_or_kmz(
+                    content, filename=request.filename, kmz_kml_filename=request.kmz_kml_filename
+                )
             )
             state = self.app.accept_import(self.session, result=result, filename=request.filename)
         elif path in {"confirmRoute", "updateProject", "updateAndRecalculate"}:
@@ -203,6 +204,12 @@ class LocalApplication:
             details["issues"] = error.issues
         except WebApplicationError as error:
             code, message = error.code, str(error)
+        except KmlDocumentSelectionRequired as error:
+            code, message = (
+                "KMZ_DOCUMENT_SELECTION_REQUIRED",
+                "KMZ内で使用するKMLを選択してください。",
+            )
+            details["candidates"] = list(error.candidates)
         except KmlImportError as error:
             code, message = "KML_IMPORT_FAILED", str(error)
         except Exception:

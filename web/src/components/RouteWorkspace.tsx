@@ -1,3 +1,4 @@
+import { ExternalLink } from "./ExternalLink";
 import type { Dispatch, SetStateAction } from "react";
 import type { CheckPointDraft, NodeNameDraft } from "../applicationSession";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
@@ -42,6 +43,7 @@ import { RouteConfirmation } from "./RouteConfirmation";
 import "./RouteWorkspacePhase.css";
 
 interface RouteWorkspaceProps {
+  onOpenExternalUrl: (url: string) => void;
   checkPointDraft: CheckPointDraft;
   setCheckPointDraft: Dispatch<SetStateAction<CheckPointDraft>>;
   nodeNameDraft: NodeNameDraft;
@@ -175,6 +177,7 @@ function CheckPointMapPicker({
 }
 
 export function RouteWorkspace({
+  onOpenExternalUrl,
   checkPointDraft, setCheckPointDraft, nodeNameDraft: nodeDraft, setNodeNameDraft: setNodeDraft,
   candidate,
   project,
@@ -859,16 +862,14 @@ export function RouteWorkspace({
           <span>{rjfmMapReference.civilTrainingTestAirspace.caution}</span>
           {civilAirspaceReferenceIsApproved && (
             <span>
-              出典: <a
+              出典: <ExternalLink
+                onOpen={onOpenExternalUrl}
                 href={rjfmMapReference.civilTrainingTestAirspace.sourcePageUrl}
-                target="_blank"
-                rel="noreferrer"
-              >国土交通省</a>
-              ・<a
+              >国土交通省</ExternalLink>
+              ・<ExternalLink
+                onOpen={onOpenExternalUrl}
                 href={rjfmMapReference.civilTrainingTestAirspace.layerMetadataUrl}
-                target="_blank"
-                rel="noreferrer"
-              >国土地理院レイヤー</a>
+              >国土地理院レイヤー</ExternalLink>
             </span>
           )}
           <span>

@@ -5,6 +5,8 @@ import "@fontsource-variable/noto-sans-jp";
 import "./styles.css";
 import "./flightPlanLayout.css";
 import App from "./App";
+import { browserPlatform } from "./browserPlatform";
+import { BrowserFileInput } from "./BrowserFileInput";
 import { createApplication } from "./createApplication";
 
 const root = document.getElementById("root");
@@ -13,9 +15,9 @@ if (!root) {
 }
 
 const view = createRoot(root);
-createApplication().then(application => view.render(
+createApplication(browserPlatform).then(application => view.render(
   <StrictMode>
-    <App application={application} />
+    <App application={application} platform={browserPlatform} FileInput={BrowserFileInput} />
   </StrictMode>,
 )).catch(() => view.render(
   <main className="loading-screen">

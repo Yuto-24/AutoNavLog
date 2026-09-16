@@ -91,7 +91,7 @@ Workerの致命的エラー・10分の処理timeoutも失敗として示しま�
 計算キャンセルや新しい進捗UIはありません。
 
 #117 checkpoint時点ではFTDのみ対応し、FORECAST・KMZ・Project保存を明示的に拒否していました。
-現行では#125でFORECAST、#124でProject保存に対応しています。KMZは引き続き#120の対象です。
+現行では#125でFORECAST、#124でProject保存、[#120でKMZ](platform_capabilities.md)に対応しています。
 地図tileは従来の外部配信を利用します。LocalでAPIへ自動fallbackしません。
 既存LegacyのAPI・認証・永続化は維持します。
 

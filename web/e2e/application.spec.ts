@@ -1,3 +1,4 @@
+import { browserPlatform } from "../src/browserPlatform";
 import { expect, test } from "@playwright/test";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -108,13 +109,13 @@ test("Local uses common operations, real progress milestones, and durable reposi
   const operations: string[] = [];
   const repository = { list: async () => ({ projects: [], unavailable: [] }), delete: async () => {},
     read: async () => { throw new ApplicationError("missing", "LOCAL_PROJECT_UNAVAILABLE"); } } as unknown as LocalProjectRepository;
-  const app: AutoNavLogApplication = new LocalApplication(() => {
+  const app: AutoNavLogApplication = new LocalApplication(() => repository, () => {
     created++;
     return {
       request: async <T>(operation: string) => { operations.push(operation); return state as T; },
       dispose: () => { disposed++; },
     };
-  }, repository);
+  });
   const progress: number[] = [];
   await app.bootstrap();
   await app.updateProject(update);
@@ -136,11 +137,11 @@ test("Local uses common operations, real progress milestones, and durable reposi
 test("Local failure never invokes Legacy or emits successful progress", async () => {
   const calls = responses(json(state));
   const domainError = new ApplicationError("missing", "PROJECT_REQUIRED", { candidates: ["a"] });
-  const app = new LocalApplication(() => ({ request: async () => { throw domainError; }, dispose() {} }));
+  const app = new LocalApplication(browserPlatform.persistence.createProjectRepository, () => ({ request: async () => { throw domainError; }, dispose() {} }));
   const progress: number[] = [];
   await expect(app.calculate(value => progress.push(value.percent))).rejects.toBe(domainError);
   expect(progress).toEqual([0]);
-  const unavailable = new LocalApplication(() => { throw new Error("Worker internals"); });
+  const unavailable = new LocalApplication(browserPlatform.persistence.createProjectRepository, () => { throw new Error("Worker internals"); });
   await expect(unavailable.bootstrap()).rejects.toMatchObject({ code: "APPLICATION_UNAVAILABLE" });
   expect(calls).toEqual([]);
 });
@@ -207,7 +208,7 @@ test("failed durable hydration restores the previous runtime working copy", asyn
     read: async () => ({ id: "next", draft: { id: "next" }, lastCalculation: null }),
     open: async () => { opened = true; },
   } as unknown as LocalProjectRepository;
-  const app = new LocalApplication(() => ({
+  const app = new LocalApplication(() => repository, () => ({
     request: async <T>(operation: string, input?: any) => {
       if (operation === "bootstrap") {
         current = input;
@@ -218,7 +219,7 @@ test("failed durable hydration restores the previous runtime working copy", asyn
       }
       return { ...state, workingRecovery: current } as T;
     }, dispose() {},
-  }), repository);
+  }));
   await expect(app.loadProject("next")).rejects.toMatchObject({ code: "SESSION_RECOVERY_INVALID" });
   expect(current).toEqual(previous);
   expect(opened).toBe(false);
@@ -248,7 +249,7 @@ for (const storageFails of [false, true]) {
         stored = structuredClone(record);
       },
     } as unknown as LocalProjectRepository;
-    const app = new LocalApplication(client, repository);
+    const app = new LocalApplication(() => repository, client);
     await app.bootstrap(recovery);
     const failure = await app.updateAndRecalculate({ ...update, total_usable_fuel_gal: 72 }).catch(error => error);
     expect(failure).toBeInstanceOf(ApplicationError);
@@ -259,7 +260,7 @@ for (const storageFails of [false, true]) {
     if (!storageFails) {
       expect(failure.message).toBe("calculation failed");
       expect(failure.details).toEqual({ retained: true });
-      const reloaded = new LocalApplication(client, repository);
+      const reloaded = new LocalApplication(() => repository, client);
       await reloaded.bootstrap(failure.committedState.workingRecovery);
       await reloaded.updateProject({ ...update, total_usable_fuel_gal: 71 });
       expect(stored.draft.total_usable_fuel_gal).toBe(71);

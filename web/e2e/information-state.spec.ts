@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { hasUnreadInformation, hasUnreadKnownIssues, markInformationSeen } from "../src/releaseNotes";
+import { createInformationState } from "../src/releaseNotes";
 import type { InformationData } from "../src/releaseNotes";
 
 const baselineUpdateId =
@@ -14,17 +14,13 @@ test("an unchanged a4a92da legacy marker migrates to the update marker without d
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => { values.set(key, value); },
   };
-  const originalWindow = globalThis.window;
-  Object.defineProperty(globalThis, "window", {
-    configurable: true,
-    value: { localStorage: fakeStorage },
-  });
+  const { hasUnreadInformation } = createInformationState({ ...fakeStorage, removeItem: key => { values.delete(key); } });
   const data: InformationData = {
     information: { id: baselineUpdateId, releases: [] },
     compatibility: { legacyReleaseInformationIds: { "1.10.0": baselineUpdateId } },
   };
 
-  try {
+  {
     expect(hasUnreadInformation(data)).toBe(false);
     expect(values.get(lastSeenUpdateKey)).toBe(baselineUpdateId);
     expect(values.get(lastSeenReleaseKey)).toBe("1.10.0");
@@ -38,23 +34,21 @@ test("an unchanged a4a92da legacy marker migrates to the update marker without d
       compatibility: { legacyReleaseInformationIds: {} },
     };
     expect(hasUnreadInformation(noticeOnlyUpdate)).toBe(true);
-  } finally {
-    Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow });
   }
 });
 
 
 test("Known Issue additions/edits warn, removals/order/releases notify normally, and metadata stays silent", () => {
   const values = new Map<string, string>();
-  const originalWindow = globalThis.window;
-  Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: {
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => { values.set(key, value); },
-  } } });
+  const { hasUnreadInformation, hasUnreadKnownIssues, markInformationSeen } = createInformationState({
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => { values.set(key, value); },
+    removeItem: key => { values.delete(key); },
+  });
   const first = { id: "first", bodyHash: "a", title: "First", description: ["body"], sections: [] };
   const second = { ...first, id: "second", bodyHash: "b", title: "Second" };
   const data: InformationData = { information: { id: "initial", releases: [], knownIssuesId: "ab", knownIssues: [first, second] }, compatibility: { legacyReleaseInformationIds: {} } };
-  try {
+  {
     expect(hasUnreadKnownIssues(data)).toBe(true);
     expect(hasUnreadInformation(data)).toBe(true);
     markInformationSeen(data);
@@ -72,7 +66,5 @@ test("Known Issue additions/edits warn, removals/order/releases notify normally,
     markInformationSeen(next);
     expect(hasUnreadKnownIssues(next)).toBe(false);
     expect(hasUnreadInformation(next)).toBe(false);
-  } finally {
-    Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow });
   }
 });

@@ -1,3 +1,4 @@
+import type { KeyValueStorage, PlatformCapabilities } from "./platform";
 import type { PlanningForm } from "./forms";
 import { initialPlanningForm } from "./forms";
 import type { NavLogEditDrafts } from "./navLogEditing";
@@ -101,25 +102,24 @@ export function decodeSession(raw: string): ApplicationSession {
   return value as unknown as ApplicationSession;
 }
 
-export function readSession(): { session?: ApplicationSession; failed?: boolean } {
+export function readSession(platform: PlatformCapabilities["session"]): { session?: ApplicationSession; failed?: boolean } {
   try {
     // sessionStorage may be cloned by window.open/duplicate. Only reload may adopt it.
-    const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
-    if (navigation?.type !== "reload") {
-      sessionStorage.removeItem(SESSION_KEY);
+    if (!platform.isReload()) {
+      platform.storage.removeItem(SESSION_KEY);
       return {};
     }
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = platform.storage.getItem(SESSION_KEY);
     return raw === null ? {} : { session: decodeSession(raw) };
   } catch {
-    try { sessionStorage.removeItem(SESSION_KEY); } catch { /* storage unavailable */ }
+    try { platform.storage.removeItem(SESSION_KEY); } catch { /* storage unavailable */ }
     return { failed: true };
   }
 }
-export function writeSession(session: ApplicationSession): boolean {
-  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(session)); return true; }
+export function writeSession(session: ApplicationSession, storage: KeyValueStorage): boolean {
+  try { storage.setItem(SESSION_KEY, JSON.stringify(session)); return true; }
   catch { return false; }
 }
-export function clearSession(): void {
-  sessionStorage.removeItem(SESSION_KEY);
+export function clearSession(storage: KeyValueStorage): void {
+  storage.removeItem(SESSION_KEY);
 }
