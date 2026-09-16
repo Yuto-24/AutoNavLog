@@ -238,7 +238,7 @@ def test_loader_rejects_payload_path_traversal(tmp_path: Path) -> None:
     ("field", "value"),
     [
         ("georeferencing", {"source_page": 1}),
-        ("points.UMK.map_pixel", {"x": 621, "y": 2229}),
+        ("points.UMK.map_pixel", {"x": 1, "y": 1}),
     ],
 )
 def test_loader_rejects_removed_source_reconstruction_metadata(
