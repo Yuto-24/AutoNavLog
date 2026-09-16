@@ -2,6 +2,19 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.14.1
+
+### 利用者向け
+
+#### 改善
+
+- Repository公開に向けて、内部運用資料の出典表示と来歴情報を整理しました。NAV LOGの計算値や計算方法は変更していません。
+
+### 開発者向け
+
+- 航空大学校の内部運用資料について、現行source treeから章節・ページ・原文要約・ファイルhash・実装値との詳細対応を除き、AutoNavLogの採用Policyと公開可能なprovenanceを分離しました。
+- 空港masterとRJFM参照パックから内部資料の詳細対応を除きました。RJFM参照値・計算Policyの数値は維持したまま参照パックrevisionとfingerprintを更新しています。
+
 ## 1.14.0
 
 ### 利用者向け
