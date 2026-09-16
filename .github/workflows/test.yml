@@ -144,6 +144,7 @@ jobs:
       - run: npm --prefix web ci
       - run: npm --prefix web exec -- playwright install --with-deps chromium
       - run: npm --prefix web run build:local
+      - run: npm --prefix web run test:auth
       - name: Verify Local persistence and session/calculation regression without FastAPI
         env:
           AUTONAVLOG_REFERENCE_PYTHON: python3
@@ -163,3 +164,4 @@ jobs:
             /tmp/autonavlog-issue117-playwright
             /tmp/autonavlog-taf-playwright
             /tmp/local-server.log
+            /tmp/autonavlog-auth-tests
