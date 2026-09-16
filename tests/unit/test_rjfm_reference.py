@@ -36,7 +36,7 @@ def _rewrite_payload(root: Path, payload: dict[str, object]) -> None:
 def test_bundled_rjfm_pack_loads_source_backed_values() -> None:
     pack = RjfmReferencePack.from_directory(PACK_ROOT)
 
-    assert pack.revision == "2026-09-16-rjfm-umk-guidance-v5"
+    assert pack.revision == "2026-09-16-rjfm-umk-guidance-v6"
     assert pack.content_fingerprint == hashlib.sha256(
         (PACK_ROOT / "rjfm-reference.json").read_bytes()
     ).hexdigest()
@@ -60,14 +60,10 @@ def test_bundled_rjfm_pack_loads_source_backed_values() -> None:
     assert pack.mze.station_declination_epoch == 2013
 
 
-def test_bundled_map_digitization_is_explicitly_unverified_and_within_fit_gate() -> None:
+def test_bundled_map_digitization_keeps_only_public_operational_values() -> None:
     pack = RjfmReferencePack.from_directory(PACK_ROOT)
-    georeference = pack.data.georeferencing
 
-    assert len(georeference.control_points) == 6
-    assert georeference.rms_residual_nm == pytest.approx(0.032939048004967386)
-    assert georeference.max_residual_nm == pytest.approx(0.04233510835434205)
-    assert georeference.max_residual_nm <= 0.5
+    assert pack.data.schema_version == 3
     assert set(pack.points) == {"UMK", "OVER_FIELD", "OMARU"}
     assert all(
         point.validation_status == "UNVERIFIED_MAP_DIGITIZATION"
@@ -79,6 +75,10 @@ def test_bundled_map_digitization_is_explicitly_unverified_and_within_fit_gate()
         32.08521636344042
     )
     assert pack.points["OMARU"].position.latitude_deg == pytest.approx(32.16255070087476)
+
+    serialized = pack.data.model_dump(mode="json")
+    assert "georeferencing" not in serialized
+    assert all("map_pixel" not in point for point in serialized["points"].values())
 
 
 def test_bundled_pca_and_departure_policy_keep_source_and_operational_values_separate() -> None:
@@ -117,6 +117,10 @@ def test_bundled_pca_and_departure_policy_keep_source_and_operational_values_sep
     assert internal_source.pages_or_sections == [
         "詳細な資料対応は公開Repositoryに収録しません。"
     ]
+    assert all(
+        source.id != "gsi-address-search-controls-2026-08-17"
+        for source in pack.data.sources
+    )
 
 
 def test_bundled_live_airspace_reference_is_display_only_and_not_fingerprinted() -> None:
@@ -230,34 +234,24 @@ def test_loader_rejects_payload_path_traversal(tmp_path: Path) -> None:
         RjfmReferencePack.from_directory(root)
 
 
-def test_loader_recomputes_and_rejects_false_georeference_residuals(tmp_path: Path) -> None:
-    root = _copied_pack(tmp_path)
-    payload = json.loads((root / "rjfm-reference.json").read_text(encoding="utf-8"))
-    payload["georeferencing"]["control_points"][0]["residual_nm"] = 0.0
-    _rewrite_payload(root, payload)
-
-    with pytest.raises(RjfmReferenceDataError, match="invalid RJFM JSON model"):
-        RjfmReferencePack.from_directory(root)
-
-
-def test_loader_never_allows_a_georeference_gate_above_half_a_nautical_mile(
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("georeferencing", {"source_page": 1}),
+        ("points.UMK.map_pixel", {"x": 621, "y": 2229}),
+    ],
+)
+def test_loader_rejects_removed_source_reconstruction_metadata(
     tmp_path: Path,
+    field: str,
+    value: object,
 ) -> None:
     root = _copied_pack(tmp_path)
     payload = json.loads((root / "rjfm-reference.json").read_text(encoding="utf-8"))
-    payload["georeferencing"]["maximum_allowed_residual_nm"] = 0.51
-    _rewrite_payload(root, payload)
-
-    with pytest.raises(RjfmReferenceDataError, match="invalid RJFM JSON model"):
-        RjfmReferencePack.from_directory(root)
-
-
-def test_loader_rejects_digitized_coordinate_not_produced_by_recorded_transform(
-    tmp_path: Path,
-) -> None:
-    root = _copied_pack(tmp_path)
-    payload = json.loads((root / "rjfm-reference.json").read_text(encoding="utf-8"))
-    payload["points"]["UMK"]["position"]["latitude_deg"] += 0.01
+    if field == "georeferencing":
+        payload[field] = value
+    else:
+        payload["points"]["UMK"]["map_pixel"] = value
     _rewrite_payload(root, payload)
 
     with pytest.raises(RjfmReferenceDataError, match="invalid RJFM JSON model"):
