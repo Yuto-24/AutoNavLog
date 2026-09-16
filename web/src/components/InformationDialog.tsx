@@ -46,7 +46,7 @@ export function InformationDialog({ open, releases, knownIssues, onClose, onOpen
   >
     <section ref={dialogRef} className="modal-panel information-dialog" role="dialog" aria-modal="true" aria-labelledby="information-dialog-title" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-heading">
-        <div><h2 id="information-dialog-title">Information</h2><p>AutoNavLog のお知らせ</p></div>
+        <div><h2 id="information-dialog-title">Information</h2><p>NavMate のお知らせ</p></div>
         <button className="icon-button" type="button" onClick={onClose} aria-label="Informationを閉じる" data-modal-autofocus><X aria-hidden="true" size={20} /></button>
       </div>
       {knownIssues.length > 0 && <section className="information-known-issues" aria-labelledby="known-issues-heading">
