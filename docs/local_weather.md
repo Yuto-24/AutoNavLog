@@ -130,8 +130,11 @@ node --experimental-strip-types web/scripts/accept-local-weather.mjs \
 ```
 
 **Merge gate: 物理iPhone/iPad Safariでfresh実MSM FORECASTを少なくとも1回完走し、
-OOM/予期しないreload/crashがないこと。** この環境では実機確認を実施していない。
-HTTPSで配信し、OS/browser、Run、日時、cold/warm、失敗時のProject/Last Calculation保持をPRへ記録する。
+OOM/予期しないreload/crashがないこと。** 2026-09-16に物理iPad Safariで、
+fixtureなしのfresh実MSMを使ったHTTPS Static Local buildをcold/warmとも完走し、
+Weather失敗時のProject/Last Calculation保持と、OOM/予期しないreload/page crashがないことを確認した。
+[実機確認記録](evidence/issue-144/ipad-safari-acceptance.md)を参照。
+今後再確認する場合もOS/browser、Run、日時、cold/warm、失敗時のProject/Last Calculation保持を記録する。
 WindowsやPlaywright WebKitの結果をこのgateの代替にしない。
 
 #161にはGSM、model priority/coverage fallback、model+Run永続化、2クリック更新を残す。
