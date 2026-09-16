@@ -1,6 +1,18 @@
 # 変更履歴
 
-AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
+NavMate のRelease履歴です。公開日時はGitHub Releaseを正本とします。
+
+## 1.15.1
+
+### 利用者向け
+
+#### 改善
+
+- サービス名を `AutoNavLog` から `NavMate` へ変更しました。NAV LOGの計算、Projectの保存データ、操作方法は変更していません。
+
+### 開発者向け
+
+- Product / Service / Repositoryの人間向け名称を `NavMate` に統一しました。既存データとの互換性を維持するため、`autonavlog` Python package、`AUTONAVLOG_*` 環境変数、`autonavlog-data` volume等の内部identifierは維持します。
 
 ## 1.15.0
 
