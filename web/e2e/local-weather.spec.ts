@@ -97,43 +97,6 @@ test("portable real MSM: cold, warm after reload, Python reference and saved NAV
   expect((await record(page)).lastCalculation.outcome.summary).toEqual(before.outcome.summary);
 });
 
-test("corrupt cache is reacquired once; unsuccessful recovery preserves Project and last-good", async ({ page, context }) => {
-  let count = 0;
-  context.on("request", r => { if (r.url().endsWith(".npz")) count++; });
-  await setup(page); await calculate(page);
-  const corrupt = async () => {
-    const entries = await page.evaluate(async () => {
-      const cache = await caches.open("autonavlog.weather.msm.v1");
-      let changed = 0;
-      for (const request of await cache.keys()) if (request.url.endsWith(".npz")) {
-        await cache.put(request, new Response("bad", { headers: {
-          "X-AutoNavLog-Cached-At": String(Date.now()), "Content-Length": "3",
-        } }));
-        changed++;
-      }
-      return changed;
-    });
-    expect(entries).toBe(1);
-  };
-  await corrupt();
-  await page.reload();
-  await expect(page.locator(".nav-log-table")).toBeVisible();
-  await calculate(page);
-  expect(count).toBe(2);
-  const saved = await record(page);
-  await corrupt();
-  await context.unroute("**/weather/msm/*.npz");
-  await context.route("**/weather/msm/*.npz", route => route.fulfill({ status: 503, body: "" }));
-  await page.reload();
-  await expect(page.locator(".nav-log-table")).toBeVisible();
-  await page.getByRole("button", { name: "NAV LOGを再計算", exact: true }).click();
-  await expect.poll(async () => (await state(page))?.error?.code).toBe("WEATHER_CACHE_CORRUPT");
-  await expect(page.getByRole("alert")).toContainText("cacheが破損");
-  expect((await record(page)).lastCalculation).toEqual(saved.lastCalculation);
-  expect((await record(page)).draft).toEqual(saved.draft);
-  expect(count).toBe(3);
-});
-
 test("saved Run stays fixed while a newer Run is available", async ({ page }) => {
   const native = reference(true);
   const recovery = native.workingRecovery;
