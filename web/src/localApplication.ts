@@ -6,6 +6,7 @@ import { LocalClient } from "./localClient";
 import type { LocalProjectRepository, LocalProjectRecord, LocalProjectRepositoryFactory } from "./localProjectRepository";
 
 export class LocalApplication implements AutoNavLogApplication {
+  sync?: import("./accountSync").AccountSyncControl;
   private active = true;
   private client: Pick<LocalClient, "request" | "dispose"> | undefined;
   private readonly repository: LocalProjectRepository;
@@ -15,7 +16,8 @@ export class LocalApplication implements AutoNavLogApplication {
   constructor(createRepository: LocalProjectRepositoryFactory,
     private readonly createClient: () => Pick<LocalClient, "request" | "dispose"> = () => new LocalClient(),
     readonly auth?: AuthProvider) {
-    this.repository = createRepository(record => this.request<LocalProjectRecord>("validateRecord", record));
+    this.repository = createRepository(record => this.request<LocalProjectRecord>("validateRecord", record), undefined,
+      (record, copyId) => this.request<LocalProjectRecord>("prepareSyncResolution", { record, copy_id: copyId ?? null }));
   }
 
   dispose() {
@@ -42,7 +44,13 @@ export class LocalApplication implements AutoNavLogApplication {
     return next;
   }
   private async present(state: WebState): Promise<WebState> {
-    if (state.workingRecovery && state.project) state.workingRecovery.durableToken = this.tokens.get(state.project.id) ?? null;
+    if (state.workingRecovery && state.project) {
+      const token = this.tokens.get(state.project.id) ?? null;
+      state.workingRecovery.durableToken = token;
+      if (token && this.repository.captureWorking) {
+        state.workingRecovery.repositoryRecovery = await this.repository.captureWorking(state.project.id, token);
+      }
+    }
 
     const listing = await this.repository.list().catch(() => null);
     if (!listing) {
@@ -64,7 +72,7 @@ export class LocalApplication implements AutoNavLogApplication {
     }
     const draft = structuredClone(working.project);
     const expected = this.tokens.get(draft.id) ?? null;
-    const existing = expected ? await this.repository.read(draft.id) : undefined;
+    const existing = expected ? await (this.repository.readWorking?.(draft.id, expected) ?? this.repository.read(draft.id)) : undefined;
     if (existing && existing.draft.revision !== draft.revision) throw new ApplicationError(
       "別のタブでProjectが保存されています。開き直してください。", "PROJECT_REVISION_CONFLICT");
     const updatedAt = new Date().toISOString();
@@ -83,13 +91,19 @@ export class LocalApplication implements AutoNavLogApplication {
     await this.repository.write(record, expected, !record.checkpoint);
     this.tokens.set(record.id, record.token);
     if (name !== undefined) {
-      const { durableToken: _token, ...recovery } = working;
+      const { durableToken: _token, repositoryRecovery: _repository, ...recovery } = working;
       state = await this.request<WebState>("bootstrap", { ...recovery, project: draft });
     }
     return this.present(state);
   }
+  refreshProjects() { return this.serial(async () => this.present(await this.request<WebState>("state"))); }
+  private assertResolved() {
+    const status = this.sync?.getState();
+    if (status?.conflicts.length || status?.imports.length) throw new ApplicationError("表示中のProjectの選択を完了してください。", "PROJECT_REVISION_CONFLICT");
+  }
   private execute(operation: string, input?: unknown): Promise<WebState> {
     return this.serial(async () => {
+      this.assertResolved();
       let state: WebState;
       try { state = await this.request<WebState>(operation, input); }
       catch (error) {
@@ -113,7 +127,8 @@ export class LocalApplication implements AutoNavLogApplication {
   }
   bootstrap(recovery?: WorkingRecovery) {
     return this.serial(async () => {
-      const { durableToken, ...working } = recovery ?? {};
+      const { durableToken, repositoryRecovery: _repository, ...working } = recovery ?? {};
+      if (recovery) await this.repository.restoreWorking?.(recovery);
       if (recovery?.project && durableToken) this.tokens.set(recovery.project.id, durableToken);
       const state = await this.request<WebState>("bootstrap", recovery ? working : undefined);
       return this.present(state); // never select or write durable work during session hydration
@@ -134,7 +149,7 @@ export class LocalApplication implements AutoNavLogApplication {
     return state;
   }
   saveProject(name: string) {
-    return this.serial(async () => this.persist(await this.request<WebState>("state"), name));
+    return this.serial(async () => { this.assertResolved(); return this.persist(await this.request<WebState>("state"), name); });
   }
   loadProject(projectId: string) {
     return this.serial(async () => {
@@ -151,7 +166,7 @@ export class LocalApplication implements AutoNavLogApplication {
       }
       catch (error) {
         if (previous.workingRecovery) {
-          const { durableToken: _token, ...working } = previous.workingRecovery;
+          const { durableToken: _token, repositoryRecovery: _repository, ...working } = previous.workingRecovery;
           await this.request("bootstrap", working);
         }
         throw error;

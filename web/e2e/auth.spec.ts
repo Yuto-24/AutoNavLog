@@ -31,7 +31,7 @@ function jwt(subject: string) {
 async function backend(context: BrowserContext) {
   const state = { failure: "", lookupCount: 0 };
   await context.route("**/api/**", route => route.abort());
-  await context.route(/https:\/\/(identitytoolkit|securetoken)\.googleapis\.com\//, async route => {
+  await context.route(/https:\/\/(identitytoolkit|securetoken|www)\.googleapis\.com\//, async route => {
     if (state.failure === "offline") { await route.abort("internetdisconnected"); return; }
     if (state.failure) {
       await route.fulfill({ status: state.failure === "INTERNAL_ERROR" ? 503 : 400, json: { error: { message: state.failure } } });
@@ -51,7 +51,7 @@ async function backend(context: BrowserContext) {
         providerUserInfo: [{ providerId: "google.com", rawId: subject, displayName: subject, email: `${subject}@example.test` }] }] } });
     } else if (request.url().includes("/token")) {
       const subject = new URLSearchParams(request.postData()!).get("refresh_token")!.replace("refresh-", "");
-      await route.fulfill({ json: { user_id: `firebase-${subject}`, id_token: jwt(subject), refresh_token: `refresh-${subject}`, expires_in: "3600" } });
+      await route.fulfill({ json: { user_id: `firebase-${subject}`, id_token: jwt(subject), access_token: jwt(subject), refresh_token: `refresh-${subject}`, expires_in: "3600" } });
     } else await route.fulfill({ json: { authorizedDomains: ["127.0.0.1", "localhost"] } });
   });
   return state;
@@ -158,7 +158,13 @@ test("Account dialog remains compact and workflow regions retain their order", a
       expect(controlBox!.x).toBeGreaterThanOrEqual(0);
       expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(width);
     }
-    if (width >= 1100) await page.screenshot({ path: `/tmp/issue184-account-${width}.png` });
+    const headerBoxes = await page.locator(".header-actions button:visible, .header-actions select:visible").evaluateAll(nodes =>
+      nodes.map(node => { const r = node.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; }));
+    for (let i = 0; i < headerBoxes.length; i++) for (let j = i + 1; j < headerBoxes.length; j++) {
+      const a = headerBoxes[i]!, b = headerBoxes[j]!;
+      expect(a.right <= b.left + 1 || b.right <= a.left + 1 || a.bottom <= b.top + 1 || b.bottom <= a.top + 1).toBe(true);
+    }
+    if (width === 390 || width >= 1100) await page.screenshot({ path: `/tmp/issue184-account-${width}.png` });
     const bounds = await page.locator(".input-rail, .route-workspace, .status-rail").evaluateAll(nodes => nodes.map(node => ({ className: node.className, x: node.getBoundingClientRect().x, y: node.getBoundingClientRect().y })));
     expect(bounds).toHaveLength(3);
     if (width <= 1240) { expect(bounds[0]!.y).toBeLessThan(bounds[1]!.y); expect(bounds[1]!.y).toBeLessThan(bounds[2]!.y); }

@@ -1,0 +1,6 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    { "collectionGroup": "projects", "fieldPath": "payload", "indexes": [] }
+  ]
+}

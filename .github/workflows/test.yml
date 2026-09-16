@@ -167,3 +167,39 @@ jobs:
             /tmp/autonavlog-taf-playwright
             /tmp/local-server.log
             /tmp/autonavlog-auth-tests
+
+  account-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
+      - run: npm --prefix web ci
+      - run: npm --prefix web exec -- playwright install --with-deps chromium webkit
+      - run: npm --prefix web run prepare:local
+        env:
+          AUTONAVLOG_TEST_FIXTURES: "1"
+      - name: Verify real SDK, Rules and cross-device Local-first workflows
+        run: npx --yes firebase-tools@15.10.1 emulators:exec --only firestore --project demo-autonavlog-sync "npm --prefix web run test:firestore && npm --prefix web run test:sync"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: account-sync-failure
+          path: |
+            /tmp/autonavlog-sync-browser
+            /tmp/autonavlog-firestore-tests
+            firestore-debug.log

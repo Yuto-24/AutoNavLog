@@ -42,7 +42,7 @@ decorative cards. Shadows are reserved for temporary overlays.
 
 - App header with app version, Information, project identity, storage state, Save, and New actions.
   Local mode adds a compact Account icon opening the login/logout dialog; account controls do not
-  move any workflow region. The dialog explains local storage and the absence of remote sync.
+  move any workflow region. At 430 px and below, brand, actions and Project identity use separate rows to keep Save and Delete independently reachable. The dialog explains Local-first storage and account synchronization. Conflicts and Latest import collisions use a blocking modal; normal sync progress is not shown.
   Information opens notices and the full release history without changing Project state. Use an Info icon
   and an unread dot at every width; only Known Issue additions/body changes use amber. The label is optional
   and appears only when the entire Header has ample room on one row (currently 1600 px and above).

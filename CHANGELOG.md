@@ -2,6 +2,22 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.18.0
+
+### 利用者向け
+
+#### 改善
+
+- Googleログイン済みのLocalモードで、Projectと最後の計算結果を同じアカウントの端末間で自動同期します。
+- 通信できない間も端末内への保存を継続し、接続復帰後に同期します。競合時には内容を選択でき、削除後は約10秒間「元に戻す」を利用できます。
+- 未ログイン中のProjectをログイン先へ取り込みます。Latestが重なる場合は、端末内の作業を名前付きで保存するか破棄するか選べます。
+- スマートフォン幅で保存・削除ボタンが重ならないよう、ヘッダーの操作を別の行へ配置します。
+
+### 開発者向け
+
+- AccountSyncRepositoryとFirestore adapter、durable outbox、競合のatomicな解決、期限付き削除状態、認証済みGoogle identityを検証するSecurity Rulesを追加しました。
+- Firestoreの設定、同期contract、検証状況は `docs/account_sync.md` を参照してください。
+
 ## 1.17.0
 
 ### 利用者向け

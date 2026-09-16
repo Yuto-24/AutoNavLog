@@ -61,7 +61,7 @@ Explicit deletion uses the active working token or the version from the last dis
 selector listing, not a fresh read that would silently authorize deleting newer work. During Latest cleanup, the validated
 record set is checked again inside the transaction; concurrent changes fail safely with
 `PROJECT_REVISION_CONFLICT`. The user retains the tab's edits and can explicitly reopen.
-There is no automatic cross-tab merge or Account Sync.
+There is no automatic cross-tab merge. Account namespaces add the [Account Sync contract](account_sync.md) without changing the domain record.
 
 ## Schema and corruption isolation
 

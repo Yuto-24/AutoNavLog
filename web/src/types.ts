@@ -595,6 +595,7 @@ export interface SavedProject {
 
 export interface WorkingRecovery {
   durableToken?: string | null;
+  repositoryRecovery?: unknown;
   version: 1;
   project: Project | null;
   outcome: CalculationOutcome | null;
