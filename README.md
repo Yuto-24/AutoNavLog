@@ -358,3 +358,9 @@ mainへのmerge後はGitHub Actionsが `vX.Y.Z` tagとGitHub Releaseを作成し
 `pyproject.toml` では `LicenseRef-Proprietary` を指定しています。利用と再配布の条件は
 リポジトリ所有者へ確認してください。不具合や変更要望は
 [GitHub Issues](https://github.com/Yuto-24/AutoNavLog/issues)へ登録してください。
+
+## 開発用 Local Calculation PoC
+
+Issue #117のPyodide checkpointは、FTDによる計算を静的Webで検証できます。
+[起動・操作手順と制約](docs/local_calculation_poc.md)を参照してください。
+通常のLegacy runtimeは引き続きDocker Composeです。
