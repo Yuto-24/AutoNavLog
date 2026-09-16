@@ -1,3 +1,4 @@
+import { accountBoundaryClosed, type AuthProvider } from "./auth";
 import { ApplicationError } from "./application";
 import type { AutoNavLogApplication, ImportRouteInput, ConfirmRouteInput, UpdateProjectInput, ProgressListener } from "./application";
 import type { CheckPointInput, WebState, WorkingRecovery } from "./types";
@@ -5,25 +6,38 @@ import { LocalClient } from "./localClient";
 import type { LocalProjectRepository, LocalProjectRecord, LocalProjectRepositoryFactory } from "./localProjectRepository";
 
 export class LocalApplication implements AutoNavLogApplication {
+  private active = true;
   private client: Pick<LocalClient, "request" | "dispose"> | undefined;
   private readonly repository: LocalProjectRepository;
   private tokens = new Map<string, string>();
   private listedTokens = new Map<string, string>();
   private queue: Promise<unknown> = Promise.resolve();
   constructor(createRepository: LocalProjectRepositoryFactory,
-    private readonly createClient: () => Pick<LocalClient, "request" | "dispose"> = () => new LocalClient()) {
+    private readonly createClient: () => Pick<LocalClient, "request" | "dispose"> = () => new LocalClient(),
+    readonly auth?: AuthProvider) {
     this.repository = createRepository(record => this.request<LocalProjectRecord>("validateRecord", record));
   }
 
+  dispose() {
+    this.active = false;
+    this.client?.dispose();
+    this.client = undefined;
+  }
+  private assertActive() { if (!this.active) throw accountBoundaryClosed(); }
   private async request<T>(operation: string, input?: unknown): Promise<T> {
-    try { return await (this.client ??= this.createClient()).request<T>(operation, input); }
+    this.assertActive();
+    try {
+      const result = await (this.client ??= this.createClient()).request<T>(operation, input);
+      this.assertActive();
+      return result;
+    }
     catch (error) {
       if (error instanceof ApplicationError) throw error;
       throw new ApplicationError("処理を実行できませんでした。画面を再読み込みしてください。", "APPLICATION_UNAVAILABLE");
     }
   }
   private serial<T>(operation: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(operation);
+    const next = this.queue.then(() => { this.assertActive(); return operation(); }).then(value => { this.assertActive(); return value; });
     this.queue = next.catch(() => undefined);
     return next;
   }

@@ -1,11 +1,13 @@
 interface CalculationProgressOverlayProps {
   percent: number;
   message: string;
+  onSignOut?: () => void;
 }
 
 export function CalculationProgressOverlay({
   percent,
   message,
+  onSignOut,
 }: CalculationProgressOverlayProps) {
   return (
     <div className="calculation-progress-backdrop" role="presentation">
@@ -22,6 +24,7 @@ export function CalculationProgressOverlay({
         </div>
         <progress value={percent} max={100} aria-label={`計算進捗 ${percent}%`} />
         <small>このまま画面を開いてお待ちください。</small>
+        {onSignOut && <button type="button" className="secondary-button" onClick={onSignOut}>ログアウト</button>}
       </section>
     </div>
   );

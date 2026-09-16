@@ -530,6 +530,8 @@ export function RouteWorkspace({
         style={mapFrameStyle}
       >
         <MapContainer
+          // Account changes may unmount immediately; Leaflet CSS zoom timers outlive remove().
+          zoomAnimation={false}
           center={[32.6, 131.3]}
           zoom={7}
           scrollWheelZoom

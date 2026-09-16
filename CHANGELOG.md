@@ -2,6 +2,19 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.15.0
+
+### 利用者向け
+
+#### 改善
+
+- Googleログインを設定したLocalモードで、アカウントごとにProjectと最後の計算結果を端末内へ保存できるようにしました。未ログインの利用も継続できます。
+- ログアウト・認証失効後はアカウントの保存データを非表示にし、同じアカウントで再ログインすると開けるようにしました。端末間の同期は今後対応します。
+
+### 開発者向け
+
+- Firebase AuthenticationをAuthProvider境界へ隔離し、メールアドレスに依存しない内部account_idとAccount単位のRepository / Sessionを導入しました。
+
 ## 1.14.0
 
 ### 利用者向け

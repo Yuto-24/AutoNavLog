@@ -12,6 +12,7 @@ Web 画面に表示します。
 - [変更履歴](CHANGELOG.md)
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
+- [LocalモードのGoogleログイン設定](docs/authentication.md)
 
 ## できること
 
