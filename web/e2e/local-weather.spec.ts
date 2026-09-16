@@ -112,6 +112,7 @@ test("corrupt cache is reacquired once; unsuccessful recovery preserves Project 
   expect(count).toBe(2);
   const saved = await record(page);
   await corrupt();
+  await context.unroute("**/weather/msm/*.npz");
   await context.route("**/weather/msm/*.npz", route => route.fulfill({ status: 503, body: "" }));
   await page.getByRole("button", { name: "NAV LOGを再計算", exact: true }).click();
   await expect.poll(async () => (await state(page))?.error?.code).toBe("WEATHER_CACHE_CORRUPT");
