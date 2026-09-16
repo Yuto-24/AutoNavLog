@@ -1,0 +1,15 @@
+{
+  "name": "autonavlog-taf-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test worker.test.mjs runtime.test.mjs",
+    "dev": "wrangler dev",
+    "check": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "miniflare": "5.20260915.0-alpha",
+    "wrangler": "4.132.0"
+  }
+}

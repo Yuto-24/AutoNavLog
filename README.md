@@ -189,6 +189,8 @@ NAV LOGの出発地・目的地TOATには、その地点と表示時刻のMSM地
 計算後は、到着予定時刻に対応する目的地 TAF の卓越風を AviationWeather.gov から取得し、
 `DESTINATION INFO` 行に参考値として表示します。NAV LOG の WCA、GS、ETE、燃料には使いません。
 TAF を取得できなくても計算は続きます。
+Local Static Webでは[TAF専用Serverless Proxy](docs/taf_proxy.md)を使います。
+設定・Free tier見積り・TAF停止時の契約・[release checklist](docs/taf_proxy.md#release-checklist)を参照してください。
 
 RJFMから大分方面へ北上する経路で、最初のWaypointがUMKまたはOMARUの参照座標から
 1.0 NM以内なら、UMK 5,500 ftのRCA例外を自動適用します。経路表と内部Route Graphは
@@ -293,7 +295,7 @@ cloudflared tunnel --url http://localhost:8123
 
 backend CIはDockerのPython 3.12 test stageで実行します。次のhost側コマンドは開発時の検査用であり、
 host上でのアプリケーション実行をサポート対象にするものではありません。
-MSM production依存は `jma-gpv-weather==0.5.0` の公開APIです。
+`jma-msm-wind` は `0.2.1` に固定しています。
 
 ```bash
 uv venv --python 3.12
@@ -334,7 +336,7 @@ mainへのmerge後はGitHub Actionsが `vX.Y.Z` tagとGitHub Releaseを作成し
 公開日時はGitHub Releaseが保持し、CHANGELOGへ書き戻しません。
 
 `src/autonavlog/version.py` は固定値を持たず、インストール済み Package Metadata から版番号を取得します。Python package metadataはroot `VERSION` から生成します。
-Weather libraryの版はAutoNavLogのroot `VERSION` と独立して管理します。
+`jma-msm-wind==0.2.1` は別製品の版なので変更しません。
 
 ## リポジトリ
 
@@ -362,6 +364,3 @@ Weather libraryの版はAutoNavLogのroot `VERSION` と独立して管理しま�
 Issue #117のPyodide checkpointは、FTDによる計算を静的Webで検証できます。
 [起動・操作手順と制約](docs/local_calculation_poc.md)を参照してください。
 通常のLegacy runtimeは引き続きDocker Composeです。
-
-実MSMを使うStatic Local build、静的Weather feedの生成、cache/failure contract、実データacceptanceは
-[Local Weather Adapter](docs/local_weather.md)を参照してください。

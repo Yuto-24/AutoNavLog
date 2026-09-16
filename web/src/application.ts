@@ -1,3 +1,4 @@
+import type { AuthProvider } from "./auth";
 import type { ArrivalPlan, CheckPointInput, NavSection, Project, WebState, WorkingRecovery } from "./types";
 
 // Transitional snapshot only. Application Session/lifecycle is designed in #119.
@@ -45,6 +46,7 @@ export type ProgressListener = (progress: CalculationProgress) => void;
 
 // Operation boundaries intentionally preserve draft commits and atomic update/recalculate.
 export interface AutoNavLogApplication {
+  readonly auth?: AuthProvider;
   bootstrap(recovery?: WorkingRecovery): Promise<ApplicationSnapshot>;
   importRoute(input: ImportRouteInput): Promise<ApplicationSnapshot>;
   confirmRoute(input: ConfirmRouteInput): Promise<ApplicationSnapshot>;

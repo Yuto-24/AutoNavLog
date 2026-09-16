@@ -10,8 +10,10 @@ choose HTTP methods, inspect session status, or invoke Worker RPC.
   retried once after session recreation, preserving the existing Legacy behavior.
 - `LocalApplication` uses `LocalClient` and the serialized Comlink Worker queue.
   Python `LocalApplication` dispatches operation names to the existing facade.
-  FTD and real MSM FORECAST use the same Python CalculationService. The Local Worker acquires
-  portable Weather data before synchronous calculation; see [Local Weather](local_weather.md).
+  FTD and fixed-fixture FORECAST still use the same Python CalculationService.
+  Destination TAF acquisition uses the [bounded Browser adapter / Serverless Proxy](taf_proxy.md)
+  before FORECAST calculation; records are interpreted by the shared Python provider.
+  TAF unavailability never rejects calculation or persistence.
   No failure switches to the Legacy implementation.
 - `ApplicationError` exposes `code`, `message`, and `details`, plus optional `committedState`
   when an operation fails after committing a draft. UI applies that canonical recovery
@@ -33,12 +35,8 @@ choose HTTP methods, inspect session status, or invoke Worker RPC.
 
 ## Preserved operation semantics
 
-`updateProject` commits a validated draft. `updateAndRecalculate` remains one Application
-operation: persist the validated draft, then calculate. Legacy holds the facade lock.
-Local serializes the whole RPC in its Worker queue and stages the validated draft through
-`updateProject`, acquires Weather asynchronously, then invokes the same facade calculation.
-No other operation enters between these phases. The original public operation determines
-unexpected-error codes, including `REQUEST_FAILED` for update/recalculate.
+`updateProject` commits a validated draft. `updateAndRecalculate` remains one facade
+operation under the existing lock: persist the validated draft, then calculate.
 A calculation exception retains that draft and the previous last-good outcome; it
 **does not roll back the draft**. UI debounce, stale-result generation guards, draft
 flush before save/load/calculation, and explicit reset/reload behavior stay in place.

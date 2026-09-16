@@ -2,20 +2,31 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.16.0
+
+### 利用者向け
+
+#### 改善
+
+- Googleログインを設定したLocalモードで、アカウントごとにProjectと最後の計算結果を端末内へ保存できるようにしました。未ログインの利用も継続できます。
+- ログアウト・認証失効後はアカウントの保存データを非表示にし、同じアカウントで再ログインすると開けるようにしました。端末間の同期は今後対応します。
+
+### 開発者向け
+
+- Firebase AuthenticationをAuthProvider境界へ隔離し、メールアドレスに依存しない内部account_idとAccount単位のRepository / Sessionを導入しました。
+
 ## 1.15.0
 
 ### 利用者向け
 
 #### 改善
 
-- Localモードで実MSMの配信データを取得し、端末内で予報気象のNAV LOGを計算できるようにしました。
-- 気象データを端末内cacheから再利用し、取得失敗やcache破損時も保存済みProjectと最後の正常計算を保持します。
-- 保存済みMSM Runを固定したまま、新しい互換Runの存在を通知します。
+- Localモードの目的地TAFを無料Serverless Proxy経由で取得できるようにしました。TAFが取得できない場合もNAV LOGの航法計算と端末内保存を継続します。
 
 ### 開発者向け
 
-- MSM production依存を `jma-gpv-weather 0.5.0` の公開APIへ移行しました。静的prepared-data供給、Local Weather Adapter、期限・整合性検証とquota evictionを追加し、Weather取得失敗時のLegacy fallbackを禁止しています。
-- 再現可能なBrowser回帰と実データacceptanceを分離しました。静的feedの運用と実機Safariのmerge gateは `docs/local_weather.md` を参照してください。
+- Cloudflare Workers用のTAF専用ProxyとBrowser取得adapterを追加しました。取得先・query・CORS originを制限し、rate・size・timeout・同時取得数の上限と短期cacheを設けています。
+- Free tierの見積り、deploy設定、失敗時の確認手順とrelease checklistを文書化しました。
 
 ## 1.14.0
 
@@ -115,7 +126,7 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 
 #### 改善
 
-- RJFMへの到着ルートを計算する際の待ち時間を短縮しました。
+- RJFMへの到着ルートの計算を速くしました。
 
 ### 開発者向け
 

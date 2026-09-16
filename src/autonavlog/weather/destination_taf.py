@@ -365,6 +365,22 @@ class AviationWeatherTafProvider:
         )
 
 
+class DecodedTafProvider:
+    """Interpret bounded records acquired by a browser adapter; never perform I/O."""
+
+    def __init__(self, records: list[dict[str, Any]], reason_code: str | None = None) -> None:
+        self.records = records
+        self.reason_code = reason_code
+
+    def forecast(self, airport_icao: str, valid_time_utc: datetime) -> DestinationWindForecast:
+        if self.reason_code:
+            return unavailable_destination_wind(airport_icao, valid_time_utc, self.reason_code)
+        try:
+            return AviationWeatherTafProvider._select(self.records, airport_icao, valid_time_utc)
+        except Exception:
+            return unavailable_destination_wind(airport_icao, valid_time_utc, "TAF_FETCH_FAILED")
+
+
 def _finite_number(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
