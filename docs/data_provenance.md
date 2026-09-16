@@ -1,128 +1,59 @@
 # データ来歴
 
-性能CSVの正式な優先順位は、航空大学校の最新学生訓練実施要領、国土交通省承認版の
-日本語飛行規程、英語版POHです。
+この文書は、AutoNavLogに同梱するデータについて、公開可能な範囲の来歴と制限を記録します。航空大学校の内部運用資料については、参照・検証した事実と採用済みAutoNavLog Policyだけを示し、章節、ページ、原文要約、hashなど原資料の内容を復元しやすくする対応情報は収録しません。詳細は[出典・provenance方針](source_policy.md)を参照してください。
 
-各CSV行は出典ページを持ち、manifestは文書名、改訂日、照合先、ファイルSHA-256を
-保持します。資料間の差異を検出した性能表は`VERIFIED`にせず、実行時に利用不能とします。
-実行時にPDFは解析しません。
+## SR22 G6性能データ
 
-現行SR22 G6データは、P/N 13772-006 Reissue A（Revision A1のLOEP上、性能頁
-5-30〜5-34はReissue A）から転記しました。上昇原表19節点と巡航159行を別処理で再抽出し、
-全行差分ゼロを確認しています。実行時の上昇CSVはIssue #15添付表に合わせ、原表節点間を
-高度方向へ線形補間した500 ft刻み36行です。巡航CSVは原表159行を保持し、派生表を同梱せず、
-各PA / ISA cornerの65% PWRを先に解決してから、ISA偏差、高度の順で区分線形補間します。
-65%がcornerの掲載PWR範囲外なら最寄り2行から65%へ線形外挿します。これはPOH直接値ではない
-AutoNavLogの実装Policyであり、高度・ISA偏差方向の外挿は行いません。
+実行時の性能入力は`data/performance`に同梱するCSVです。
 
-`docs/reference/SR22_G6_cruise_65pct_reference_2026-09-03.xlsx`は、PR #115の65% PWR
-Policy検討用に、`cruise_performance.csv`のblob
-`1260cc9c1145b2d9835229666821e02596d2d3b0`から作成した非実行時参照資料です。実行時の
-唯一の数値入力は引き続き159行のCSVです。
+現行SR22 G6データはCirrus Design SR22 Airplane Flight Manual / Pilot's Operating Handbook, P/N 13772-006 Reissue Aを基礎としています。Revision A1のLOEP上、使用しているSection 5の性能頁5-30〜5-34はReissue Aです。
 
-CSVのSHA-256、原典PDFのSHA-256、適用する上昇温度・巡航補間Policy、およびIssue #15
-添付3件のURL・SHA-256・用途は`data/performance/manifest.json`へ固定しています。
-実行時に`PerformanceRepository.from_directory`が読み込み、内容を検証する対象は
-`tables[].sha256`で宣言した同梱CSVだけです。`source_artifacts[].sha256`は添付資料を
-採用した時点の参照用メタデータであり、実行時にURLを取得したり、その内容を再検証したり
-しません。
-各巡航結果には軸の上下限・係数、PWR補間または外挿corner、参照頁を保存します。表端の
-高度・ISA採用では、軸、要求値、表の利用可能範囲、採用値をboundary provenanceとして保存し、
-Readiness Warningにも添付します。65% PWR外挿ではさらに、Power cornerのPA/ISA、利用可能範囲、
-65%の解決値、支持する2行とその係数、参照頁を保存しますが、これは通常の計算経路として
-interpolation metadataに残し、Readiness Warningにはしません。位置の表示名は保存済みUUIDではなく現在のNAV LOG結果から
-解決するため、来歴データ自体は監査用の安定した計算識別子を維持します。
-`VERIFIED`は数値転記とmanifest整合の状態であり、対象機への適用性、校内承認、または
-Golden NAV2 LOGとのend-to-end一致を意味しません。
+- 上昇原表の節点を再抽出し、同梱CSVとの全行比較を行っています。
+- 巡航原表159行を再抽出し、同梱CSVとの全行比較を行っています。
+- 実行時には`data/performance/manifest.json`のSHA-256で同梱CSVを検証します。
+- POH由来の直接値と、AutoNavLogによる補間・外挿Policyは区別してCalculation metadataへ保持します。
+- `VERIFIED`は転記内容とmanifest整合を示すもので、対象機への適用性、運航承認、校内承認を意味しません。
 
-## RJFM北上UMK出発参照パック
+## 空港・Route参照データ
 
-`data/reference/rjfm`は、RJFMから大分方面へ北上するUMK/RCA例外と出発案内の
-固定参照値を保持します。manifestは参照パック版とpayload SHA-256を固定し、起動時に
-JSONの重複key、未知field、非有限値、座標範囲、出典参照、地図変換残差、payload hashを
-検査します。計算に使う固定参照値は実行時に出典URLから更新せず、日付でも自動失効しません。
-例外として、民間訓練試験空域は参照パックに固定した公式URLからWeb表示時だけライブGeoJSONを
-取得します。URL・対象tile・用途制限はpayload hashの対象ですが、変化するGeoJSON本文は
-hash対象外で、計算入力にはしません。
+`data/reference/default`は、空港、Route point、Check Pointの既定参照値を保持します。
 
-収録した根拠と制限は次のとおりです。
+空港の位置・標高等については公開AIP等の出典を保持します。一方、内部運用資料を参照して検証した場周高度等については、`AutoNavLog validated reference policy`として保持し、元資料のページ、hash、詳細な対応関係は収録しません。
 
-- 航空大学校宮崎本校運用課『宮崎空港及びその周辺における航空大学校所属機の
-  訓練飛行実施要領』R6.5.1改正、有効日2024-05-01。添付PDFを制御資料とし、出発要領、
-  場周高度、別添9のNewtabaru Routeを参照します。別添9はUMK、OVER FIELD、OMARUの
-  座標数値を公表していません。
-- AIP Japan RJFM AD 2の取得物は、JCABが発行者ですが、公式の機械可読AIPを作業環境で
-  取得できなかったため一般公開ミラーのPDFを使用しています。統合PDFは2026-03-01版で、
-  ARP・飛行場標高はAD 2.2（2026-03-01有効）、Runway座標・方位・標高はAD 2.12
-  （2025-05-15有効）、MZE座標・DME標高・局偏差はAD 2.19（2018-11-08有効）によります。
-- 宮崎特別管制区の水平境界、9 km除外円、原文の高度200–800 mは国土交通省の公式統合告示
-  p.19（2020-11-05有効）によります。MZEの名称、周波数、概略位置は国土交通省の
-  航空保安無線施設告示でも照合しました。
-- 民間訓練試験空域は、国土交通省の確認案内からリンクされた国土地理院
-  `kokuarea_minkankunren` GeoJSONのRJFM周辺z8 tileを表示します。KS4 Polygonは塗りつぶし専用、
-  KS4 LineStringは実境界線としてそれぞれ厳格に検証して描画し、Polygonのタイル切断端は境界線に
-  昇格しません。取得失敗・形式不一致・上限超過時は両レイヤーをfail-closedで非表示にします。
-  これは表示専用のライブ参照であり、出発案内、NAV LOG、PCA制約の計算には使いません。
-- UMK、OVER FIELD、OMARUは、別添9を6か所の庁舎位置で座標補正した上で
-  シンボル中心をデジタイズした値です。庁舎座標は国土地理院住所検索APIを使用し、
-  変換のRMS残差は0.033 NM、最大残差は0.043 NMでした。シンボル幅を含む各点の
-  推定誤差は0.35 NMとし、`UNVERIFIED_MAP_DIGITIZATION`のままとします。一致する
-  KML座標がある点は、この同梱値よりKMLを優先します。
-- 案内判定に使う656–2,700 ft MSLは上下端を含む利用者Policyであり、告示の
-  200–800 mを厳密にフィート変換した値ではありません。適用トリガ半径1.0 NM、旋回バンク
-  20°、位置0.01 NM・高度10 ft・接線角0.1°の
-  許容差も、AIPや訓練要領から引用した値ではなく、利用者決定の実装Policyです。RWY09の
-  延長旋回を左、RWY27の初期・延長旋回を右とする指定、NAV LOG上でRJFM→OMARUを
-  1親Legとして扱う指定も、2026-08-17の利用者決定であり添付資料の記載とは区別します。
-  旋回開始点のMZE DMEは計算結果の案内値であり、判定閾値や警告には使用しません。
+参照値はProjectへsnapshotとして保存されます。後からmasterが更新されても、既存Projectの計算結果を暗黙に別の参照値へ切り替えません。
 
-案内結果には参照パック版、payload SHA-256、計算入力fingerprint、訓練要領・AIP RJFM・PCA告示・
-利用者Policyの有効日を保存します。payloadが変われば計算入力fingerprintも変わります。これは
-計算時に使用した参照snapshotを追跡するためであり、
-現行性、公式承認、飛行可否を保証しません。また、地形、障害物、参照パックで定義していない
-他空域、ATC指示は参照パックと出発経路ソルバの対象外です。
+## RJFM参照パック
 
-MSMの上空風・気温と地表面気温にはForecast Run、元URL、source hash、補間方法、格子・
-気圧面traceを保存します。地表面気温はLsurfの`tmp_surface`を使い、気圧面気温を空港標高へ
-外挿しません。QNH、MSLP、METARによる補正は取得・保存・計算の対象外です。
+`data/reference/rjfm`は、RJFM専用の経路・空域・案内Policyに必要な固定参照値を保持します。
 
-巡航性能metadataにはPOH表のKTAS、ノーズフェアリング補正、A/C補正、最終KTASを分けて
-保存します。ノーズフェアリングなしの`-10 KTAS`とA/C ON時`-2 KTAS`は利用者提供転記です。
-A/C装備時に別POH Supplementが適用されることは
-[Cirrus公式Supplement案内](https://store.cirrusaircraft.com/sr22-supplement-13772-127%2C-air-conditioning/5637369215.p)で確認していますが、
-Supplement本文を収録していないため未確認のページ番号は付けません。
+参照パックには次を含みます。
 
-各計算行のVariationは`DEPARTURE_LATITUDE_32N_V1`規則で決定し、
-`variation_deg_east.automatic_metadata`へ元の物理Legの出発緯度、32.0°Nの閾値、
-境界を北側へ含める条件、選択した緯度帯、採用値を保存します。判定不能な座標は+7/+8の
-いずれにも補完せず`VARIATION_UNAVAILABLE` blockerとします。Projectの旧固定VAR項目は
-保存形式の後方互換専用であり、この自動値の来歴には使用しません。
+- AIP等の公開資料から確認したRJFM / RWY / MZEの参照値
+- 国土交通省の公開告示から確認した宮崎特別管制区の参照値
+- 国土交通省・国土地理院が公開する民間訓練試験空域の表示用参照
+- AutoNavLogが採用するUMK / OVER FIELD / OMARUの参照座標と不確実性
+- RJFM北行き専用Policyと利用者決定に基づく実装値
 
-目的地風はAviationWeather.govのTAFを出典とし、目的空港ICAO、到着予定時刻、TAF発表時刻、
-有効期間、変化区分、風向・風速・ガスト、TAF原文をWeb sessionとlast-good計算recordへ
-保持します。採用した風向・
-風速と出典metadataはCalculationOutcomeの`DESTINATION_INFO`表示投影へ含めますが、到着区間
-計算へは使いません。再計算のたびに到着予定時刻へ合わせて選び直し、取得失敗時は目的空港
-情報行だけを`UNAVAILABLE`とします。VREP→目的空港は常に固定CALMで計算します。
+内部運用資料から確認した情報については、資料を参照して検証した事実だけを記録し、元資料の章節、ページ、ファイルhash、規則との対応表は公開しません。
 
-Projectは入力、手動値、選択した参照データを最新draftとして自動保存し、明示保存時にはrevision付き
-checkpointも更新します。最後にBlockerなしで完了した計算はProjectごとに1件だけ、計算時Projectの
-deep snapshot、`CalculationOutcome`、目的地風、Forecast Run・metadata、計算fingerprint、保存時刻を
-self-containedなlast-good計算recordへ保存します。履歴・連番Snapshotは作りません。
+UMK / OVER FIELD / OMARUの同梱座標は`UNVERIFIED_MAP_DIGITIZATION`として扱い、推定誤差を保持します。一致するKML座標がある場合は、同梱値より利用者のKMLを優先します。
 
-autosave-only Projectはownerごとに1件だけ`Latest`として扱います。新draftは`autosave.json`を書き、
-同じowner state v2の`latest_draft_project_id`（route確定時は`last_opened_project_id`も）をatomicに更新して
-から旧Latestを削除します。削除失敗は新draftを無効にせず、opaque owner marker内のretry対象として保持し、
-次回アクセス時に同owner・autosave-only・path安全を再確認してから再試行します。明示checkpointと他ownerの
-Projectは自動削除の対象外です。v1の単一owner markerは、対象がautosave-onlyならLatest、checkpointなら
-last-openedとして移行します。
+RJFM参照パックはmanifestのpayload SHA-256で検証します。payload変更時は参照fingerprintも変わります。
 
-このrepositoryはComposeの`autonavlog-data` named volume上に置かれます。同じvolumeを維持する通常の
-`git pull`、image build、container再作成ではLatest、last-opened、last-good recordを復元します。`down -v`
-またはvolume削除は保存来歴を破棄する明示操作です。
+## 公開資料
 
-復元後は最新draftと計算時snapshotのfingerprintを比較します。不一致は破損ではなく、入力変更後の
-stale状態です。NAV LOG本体と計算時の来歴は残しますが、RJFM inbound/departure guidanceの数値表示は
-draftがcurrentで、保存した参照identityも現在の参照パックと一致する場合に限ります。malformed record、
-schema、Project ID、owner key、fingerprintの内部不整合はlast calculationだけを隔離・無視し、Project
-入力は失いません。
+AIP、国土交通省告示、国土地理院API等、公開資料については、再現性と更新確認のためURL、取得日、適用日、SHA-256等を保持する場合があります。
+
+国土地理院の民間訓練試験空域GeoJSONはWeb表示時にライブ取得します。変化するGeoJSON本文はversioned payloadのhash対象外で、NAV LOGやPCA制約の計算入力には使用しません。
+
+## 気象
+
+MSMの上空風・気温と地上気温にはForecast Run、元URL、source hash、補間方法、格子・気圧面traceを保存します。
+
+目的地風はAviationWeather.govのTAFを出典とします。採用したTAFは目的空港情報として表示しますが、VREPから目的空港までの航法計算はCALM固定です。
+
+## Project / Calculation
+
+Projectは入力、手動値、選択した参照データを最新draftとして保存します。明示保存時にはcheckpointを更新します。
+
+最後にBlockerなしで完了したCalculationはProjectごとに1件だけ保持し、計算時Project snapshot、CalculationOutcome、Forecast Run等の来歴とともに保存します。履歴を無制限に蓄積する方式ではありません。

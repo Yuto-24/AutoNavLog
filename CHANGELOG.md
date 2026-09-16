@@ -2,6 +2,19 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.16.1
+
+### 利用者向け
+
+#### 改善
+
+- Repository公開に向けて、内部運用資料の出典表示と来歴情報を整理しました。NAV LOGの計算値や計算方法は変更していません。
+
+### 開発者向け
+
+- 航空大学校の内部運用資料について、現行source treeから章節・ページ・原文要約・ファイルhash・実装値との詳細対応を除き、AutoNavLogの採用Policyと公開可能なprovenanceを分離しました。
+- 空港masterとRJFM参照パックから内部資料の詳細対応に加え、原図を再構成できるpixel・page・affine transform・control point metadataを除きました。RJFM参照値・計算Policyの数値は維持したまま参照パックrevisionとfingerprintを更新しています。
+
 ## 1.16.0
 
 ### 利用者向け
@@ -787,5 +800,5 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 - 旧 Colab 版の自己検証付き配布と、実 MSM のリリース受入検査を追加しました。
 
 - 変針点をまたぐ EOC の計算を修正しました。
-- 上昇、巡航、降下で使う TOAT と巡航性能の選択を修正しました。
+- 上昇、巡航、降下で使う TOAT と巡航性能の選び方を修正しました。
 - 目的地 TAF の有効時刻、取得期限、同時取得数を検査するようにしました。
