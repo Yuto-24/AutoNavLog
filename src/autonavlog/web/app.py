@@ -199,7 +199,7 @@ def create_app(
             calculation_jobs.shutdown()
 
     app = FastAPI(
-        title="AutoNavLog Web",
+        title="NavMate Web",
         version=__version__,
         docs_url=None,
         redoc_url=None,
@@ -505,7 +505,7 @@ def create_app(
         if index.is_file():
             return FileResponse(index)
         return HTMLResponse(
-            "<h1>AutoNavLog Web</h1>"
+            "<h1>NavMate Web</h1>"
             "<p>Frontend assets are not built. Run npm --prefix web run build.</p>",
             status_code=503,
         )
