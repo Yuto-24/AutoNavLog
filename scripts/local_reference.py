@@ -33,6 +33,8 @@ def reference_state(
     native_cache: str | None = None,
 ) -> dict[str, Any]:
     inputs = json.loads((ROOT / "tests/fixtures/issue_117_ftd.json").read_text())
+    if strong_wind and (forecast or feed):
+        raise ValueError("strong_wind is available only for FTD weather")
     if forecast:
         inputs["confirm"].update(
             weather_mode="FORECAST", flight_date="2026-09-12", departure_time_jst="12:00"
