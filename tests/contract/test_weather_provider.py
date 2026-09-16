@@ -32,12 +32,12 @@ def test_fake_provider_fixes_selected_run_and_preserves_request_ids() -> None:
 
 
 def _stub_msm_module() -> ModuleType:
-    module = ModuleType("msm_wind")
-    module.__version__ = "0.2.1"
+    module = ModuleType("jma_gpv_weather")
+    module.__version__ = "0.5.0"
     module.WeatherVariable = SimpleNamespace(
         ALOFT_WIND="wind",
         ALOFT_TEMPERATURE="temperature",
-        ESTIMATED_QNH="qnh",
+        SURFACE_TEMPERATURE="surface_temperature",
     )
     module.Availability = SimpleNamespace(AVAILABLE="available")
 
@@ -68,7 +68,7 @@ def _stub_msm_module() -> ModuleType:
     module.ForecastRequirements = ForecastRequirements
     module.RunId = RunId
     module.AloftQuery = AloftQuery
-    module.EstimatedQnhQuery = EstimatedQnhQuery
+    module.SurfaceTemperatureQuery = EstimatedQnhQuery
     module.GridTerrainProvider = Terrain
     return module
 
@@ -78,7 +78,7 @@ def test_msm_adapter_allows_aloft_only_without_terrain(
     tmp_path,
 ) -> None:
     module = _stub_msm_module()
-    monkeypatch.setitem(sys.modules, "msm_wind", module)
+    monkeypatch.setitem(sys.modules, "jma_gpv_weather", module)
     captured_terrain = object()
 
     class Client:
@@ -102,26 +102,30 @@ def test_msm_adapter_samples_lsurf_temperature_with_provenance(
     tmp_path,
 ) -> None:
     module = _stub_msm_module()
-    monkeypatch.setitem(sys.modules, "msm_wind", module)
+    monkeypatch.setitem(sys.modules, "jma_gpv_weather", module)
     captured_variables: frozenset[str] = frozenset()
 
     class Prepared:
         def query_many(self, queries):
-            assert queries == []
-            return ()
-
-        def _surface_scalar(self, variable, latitude, longitude, valid_time):
-            assert variable == "tmp_surface"
+            assert len(queries) == 1
+            latitude, longitude, valid_time = queries[0].args
             assert (latitude, longitude) == (31.877, 131.448)
-            return 298.15, [
-                {
-                    "valid_time": valid_time.isoformat(),
-                    "latitude": Fraction(255, 8),
-                }
-            ]
-
-        def _provenance(self, method, trace):
-            return {"interpolation_method": method, "trace": trace}
+            return (
+                SimpleNamespace(
+                    availability="available",
+                    reason_code=None,
+                    warnings=("NOT_FOR_OPERATIONAL_USE",),
+                    values={"temperature_k": 298.15, "temperature_c": 25.0},
+                    provenance={
+                        "interpolation_method": "bilinear,time-linear",
+                        "trace": {
+                            "temperature": [
+                                {"valid_time": valid_time.isoformat(), "latitude": Fraction(255, 8)}
+                            ],
+                        },
+                    },
+                ),
+            )
 
     class Client:
         def prepare_run(self, run_id, requirement, terrain_provider=None):
@@ -147,7 +151,7 @@ def test_msm_adapter_samples_lsurf_temperature_with_provenance(
 
     (result,) = provider.query_batch("20260728120000", (request,))
 
-    assert "qnh" in captured_variables
+    assert "surface_temperature" in captured_variables
     assert prepared.metadata["surface_temperature_required"] is True
     assert result.availability == Availability.AVAILABLE
     assert result.kind == WeatherRequestKind.SURFACE_TEMPERATURE
@@ -155,28 +159,34 @@ def test_msm_adapter_samples_lsurf_temperature_with_provenance(
     assert result.values["temperature_c"] == pytest.approx(25.0)
     assert result.metadata["source_variable"] == "tmp_surface"
     assert result.metadata["requested_elevation_ft_msl"] == 20
-    assert result.metadata["requested_valid_time_utc"] == (
-        "2026-07-29T00:00:00+00:00"
-    )
-    assert result.metadata["provenance"]["interpolation_method"] == (
-        "bilinear,time-linear"
-    )
-    assert result.metadata["provenance"]["trace"]["temperature"][0][
-        "latitude"
-    ] == 31.875
+    assert result.metadata["requested_valid_time_utc"] == ("2026-07-29T00:00:00+00:00")
+    assert result.metadata["provenance"]["interpolation_method"] == ("bilinear,time-linear")
+    assert result.metadata["provenance"]["trace"]["temperature"][0]["latitude"] == 31.875
     result.model_dump_json()
 
-    unavailable = provider._surface_temperature_result(
-        SimpleNamespace(_surface_scalar=lambda *args: None),
+    unavailable = provider._from_result(
         request,
+        SimpleNamespace(
+            availability="unavailable",
+            values={},
+            warnings=(),
+            provenance={},
+            reason_code="MISSING_SOURCE_VALUE",
+        ),
     )
     assert unavailable.availability == Availability.UNAVAILABLE
     assert unavailable.values == {"temperature_c": None}
     assert unavailable.reason_code == "SURFACE_TEMPERATURE_UNAVAILABLE"
 
-    wrong_unit = provider._surface_temperature_result(
-        SimpleNamespace(_surface_scalar=lambda *args: (25.0, [])),
+    wrong_unit = provider._from_result(
         request,
+        SimpleNamespace(
+            availability="available",
+            values={"temperature_k": 25.0},
+            warnings=(),
+            provenance={},
+            reason_code=None,
+        ),
     )
     assert wrong_unit.availability == Availability.UNAVAILABLE
     assert wrong_unit.reason_code == "SURFACE_TEMPERATURE_INVALID"

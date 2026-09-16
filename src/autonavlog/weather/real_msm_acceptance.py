@@ -14,8 +14,8 @@ from autonavlog.domain.weather import ForecastRequirement, WeatherRequest, Weath
 from autonavlog.weather.msm_adapter import MsmWeatherProvider
 from autonavlog.weather.provider import WeatherProvider
 
-PINNED_MSM_DISTRIBUTION = "jma-msm-wind"
-PINNED_MSM_VERSION = "0.2.1"
+PINNED_MSM_DISTRIBUTION = "jma-gpv-weather"
+PINNED_MSM_VERSION = "0.5.0"
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
@@ -315,8 +315,8 @@ def run_real_msm_acceptance(
     prepared = msm_provider.prepare_run(forecast_run.id, requirement)
     if prepared.forecast_run_id != forecast_run.id:
         _fail("prepared MSM run ID does not match the resolved run")
-    if prepared.metadata.get("provider") != "jma-msm-wind":
-        _fail("prepared forecast metadata does not identify jma-msm-wind")
+    if prepared.metadata.get("provider") != "jma-gpv-weather":
+        _fail("prepared forecast metadata does not identify jma-gpv-weather")
     if prepared.metadata.get("package_version") != PINNED_MSM_VERSION:
         _fail("prepared forecast metadata does not contain the pinned MSM version")
 

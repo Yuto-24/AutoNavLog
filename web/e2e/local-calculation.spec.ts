@@ -6,22 +6,7 @@ import { localGolden, calculationCoreGolden } from "./helpers/localGolden";
 
 const reference = JSON.parse(readFileSync(resolve("../tests/fixtures/issue_117_ftd_golden.json"), "utf8"));
 
-function compare(actual: any, expected: any, path = "golden"): void {
-  if (typeof expected === "number") {
-    if (typeof actual !== "number" || !Number.isFinite(actual) || Math.abs(actual - expected) > 1e-8)
-      throw new Error(`${path}: expected ${expected}, received ${actual} (abs <= 1e-8)`);
-  } else if (Array.isArray(expected)) {
-    if (!Array.isArray(actual) || actual.length !== expected.length) throw new Error(`${path}: array structure differs`);
-    expected.forEach((value, index) => compare(actual[index], value, `${path}[${index}]`));
-  } else if (expected !== null && typeof expected === "object") {
-    if (actual === null || typeof actual !== "object" ||
-        JSON.stringify(Object.keys(actual).sort()) !== JSON.stringify(Object.keys(expected).sort()))
-      throw new Error(`${path}: object structure differs`);
-    for (const key of Object.keys(expected)) compare(actual[key], expected[key], `${path}.${key}`);
-  } else if (actual !== expected) {
-    throw new Error(`${path}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`);
-  }
-}
+import { compare } from "./helpers/compare";
 
 
 test("current Python Reference matches the checked-in FTD Golden", () => {
@@ -200,6 +185,16 @@ test("strong FTD wind preserves Python Warning and Blocker results", async ({ pa
 
 
 test("actual MSM FORECAST reaches NAV LOG with Python provenance and no fallback", async ({ page }) => {
+  // #125's historical numerical regression explicitly injects its offline client.
+  // Production defaults and #144 tests use the real prepared-data adapter.
+  await page.context().route("**/assets/local.worker-*.js", async route => {
+    const response = await route.fetch();
+    const source = await response.text();
+    await route.fulfill({ response, body: source.replace(
+      'local_application = LocalApplication(Path("/home/pyodide/data"))',
+      'local_application = LocalApplication(Path("/home/pyodide/data"), forecast_fixture=Path("/home/pyodide/data/msm-fixture"))',
+    ) });
+  });
   const expected = JSON.parse(execFileSync(
     process.env.AUTONAVLOG_REFERENCE_PYTHON ?? resolve("../.venv/bin/python"),
     [resolve("../scripts/local_reference.py"), "--forecast"], { encoding: "utf8" },
@@ -262,6 +257,7 @@ test("Pyodide core: saved Run, UMK, OMARU, inbound, overrides and Check Point", 
           }
           p.unpackArchive(await (await fetch(data.base + '/local/' + manifest.data)).arrayBuffer(), 'zip', {extractDir:'/home/pyodide'});
           p.FS.mkdirTree('/home/pyodide/tests/fixtures');
+          p.FS.symlink('/home/pyodide/data/msm-fixture', '/home/pyodide/tests/fixtures/msm');
           for (const [name, text] of Object.entries(data.files)) p.FS.writeFile('/home/pyodide/tests/fixtures/' + name, text);
           p.runPython('from autonavlog.domain.planning import RjfmRunwayGuidance\nlegacy = RjfmRunwayGuidance.model_validate_json(\'{"runway":"09","status":"VALID","turn_direction":"LEFT","full_left_turns":1}\')\nassert legacy.full_turns == 1');
           p.globals.set('case_source', data.source);

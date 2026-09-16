@@ -293,7 +293,7 @@ cloudflared tunnel --url http://localhost:8123
 
 backend CIはDockerのPython 3.12 test stageで実行します。次のhost側コマンドは開発時の検査用であり、
 host上でのアプリケーション実行をサポート対象にするものではありません。
-`jma-msm-wind` は `0.2.1` に固定しています。
+MSM production依存は `jma-gpv-weather==0.5.0` の公開APIです。
 
 ```bash
 uv venv --python 3.12
@@ -334,7 +334,7 @@ mainへのmerge後はGitHub Actionsが `vX.Y.Z` tagとGitHub Releaseを作成し
 公開日時はGitHub Releaseが保持し、CHANGELOGへ書き戻しません。
 
 `src/autonavlog/version.py` は固定値を持たず、インストール済み Package Metadata から版番号を取得します。Python package metadataはroot `VERSION` から生成します。
-`jma-msm-wind==0.2.1` は別製品の版なので変更しません。
+Weather libraryの版はAutoNavLogのroot `VERSION` と独立して管理します。
 
 ## リポジトリ
 
@@ -362,3 +362,6 @@ mainへのmerge後はGitHub Actionsが `vX.Y.Z` tagとGitHub Releaseを作成し
 Issue #117のPyodide checkpointは、FTDによる計算を静的Webで検証できます。
 [起動・操作手順と制約](docs/local_calculation_poc.md)を参照してください。
 通常のLegacy runtimeは引き続きDocker Composeです。
+
+実MSMを使うStatic Local build、静的Weather feedの生成、cache/failure contract、実データacceptanceは
+[Local Weather Adapter](docs/local_weather.md)を参照してください。

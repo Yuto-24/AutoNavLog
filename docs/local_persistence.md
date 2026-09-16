@@ -127,4 +127,5 @@ and [best-effort persistent storage API](https://developer.mozilla.org/en-US/doc
 
 Browser tests use disposable profiles and block `/api/**`. Quota failure is injected at
 the storage API boundary; it is distinguished from physically filling a device disk.
-Local FORECAST remains the fixed MSM fixture from #125, not #144 network acquisition.
+Local FORECAST now uses the [#144 Weather Adapter](local_weather.md). Its disposable
+`autonavlog.weather.msm.v1` cache uses this same quota eviction boundary.

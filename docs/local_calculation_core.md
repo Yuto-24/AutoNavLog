@@ -1,5 +1,8 @@
 # Issue #125: Pyodide Calculation Core
 
+> #144以降の実MSM取得・cache・静的feed運用は [Local Weather](local_weather.md) を参照してください。
+> 以下の固定fixture記述と計測は #125 時点の履歴です。通常のLocal production経路はfixtureを使いません。
+
 通常利用のLegacy FastAPI経路は変更しません。開発設定
 `VITE_CALCULATION_MODE=local` のCalculation Coreを拡張し、FTDと取得済みFORECASTを
 同じPython `CalculationService` で実行します。起動は

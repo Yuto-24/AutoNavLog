@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import asdict, is_dataclass
 from datetime import UTC, datetime
+from math import isfinite
+from numbers import Integral, Real
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +18,6 @@ from autonavlog.domain.weather import (
     WeatherResult,
 )
 
-from .msm_surface_temperature import msm_surface_temperature_result
-
 FT_TO_M = 0.3048
 
 
@@ -30,13 +30,19 @@ def _jsonable(value: Any) -> Any:
         return {str(key): _jsonable(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_jsonable(item) for item in value]
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, Integral):
+        return int(value)
+    if isinstance(value, Real):
+        return float(value)
     return value
 
 
 class MsmWeatherProvider:
-    """Adapter for jma-msm-wind v0.2.1; no GRIB or cache internals leak upstream."""
+    """Adapter for jma-gpv-weather v0.5.0; no GRIB or cache internals leak upstream."""
 
-    package_version = "0.2.1"
+    package_version = "0.5.0"
 
     def __init__(
         self,
@@ -44,13 +50,15 @@ class MsmWeatherProvider:
         client: Any | None = None,
     ):
         try:
-            import msm_wind
+            import jma_gpv_weather
         except ImportError as error:
-            raise RuntimeError("jma-msm-wind 0.2.1 is required for MsmWeatherProvider") from error
-        if getattr(msm_wind, "__version__", None) != self.package_version:
-            raise RuntimeError("MsmWeatherProvider requires jma-msm-wind 0.2.1 exactly")
-        self._msm = msm_wind
-        self.client = client or msm_wind.MsmClient(cache_dir=cache_dir)
+            raise RuntimeError(
+                "jma-gpv-weather 0.5.0 is required for MsmWeatherProvider"
+            ) from error
+        if getattr(jma_gpv_weather, "__version__", None) != self.package_version:
+            raise RuntimeError("MsmWeatherProvider requires jma-gpv-weather 0.5.0 exactly")
+        self._msm = jma_gpv_weather
+        self.client = client or jma_gpv_weather.MsmClient(cache_dir=cache_dir)
         self._prepared: dict[str, Any] = {}
 
     def _requirement(self, requirement: ForecastRequirement) -> Any:
@@ -60,9 +68,7 @@ class MsmWeatherProvider:
         if requirement.require_aloft_temperature:
             variables.add(self._msm.WeatherVariable.ALOFT_TEMPERATURE)
         if requirement.require_surface_temperature:
-            # jma-msm-wind 0.2.1 has no public surface-temperature variable.
-            # ESTIMATED_QNH prepares the same Lsurf product, including tmp_surface.
-            variables.add(self._msm.WeatherVariable.ESTIMATED_QNH)
+            variables.add(self._msm.WeatherVariable.SURFACE_TEMPERATURE)
         return self._msm.ForecastRequirements(
             valid_times=requirement.valid_times_utc,
             variables=frozenset(variables),
@@ -113,7 +119,7 @@ class MsmWeatherProvider:
             forecast_run_id=forecast_run_id,
             requirement=requirement,
             metadata={
-                "provider": "jma-msm-wind",
+                "provider": "jma-gpv-weather",
                 "package_version": self.package_version,
                 "surface_temperature_required": requirement.require_surface_temperature,
             },
@@ -127,42 +133,32 @@ class MsmWeatherProvider:
         if forecast_run_id not in self._prepared:
             raise RuntimeError("MSM forecast run must be prepared before querying")
         prepared = self._prepared[forecast_run_id]
-        projected: dict[int, WeatherResult] = {}
-        native_requests = [
-            (index, request)
-            for index, request in enumerate(requests)
-            if request.kind != WeatherRequestKind.SURFACE_TEMPERATURE
-        ]
-        native_results = (
-            prepared.query_many(
-                [self._to_query(request) for _, request in native_requests]
-            )
-            if native_requests
-            else ()
-        )
-        if len(native_results) != len(native_requests):
+        results = prepared.query_many([self._to_query(request) for request in requests])
+        if len(results) != len(requests):
             raise RuntimeError("MSM batch result count does not match request count")
-        for (index, request), result in zip(
-            native_requests,
-            native_results,
-            strict=True,
-        ):
-            projected[index] = self._from_result(request, result)
-        for index, request in enumerate(requests):
-            if request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
-                projected[index] = self._surface_temperature_result(prepared, request)
-        if len(projected) != len(requests):
-            raise RuntimeError("unsupported weather request kind")
-        return tuple(projected[index] for index in range(len(requests)))
-
-    def _surface_temperature_result(
-        self,
-        prepared: Any,
-        request: WeatherRequest,
-    ) -> WeatherResult:
-        return msm_surface_temperature_result(prepared, request)
+        projected = tuple(
+            self._from_result(request, result)
+            for request, result in zip(requests, results, strict=True)
+        )
+        for request, result in zip(requests, projected, strict=True):
+            if (
+                request.kind == WeatherRequestKind.ALOFT
+                and result.availability == Availability.UNAVAILABLE
+            ):
+                coverage = prepared.check_altitude_coverage(self._to_query(request))
+                result.metadata["altitude_coverage"] = {
+                    "reason_code": coverage.reason_code,
+                    "provenance": _jsonable(coverage.provenance),
+                }
+        return projected
 
     def _to_query(self, request: WeatherRequest) -> Any:
+        if request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
+            return self._msm.SurfaceTemperatureQuery(
+                request.latitude_deg,
+                request.longitude_deg,
+                request.valid_time_utc,
+            )
         if request.kind == WeatherRequestKind.ALOFT:
             if request.altitude_ft_msl is None:
                 raise ValueError("aloft weather request requires altitude")
@@ -178,12 +174,34 @@ class MsmWeatherProvider:
         available = result.availability == self._msm.Availability.AVAILABLE
         values = dict(result.values)
         warnings = tuple(result.warnings)
+        reason = result.reason_code
+        metadata = {"provenance": _jsonable(result.provenance)}
+        if request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
+            metadata.update(
+                {
+                    "provider": "jma-gpv-weather",
+                    "source_variable": "tmp_surface",
+                    "requested_valid_time_utc": request.valid_time_utc.isoformat(),
+                    "requested_elevation_ft_msl": request.elevation_ft_msl,
+                }
+            )
+            # Preserve the existing application input sanity check and error contract;
+            # sampling, unit conversion and provenance come from SurfaceTemperatureQuery.
+            if not available and reason == "MISSING_SOURCE_VALUE":
+                values, reason = {"temperature_c": None}, "SURFACE_TEMPERATURE_UNAVAILABLE"
+            elif available:
+                temperature = values.get("temperature_k")
+                if not isinstance(temperature, (int, float)) or not (
+                    isfinite(temperature) and 150.0 <= temperature <= 350.0
+                ):
+                    available = False
+                    values, reason = {"temperature_c": None}, "SURFACE_TEMPERATURE_INVALID"
         return WeatherResult(
             request_id=request.request_id,
             availability=Availability.AVAILABLE if available else Availability.UNAVAILABLE,
             kind=request.kind,
             values=values,
-            reason_code=result.reason_code,
+            reason_code=reason,
             warnings=warnings,
-            metadata={"provenance": _jsonable(result.provenance)},
+            metadata=metadata,
         )

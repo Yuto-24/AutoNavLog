@@ -1,0 +1,210 @@
+[
+  {
+    "ignoreHTTPSErrors": false,
+    "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/",
+    "range": false,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": false,
+    "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/",
+    "range": true,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": false,
+    "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin",
+    "range": false,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": false,
+    "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin",
+    "range": true,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": false,
+    "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/",
+    "range": false,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": false,
+    "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/",
+    "range": true,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": false,
+    "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin",
+    "range": false,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": false,
+    "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin",
+    "range": true,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": true,
+    "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/",
+    "range": false,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": true,
+    "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/",
+    "range": true,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": true,
+    "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin",
+    "range": false,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": true,
+    "url": "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin",
+    "range": true,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": true,
+    "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/",
+    "range": false,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": true,
+    "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/",
+    "range": true,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": true,
+    "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin",
+    "range": false,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  },
+  {
+    "ignoreHTTPSErrors": true,
+    "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin",
+    "range": true,
+    "result": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "messages": [
+      "Access to fetch at 'https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin' from origin 'http://localhost:4179' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin: {\"errorText\":\"net::ERR_FAILED\"}",
+      "Failed to load resource: net::ERR_FAILED"
+    ]
+  }
+]

@@ -29,6 +29,8 @@ from autonavlog.storage.local import LocalProjectRepository
 from autonavlog.storage.reference_data import ReferenceDataCatalogRepository
 from autonavlog.storage.rjfm_inbound_reference import RjfmInboundGuidanceReference
 from autonavlog.storage.rjfm_reference import RjfmReferencePack
+from autonavlog.weather.local_msm import LocalMsmWeather, LocalWeatherError
+from autonavlog.weather.msm_adapter import MsmWeatherProvider
 from autonavlog.weather.msm_fixture import FIXTURE_WEATHER_LABEL, fixture_weather_provider
 from autonavlog.web.facade import AutoNavLogWebApplication, WebApplicationError
 from autonavlog.web.models import (
@@ -72,6 +74,15 @@ class _LocalFacade(AutoNavLogWebApplication):
 
 class LocalApplication:
     def __init__(self, data_root: Path, *, forecast_fixture: Path | None = None) -> None:
+        self.local_weather = None if forecast_fixture else LocalMsmWeather()
+        local_weather = self.local_weather
+
+        def weather_factory() -> MsmWeatherProvider:
+            if forecast_fixture:
+                return fixture_weather_provider(forecast_fixture)
+            assert local_weather is not None
+            return local_weather.provider
+
         # Reuse existing repository behavior on MEMFS; never mount IDBFS/OPFS.
         self._temporary = TemporaryDirectory(prefix="autonavlog-local-")
         storage = Path(self._temporary.name)
@@ -91,15 +102,41 @@ class LocalApplication:
             ),
             reference_repository=references,
             reference_catalog=catalog,
-            weather_factory=lambda: fixture_weather_provider(
-                forecast_fixture or data_root / "msm-fixture"
-            ),
-            weather_label=FIXTURE_WEATHER_LABEL,
+            weather_factory=weather_factory,
+            weather_label=FIXTURE_WEATHER_LABEL if forecast_fixture else "実MSM（端末内処理）",
             development_weather=False,
         )
         self.session = self.app.create_session(
             "local-poc", restore_persisted=False, persist_working=False
         )
+
+    def requires_weather(self) -> bool:
+        return bool(
+            self.local_weather
+            and self.session.project
+            and self.session.project.weather_mode == "FORECAST"
+        )
+
+    def weather_plan(self, catalog_json: str) -> str:
+        """Adapter preflight, called by the Worker before synchronous calculation."""
+        assert self.local_weather is not None and self.session.project is not None
+        try:
+            requirement = (
+                self.session.calculation_service.forecast_service.build_initial_requirement(
+                    self.session.project
+                )
+            )
+            return self.local_weather.plan(self.session.project, requirement, catalog_json)
+        except LocalWeatherError as error:
+            return json.dumps({"error": {"code": error.code, "message": str(error)}})
+
+    def accept_weather(self, payload: bytes, sha256: str) -> str:
+        assert self.local_weather is not None
+        try:
+            self.local_weather.accept(payload, sha256)
+            return "{}"
+        except LocalWeatherError as error:
+            return json.dumps({"error": {"code": error.code, "message": str(error)}})
 
     def dispatch(self, path: str, body: dict[str, Any] | None = None) -> str:
         """Execute application operations using the existing facade on transient MEMFS."""
@@ -194,7 +231,13 @@ class LocalApplication:
         state["savedProjects"] = []
         return json.dumps(state, ensure_ascii=False, allow_nan=False)
 
-    def dispatch_response(self, operation: str, body: dict[str, Any] | None = None) -> str:
+    def dispatch_response(
+        self,
+        operation: str,
+        body: dict[str, Any] | None = None,
+        *,
+        error_operation: str | None = None,
+    ) -> str:
         """Serialize errors explicitly: Comlink/Python exceptions lose custom fields."""
         details: dict[str, Any] = {}
         try:
@@ -213,8 +256,13 @@ class LocalApplication:
         except KmlImportError as error:
             code, message = "KML_IMPORT_FAILED", str(error)
         except Exception:
-            code = "CALCULATION_JOB_FAILED" if operation == "calculate" else "REQUEST_FAILED"
-            message = "計算に失敗しました。" if operation == "calculate" else "処理に失敗しました。"
+            public_operation = error_operation or operation
+            code = "CALCULATION_JOB_FAILED" if public_operation == "calculate" else "REQUEST_FAILED"
+            message = (
+                "計算に失敗しました。"
+                if public_operation == "calculate"
+                else "処理に失敗しました。"
+            )
         return json.dumps(
             {"error": {"code": code, "message": message, "details": details}},
             ensure_ascii=False,
