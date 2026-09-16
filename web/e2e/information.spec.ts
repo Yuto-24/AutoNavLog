@@ -137,6 +137,7 @@ test("Information traps focus, closes with Escape and backdrop, and keeps latest
   await expect(informationButton(page).locator(".information-unread-dot")).toBeHidden();
   await expect(informationDialog(page)).toBeHidden();
 });
+
 test("Information keeps the exact current update ID seen after reload", async ({ page }) => {
   await page.addInitScript(([key, value]) => window.localStorage.setItem(key, value), [
     lastSeenUpdateKey,
