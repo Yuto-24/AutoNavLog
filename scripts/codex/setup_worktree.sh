@@ -139,4 +139,4 @@ write_override
 npm --prefix web ci
 
 printf 'Codex worktree ready: project=%s port=%s\n' "$COMPOSE_PROJECT_NAME" "$AUTONAVLOG_HOST_PORT"
-printf 'AutoNavLog URL after startup: http://127.0.0.1:%s\n' "$AUTONAVLOG_HOST_PORT"
+printf 'NavMate URL after startup: http://127.0.0.1:%s\n' "$AUTONAVLOG_HOST_PORT"
