@@ -1,6 +1,6 @@
 """Issue #117: existing application workflow in a transient Pyodide filesystem.
 
-No browser persistence, HTTP server, forecast acquisition, or alternative calculation core.
+No HTTP server or alternative calculation core. Browser adapters own network acquisition.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from autonavlog.storage.local import LocalProjectRepository
 from autonavlog.storage.reference_data import ReferenceDataCatalogRepository
 from autonavlog.storage.rjfm_inbound_reference import RjfmInboundGuidanceReference
 from autonavlog.storage.rjfm_reference import RjfmReferencePack
+from autonavlog.weather.destination_taf import DecodedTafProvider
 from autonavlog.weather.msm_fixture import FIXTURE_WEATHER_LABEL, fixture_weather_provider
 from autonavlog.web.facade import AutoNavLogWebApplication, WebApplicationError
 from autonavlog.web.models import (
@@ -96,9 +97,26 @@ class LocalApplication:
             ),
             weather_label=FIXTURE_WEATHER_LABEL,
             development_weather=False,
+            destination_wind_provider=DecodedTafProvider([], "TAF_PROXY_NOT_CONFIGURED"),
         )
         self.session = self.app.create_session(
             "local-poc", restore_persisted=False, persist_working=False
+        )
+
+    def destination_taf_airport(self, operation: str, payload: dict[str, Any]) -> str | None:
+        """Prepare acquisition outside the calculation core and invalidate previous records."""
+        if operation not in {"calculate", "updateAndRecalculate"}:
+            return None
+        self.app.destination_wind_provider = DecodedTafProvider([], "TAF_PROXY_NOT_CONFIGURED")
+        project = self.session.project
+        mode = payload.get("weather_mode", project.weather_mode if project else None)
+        if project is None or mode != "FORECAST":
+            return None
+        return self.app.airports.get(project.destination_airport_id).icao
+
+    def set_destination_taf(self, acquisition: dict[str, Any]) -> None:
+        self.app.destination_wind_provider = DecodedTafProvider(
+            acquisition["records"], acquisition["reason_code"]
         )
 
     def dispatch(self, path: str, body: dict[str, Any] | None = None) -> str:

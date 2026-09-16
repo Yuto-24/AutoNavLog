@@ -232,3 +232,17 @@ JSON計133件、ローカル保存フォルダのJSON 149件で、role/point_rol
 専用のroleテストはなく、参照していたgolden・EOC・性能補間・参照データ保存テストは別仕様の
 保証なので、入力roleだけを`ROUTE_POINT`へ置き換え、数値assertを維持します。
 上記の性能比較はこの整理より前の測定であり、enum削除による高速化を主張するものではありません。
+
+## Destination TAF Proxy (#145)
+
+`npm --prefix services/taf-proxy ci`後に`npm --prefix services/taf-proxy test`と
+`npm --prefix services/taf-proxy run check`を実行する。Node unitに加え、公式workerdで
+module export、CORS、cache、native rate binding、redirect拒否を検証する。
+`npm --prefix web run test:application`はBrowser network adapterのquota / timeout / size検査も含む。
+Python `tests/integration/test_local_calculation.py`はTAFの成否による航法値不変を確認する。
+
+Static Browser回帰は`VITE_TAF_PROXY_URL=https://taf.example/taf npm --prefix web run build:local`で
+buildし、静的配信後に`npm --prefix web run test:taf`を実行する（必要なら`AUTONAVLOG_LOCAL_URL`）。
+このsuiteはProxy通信をfixtureへ置換し、成功→quota→timeout→停止→reload→復旧と
+IndexedDB Project / Last Calculation保持を確認する。通常の`test:local`はTAF未設定buildで実行する。
+実upstream smoke、Free tier見積りと本番release gateは[TAF Proxy運用](taf_proxy.md)を参照する。

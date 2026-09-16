@@ -25,3 +25,7 @@ web/src/generated/
 web/dist-local/
 
 web/public-local/
+
+services/taf-proxy/node_modules/
+services/taf-proxy/.wrangler/
+services/taf-proxy/wrangler.local.jsonc

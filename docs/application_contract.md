@@ -11,6 +11,9 @@ choose HTTP methods, inspect session status, or invoke Worker RPC.
 - `LocalApplication` uses `LocalClient` and the serialized Comlink Worker queue.
   Python `LocalApplication` dispatches operation names to the existing facade.
   FTD and fixed-fixture FORECAST still use the same Python CalculationService.
+  Destination TAF acquisition uses the [bounded Browser adapter / Serverless Proxy](taf_proxy.md)
+  before FORECAST calculation; records are interpreted by the shared Python provider.
+  TAF unavailability never rejects calculation or persistence.
   No failure switches to the Legacy implementation.
 - `ApplicationError` exposes `code`, `message`, and `details`, plus optional `committedState`
   when an operation fails after committing a draft. UI applies that canonical recovery
