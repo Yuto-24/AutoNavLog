@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "autonavlog-taf",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-16",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": { "ALLOWED_ORIGINS": "" },
+  "ratelimits": [
+    { "name": "CLIENT_RATE", "namespace_id": "14501", "simple": { "limit": 20, "period": 60 } },
+    { "name": "UPSTREAM_RATE", "namespace_id": "14502", "simple": { "limit": 60, "period": 60 } },
+    { "name": "STATION_RATE", "namespace_id": "14503", "simple": { "limit": 1, "period": 60 } }
+  ]
+}

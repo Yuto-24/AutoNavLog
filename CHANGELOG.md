@@ -8,12 +8,12 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 
 #### 改善
 
-- Googleログインを設定したLocalモードで、アカウントごとにProjectと最後の計算結果を端末内へ保存できるようにしました。未ログインの利用も継続できます。
-- ログアウト・認証失効後はアカウントの保存データを非表示にし、同じアカウントで再ログインすると開けるようにしました。端末間の同期は今後対応します。
+- Localモードの目的地TAFを無料Serverless Proxy経由で取得できるようにしました。TAFが取得できない場合もNAV LOGの航法計算と端末内保存を継続します。
 
 ### 開発者向け
 
-- Firebase AuthenticationをAuthProvider境界へ隔離し、メールアドレスに依存しない内部account_idとAccount単位のRepository / Sessionを導入しました。
+- Cloudflare Workers用のTAF専用ProxyとBrowser取得adapterを追加しました。取得先・query・CORS originを制限し、rate・size・timeout・同時取得数の上限と短期cacheを設けています。
+- Free tierの見積り、deploy設定、失敗時の確認手順とrelease checklistを文書化しました。
 
 ## 1.14.0
 
