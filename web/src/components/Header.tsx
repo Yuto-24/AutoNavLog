@@ -1,8 +1,11 @@
+import { AccountControl } from "./AccountControl";
+import type { AuthProvider } from "../auth";
 import { localMode } from "../executionMode";
 import { CheckCircle2, Info, FolderOpen, Plus, Save, Trash2 } from "lucide-react";
 import type { SavedProject } from "../types";
 
 interface HeaderProps {
+  auth?: AuthProvider;
   appVersion: string;
   projectName: string;
   revision: number | null;
@@ -21,6 +24,7 @@ interface HeaderProps {
 }
 
 export function Header({
+  auth,
   appVersion,
   projectName,
   revision,
@@ -62,6 +66,7 @@ export function Header({
         {revision !== null && <span className="header-revision">rev.{revision}</span>}
       </div>
       <div className="header-actions">
+        {localMode && <AccountControl auth={auth} busy={busy} />}
         <button
           className={`header-button information-button${knownIssuesUnread ? " information-warning" : ""}`}
           type="button"

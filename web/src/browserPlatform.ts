@@ -71,7 +71,7 @@ export const browserPlatform: PlatformCapabilities = {
   },
   persistence: {
     values: browserKeyValueStorage("localStorage"),
-    createProjectRepository: validate => new IndexedDbProjectRepository(validate),
+    createProjectRepository: (validate, context) => new IndexedDbProjectRepository(validate, undefined, undefined, context),
     requestRetention: requestPersistentStorage,
   },
 };

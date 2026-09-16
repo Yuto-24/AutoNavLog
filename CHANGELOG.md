@@ -2,18 +2,31 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
-## 1.14.1
+## 1.16.0
 
 ### 利用者向け
 
 #### 改善
 
-- Repository公開に向けて、内部運用資料の出典表示と来歴情報を整理しました。NAV LOGの計算値や計算方法は変更していません。
+- Googleログインを設定したLocalモードで、アカウントごとにProjectと最後の計算結果を端末内へ保存できるようにしました。未ログインの利用も継続できます。
+- ログアウト・認証失効後はアカウントの保存データを非表示にし、同じアカウントで再ログインすると開けるようにしました。端末間の同期は今後対応します。
 
 ### 開発者向け
 
-- 航空大学校の内部運用資料について、現行source treeから章節・ページ・原文要約・ファイルhash・実装値との詳細対応を除き、AutoNavLogの採用Policyと公開可能なprovenanceを分離しました。
-- 空港masterとRJFM参照パックから内部資料の詳細対応を除きました。RJFM参照値・計算Policyの数値は維持したまま参照パックrevisionとfingerprintを更新しています。
+- Firebase AuthenticationをAuthProvider境界へ隔離し、メールアドレスに依存しない内部account_idとAccount単位のRepository / Sessionを導入しました。
+
+## 1.15.0
+
+### 利用者向け
+
+#### 改善
+
+- Localモードの目的地TAFを無料Serverless Proxy経由で取得できるようにしました。TAFが取得できない場合もNAV LOGの航法計算と端末内保存を継続します。
+
+### 開発者向け
+
+- Cloudflare Workers用のTAF専用ProxyとBrowser取得adapterを追加しました。取得先・query・CORS originを制限し、rate・size・timeout・同時取得数の上限と短期cacheを設けています。
+- Free tierの見積り、deploy設定、失敗時の確認手順とrelease checklistを文書化しました。
 
 ## 1.14.0
 
@@ -113,7 +126,7 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 
 #### 改善
 
-- RJFMへの到着ルートを計算する際の待ち時間を短縮しました。
+- RJFMへの到着ルートの計算を速くしました。
 
 ### 開発者向け
 

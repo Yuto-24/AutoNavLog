@@ -20,8 +20,13 @@ web/vite.config.js
 web/vite.config.d.ts
 web/src/generated/
 .env
+web/.env.local
 .autonavlog-worktree/
 
 web/dist-local/
 
 web/public-local/
+
+services/taf-proxy/node_modules/
+services/taf-proxy/.wrangler/
+services/taf-proxy/wrangler.local.jsonc

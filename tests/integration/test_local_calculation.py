@@ -138,7 +138,7 @@ def test_local_forecast_uses_actual_fixture_without_network(local, monkeypatch):
     assert state["outcome"]["summary"]["distance"]["text"] == "125.5"
     assert state["readiness"]["calculationIsCurrent"]
     assert state["savedProjects"] == []
-    assert state["outcome"]["display_rows"][-2]["wind"]["reason_code"] == "TAF_PROVIDER_DISABLED"
+    assert state["outcome"]["display_rows"][-2]["wind"]["reason_code"] == "TAF_PROXY_NOT_CONFIGURED"
 
 
 @pytest.mark.parametrize(
@@ -505,3 +505,47 @@ def test_local_kmz_uses_shared_importer_and_preserves_document_selection(local):
     )
     assert invalid["error"]["code"] == "KML_IMPORT_FAILED"
     assert json.loads(local.dispatch("bootstrap"))["import"] == plain["import"]
+
+
+def test_browser_taf_records_reuse_selection_and_do_not_change_navigation(local):
+    from datetime import datetime
+
+    baseline = calculate(local, forecast=True)
+    assert local.destination_taf_airport("calculate", {}) == "RJFS"
+    eta = datetime.fromisoformat(baseline["destinationWind"]["valid_time_utc"]).timestamp()
+    records = [{"icaoId": "RJFS", "mostRecent": 1, "validTimeFrom": eta - 3600,
+                "validTimeTo": eta + 3600, "rawTAF": "TAF RJFS", "fcsts": [
+                    {"timeFrom": eta - 3600, "timeTo": eta + 3600, "wdir": 240, "wspd": 18},
+                    {"timeFrom": eta - 3600, "timeTo": eta + 3600, "fcstChange": "TEMPO",
+                     "wdir": 90, "wspd": 40}]}]
+    local.set_destination_taf({"records": records, "reason_code": None})
+    available = json.loads(local.dispatch("calculate"))
+    assert available["destinationWind"]["wind_speed_kt"] == 18
+    assert available["destinationWind"]["availability"] == "AVAILABLE"
+    for reason in ["TAF_FETCH_FAILED", "TAF_FETCH_TIMEOUT", "TAF_PROXY_NOT_CONFIGURED"]:
+        assert local.destination_taf_airport("calculate", {}) == "RJFS"
+        local.set_destination_taf({"records": [], "reason_code": reason})
+        failed = json.loads(local.dispatch("calculate"))
+        assert failed["destinationWind"]["availability"] == "UNAVAILABLE"
+        assert failed["destinationWind"]["reason_code"] == reason
+        assert failed["project"] == available["project"]
+        last_wind = failed["workingRecovery"]["last_calculation"]["destination_wind"]
+        assert last_wind["reason_code"] == reason
+        for section, expected in zip(
+            failed["outcome"]["sections"], available["outcome"]["sections"], strict=True
+        ):
+            for key, value in section.items():
+                if isinstance(value, dict) and "automatic_value" in value:
+                    assert value["automatic_value"] == expected[key]["automatic_value"]
+                    assert value["manual_override"] == expected[key]["manual_override"]
+                else:
+                    assert value == expected[key]
+        for key in ["fuel_plan", "summary", "status"]:
+            assert failed["outcome"][key] == available["outcome"][key]
+        assert failed["readiness"]["calculationIsCurrent"]
+    # Records cannot leak into the next acquisition, and FTD/non-calculation never fetch.
+    assert local.destination_taf_airport("updateAndRecalculate", {"weather_mode": "FTD"}) is None
+    assert local.destination_taf_airport("saveProject", {}) is None
+    assert local.destination_taf_airport("calculate", {}) == "RJFS"
+    reset = json.loads(local.dispatch("calculate"))
+    assert reset["destinationWind"]["reason_code"] == "TAF_PROXY_NOT_CONFIGURED"

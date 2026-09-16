@@ -32,6 +32,7 @@ import {
 import type {
   NavLogEditDrafts, NavLogEditErrors, NavLogEditableField,
 } from "./navLogEditing";
+import { AccountNotice } from "./components/AccountControl";
 import { Header } from "./components/Header";
 import { InformationDialog } from "./components/InformationDialog";
 import { ImportPlanPanel } from "./components/ImportPlanPanel";
@@ -1490,6 +1491,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   return (
     <div className="app-shell">
       <Header
+        auth={application.auth}
         appVersion={state.runtime.appVersion}
         projectName={projectName}
         revision={state.project?.revision ?? null}
@@ -1509,6 +1511,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         onNew={handleNew}
       />
       <ProgressRail activeStep={state.readiness.workflowStep} />
+      <AccountNotice auth={application.auth} />
 
       {(error || notice) && (
         <div
@@ -1676,7 +1679,9 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       </footer>
 
       {activeOperation === "calculate" && (
-        <CalculationProgressOverlay {...calculationProgress} />
+        <CalculationProgressOverlay {...calculationProgress}
+          onSignOut={application.auth?.getState().account
+            ? () => { void application.auth!.signOut().catch(() => {}); } : undefined} />
       )}
 
       <PasteDialog

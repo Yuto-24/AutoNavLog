@@ -110,6 +110,21 @@ jobs:
       - run: npm --prefix web run typecheck
       - run: npm --prefix web run build
 
+  taf-proxy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: services/taf-proxy/package-lock.json
+      - run: npm --prefix services/taf-proxy ci
+      - run: npm --prefix services/taf-proxy test
+      - run: npm --prefix services/taf-proxy run check
+
   local-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -129,6 +144,7 @@ jobs:
       - run: npm --prefix web ci
       - run: npm --prefix web exec -- playwright install --with-deps chromium
       - run: npm --prefix web run build:local
+      - run: npm --prefix web run test:auth
       - name: Verify Local persistence and session/calculation regression without FastAPI
         env:
           AUTONAVLOG_REFERENCE_PYTHON: python3
@@ -138,10 +154,14 @@ jobs:
           trap 'kill "$local_server_pid"' EXIT
           curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4174/ > /dev/null
           npm --prefix web run test:local
+          VITE_TAF_PROXY_URL=https://taf.example/taf npm --prefix web run build:local
+          npm --prefix web run test:taf
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: local-browser-failure
           path: |
             /tmp/autonavlog-issue117-playwright
+            /tmp/autonavlog-taf-playwright
             /tmp/local-server.log
+            /tmp/autonavlog-auth-tests

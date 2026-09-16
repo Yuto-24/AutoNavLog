@@ -57,7 +57,10 @@ def reference_state(
             if not local:
                 app.weather_factory = lambda: fixture_weather_provider(ROOT / "tests/fixtures/msm")
             app.weather_label = FIXTURE_WEATHER_LABEL
-            app.destination_wind_provider = None
+            from autonavlog.weather.destination_taf import DecodedTafProvider
+
+            # Match the explicit no-network acquisition supplied by the Static build.
+            app.destination_wind_provider = DecodedTafProvider([], "TAF_PROXY_NOT_CONFIGURED")
             app.development_weather = False
         session = app.create_session("reference")
         filename = f"issue_125_{route}.kml" if route else "issue_43_golden.kml"

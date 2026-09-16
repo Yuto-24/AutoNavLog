@@ -34,7 +34,7 @@ test("UI and application contract have no transport dependencies", () => {
     ...readdirSync(resolve(source, "components")).filter(name => /\.tsx?$/.test(name)).map(name => `components/${name}`)];
   for (const name of [...uiFiles, "application.ts"]) {
     const text = readFileSync(resolve(source, name), "utf8");
-    expect(text, name).not.toMatch(/\/api\/|credentials|document\.cookie|\b401\b|new Worker|comlink|localClient|legacyApplication|localApplication|FastAPI|fetch\(/);
+    expect(text, name).not.toMatch(/\/api\/|credentials|document\.cookie|\b401\b|new Worker|firebase[\/\"]|comlink|localClient|legacyApplication|localApplication|FastAPI|fetch\(/);
   }
   expect(readFileSync(resolve(source, "application.ts"), "utf8")).not.toMatch(/\bstatus\s*:|RequestInit|Response|\brequest\s*[<(]/);
 });
