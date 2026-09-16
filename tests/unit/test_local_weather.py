@@ -53,6 +53,18 @@ def setup_weather(project, requirement, catalog, run=None):
     return weather, asset
 
 
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"strong_wind": True, "forecast": True},
+        {"strong_wind": True, "feed": str(FEED)},
+    ],
+)
+def test_reference_rejects_strong_wind_with_forecast_sources(options):
+    with pytest.raises(ValueError, match="strong_wind is available only for FTD weather"):
+        reference_state(**options)
+
+
 def test_portable_provider_keeps_run_selection_and_upstream_values(project, requirement, catalog):
     for run in [None, OLD]:
         weather, asset = setup_weather(project, requirement, catalog, run)
