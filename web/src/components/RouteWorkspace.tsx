@@ -41,6 +41,7 @@ import { MapResizeHandle } from "./MapResizeHandle";
 import { rjfmCandidateClass, rjfmStatusLabels } from "./RjfmGuidancePanel";
 import { RouteConfirmation } from "./RouteConfirmation";
 import "./RouteWorkspacePhase.css";
+import { localMode } from "../executionMode";
 
 interface RouteWorkspaceProps {
   onOpenExternalUrl: (url: string) => void;
@@ -530,8 +531,8 @@ export function RouteWorkspace({
         style={mapFrameStyle}
       >
         <MapContainer
-          // Account changes may unmount immediately; Leaflet CSS zoom timers outlive remove().
-          zoomAnimation={false}
+          // Local Account changes may unmount immediately; Leaflet zoom timers outlive remove().
+          zoomAnimation={!localMode}
           center={[32.6, 131.3]}
           zoom={7}
           scrollWheelZoom
