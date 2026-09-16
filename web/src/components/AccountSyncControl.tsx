@@ -19,7 +19,8 @@ export function AccountSyncControl({ sync, onChange, onResolved }: {
   useEffect(() => {
     if (blocked && !dialog.current?.open) dialog.current?.showModal();
     if (!blocked) dialog.current?.close();
-    setError(""); setName("");
+    if (blocked) setError("");
+    setName("");
   }, [blocked, conflict?.id, imported?.id]);
   const act = async (operation: () => Promise<void>) => {
     setPending(true); setError("");
@@ -36,8 +37,8 @@ export function AccountSyncControl({ sync, onChange, onResolved }: {
     {state.undo.length > 0 && <div className="sync-undo" role="status">
       {state.undo.map(item => <div key={item.id}><span>「{item.name}」を削除しました。</span>
         <button type="button" disabled={pending} onClick={() => sync && void act(() => sync.undo(item.id))}>元に戻す</button></div>)}
-      {!blocked && error && <p role="alert">{error}</p>}
     </div>}
+    {!blocked && error && <div className="message-bar message-error" role="alert">{error}</div>}
     {createPortal(<dialog ref={dialog} className="modal-panel account-sync-dialog" aria-labelledby="sync-title"
       onCancel={event => event.preventDefault()}>
       {conflict ? <>

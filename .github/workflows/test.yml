@@ -169,6 +169,8 @@ jobs:
             /tmp/autonavlog-auth-tests
 
   account-sync:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

@@ -327,3 +327,57 @@ test("a delayed server snapshot cannot roll back an acknowledged autosave", asyn
   await a.write(edit(current, "fourth"), current.token, false); await remote.sync(a);
   expect(remote.rows.get(first.id)?.record.draft.name).toBe("fourth");
 });
+
+test("concurrent expiry converges tombstones without a conflict or a retained copy", async () => {
+  const a = repo("A").repository, factory = new IDBFactory(), b = repo("B", factory).repository;
+  const remote = new Remote(), original = record();
+  await a.write(original, null, false); await remote.sync(a); await remote.sync(b);
+  await a.delete(original.id, original.token); await remote.sync(a); await remote.sync(b);
+  const now = Date.now; Date.now = () => remote.rows.get(original.id)!.undoUntil! + 1;
+  try {
+    const [aPending] = await a.pending(), [bPending] = await b.pending();
+    expect(aPending![0]!.value.version).not.toBe(bPending![0]!.value.version);
+    await remote.sync(a); await remote.sync(b);
+    expect((await b.status()).conflicts).toEqual([]);
+    expect(await b.pending()).toEqual([]);
+    expect((await b.list()).projects).toEqual([]);
+    const restarted = repo("B", factory).repository;
+    await remote.sync(restarted);
+    expect((await restarted.status()).conflicts).toEqual([]);
+    expect(remote.rows.size).toBe(1);
+    expect(remote.rows.get(original.id)?.deletion).toBe("DELETED");
+    await expect(restarted.resolve(original.id, "both")).rejects.toMatchObject({ code: "PROJECT_REVISION_CONFLICT" });
+  } finally { Date.now = now; }
+});
+
+test("invalid anonymous records stay unclaimed and visible as unavailable", async () => {
+  const factory = new IDBFactory();
+  class SeedRepository extends IndexedDbProjectRepository {
+    async seed(raw: unknown) { await this.transaction("readwrite", store => { store.put(raw); }); }
+  }
+  const anonymous = new SeedRepository(validate, undefined, () => factory);
+  const good = record(), invalid = { ...record(), draft: null };
+  await anonymous.seed(good); await anonymous.seed(invalid);
+  expect((await anonymous.claimAnonymous("account-a")).map(row => row.id)).toEqual([good.id]);
+  expect((await anonymous.list()).unavailable).toEqual([invalid.id]);
+  expect(await anonymous.claimAnonymous("account-b")).toEqual([]);
+});
+
+for (const race of ["edit", "claim"] as const) test("anonymous claim rechecks a concurrent " + race, async () => {
+  const factory = new IDBFactory(), other = new IndexedDbProjectRepository(validate, undefined, () => factory);
+  const original = record(); await other.write(original, null, false);
+  let enter!: () => void, resume!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; });
+  const paused = new Promise<void>(resolve => { resume = resolve; });
+  const anonymous = new IndexedDbProjectRepository(async raw => {
+    const valid = await validate(raw); enter(); await paused; return valid;
+  }, undefined, () => factory);
+  const claiming = anonymous.claimAnonymous("account-a");
+  await entered;
+  if (race === "edit") await other.write(edit(original, "changed"), original.token, false);
+  else await other.claimAnonymous("account-b");
+  resume();
+  expect(await claiming).toEqual([]);
+  if (race === "edit") expect((await other.read(original.id)).draft.name).toBe("changed");
+  else expect((await other.claimAnonymous("account-b")).map(row => row.id)).toEqual([original.id]);
+});

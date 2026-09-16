@@ -6,5 +6,5 @@ export default defineConfig({
     { name: "ipad-webkit", use: { ...devices["iPad Pro 11"], browserName: "webkit" } },
     { name: "iphone-webkit", use: { ...devices["iPhone 13"], browserName: "webkit" } }],
   use: { baseURL: "http://127.0.0.1:5178", trace: "retain-on-failure" },
-  webServer: { command: "VITE_CALCULATION_MODE=local npx vite --host 127.0.0.1 --port 5178", url: "http://127.0.0.1:5178", reuseExistingServer: !process.env.CI },
+  webServer: { command: "npx vite --host 127.0.0.1 --port 5178", env: { VITE_CALCULATION_MODE: "local" }, url: "http://127.0.0.1:5178", reuseExistingServer: !process.env.CI },
 });

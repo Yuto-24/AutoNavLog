@@ -273,7 +273,11 @@ export class AccountProjectRepository extends IndexedDbProjectRepository {
       for (const value of validated) {
         const old = rows.find(row => row.id === value.id);
         if (old?.sync && value.revision <= old.sync.baseRevision) continue;
-        if (old?.sync?.dirty) {
+        if (old?.sync && deletionState(old.sync.value) === "DELETED" && deletionState(value) === "DELETED") {
+          // Independent expiry writes have the same terminal meaning. Adopt the
+          // committed tombstone instead of offering to copy deleted content.
+          store.put({ ...value.record, sync: { baseVersion: value.version, baseRevision: value.revision, value, dirty: false, group: crypto.randomUUID() } });
+        } else if (old?.sync?.dirty) {
           // A committed write whose acknowledgement was lost is recognized by its
           // idempotency version. Newer local edits keep their original base.
           if (old.sync.value.version === value.version) {

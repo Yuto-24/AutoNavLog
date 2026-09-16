@@ -8,12 +8,15 @@ import { googleAccount } from "./firebaseAuthProvider";
 import { deletionState, type AccountSyncRepository, type SyncProject, type SyncMutation, type SyncCommit } from "./accountSync";
 import type { LocalAccountContext } from "./localProjectRepository";
 
-function decode(data: DocumentData): SyncProject {
+const invalid = () => new ApplicationError("他の端末の保存データを読み込めません。端末内のデータは保持されています。", "SYNC_DATA_INVALID");
+function decode(data: DocumentData, id: string): SyncProject {
   if (data.schema !== 1 || typeof data.payload !== "string" || typeof data.version !== "string" || !Number.isSafeInteger(data.revision) || data.revision < 1 ||
     !["ACTIVE", "PENDING_DELETE", "DELETED"].includes(data.deletion)) {
-    throw new ApplicationError("他の端末の保存データを読み込めません。端末内のデータは保持されています。", "SYNC_DATA_INVALID");
+    throw invalid();
   }
-  const record = JSON.parse(data.payload);
+  let record;
+  try { record = JSON.parse(data.payload); } catch { throw invalid(); }
+  if (data.id !== id || !record || typeof record !== "object" || record.id !== id) throw invalid();
   return { id: data.id, version: data.version, revision: data.revision, record, latestDeviceId: data.latestDeviceId,
     deletion: data.deletion, undoUntil: data.undoUntil };
 }
@@ -42,7 +45,7 @@ export class FirestoreSyncRepository implements AccountSyncRepository {
     this.assert();
     const snapshot = await getDocsFromServer(this.projects);
     this.assert();
-    return snapshot.docs.map(row => decode(row.data()));
+    return snapshot.docs.map(row => decode(row.data(), row.id));
   }
   async commit(mutations: SyncMutation[]): Promise<SyncCommit> {
     this.assert();
@@ -55,7 +58,7 @@ export class FirestoreSyncRepository implements AccountSyncRepository {
       for (let index = 0; index < mutations.length; index++) {
         const mutation = mutations[index]!;
         const snapshot = snapshots[index]!;
-        const current = snapshot.exists() ? decode(snapshot.data()) : null;
+        const current = snapshot.exists() ? decode(snapshot.data(), snapshot.id) : null;
         if (current?.version === mutation.value.version) continue; // retry after lost acknowledgement
         if ((current?.version ?? null) !== mutation.expectedVersion ||
           (current && deletionState(current) === "DELETED" && deletionState(mutation.value) !== "DELETED")) {

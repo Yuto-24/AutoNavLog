@@ -107,21 +107,30 @@ export class IndexedDbProjectRepository implements LocalProjectRepository {
   }
   async claimAnonymous(accountId: string): Promise<LocalProjectRecord[]> {
     if (this.context?.account_id) throw storageFailure();
-    const rows = await this.safe(() => this.transaction("readwrite", (store, rows) => {
-      return rows.filter(raw => {
-        const row = raw as LocalProjectRecord & { claimedAccount?: string };
-        if (row.claimedAccount && row.claimedAccount !== accountId) return false;
-        store.put({ ...row, claimedAccount: accountId });
-        return true;
-      });
-    }), true);
-    const records: LocalProjectRecord[] = [];
-    for (const raw of rows) {
-      const { claimedAccount: _owner, ...record } = raw as LocalProjectRecord & { claimedAccount?: string };
-      try { records.push(await this.validate(record)); } catch { /* retain unavailable originals */ }
+    type AnonymousRow = LocalProjectRecord & { claimedAccount?: string };
+    const snapshots = await this.safe(() => this.transaction("readonly", (_store, rows) => rows as AnonymousRow[]));
+    const validated = new Map<string, { token: string; record: LocalProjectRecord }>();
+    for (const { claimedAccount, ...record } of snapshots) {
+      if (claimedAccount && claimedAccount !== accountId) continue;
+      try {
+        const valid = await this.validate(record);
+        validated.set(record.id, { token: record.token, record: valid });
+      } catch { /* retain invalid originals, unclaimed and visible as unavailable */ }
     }
-    return records;
+    return this.safe(() => this.transaction("readwrite", (store, rows) => {
+      const records: LocalProjectRecord[] = [];
+      for (const row of rows as AnonymousRow[]) {
+        const candidate = validated.get(row.id);
+        // Every repository edit changes the token. Recheck it and ownership
+        // inside the claim transaction after asynchronous validation.
+        if (!candidate || row.token !== candidate.token || (row.claimedAccount && row.claimedAccount !== accountId)) continue;
+        store.put({ ...row, claimedAccount: accountId });
+        records.push(candidate.record);
+      }
+      return records;
+    }), true);
   }
+
   async list() {
     const rows = await this.safe(() => this.transaction("readonly", (_store, rows) => rows));
     const projects: SavedProject[] = [], failed: string[] = [];

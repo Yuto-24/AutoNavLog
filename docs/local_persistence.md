@@ -133,5 +133,8 @@ Local FORECAST now uses the [#144 Weather Adapter](local_weather.md). Its dispos
 ## Account context (#184)
 
 [Authentication](authentication.md) adds per-account Repository/Session scopes. Anonymous records
-remain in their original database; signing in does not import or transfer them (#185).
+remain in their original database. On sign-in, #185 validates and claims eligible anonymous
+records for that account once, then imports them into its scope. Claimed originals are hidden
+from anonymous and other accounts and retained so an interrupted import can resume.
+Invalid records remain unclaimed and visible as unavailable in the anonymous scope.
 Logout/revocation hides account copies without deleting them.

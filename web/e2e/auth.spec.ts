@@ -160,6 +160,7 @@ test("Account dialog remains compact and workflow regions retain their order", a
     }
     const headerBoxes = await page.locator(".header-actions button:visible, .header-actions select:visible").evaluateAll(nodes =>
       nodes.map(node => { const r = node.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; }));
+    expect(headerBoxes.length).toBeGreaterThan(0);
     for (let i = 0; i < headerBoxes.length; i++) for (let j = i + 1; j < headerBoxes.length; j++) {
       const a = headerBoxes[i]!, b = headerBoxes[j]!;
       expect(a.right <= b.left + 1 || b.right <= a.left + 1 || a.bottom <= b.top + 1 || b.bottom <= a.top + 1).toBe(true);

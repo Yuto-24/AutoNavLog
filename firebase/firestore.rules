@@ -13,7 +13,8 @@ service cloud.firestore {
         && d.payload is string && (d.latestDeviceId == null || d.latestDeviceId is string)
         && d.deletion in ['ACTIVE', 'PENDING_DELETE', 'DELETED']
         && (d.undoUntil == null || d.undoUntil is number)
-        && (d.deletion != 'PENDING_DELETE' || d.undoUntil is number);
+        && (d.deletion != 'PENDING_DELETE'
+          || (d.undoUntil is number && d.undoUntil <= request.time.toMillis() + 10000));
     }
     function deleted() {
       return resource.data.deletion == 'DELETED'
@@ -27,6 +28,9 @@ service cloud.firestore {
         && request.resource.data.baseVersion == resource.data.version
         && request.resource.data.version != resource.data.version
         && request.resource.data.revision == resource.data.revision + 1
+        && (resource.data.deletion != 'PENDING_DELETE'
+          || request.resource.data.deletion != 'PENDING_DELETE'
+          || request.resource.data.undoUntil == resource.data.undoUntil)
         && (!deleted() || request.resource.data.deletion == 'DELETED');
       // Durable tombstones are never physically deleted by browser clients.
       allow delete: if false;
