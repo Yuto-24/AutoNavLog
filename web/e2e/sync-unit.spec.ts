@@ -209,7 +209,7 @@ test("reload retains the old checkpoint and autosaves before a remote revision c
   expect((await reloaded.status()).conflicts).toHaveLength(1);
 });
 
-for (const choice of ["remote", "both"] as const) test("resolution retry retains one atomic choice: " + choice, async () => {
+for (const choice of ["local", "remote", "both"] as const) test("resolution retry retains one atomic choice: " + choice, async () => {
   const a = repo("A").repository, b = repo("B").repository, remote = new Remote(), original = record();
   await a.write(original, null, false); await remote.sync(a); await remote.sync(b);
   const base = await b.read(original.id);
@@ -227,7 +227,13 @@ for (const choice of ["remote", "both"] as const) test("resolution retry retains
   expect(groups[0]).toHaveLength(choice === "both" ? 2 : 1);
   await remote.sync(b);
   expect(remote.rows.size).toBe(choice === "both" ? 2 : 1);
-  expect(remote.rows.get(original.id)?.record.draft.name).toBe("remote again");
+  expect(remote.rows.get(original.id)?.record.draft.name).toBe(choice === "local" ? "local" : "remote again");
+  if (choice === "local") {
+    expect(selected).toBe(original.id);
+    const retained = await b.read(original.id);
+    expect(retained.draft.revision).toBe(1);
+    expect(retained.checkpoint?.revision).toBe(1);
+  }
   if (choice === "both") { expect(selected).toBe(firstCopy); expect(remote.rows.get(selected)?.record.draft.name).toBe("local"); }
 });
 
