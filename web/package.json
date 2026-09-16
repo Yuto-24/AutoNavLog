@@ -17,9 +17,11 @@
     "prepare:local": "python3 ../scripts/prepare_local.py",
     "prebuild:local": "npm run prepare:local",
     "predev:local": "npm run generate:release-notes && npm run prepare:local",
-    "test:local": "playwright test --config playwright.local.config.ts",
+    "test:local": "playwright test --config playwright.local.config.ts --grep 'static FTD Golden, no API fallback, 1100px|actual MSM FORECAST reaches NAV LOG|portable real MSM: cold, warm after reload|corrupt cache is reacquired once|Latest replacement, promotion, opening another Project|a stale selector cannot delete a Project updated by another tab|reload preserves raw invalid planning values|new discards recovery; new tabs including opener clones never inherit work|picker opens compressed KMZ|supported Clipboard preserves click activation|source links open without an opener'",
+    "test:local:full": "playwright test --config playwright.local.config.ts",
     "test:application": "playwright test --config playwright.application.config.ts",
-    "test:auth": "playwright test --config playwright.auth.config.ts",
+    "test:auth": "playwright test --config playwright.auth.config.ts --grep 'anonymous workflow, account switch|Account dialog remains compact|different identity closes the prior Application|failed persistent logout closes access|blocked Google popup reports an actionable error'",
+    "test:auth:full": "playwright test --config playwright.auth.config.ts",
     "test:taf": "playwright test --config playwright.taf.config.ts"
   },
   "dependencies": {
