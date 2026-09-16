@@ -1,4 +1,4 @@
-"""AutoNavLog public package API."""
+"""NavMate public package API."""
 
 from .domain.calculation import CalculationOutcome
 from .domain.project import Project
