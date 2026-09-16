@@ -55,7 +55,8 @@ NPZのSHA-256を記録しています。2026-09-13 JSTにRISHの固定予報URL�
 画面の気象source欄は固定fixtureと対象日時を明示します。範囲外時刻・地点を
 最新気象、最近傍気象、FTDへ補完しません。FTD Goldenは従来の**125.5 NM / 0:57**です。
 
-TAF providerは接続しません。目的地情報行は`TAF_PROVIDER_DISABLED`の未取得表示です。
+TAFは#145の[Browser adapter / Serverless Proxy](taf_proxy.md)で取得します。
+未設定・停止・quota超過時はTAFのみUNAVAILABLEとし、計算と端末内保存を継続します。
 航法計算の到着区間は既存どおりCALMで、TAFの成否がWCA/MH/GS/ETE/Fuelへ入りません。
 
 ## Run固定と差分比較
@@ -109,7 +110,7 @@ OOM・予期しないreload・crashの有無をPRへ記録してください。�
 
 Python Core・desktop Reference・既存Goldenを移行期間中維持します。廃止/削減判断は#146より
 前に行いません。#118のApplication境界全面整理、#124の永続化、#144の本番MSM取得、
-#145のTAF/Proxy、#121のStatic production、#123の配信CI、#146のLegacy削除、PWA、
+#121のStatic production、#123の配信CI、#146のLegacy削除、PWA、
 #159/#160の進捗/cancel、#165/#166のSafari UXは本変更に含めません。
 
 ## 2026-09-13 JSTの計測

@@ -189,6 +189,8 @@ NAV LOGの出発地・目的地TOATには、その地点と表示時刻のMSM地
 計算後は、到着予定時刻に対応する目的地 TAF の卓越風を AviationWeather.gov から取得し、
 `DESTINATION INFO` 行に参考値として表示します。NAV LOG の WCA、GS、ETE、燃料には使いません。
 TAF を取得できなくても計算は続きます。
+Local Static Webでは[TAF専用Serverless Proxy](docs/taf_proxy.md)を使います。
+設定・Free tier見積り・TAF停止時の契約・[release checklist](docs/taf_proxy.md#release-checklist)を参照してください。
 
 RJFMから大分方面へ北上する経路で、最初のWaypointがUMKまたはOMARUの参照座標から
 1.0 NM以内なら、UMK 5,500 ftのRCA例外を自動適用します。経路表と内部Route Graphは

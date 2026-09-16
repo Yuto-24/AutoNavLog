@@ -1,3 +1,4 @@
+import { fetchDestinationTaf } from "./destinationTaf";
 import { expose } from "comlink";
 import { loadPyodide } from "pyodide";
 
@@ -54,6 +55,15 @@ const workerApi = {
       const pyodide = await (ready ??= initialize());
       pyodide.globals.set("local_path", path);
       pyodide.globals.set("local_body_json", JSON.stringify(body ?? {}));
+      const airport = pyodide.runPython(`
+import json
+local_application.destination_taf_airport(local_path, json.loads(local_body_json))
+`) as string | undefined;
+      if (airport) {
+        const taf = await fetchDestinationTaf(import.meta.env.VITE_TAF_PROXY_URL, airport);
+        pyodide.globals.set("local_taf_json", JSON.stringify(taf));
+        pyodide.runPython(`local_application.set_destination_taf(json.loads(local_taf_json))`);
+      }
       return pyodide.runPython(`
 import json
 local_application.dispatch_response(local_path, json.loads(local_body_json))

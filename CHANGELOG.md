@@ -2,6 +2,19 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.15.0
+
+### 利用者向け
+
+#### 改善
+
+- Localモードの目的地TAFを無料Serverless Proxy経由で取得できるようにしました。TAFが取得できない場合もNAV LOGの航法計算と端末内保存を継続します。
+
+### 開発者向け
+
+- Cloudflare Workers用のTAF専用ProxyとBrowser取得adapterを追加しました。取得先・query・CORS originを制限し、rate・size・timeout・同時取得数の上限と短期cacheを設けています。
+- Free tierの見積り、deploy設定、失敗時の確認手順とrelease checklistを文書化しました。
+
 ## 1.14.0
 
 ### 利用者向け
