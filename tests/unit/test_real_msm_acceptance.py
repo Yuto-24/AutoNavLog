@@ -79,7 +79,7 @@ def _weather_result(request: WeatherRequest) -> WeatherResult:
 
 def _real_provider_stub() -> tuple[MsmWeatherProvider, dict[str, int]]:
     provider = MsmWeatherProvider.__new__(MsmWeatherProvider)
-    provider._msm = SimpleNamespace(__version__="0.2.1")
+    provider._msm = SimpleNamespace(__version__="0.5.0")
     calls = {"resolve": 0, "inspect": 0, "prepare": 0, "query": 0}
 
     def resolve(self: MsmWeatherProvider, requirement: Any) -> ForecastRun:
@@ -107,7 +107,7 @@ def _real_provider_stub() -> tuple[MsmWeatherProvider, dict[str, int]]:
         return PreparedForecastRun(
             forecast_run_id=forecast_run_id,
             requirement=requirement,
-            metadata={"provider": "jma-msm-wind", "package_version": "0.2.1"},
+            metadata={"provider": "jma-gpv-weather", "package_version": "0.5.0"},
         )
 
     def query(
@@ -129,7 +129,7 @@ def _real_provider_stub() -> tuple[MsmWeatherProvider, dict[str, int]]:
 def pinned_distribution(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "autonavlog.weather.real_msm_acceptance.metadata.version",
-        lambda distribution: "0.2.1",
+        lambda distribution: "0.5.0",
     )
 
 
@@ -161,7 +161,7 @@ def test_preflight_fails_when_package_version_is_not_pinned(
         lambda distribution: "0.2.2",
     )
     provider, _ = _real_provider_stub()
-    with pytest.raises(RealMsmAcceptanceError, match="0.2.1 exactly"):
+    with pytest.raises(RealMsmAcceptanceError, match="0.5.0 exactly"):
         run_real_msm_acceptance(
             provider,
             RealMsmAcceptanceConfig(),
@@ -171,7 +171,7 @@ def test_preflight_fails_when_package_version_is_not_pinned(
 def test_preflight_fails_when_imported_module_version_is_not_pinned() -> None:
     provider, _ = _real_provider_stub()
     provider._msm.__version__ = "0.2.0"
-    with pytest.raises(RealMsmAcceptanceError, match="0.2.1 exactly"):
+    with pytest.raises(RealMsmAcceptanceError, match="0.5.0 exactly"):
         run_real_msm_acceptance(
             provider,
             RealMsmAcceptanceConfig(),

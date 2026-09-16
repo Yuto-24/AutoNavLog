@@ -12,10 +12,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from msm_wind import MsmClient, PreparedForecast
-from msm_wind.client import select_compatible_runs
-from msm_wind.core import RemoteFile
-from msm_wind.errors import NoCompatibleRunError, SelectedRunCoverageError
+from jma_gpv_weather import MsmClient, PreparedForecast
+from jma_gpv_weather.errors import NoCompatibleRunError, SelectedRunCoverageError
+from jma_gpv_weather.models import RemoteFile
+from jma_gpv_weather.msm.client import select_compatible_runs
 
 from autonavlog.weather.msm_adapter import MsmWeatherProvider
 

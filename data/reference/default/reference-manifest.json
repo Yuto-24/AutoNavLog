@@ -8,7 +8,7 @@
       "kind": "AIRPORT",
       "path": "airports.csv",
       "row_count": 14,
-      "sha256": "00feae339cb41dfa8d515c2da2cbbbcb9108874aed9030ca880223dce2032aa4"
+      "sha256": "987f7411b908ce58068c4802d0da9e8f0412e98af17ac49899dc148362f07d5a"
     },
     {
       "kind": "POINT",

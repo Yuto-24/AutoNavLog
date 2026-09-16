@@ -1,0 +1,268 @@
+{
+  "status": "PASS",
+  "measured_at": "2026-09-16T04:38:56.307Z",
+  "browser": "153.0.4234.32",
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0",
+  "host_platform": "win32",
+  "source_run": "20260915210000",
+  "summary": {
+    "distance": {
+      "state": "DISPLAY_VALUE",
+      "text": "125.5",
+      "effective_value": 125.5,
+      "reason_code": null,
+      "manual": false
+    },
+    "time": {
+      "state": "DISPLAY_VALUE",
+      "text": "0:51",
+      "effective_value": 3060,
+      "reason_code": null,
+      "manual": false
+    }
+  },
+  "numerical_reference": "desktop GRIB/NetCDF (caller-supplied reference); abs <= 1e-8, exact display/provenance",
+  "startup_through_cold_ms": 6815,
+  "cold_calculation_ms": 1744,
+  "warm_calculation_ms": 424,
+  "cold_weather_files": [
+    {
+      "url": "http://localhost:4180/weather/msm/catalog.json",
+      "bytes": 354542
+    },
+    {
+      "url": "http://localhost:4180/weather/msm/6aa9fad3597587288e6343623034d7516824d83344d012b75c7466bf71a77f8e.npz",
+      "bytes": 5275019
+    }
+  ],
+  "cold_weather_body_bytes": 5629561,
+  "warm_weather_download_bytes": 0,
+  "weather_requests": [
+    {
+      "url": "http://localhost:4180/weather/msm/catalog.json",
+      "stage": "cold-forecast"
+    },
+    {
+      "url": "http://localhost:4180/weather/msm/6aa9fad3597587288e6343623034d7516824d83344d012b75c7466bf71a77f8e.npz",
+      "stage": "cold-forecast"
+    }
+  ],
+  "memory_method": "sampled sum of resident working sets for the dedicated Browser process tree; not exact peak or WASM heap",
+  "memory": [
+    {
+      "at": 1789533522911,
+      "stage": "startup",
+      "process_rss_bytes": 633360384,
+      "processes": 8
+    },
+    {
+      "at": 1789533523523,
+      "stage": "startup",
+      "process_rss_bytes": 749191168,
+      "processes": 8
+    },
+    {
+      "at": 1789533524167,
+      "stage": "startup",
+      "process_rss_bytes": 774586368,
+      "processes": 8
+    },
+    {
+      "at": 1789533524789,
+      "stage": "startup",
+      "process_rss_bytes": 830050304,
+      "processes": 8
+    },
+    {
+      "at": 1789533525415,
+      "stage": "startup",
+      "process_rss_bytes": 968589312,
+      "processes": 8
+    },
+    {
+      "at": 1789533526076,
+      "stage": "startup",
+      "process_rss_bytes": 928468992,
+      "processes": 8
+    },
+    {
+      "at": 1789533526714,
+      "stage": "startup",
+      "process_rss_bytes": 942604288,
+      "processes": 8
+    },
+    {
+      "at": 1789533527357,
+      "stage": "startup",
+      "process_rss_bytes": 1062449152,
+      "processes": 8
+    },
+    {
+      "at": 1789533527997,
+      "stage": "cold-forecast",
+      "process_rss_bytes": 1098559488,
+      "processes": 8
+    },
+    {
+      "at": 1789533528627,
+      "stage": "cold-forecast",
+      "process_rss_bytes": 1141821440,
+      "processes": 8
+    },
+    {
+      "at": 1789533529229,
+      "stage": "cold-forecast",
+      "process_rss_bytes": 1147670528,
+      "processes": 8
+    },
+    {
+      "at": 1789533529912,
+      "stage": "warm-reload",
+      "process_rss_bytes": 882962432,
+      "processes": 8
+    },
+    {
+      "at": 1789533530524,
+      "stage": "warm-reload",
+      "process_rss_bytes": 931115008,
+      "processes": 8
+    },
+    {
+      "at": 1789533531132,
+      "stage": "warm-reload",
+      "process_rss_bytes": 917872640,
+      "processes": 8
+    },
+    {
+      "at": 1789533531724,
+      "stage": "warm-reload",
+      "process_rss_bytes": 938823680,
+      "processes": 8
+    },
+    {
+      "at": 1789533532319,
+      "stage": "warm-reload",
+      "process_rss_bytes": 960012288,
+      "processes": 8
+    },
+    {
+      "at": 1789533532922,
+      "stage": "warm-reload",
+      "process_rss_bytes": 1078468608,
+      "processes": 8
+    },
+    {
+      "at": 1789533533559,
+      "stage": "warm-reload",
+      "process_rss_bytes": 1147031552,
+      "processes": 8
+    },
+    {
+      "at": 1789533534170,
+      "stage": "warm-reload",
+      "process_rss_bytes": 1081368576,
+      "processes": 8
+    },
+    {
+      "at": 1789533534787,
+      "stage": "warm-reload",
+      "process_rss_bytes": 1055170560,
+      "processes": 8
+    },
+    {
+      "at": 1789533535414,
+      "stage": "warm-reload",
+      "process_rss_bytes": 1061113856,
+      "processes": 8
+    },
+    {
+      "at": 1789533536050,
+      "stage": "warm-forecast",
+      "process_rss_bytes": 1175248896,
+      "processes": 8
+    }
+  ],
+  "failures": [
+    {
+      "url": "https://tile.openstreetmap.org/7/110/51.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    },
+    {
+      "url": "https://tile.openstreetmap.org/7/111/51.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    },
+    {
+      "url": "https://tile.openstreetmap.org/7/110/50.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    },
+    {
+      "url": "https://tile.openstreetmap.org/7/111/50.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    },
+    {
+      "url": "https://tile.openstreetmap.org/7/110/52.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    },
+    {
+      "url": "https://tile.openstreetmap.org/7/111/52.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    },
+    {
+      "url": "https://tile.openstreetmap.org/7/109/51.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    },
+    {
+      "url": "https://tile.openstreetmap.org/7/112/51.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    },
+    {
+      "url": "https://tile.openstreetmap.org/7/109/50.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    },
+    {
+      "url": "https://tile.openstreetmap.org/7/112/50.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    },
+    {
+      "url": "https://tile.openstreetmap.org/7/109/52.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    },
+    {
+      "url": "https://tile.openstreetmap.org/7/112/52.png",
+      "error": {
+        "errorText": "net::ERR_ABORTED"
+      }
+    }
+  ],
+  "crashes": [],
+  "api_requests": [],
+  "provenance": {
+    "provider": "jma-gpv-weather",
+    "package_version": "0.5.0",
+    "surface_temperature_required": true,
+    "forecast_run_id": "20260915210000",
+    "initial_time_utc": "2026-09-15T21:00:00Z"
+  }
+}

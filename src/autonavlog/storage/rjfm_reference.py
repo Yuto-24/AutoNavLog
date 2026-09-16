@@ -192,7 +192,7 @@ class CivilTrainingTestAirspaceReference(RjfmReferenceModel):
                 "civil training airspace reference uses an unapproved URL: "
                 + ", ".join(mismatched_urls)
             )
-        expected_polygon_names_by_tile = {
+        expected_polygon_names_by_tile: dict[tuple[int, int, int], list[str]] = {
             (8, 221, 103): ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5"],
             (8, 221, 104): [
                 "KS4-2",
@@ -205,7 +205,9 @@ class CivilTrainingTestAirspaceReference(RjfmReferenceModel):
                 "KS4-8",
             ],
         }
-        tiles_by_coordinate = {
+        tiles_by_coordinate: dict[
+            tuple[int, int, int], GsiGeoJsonTileReference
+        ] = {
             (tile.zoom, tile.x, tile.y): tile for tile in self.tiles
         }
         if set(tiles_by_coordinate) != set(expected_polygon_names_by_tile):

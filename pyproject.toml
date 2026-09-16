@@ -23,7 +23,7 @@ dependencies = [
 autonavlog-web = "autonavlog.web.__main__:main"
 
 [project.optional-dependencies]
-msm = ["jma-msm-wind==0.2.1"]
+msm = ["jma-gpv-weather==0.5.0"]
 test = [
   "anyio>=4,<5",
   "build>=1.2,<2",
@@ -70,7 +70,7 @@ warn_unused_ignores = true
 module = [
   "defusedxml.*",
   "geographiclib.*",
-  "msm_wind.*",
+  "jma_gpv_weather.*",
 ]
 ignore_missing_imports = true
 disable_error_code = ["import-untyped"]

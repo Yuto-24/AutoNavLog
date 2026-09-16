@@ -46,7 +46,7 @@ def main() -> int:
         "--cache-dir",
         type=Path,
         default=Path("data/msm-cache"),
-        help="jma-msm-wind raw/normalized cache directory",
+        help="jma-gpv-weather raw/normalized cache directory",
     )
     parser.add_argument(
         "--live",

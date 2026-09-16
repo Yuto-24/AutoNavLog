@@ -64,11 +64,13 @@ Composeの`autonavlog-data` named volumeがProject repositoryを保持します�
 last-good calculationは復元できます。`docker compose down -v`またはvolumeの明示削除はこの永続状態を
 削除します。
 
-MSMのGRIB2、RISH URL、NetCDF、気圧面配列は`jma-msm-wind`だけが扱います。AutoNavLogの
-MSM adapterは単位、時刻、型、request ID、表示ラベルを変換します。固定中の
-`jma-msm-wind==0.2.1`が公開queryを持たない地上気温だけは、adapter内の隔離した
-compatibility branchから正規化済み`_surface_scalar`を呼びます。計算コアへその内部表現を
-公開せず、補間来歴を通常の`WeatherResult.metadata`へ保存します。
+MSMのmodel spec、Run選択、coverage、GRIB2 decode、補間、provenanceは
+`jma-gpv-weather==0.5.0` の公開APIを正本とします。AutoNavLogのadapterは型、request ID、
+単位境界、既存の入力検査と表示metadataを変換します。地上気温も公開
+`SurfaceTemperatureQuery` を使用し、private compatibility branchは廃止しました。
+Localでは静的供給された `MsmPreparedData` をWorkerで取得・検証し、同じProviderへ接続します。
+Calculation CoreへHTTP、Browser storage、source URL選択を追加しません。
+[Local Weather Adapterと静的feedの運用](local_weather.md)を参照してください。
 
 ProjectがFTDモードの場合、Web facadeは実気象adapterの代わりにProject内の地上風・
 5,000 ft風から`FtdWeatherProvider`を組み立てます。計算コアは通常の`WeatherProvider`契約だけを

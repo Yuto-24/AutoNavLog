@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-09-16T04:30:02.831158+00:00",
+  "valid_start": "2026-09-16T03:00:00+00:00",
+  "hours": 24,
+  "bounds": {
+    "lat_min": 29.7,
+    "lat_max": 35.2,
+    "lon_min": 128.5,
+    "lon_max": 134.8
+  },
+  "runs": [
+    {
+      "run": "20260915210000",
+      "bytes": 5275019,
+      "sources": [
+        "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin",
+        "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_L-pall_FH18-33_grib2.bin",
+        "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_Lsurf_FH00-15_grib2.bin",
+        "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915210000_MSM_GPV_Rjp_Lsurf_FH16-33_grib2.bin"
+      ],
+      "prepare_seconds": 18.841695983996033
+    },
+    {
+      "run": "20260915180000",
+      "bytes": 5276010,
+      "sources": [
+        "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915180000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin",
+        "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915180000_MSM_GPV_Rjp_L-pall_FH18-33_grib2.bin",
+        "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915180000_MSM_GPV_Rjp_Lsurf_FH00-15_grib2.bin",
+        "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15/Z__C_RJTD_20260915180000_MSM_GPV_Rjp_Lsurf_FH16-33_grib2.bin"
+      ],
+      "prepare_seconds": 17.496287579997443
+    }
+  ],
+  "seconds": 36.75865860300837
+}

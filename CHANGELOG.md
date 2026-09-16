@@ -2,6 +2,21 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.17.0
+
+### 利用者向け
+
+#### 改善
+
+- Localモードで実MSMの配信データを取得し、端末内で予報気象のNAV LOGを計算できるようにしました。
+- 気象データを端末内cacheから再利用し、取得失敗やcache破損時も保存済みProjectと最後の正常計算を保持します。
+- 保存済みMSM Runを固定したまま、新しい互換Runの存在を通知します。
+
+### 開発者向け
+
+- MSM production依存を `jma-gpv-weather 0.5.0` の公開APIへ移行しました。静的prepared-data供給、Local Weather Adapter、期限・整合性検証とquota evictionを追加し、Weather取得失敗時のLegacy fallbackを禁止しています。
+- 再現可能なBrowser回帰と実データacceptanceを分離しました。静的feedの運用と実機Safariのmerge gateは `docs/local_weather.md` を参照してください。
+
 ## 1.16.1
 
 ### 利用者向け

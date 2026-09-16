@@ -1,5 +1,8 @@
 # Issue #117: Pyodide checkpoint
 
+> #144以降の実MSM取得・cache・静的feed運用は [Local Weather](local_weather.md) を参照してください。
+> 以下の固定fixture記述と計測は #125 時点の履歴です。通常のLocal production経路はfixtureを使いません。
+
 > この文書のcheckpointは履歴です。#125によるFTD/FORECASTの拡張・現行制約・
 > Safari実機確認条件は[Calculation Core](local_calculation_core.md)を参照してください。
 > 現行のSession復元は[#119のApplication境界](application_contract.md)、端末内保存は[#124のLocal Persistence](local_persistence.md)を参照してください。

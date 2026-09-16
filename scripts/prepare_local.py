@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -40,13 +41,37 @@ with ZipFile(target / "data.zip", "w", ZIP_DEFLATED) as archive:
             if path.is_file():
                 archive.write(path, path.relative_to(root))
 
-    for path in sorted((root / "tests/fixtures/msm").glob("*")):
-        if path.suffix in {".npz", ".json"}:
-            archive.write(path, Path("data/msm-fixture") / path.name)
-msm_wheel = root / "vendor/jma_msm_wind-0.2.1-py3-none-any.whl"
+    if os.environ.get("AUTONAVLOG_TEST_FIXTURES") == "1":
+        for path in sorted((root / "tests/fixtures/msm").glob("*")):
+            if path.suffix in {".npz", ".json"}:
+                archive.write(path, Path("data/msm-fixture") / path.name)
+msm_wheel = root / "vendor/jma_gpv_weather-0.5.0-py3-none-any.whl"
 shutil.copyfile(msm_wheel, target / msm_wheel.name)
 assets = [application_wheel, msm_wheel.name, "data.zip"]
-manifest = {"wheels": assets[:2], "data": "data.zip", "sha256": {
-    name: hashlib.sha256((target / name).read_bytes()).hexdigest() for name in assets
-}}
+manifest = {
+    "wheels": assets[:2],
+    "data": "data.zip",
+    "sha256": {name: hashlib.sha256((target / name).read_bytes()).hexdigest() for name in assets},
+}
 (target / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+# A production feed is generated independently of the app build/ordinary CI.
+# Retire only these generated Weather assets so an old feed cannot leak into a build.
+weather_target = target.parent / "weather/msm"
+weather_target.mkdir(parents=True, exist_ok=True)
+for stale in [weather_target / "catalog.json", *weather_target.glob("*.npz")]:
+    stale.unlink(missing_ok=True)
+if feed_directory := os.environ.get("AUTONAVLOG_MSM_FEED"):
+    from autonavlog.weather.local_msm import WeatherCatalog
+
+    feed = Path(feed_directory).resolve()
+    catalog = WeatherCatalog.model_validate_json((feed / "catalog.json").read_text())
+    for asset in catalog.assets:
+        source = feed / asset.file
+        if (
+            source.stat().st_size != asset.bytes
+            or hashlib.sha256(source.read_bytes()).hexdigest() != asset.sha256
+        ):
+            raise ValueError(f"MSM feed asset integrity failure: {asset.file}")
+        shutil.copyfile(source, weather_target / asset.file)
+    shutil.copyfile(feed / "catalog.json", weather_target / "catalog.json")

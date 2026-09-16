@@ -20,6 +20,17 @@ const records = (page: Page): Promise<any[]> => page.evaluate(() => new Promise(
 
 test("Static Local TAF success, quota/timeout/outage and recovery preserve navigation and saved work", async ({ page, context }) => {
   test.setTimeout(240_000);
+  // Keep this TAF regression's historical MSM input explicit, as in #125's
+  // calculation regression. Production and #144 use the real Weather adapter.
+  await context.route("**/assets/local.worker-*.js", async route => {
+    const response = await route.fetch();
+    const source = await response.text();
+    const initialization = 'local_application = LocalApplication(Path("/home/pyodide/data"))';
+    expect(source).toContain(initialization);
+    await route.fulfill({ response, body: source.replace(initialization,
+      'local_application = LocalApplication(Path("/home/pyodide/data"), forecast_fixture=Path("/home/pyodide/data/msm-fixture"))',
+    ) });
+  });
   let mode = "available";
   let count = 0;
   const apiRequests: string[] = [];
