@@ -48,7 +48,10 @@ opened offline; this does not supply an offline application shell or cache every
 asset (#187).
 
 Anonymous records are durably claimed once by the login account and remain as recovery
-originals in the anonymous store, hidden from anonymous use and other accounts. Named
+originals in the anonymous store, hidden from anonymous use and other accounts. Claim ownership
+is part of the anonymous transaction snapshot: a stale Latest replacement or Project open
+conflicts if another tab claims a candidate before commit. Latest cleanup also excludes
+claimed rows inside the write transaction, preserving originals for interrupted import recovery. Named
 Projects enter the account union immediately. Anonymous Latest is staged in the account
 Local Repository immediately and remains readable/editable offline. Its upload waits for
 the first successful remote union so an existing cloud Latest for this device cannot be overwritten.

@@ -33,8 +33,9 @@ export const storageFailure = () => new ApplicationError(
 // Compare only transaction identity/version markers. Invalid structured-clone payloads
 // (for example cyclic objects or BigInt) must not poison other Projects' writes.
 const rowVersions = (rows: unknown[]) => JSON.stringify(rows.map(raw => {
-  const row = raw as Partial<LocalProjectRecord>;
-  return [String(row.id), typeof row.token === "string" ? row.token : null, row.checkpoint === null];
+  const row = raw as Partial<LocalProjectRecord> & { claimedAccount?: unknown };
+  return [String(row.id), typeof row.token === "string" ? row.token : null, row.checkpoint === null,
+    typeof row.claimedAccount === "string" ? row.claimedAccount : null];
 }));
 const conflict = () => new ApplicationError(
   "別のタブでProjectが更新または削除されています。編集内容を確認してから開き直してください。", "PROJECT_REVISION_CONFLICT");
@@ -182,7 +183,8 @@ export class IndexedDbProjectRepository implements LocalProjectRepository {
       if (expectedToken === null ? existing !== undefined : existing?.token !== expectedToken) throw conflict();
       store.put(valid);
       if (replaceLatest) for (const row of rows as LocalProjectRecord[]) {
-        // Never infer deletion targets from malformed records.
+        // Never delete claimed recovery originals or infer targets from malformed records.
+        if ((row as { claimedAccount?: string }).claimedAccount) continue;
         if (row.id !== valid.id && candidates?.latest.has(row.id) && candidates.latest.get(row.id) === row.token) store.delete(row.id);
       }
     }), true);
@@ -196,6 +198,7 @@ export class IndexedDbProjectRepository implements LocalProjectRepository {
       if (!current || current.token !== record.token) throw conflict();
       store.put(record); // migration is committed only after domain validation succeeded
       for (const row of rows as LocalProjectRecord[]) {
+        if ((row as { claimedAccount?: string }).claimedAccount) continue;
         if (row.id !== record.id && candidates?.latest.has(row.id) && candidates.latest.get(row.id) === row.token) store.delete(row.id);
       }
     }), true);

@@ -381,3 +381,39 @@ for (const race of ["edit", "claim"] as const) test("anonymous claim rechecks a 
   if (race === "edit") expect((await other.read(original.id)).draft.name).toBe("changed");
   else expect((await other.claimAnonymous("account-b")).map(row => row.id)).toEqual([original.id]);
 });
+
+for (const operation of ["replaceLatest", "open"] as const) test("claim after Latest snapshot preserves import recovery during " + operation, async () => {
+  const factory = new IDBFactory(), anonymous = new IndexedDbProjectRepository(validate, undefined, () => factory);
+  const latest = record(undefined, false), saved = record(), replacement = record(undefined, false);
+  await anonymous.write(latest, null, false);
+  let entered!: () => void, resume!: () => void;
+  const validating = new Promise<void>(resolve => { entered = resolve; });
+  const paused = new Promise<void>(resolve => { resume = resolve; });
+  const claimer = new IndexedDbProjectRepository(async raw => {
+    const valid = await validate(raw); entered(); await paused; return valid;
+  }, undefined, () => factory);
+  // Login snapshots only Latest; the other tab then saves a Project to open.
+  const claiming = claimer.claimAnonymous("account-a");
+  await validating;
+  await anonymous.write(saved, null, false);
+  class RacingRepository extends IndexedDbProjectRepository {
+    protected override async transaction<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore, rows: unknown[]) => T): Promise<T> {
+      if (mode === "readwrite") { resume(); await claiming; }
+      return super.transaction(mode, action);
+    }
+  }
+  const stale = new RacingRepository(validate, undefined, () => factory);
+  // Commit the claim after latestTokens() but before the stale delete transaction.
+  await expect(operation === "open" ? stale.open(saved) : stale.write(replacement, null, true))
+    .rejects.toMatchObject({ code: "PROJECT_REVISION_CONFLICT" });
+  expect((await anonymous.list()).projects.map(row => row.id)).toEqual([saved.id]);
+  // No account initialize occurred before the interruption. A fresh instance must
+  // still recover the claimed original with its token, draft and Last Calculation.
+  const restarted = new IndexedDbProjectRepository(validate, undefined, () => factory);
+  const recovered = await restarted.claimAnonymous("account-a");
+  expect(recovered.find(row => row.id === latest.id)).toEqual(latest);
+  expect(await restarted.claimAnonymous("account-b")).toEqual([]);
+  const account = repo("A", factory).repository;
+  await account.initialize(recovered, true);
+  expect(await account.read(latest.id)).toEqual(latest);
+});
