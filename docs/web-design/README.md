@@ -42,7 +42,7 @@ decorative cards. Shadows are reserved for temporary overlays.
 
 - App header with app version, Information, project identity, storage state, Save, and New actions.
   Local mode adds a compact Account icon opening the login/logout dialog; account controls do not
-  move any workflow region. The dialog explains local storage and the absence of remote sync.
+  move any workflow region. At 430 px and below, brand, actions and Project identity use separate rows to keep Save and Delete independently reachable. The dialog explains Local-first storage and account synchronization. Conflicts and Latest import collisions use a blocking modal; normal sync progress is not shown.
   Information opens notices and the full release history without changing Project state. Use an Info icon
   and an unread dot at every width; only Known Issue additions/body changes use amber. The label is optional
   and appears only when the entire Header has ample room on one row (currently 1600 px and above).
@@ -65,9 +65,10 @@ decorative cards. Shadows are reserved for temporary overlays.
 
 ## Container and responsive rules
 
-- The Header uses one explicit row above 1320 px and two below it; never allow independent controls to
-  wrap into a third row. On two rows, put actions beside the brand and give the Project row all remaining
-  width. Project label/revision remain nowrap and non-shrinking; only the name input flexes.
+- The Header uses one explicit row above 1320 px and two from 431 through 1320 px.
+  At 430 px and below, explicitly place the brand, actions, and Project controls on three separate rows;
+  independent controls must not wrap into additional rows. On two rows, put actions beside the brand
+  and give the Project row all remaining width. Project label/revision remain nowrap and non-shrinking; only the name input flexes.
   At 630 px and below, Save/New show icons with their accessible labels and titles retained.
   Verify 390/820/1100/1440 px and 1273/1242/997/996/631/630/629 px boundaries; also cover 320/1600 px.
 - Above 1240 px, use input / route workspace / readiness columns and allow the

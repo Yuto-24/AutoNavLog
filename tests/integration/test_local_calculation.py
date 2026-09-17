@@ -549,3 +549,38 @@ def test_browser_taf_records_reuse_selection_and_do_not_change_navigation(local)
     assert local.destination_taf_airport("calculate", {}) == "RJFS"
     reset = json.loads(local.dispatch("calculate"))
     assert reset["destinationWind"]["reason_code"] == "TAF_PROXY_NOT_CONFIGURED"
+
+
+def test_sync_resolution_retains_only_matching_calculation_and_reidentifies_copy(local):
+    from copy import deepcopy
+    from uuid import uuid4
+
+    state = calculate(local)
+    working = state["workingRecovery"]
+    record = {
+        "schemaVersion": 2,
+        "id": working["project"]["id"],
+        "token": str(uuid4()),
+        "checkpoint": deepcopy(working["project"]),
+        "draft": deepcopy(working["project"]),
+        "lastCalculation": working["last_calculation"],
+        "updatedAt": working["project"]["updated_at"],
+    }
+    valid = json.loads(local.dispatch("prepareSyncResolution", {"record": record}))
+    assert valid["lastCalculation"] is not None
+    copy_id = str(uuid4())
+    copied = json.loads(
+        local.dispatch("prepareSyncResolution", {"record": record, "copy_id": copy_id})
+    )
+    assert copied["id"] == copied["draft"]["id"] == copied["checkpoint"]["id"] == copy_id
+    assert copied["draft"]["revision"] == copied["checkpoint"]["revision"] == 0
+    last = copied["lastCalculation"]
+    assert last["project"]["id"] == last["outcome"]["project_id"] == copy_id
+    assert last["calculation_fingerprint"] == record["lastCalculation"]["calculation_fingerprint"]
+    stale = deepcopy(record)
+    stale["draft"]["total_usable_fuel_gal"] += 5
+    rejected = json.loads(
+        local.dispatch("prepareSyncResolution", {"record": stale, "copy_id": copy_id})
+    )
+    assert rejected["lastCalculation"] is None
+    assert record["lastCalculation"] is not None

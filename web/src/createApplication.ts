@@ -24,5 +24,6 @@ export async function startApplication(platform: PlatformCapabilities, present: 
         signIn: async () => { throw new Error(state.notice); }, signOut: async () => {} };
     }
   }
-  observeAccountContexts(platform, auth, present);
+  const { createFirestoreSyncRepository } = await import("./firestoreSyncRepository");
+  observeAccountContexts(platform, auth, present, createFirestoreSyncRepository);
 }

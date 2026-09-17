@@ -1,3 +1,4 @@
+import { AccountSyncControl } from "./components/AccountSyncControl";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApplicationError } from "./application";
@@ -1490,6 +1491,21 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
 
   return (
     <div className="app-shell">
+      <AccountSyncControl sync={application.sync} onChange={() => {
+        if (application.refreshProjects) void application.refreshProjects().then(next => {
+          setState(current => current ? { ...current, savedProjects: next.savedProjects, storageWarning: next.storageWarning } : current);
+        }).catch(() => {});
+      }} onResolved={async id => {
+        cancelPendingRecalculation();
+        await discardPendingDraftAutosave();
+        const next = await application.refreshProjects?.();
+        if (next?.savedProjects.some(project => project.id === id)) {
+          applyState(await application.loadProject(id), { syncCalculationInputs: true });
+        } else {
+          await application.newWork();
+          applyState(await application.bootstrap(), { syncCalculationInputs: true });
+        }
+      }} />
       <Header
         auth={application.auth}
         appVersion={state.runtime.appVersion}

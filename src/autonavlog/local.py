@@ -159,6 +159,33 @@ class LocalApplication:
     def dispatch(self, path: str, body: dict[str, Any] | None = None) -> str:
         """Execute application operations using the existing facade on transient MEMFS."""
         payload = body or {}
+        if path == "prepareSyncResolution":
+            record = migrate_record(payload["record"])
+            last = record.lastCalculation
+            if last is not None:
+                ui = self.session.readiness_service.ui_state(record.draft)
+                fingerprint = (
+                    self.session.readiness_service.fingerprints(
+                        record.draft, last.outcome, ui
+                    ).calculation_input
+                    if ui is not None
+                    else None
+                )
+                if fingerprint != last.calculation_fingerprint:
+                    record.lastCalculation = None
+            if payload.get("copy_id"):
+                identity = UUID(payload["copy_id"])
+                record.id = identity
+                record.draft.id = identity
+                record.draft.revision = 0
+                if record.checkpoint is not None:
+                    record.checkpoint.id = identity
+                    record.checkpoint.revision = 0
+                if record.lastCalculation is not None:
+                    record.lastCalculation.project.id = identity
+                    record.lastCalculation.project.revision = 0
+                    record.lastCalculation.outcome.project_id = identity
+            return migrate_record(record.model_dump(mode="json")).model_dump_json()
         if path == "validateRecord":
             return migrate_record(payload).model_dump_json()
         if path == "state":

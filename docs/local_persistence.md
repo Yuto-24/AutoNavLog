@@ -61,7 +61,7 @@ Explicit deletion uses the active working token or the version from the last dis
 selector listing, not a fresh read that would silently authorize deleting newer work. During Latest cleanup, the validated
 record set is checked again inside the transaction; concurrent changes fail safely with
 `PROJECT_REVISION_CONFLICT`. The user retains the tab's edits and can explicitly reopen.
-There is no automatic cross-tab merge or Account Sync.
+There is no automatic cross-tab merge. Account namespaces add the [Account Sync contract](account_sync.md) without changing the domain record.
 
 ## Schema and corruption isolation
 
@@ -133,5 +133,8 @@ Local FORECAST now uses the [#144 Weather Adapter](local_weather.md). Its dispos
 ## Account context (#184)
 
 [Authentication](authentication.md) adds per-account Repository/Session scopes. Anonymous records
-remain in their original database; signing in does not import or transfer them (#185).
+remain in their original database. On sign-in, #185 validates and claims eligible anonymous
+records for that account once, then imports them into its scope. Claimed originals are hidden
+from anonymous and other accounts and retained so an interrupted import can resume.
+Invalid records remain unclaimed and visible as unavailable in the anonymous scope.
 Logout/revocation hides account copies without deleting them.

@@ -47,6 +47,8 @@ export type ProgressListener = (progress: CalculationProgress) => void;
 // Operation boundaries intentionally preserve draft commits and atomic update/recalculate.
 export interface AutoNavLogApplication {
   readonly auth?: AuthProvider;
+  readonly sync?: import("./accountSync").AccountSyncControl;
+  refreshProjects?(): Promise<ApplicationSnapshot>;
   bootstrap(recovery?: WorkingRecovery): Promise<ApplicationSnapshot>;
   importRoute(input: ImportRouteInput): Promise<ApplicationSnapshot>;
   confirmRoute(input: ConfirmRouteInput): Promise<ApplicationSnapshot>;

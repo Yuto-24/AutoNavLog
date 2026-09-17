@@ -2,7 +2,7 @@
 
 Local mode supports Firebase Authentication + Google Sign-In through `AuthProvider`.
 Anonymous Local-only use does not require Firebase configuration, an account, or a server.
-Remote Project/Last Calculation synchronization and anonymous-data import belong to #185;
+Remote Project/Last Calculation synchronization and anonymous-data import are described in [Account Sync](account_sync.md);
 Cloudflare Access owner migration belongs to #186. Legacy mode retains its existing identity.
 
 ## Configure Google Sign-In
@@ -58,7 +58,7 @@ Anonymous data continues to use `autonavlog.projects`. Each account uses
 namespace expresses ownership without changing the Python Project schema. All list/read/
 write/open/delete and Latest cleanup operate inside that namespace. A Project ID/token
 from another namespace does not grant access. Each namespace keeps its own Latest; no
-cross-account cleanup or anonymous-data transfer occurs. #185 will define cross-device Latest.
+cross-account cleanup occurs. With Account Sync enabled, anonymous data is claimed once by the login account; cross-device Latest follows [Account Sync](account_sync.md).
 
 Each authentication lifetime gets a new Application/Worker and Repository handle. Closing
 that context rejects queued work, late responses and subsequent storage operations, and

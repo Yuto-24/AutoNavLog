@@ -30,3 +30,8 @@ web/public-local/
 services/taf-proxy/node_modules/
 services/taf-proxy/.wrangler/
 services/taf-proxy/wrangler.local.jsonc
+
+# Local Firebase Emulator diagnostics
+/firebase-debug.log
+/firestore-debug.log
+/.firebase/
