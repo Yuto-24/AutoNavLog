@@ -133,9 +133,12 @@ pytest tests/integration/test_legacy_migration.py tests/unit/test_migration_remo
 npm --prefix web run test:application
 AUTONAVLOG_TEST_FIXTURES=1 npm --prefix web run prepare:local
 # Keep these test-only processes on loopback; never expose the synthetic auth fixture.
-PYTHONPATH=src:tests/integration python -m uvicorn migration_harness:app --host 127.0.0.1 --port 8186
-firebase emulators:start --only firestore --project demo-autonavlog-sync
-npm --prefix web run test:migration
+PYTHONPATH=src:tests/integration python -m uvicorn migration_harness:app --host 127.0.0.1 --port 8186 &
+fixture_pid=$!
+trap 'kill "$fixture_pid"' EXIT
+curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8186/healthz > /dev/null
+npx --yes firebase-tools@15.10.1 emulators:exec --only firestore \
+  --project demo-autonavlog-sync "npm --prefix web run test:migration"
 ```
 
 On the actual configured hosts, verify link-only leaves Legacy edit/save/calculation

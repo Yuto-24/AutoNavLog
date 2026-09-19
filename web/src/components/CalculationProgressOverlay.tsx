@@ -24,7 +24,7 @@ export function CalculationProgressOverlay({
           <strong>{message}</strong>
           <span>{percent}%</span>
         </div>
-        <progress value={percent} max={100} aria-label={`計算進捗 ${percent}%`} />
+        <progress value={percent} max={100} aria-label={`${title} ${percent}%`} />
         <small>このまま画面を開いてお待ちください。</small>
         {onSignOut && <button type="button" className="secondary-button" onClick={onSignOut}>ログアウト</button>}
       </section>

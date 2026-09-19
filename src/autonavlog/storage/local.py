@@ -452,12 +452,23 @@ class LocalProjectRepository:
     def load_checkpoint(self, project_id: UUID) -> Project | None:
         """Read the explicit checkpoint separately from the latest working draft."""
         with self._lock:
+            error: JsonStorageError | None = None
             for filename in ("project.json", "project.json.bak"):
                 path = self._project_path(project_id, filename)
-                if path.exists():
+                if not path.exists():
+                    continue
+                try:
                     project = _read_migrated_project(path)
                     self._validate_project_path_identity(project, project_id)
-                    return project
+                except UnsafeStoragePathError:
+                    raise
+                except JsonStorageError as exc:
+                    error = exc
+                    LOGGER.warning("Ignoring corrupt Project checkpoint: %s", path)
+                    continue
+                return project
+            if error is not None:
+                raise error
             return None
 
     def load(self, project_id: UUID) -> Project:

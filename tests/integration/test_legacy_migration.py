@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from autonavlog.storage.repository import owner_storage_key
+from autonavlog.storage.safe_json import JsonStorageError
 from autonavlog.web.app import create_app
 from autonavlog.web.facade import WebApplicationError
 from autonavlog.web.legacy_migration import BATCH_SIZE, LegacyMigration, canonical
@@ -84,6 +85,25 @@ def finish(migration, remote):
     while status["state"] == "MIGRATING":
         status = migration.step(KEY, remote)
     return status
+
+
+def test_checkpoint_backup_is_migrated_without_repairing_legacy_source(migration):
+    value = project(migration)
+    repository = migration.web.project_service.repository
+    directory = repository.root / "projects" / str(value.id)
+    checkpoint = directory / "project.json"
+    backup = directory / "project.json.bak"
+    backup.write_bytes(checkpoint.read_bytes())
+    checkpoint.write_text("corrupt")
+    migration.link(OWNER, GOOGLE)
+    remote = Remote()
+    assert finish(migration, remote)["state"] == "NAVMATE_ACTIVE"
+    record = json.loads(remote.rows[str(value.id)]["payload"])
+    assert record["checkpoint"]["name"] == value.name
+    assert checkpoint.read_text() == "corrupt"
+    backup.write_text("also corrupt")
+    with pytest.raises(JsonStorageError):
+        repository.load_checkpoint(value.id)
 
 
 def test_link_is_durable_idempotent_one_to_one_and_does_not_copy_or_lock(migration):

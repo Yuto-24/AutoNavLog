@@ -13,8 +13,8 @@ export interface MigrationStatus {
 export interface MigrationProgress { percent: number; message: string; error?: string; retry?: () => void; signOut?: () => void }
 export async function migrationRequest(url: string, init?: RequestInit): Promise<MigrationStatus> {
   const response = await fetch(url, { ...init, cache: "no-store" });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error?.message || "引継ぎ状態を確認できません。接続を確認して再試行してください。");
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body) throw new Error(body?.error?.message || "引継ぎ状態を確認できません。接続を確認して再試行してください。");
   return body;
 }
 export const progressOf = (status: MigrationStatus): MigrationProgress => ({

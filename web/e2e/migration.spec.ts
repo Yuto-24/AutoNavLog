@@ -22,6 +22,7 @@ test("first login migrates 200 Legacy Projects through Firestore and fresh devic
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
   await expect(page.getByRole("status", { name: "NavMateへ引継ぎ中" })).toBeVisible();
   await expect(page.getByText("Projectを引継ぎ・検証中 0 / 200 件")).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "NavMateへ引継ぎ中 0%" })).toBeVisible();
   await expect(page.getByLabel("DATE", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).authTest.contexts.length)).toBe(1);
   release();
@@ -63,14 +64,14 @@ test("activation failure never creates account Application; retry progresses aut
     const operation = route.request().url().split("/").pop();
     if (operation === "step") {
       steps++;
-      if (fail) { await route.fulfill({ status: 503, json: { error: { message: "移行に失敗しました。Legacyは利用できます。" } } }); return; }
+      if (fail) { await route.fulfill({ status: 503, contentType: "text/html", body: "<h1>Upstream unavailable</h1>" }); return; }
     }
     await route.fulfill({ json: { state: operation === "status" ? "LINKED" : operation === "begin" ? "MIGRATING" : "NAVMATE_ACTIVE", completed: 0, total: 200, navmateUrl: "/" } });
   });
   await page.goto(path);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await page.evaluate(() => (window as any).authTest.signIn("migration-retry"));
-  await expect(page.getByRole("alert")).toContainText("Legacyは利用できます");
+  await expect(page.getByRole("alert")).toContainText("接続を確認して再試行してください");
   expect(await page.evaluate(() => (window as any).authTest.contexts.length)).toBe(1);
   await expect(page.getByLabel("DATE", { exact: true })).toHaveCount(0);
   fail = false;
