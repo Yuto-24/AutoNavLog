@@ -70,9 +70,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "default-src 'self'; script-src 'self' https://apis.google.com; "
+            "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: https://tile.openstreetmap.org; "
-            "connect-src 'self' https://maps.gsi.go.jp; font-src 'self'; "
+            "connect-src 'self' https://maps.gsi.go.jp https://identitytoolkit.googleapis.com "
+            "https://securetoken.googleapis.com https://*.firebaseapp.com; "
+            "frame-src https://*.firebaseapp.com; font-src 'self'; "
             "object-src 'none'; base-uri 'self'; "
             "form-action 'self'; frame-ancestors 'none'"
         )
@@ -138,7 +141,9 @@ def require_session(request: Request) -> WebSession:
             status_code=401,
         )
     web = cast(AutoNavLogWebApplication, request.app.state.web_application)
-    return web.session(session_token, _owner_identity(request))
+    owner_id = _owner_identity(request)
+    with web.owner_operation(owner_id):
+        return web.session(session_token, owner_id)
 
 
 SessionDependency = Annotated[WebSession, Depends(require_session)]
@@ -209,6 +214,34 @@ def create_app(
     app.state.web_application = web
     app.state.calculation_jobs = calculation_jobs
     app.add_middleware(SecurityHeadersMiddleware)
+
+    # Environment settings are read here for both CLI and ASGI startup.
+    migration_project = os.environ.get("AUTONAVLOG_FIREBASE_PROJECT_ID", "")
+    migration_api_key = os.environ.get("AUTONAVLOG_FIREBASE_API_KEY", "")
+    navmate_url = os.environ.get("AUTONAVLOG_NAVMATE_URL", "")
+    if any((migration_project, migration_api_key, navmate_url)):
+        from urllib.parse import urlsplit
+
+        from autonavlog.storage.local import LocalProjectRepository
+
+        from .legacy_migration import LegacyMigration
+        from .migration_remote import FirebaseTokenVerifier
+        from .migration_routes import install_migration_routes
+
+        parsed = urlsplit(navmate_url)
+        if (not all((migration_project, migration_api_key, navmate_url))
+                or parsed.scheme != "https" or not parsed.netloc or parsed.username
+                or parsed.password or parsed.fragment or parsed.query):
+            raise ValueError("Migration requires Firebase settings and a fixed HTTPS NavMate URL")
+        repository = web.project_service.repository
+        if not isinstance(repository, LocalProjectRepository):
+            raise ValueError("Migration requires Legacy local storage")
+        migration = LegacyMigration(repository.root / "account-links.sqlite3", web, navmate_url)
+        web.owner_operation = migration.legacy_operation
+        app.state.legacy_migration = migration
+        install_migration_routes(app, migration,
+                                 FirebaseTokenVerifier(migration_project, migration_api_key),
+                                 _owner_identity)
 
     @app.exception_handler(WebApplicationError)
     async def web_error_handler(

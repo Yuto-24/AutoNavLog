@@ -1,10 +1,12 @@
 import type { PlatformCapabilities } from "./platform";
 import type { AutoNavLogApplication } from "./application";
+import type { MigrationProgress } from "./legacyMigration";
 import type { AuthProvider } from "./auth";
 import { LegacyApplication } from "./legacyApplication";
 
 export interface ApplicationContext { application: AutoNavLogApplication; platform: PlatformCapabilities; dispose(): void }
-export async function startApplication(platform: PlatformCapabilities, present: (context: ApplicationContext) => void) {
+export async function startApplication(platform: PlatformCapabilities, present: (context: ApplicationContext) => void,
+  migrationProgress?: (progress: MigrationProgress) => void) {
   if (import.meta.env.VITE_CALCULATION_MODE !== "local") {
     present({ application: new LegacyApplication(), platform, dispose() {} });
     return;
@@ -25,5 +27,12 @@ export async function startApplication(platform: PlatformCapabilities, present: 
     }
   }
   const { createFirestoreSyncRepository } = await import("./firestoreSyncRepository");
-  observeAccountContexts(platform, auth, present, createFirestoreSyncRepository);
+  const report = (value: MigrationProgress) => migrationProgress?.({ ...value,
+    signOut: () => { void auth?.signOut().catch(() => {}); } });
+  const { activateLegacyAccount } = await import("./legacyMigration");
+  observeAccountContexts(platform, auth, present, createFirestoreSyncRepository,
+    import.meta.env.VITE_LEGACY_MIGRATION_URL
+      ? (accountId, signal) => activateLegacyAccount(accountId, signal, report)
+      : undefined,
+    (error, retry) => report({ percent: 0, message: "Legacyの引継ぎ状態を確認中", error, retry }));
 }

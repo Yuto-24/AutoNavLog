@@ -113,3 +113,10 @@ Accessを使用します。`~/.cloudflared/config.yaml` が存在する環境で
 
 Cloudflare Tunnelはoriginから外向き接続を作るため、originへの受信portを開ける必要はありません。
 参考: [Cloudflare Tunnel overview](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)
+
+## NavMateへの段階移行
+
+Account linkはAccess保護下のLegacy UIから開始します。初回NavMate利用の移行APIだけに
+限定したAccess path設定、Google認証、CORS、成功後の自動転送は
+[Legacy migration](legacy_migration.md#configure-the-migration-period)を参照してください。
+通常のProject APIやlink APIをAccess保護から外さないでください。

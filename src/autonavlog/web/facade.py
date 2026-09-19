@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from secrets import compare_digest, token_urlsafe
@@ -234,6 +235,9 @@ class AutoNavLogWebApplication:
         self.weather_prewarmer = weather_prewarmer
         self.destination_wind_provider = destination_wind_provider
         self._session_order: list[str] = []
+        self.owner_operation: Callable[[str], AbstractContextManager[None]] = (
+            lambda _: nullcontext()
+        )
         self._save_lock = RLock()
         self._projects_generation = 0
         self._lock = RLock()
@@ -241,7 +245,7 @@ class AutoNavLogWebApplication:
     def create_session(
         self, owner_id: str, *, restore_persisted: bool = True, persist_working: bool = True
     ) -> WebSession:
-        with self._lock:
+        with self.owner_operation(owner_id), self._lock:
             while len(self._session_order) >= self.maximum_sessions:
                 expired = self._session_order.pop(0)
                 self._sessions.pop(expired, None)
@@ -276,7 +280,7 @@ class AutoNavLogWebApplication:
 
     def restore_working(self, session: WebSession, recovery: WorkingRecovery) -> dict[str, Any]:
         # Validate before committing. No autosave, marker update, calculation or replay.
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             if recovery.project is not None:
                 self._assert_project_owner(recovery.project, session.owner_id)
                 # A client-supplied copy cannot replace a different owner's existing Project.
@@ -369,7 +373,7 @@ class AutoNavLogWebApplication:
         result: KmlImportResult,
         filename: str,
     ) -> dict[str, Any]:
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             session.import_result = result
             session.import_filename = filename
             session.project = None
@@ -383,7 +387,7 @@ class AutoNavLogWebApplication:
         session: WebSession,
         request: ConfirmRouteRequest,
     ) -> dict[str, Any]:
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             if not request.route_use_confirmed:
                 raise WebApplicationError(
                     "ROUTE_CONFIRMATION_REQUIRED",
@@ -503,7 +507,7 @@ class AutoNavLogWebApplication:
         session: WebSession,
         request: UpdateProjectRequest,
     ) -> dict[str, Any]:
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             working = self._updated_project(session, request)
@@ -521,7 +525,7 @@ class AutoNavLogWebApplication:
         session: WebSession,
         request: ReplaceCheckPointsRequest,
     ) -> dict[str, Any]:
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             working = session.project.model_copy(deep=True)
@@ -584,7 +588,7 @@ class AutoNavLogWebApplication:
         node_id: UUID,
         name: str,
     ) -> dict[str, Any]:
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             node = next(
@@ -629,7 +633,7 @@ class AutoNavLogWebApplication:
         request: UpdateProjectRequest,
     ) -> dict[str, Any]:
         """Atomically apply editable inputs and replace the last-good calculation."""
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             working = self._updated_project(session, request)
@@ -664,7 +668,7 @@ class AutoNavLogWebApplication:
         session: WebSession,
         progress: Callable[[int, str], None] | None = None,
     ) -> dict[str, Any]:
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             report = progress or (lambda _percent, _message: None)
@@ -981,7 +985,7 @@ class AutoNavLogWebApplication:
         )
 
     def acknowledge(self, session: WebSession, ack_key: str, checked: bool) -> dict[str, Any]:
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "Projectがありません。")
             evaluation = self._evaluate(session)
@@ -1009,7 +1013,7 @@ class AutoNavLogWebApplication:
             return self.present(session)
 
     def save(self, session: WebSession, request: SaveProjectRequest) -> dict[str, Any]:
-        with session.lock, self._save_lock:
+        with self.owner_operation(session.owner_id), session.lock, self._save_lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "保存するProjectがありません。")
             self._assert_project_owner(session.project, session.owner_id)
@@ -1049,12 +1053,12 @@ class AutoNavLogWebApplication:
             return self.present(session)
 
     def load(self, session: WebSession, project_id: UUID) -> dict[str, Any]:
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             self._restore_project(session, project_id, explicit=True)
             return self.present(session)
 
     def delete(self, session: WebSession, project_id: UUID) -> dict[str, Any]:
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             try:
                 project = self.project_service.load(project_id)
             except (FileNotFoundError, ValueError) as error:
@@ -1265,7 +1269,7 @@ class AutoNavLogWebApplication:
         return outcome.model_copy(update={"rjfm_inbound_guidance": redacted})
 
     def present(self, session: WebSession) -> dict[str, Any]:
-        with session.lock:
+        with self.owner_operation(session.owner_id), session.lock:
             return self._present_unlocked(session)
 
     def _present_unlocked(self, session: WebSession) -> dict[str, Any]:

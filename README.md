@@ -277,7 +277,8 @@ curl --fail --silent "http://127.0.0.1:8124/healthz"
 動かし、Cloudflare Access の self-hosted application と Allow policy を設定してください。
 `AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` は設定しません。
 
-アプリは `Cf-Access-Authenticated-User-Email` を Project 所有者の識別に使います。
+アプリは署名検証済み `Cf-Access-Jwt-Assertion` の email claim を既存 Project 所有者の識別に使います。
+Google Accountへの紐付けとNavMate初回利用時の引継ぎは[Legacy migration](docs/legacy_migration.md)を参照してください。
 session token は `HttpOnly; Secure; SameSite=Strict` Cookie で送り、JavaScript や
 Web Storage には保存しません。
 

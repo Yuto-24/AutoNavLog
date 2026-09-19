@@ -56,17 +56,38 @@ export function createAccountContext(platform: PlatformCapabilities, auth?: Auth
 
 export function observeAccountContexts(platform: PlatformCapabilities, auth: AuthProvider | undefined,
   present: (context: ReturnType<typeof createAccountContext>) => void,
-  createSync?: (context: LocalAccountContext) => Promise<AccountSyncRepository>) {
-  let context = createAccountContext(platform, auth, true, createSync);
+  createSync?: (context: LocalAccountContext) => Promise<AccountSyncRepository>,
+  prepare?: (accountId: string, signal: AbortSignal) => Promise<void>,
+  pending?: (error?: string, retry?: () => void) => void) {
+  let context: ReturnType<typeof createAccountContext> | undefined;
   let accountId = auth?.getState().account?.account_id ?? null;
-  present(context);
+  let boundary = new AbortController();
+  let initial = true;
+  const start = () => {
+    boundary.abort();
+    boundary = new AbortController();
+    const signal = boundary.signal;
+    context?.dispose(); context = undefined;
+    const show = () => {
+      if (signal.aborted) return;
+      context = createAccountContext(platform, auth, initial, createSync);
+      initial = false;
+      present(context);
+    };
+    if (accountId && prepare) {
+      pending?.();
+      void prepare(accountId, signal).then(show).catch(error => {
+        if (!signal.aborted) pending?.(error instanceof Error ? error.message : "引継ぎを確認できません。", start);
+      });
+    } else show();
+  };
+  start();
   const unsubscribe = auth?.subscribe(() => {
     const next = auth.getState().account?.account_id ?? null;
     if (next === accountId) return;
     accountId = next;
-    context.dispose();
-    context = createAccountContext(platform, auth, false, createSync);
-    present(context);
+    initial = false;
+    start();
   });
-  return () => { unsubscribe?.(); context.dispose(); };
+  return () => { boundary.abort(); unsubscribe?.(); context?.dispose(); };
 }

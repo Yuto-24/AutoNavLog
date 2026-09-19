@@ -3,7 +3,8 @@
 Local mode supports Firebase Authentication + Google Sign-In through `AuthProvider`.
 Anonymous Local-only use does not require Firebase configuration, an account, or a server.
 Remote Project/Last Calculation synchronization and anonymous-data import are described in [Account Sync](account_sync.md);
-Cloudflare Access owner migration belongs to #186. Legacy mode retains its existing identity.
+Cloudflare Access owner linking and first-use activation are described in
+[Legacy migration](legacy_migration.md). Legacy retains its identity until verified activation.
 
 ## Configure Google Sign-In
 
