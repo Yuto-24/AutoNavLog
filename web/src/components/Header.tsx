@@ -1,3 +1,4 @@
+import { LegacyAccountControl } from "./LegacyAccountControl";
 import { AccountControl } from "./AccountControl";
 import type { AuthProvider } from "../auth";
 import { localMode } from "../executionMode";
@@ -66,7 +67,7 @@ export function Header({
         {revision !== null && <span className="header-revision">rev.{revision}</span>}
       </div>
       <div className="header-actions">
-        {localMode && <AccountControl auth={auth} busy={busy} />}
+        {localMode ? <AccountControl auth={auth} busy={busy} /> : <LegacyAccountControl busy={busy} />}
         <button
           className={`header-button information-button${knownIssuesUnread ? " information-warning" : ""}`}
           type="button"

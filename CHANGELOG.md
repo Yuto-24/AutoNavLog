@@ -2,6 +2,21 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.19.0
+
+### 利用者向け
+
+#### 改善
+
+- Legacyのアカウント画面からGoogleアカウントを紐付けられます。紐付けだけではLegacyの利用は変わりません。
+- NavMate初回ログイン時にProjectと整合する計算結果を自動で引き継ぎ、進捗を表示します。移行中だけLegacyの操作を停止し、成功後はNavMateへ自動転送します。
+- 引継ぎ失敗時はLegacyを継続利用でき、重複や同期先の上書きを防ぎながら再試行できます。
+
+### 開発者向け
+
+- 署名付きCloudflare Accessと検証済みGoogle identityによる一対一のlink、永続状態モデル、owner単位の更新ロック、Firestore CASと移行receiptを追加しました。
+- 初回利用のApplication起動を移行完了まで待機し、既存の計算中モーダルを再利用します。設定・運用・検証手順は `docs/legacy_migration.md` を参照してください。
+
 ## 1.18.0
 
 ### 利用者向け

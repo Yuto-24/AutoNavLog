@@ -25,7 +25,8 @@
     "test:taf": "playwright test --config playwright.taf.config.ts",
     "pretest:sync": "npm run generate:release-notes",
     "test:sync": "playwright test --config playwright.sync.config.ts",
-    "test:firestore": "playwright test --config playwright.firestore.config.ts"
+    "test:firestore": "playwright test --config playwright.firestore.config.ts",
+    "test:migration": "playwright test --config playwright.migration.config.ts"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-jp": "5.3.0",

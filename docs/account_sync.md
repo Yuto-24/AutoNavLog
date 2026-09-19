@@ -118,5 +118,5 @@ Physical acceptance must use the configured Local build and deployed Rules: crea
 calculate on Windows Chromium, open on iPhone/iPad Safari with the same account, edit
 offline and reconnect, resolve each conflict choice, test delete/Undo/expiry, restart
 after sync, and check another account cannot see those Projects. Keep #185, #183 and
-#116 device acceptance gates open until this is recorded. Cloudflare owner migration
-remains #186.
+#116 device acceptance gates open until this is recorded. Cloudflare owner linking and first-use activation are documented in
+[Legacy migration](legacy_migration.md).
