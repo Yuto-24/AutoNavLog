@@ -28,3 +28,7 @@ src/autonavlog/web/static
 web/dist-local
 
 web/public-local/
+
+web/dist-static/
+.wrangler/
+web/.wrangler/

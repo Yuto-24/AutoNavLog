@@ -55,9 +55,11 @@ def test_docker_test_stage_contains_ci_contract_inputs() -> None:
     assert "!.github/workflows/test.yml" in dockerignore
 
 
-def test_readme_marks_host_runtime_as_unsupported() -> None:
+def test_readme_distinguishes_static_production_from_legacy_runtime() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "サポート対象runtimeは Docker / Docker Compose のみ" in readme
+    assert "Legacy serverのサポート対象runtimeは Docker / Docker Compose" in readme
+    assert "docs/static_production.md" in readme
+    assert "FastAPI / Dockerは本番配信に不要" in readme
     assert "host上での直接実行" in readme
     assert "サポート対象ではありません" in readme

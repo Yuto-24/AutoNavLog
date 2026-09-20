@@ -20,7 +20,7 @@ HTTP proxy、ユーザーごとのserver計算、FastAPI endpointは追加しな
 content-addressed fileへ出力する。Browserはそのfileを検証して気象値を求める。
 producerへProjectや経路を送らず、固定範囲・時間帯を定期生成する。
 無料の既存マシン/runnerとstatic hostingで運用可能で、有料proxyは不要。
-static hosting/定期実行のproduction公開は#121の責務であり、このPRでは行わない。
+production buildと手動feed更新は[Static production](static_production.md)、定期deploy自動化は#123を参照する。
 
 ```sh
 # 通常の依存をinstallしたPython環境（pygrib等のnative依存を含む）

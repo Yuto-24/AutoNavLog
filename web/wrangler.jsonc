@@ -1,0 +1,5 @@
+{
+  "name": "navmate",
+  "pages_build_output_dir": "./dist-static",
+  "compatibility_date": "2026-09-19"
+}
