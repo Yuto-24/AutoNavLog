@@ -1,4 +1,4 @@
-"""Build the ordinary Python wheel and bundled data for the static Pyodide PoC."""
+"""Build the ordinary Python wheel and bundled data for the static Pyodide application."""
 
 import hashlib
 import json
@@ -11,12 +11,16 @@ from tempfile import TemporaryDirectory
 from zipfile import ZIP_DEFLATED, ZipFile
 
 root = Path(__file__).resolve().parents[1]
-target = root / "web/public-local/local"
-target.mkdir(parents=True, exist_ok=True)
-# This ignored directory contains generated assets only; retire obsolete wheel names.
-for stale_wheel in target.glob("*.whl"):
-    stale_wheel.unlink()
-shutil.copytree(root / "web/public", target.parent, dirs_exist_ok=True)
+# This directory is generated and ignored. Start clean so removed public assets and
+# provider control files cannot leak from an earlier checkout into a release.
+public_target = root / "web/public-local"
+if public_target.is_symlink():
+    raise ValueError("Generated Local directory must not be a symlink")
+if public_target.exists():
+    shutil.rmtree(public_target)
+target = public_target / "local"
+target.mkdir(parents=True)
+shutil.copytree(root / "web/public", public_target, dirs_exist_ok=True)
 with TemporaryDirectory() as temporary:
     staging = Path(temporary) / "source"
     staging.mkdir()
@@ -48,7 +52,10 @@ with ZipFile(target / "data.zip", "w", ZIP_DEFLATED) as archive:
 msm_wheel = root / "vendor/jma_gpv_weather-0.5.0-py3-none-any.whl"
 shutil.copyfile(msm_wheel, target / msm_wheel.name)
 assets = [application_wheel, msm_wheel.name, "data.zip"]
+pyodide_version = json.loads((root / "web/package.json").read_text())["dependencies"]["pyodide"]
 manifest = {
+    "version": (root / "VERSION").read_text().strip(),
+    "pyodideVersion": pyodide_version,
     "wheels": assets[:2],
     "data": "data.zip",
     "sha256": {name: hashlib.sha256((target / name).read_bytes()).hexdigest() for name in assets},

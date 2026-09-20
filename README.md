@@ -13,6 +13,19 @@ Web 画面に表示します。
 - [計算規則](docs/calculation_rules.md)
 - [一次資料の確認状況](docs/primary_source_audit.md)
 
+## Static Webの正式production path
+
+新しい本番構成は[Static Web](docs/static_production.md)です。ブラウザ内でProject保存・
+KML/KMZ import・計算を行い、Google Accountで同期できます。FastAPI / Dockerは本番配信に不要です。
+production build、無料枠条件、手動deploy / rollback、公開前のdry-runは同文書を参照してください。
+初期productionはService Workerなしで、起動と外部データ取得にネットワーク接続が必要です。
+ブラウザのデータ削除・容量不足によるevictionで未同期のLocalデータを失う場合があります。
+本番への配置・受入は明示的な公開承認後の別gateです。
+
+以下のDocker / server storage / Cloudflare Tunnelの手順は、移行中のLegacy環境用です。
+Local-firstの保存と復元は[Local Persistence](docs/local_persistence.md)と
+[Account Sync](docs/account_sync.md)を参照してください。
+
 ## できること
 
 - KML/KMZ から経路を取り込む
@@ -81,7 +94,7 @@ LineStringがないPoint-only KMLでは従来のPoint候補を利用できます
 選択した経路は合計500点までです。連結経路を採用した場合は、採用したコンテナと構成
 `LineString` の名称を Project の metadata に保存します。
 
-## 必要な環境
+## Legacy環境
 
 - Docker Engine
 - Docker Compose v2
@@ -89,7 +102,7 @@ LineStringがないPoint-only KMLでは従来のPoint候補を利用できます
 - MSM の取得先と AviationWeather.gov へ接続できるネットワーク
 - 外部公開時は Cloudflare Tunnel と Cloudflare Access
 
-AutoNavLog のサポート対象runtimeは Docker / Docker Compose のみです。アプリケーションの
+Legacy serverのサポート対象runtimeは Docker / Docker Compose です。アプリケーションの
 containerは Python 3.12 を使用します。hostへのPython packageのinstallやhost上での直接実行は、
 動作する場合があってもサポート対象ではありません。
 

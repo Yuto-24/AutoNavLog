@@ -49,6 +49,12 @@ export function InformationDialog({ open, releases, knownIssues, onClose, onOpen
         <div><h2 id="information-dialog-title">Information</h2><p>AutoNavLog のお知らせ</p></div>
         <button className="icon-button" type="button" onClick={onClose} aria-label="Informationを閉じる" data-modal-autofocus><X aria-hidden="true" size={20} /></button>
       </div>
+      {import.meta.env.VITE_CALCULATION_MODE === "local" && <section aria-labelledby="local-storage-heading">
+        <h3 id="local-storage-heading">この端末の保存について</h3>
+        <p>Projectと最後の計算結果は、このブラウザに保存されます。ブラウザのデータ削除、容量不足による自動削除、プライベートブラウズの終了で失われる場合があります。</p>
+        <p>Google Accountの同期完了を確認すると、同期済みの内容を別端末でも開けます。未同期の変更はこの端末だけに残ります。NAV LOGのJSON出力はProjectのバックアップではありません。</p>
+        <p>アプリの起動と外部データの取得にはネットワーク接続が必要です。更新時は画面を再読み込みしてください。</p>
+      </section>}
       {knownIssues.length > 0 && <section className="information-known-issues" aria-labelledby="known-issues-heading">
         <h3 id="known-issues-heading">既知の不具合</h3>
         {knownIssues.map((issue) => <article key={issue.id} className="information-known-issue">

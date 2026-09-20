@@ -6,7 +6,7 @@ import type { PreparedAsset } from "./localWeather";
 
 async function initialize() {
   const pyodide = await loadPyodide({
-    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/",
+    indexURL: `https://cdn.jsdelivr.net/pyodide/v${__PYODIDE_VERSION__}/full/`,
   });
   await pyodide.loadPackage(["pydantic", "micropip", "tzdata", "numpy"]);
   await pyodide.runPythonAsync(`
@@ -16,10 +16,19 @@ await micropip.install(["defusedxml==0.7.1", "geographiclib==2.1"])
   const assetUrl = (name: string) => new URL(`${import.meta.env.BASE_URL}local/${name}`, self.location.origin);
   const manifestResponse = await fetch(assetUrl("manifest.json"), { cache: "no-cache" });
   if (!manifestResponse.ok) throw new Error(`Local asset: manifest (${manifestResponse.status})`);
-  const manifest = await manifestResponse.json() as { wheels: string[]; data: string; sha256: Record<string, string> };
+  const manifestBytes = new Uint8Array(await manifestResponse.arrayBuffer());
+  pyodide.globals.set("manifest_bytes", manifestBytes);
+  pyodide.globals.set("manifest_hash", __LOCAL_MANIFEST_SHA256__);
+  pyodide.runPython(`
+import hashlib
+if hashlib.sha256(bytes(manifest_bytes.to_py())).hexdigest() != manifest_hash:
+    raise ValueError("Local build changed; reload to use matching application and data")
+del manifest_bytes, manifest_hash
+`);
+  const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as { wheels: string[]; data: string; sha256: Record<string, string> };
   for (const filename of [...manifest.wheels, manifest.data]) {
     if (!/^[a-zA-Z0-9_.-]+$/.test(filename)) throw new Error("Invalid Local asset name");
-    const response = await fetch(assetUrl(filename));
+    const response = await fetch(assetUrl(filename), { cache: "no-cache" });
     if (!response.ok) throw new Error(`Local asset: ${filename} (${response.status})`);
     const bytes = new Uint8Array(await response.arrayBuffer());
     // hashlib works on plain HTTP localhost as well as HTTPS (Safari acceptance uses HTTPS).

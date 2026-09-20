@@ -60,7 +60,7 @@ for (const width of [1100, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/");
     await expect(page).toHaveTitle(/AutoNavLog/);
-    await expect(page.getByText("Pyodide Local PoC", { exact: false })).toBeVisible();
+    await expect(page.locator(".brand-subtitle").filter({ hasText: " / Local" })).toBeVisible();
     await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
     await page.getByLabel("気象モード").selectOption("FTD");
     await page.getByLabel("地上風向 ° FROM").fill("360");

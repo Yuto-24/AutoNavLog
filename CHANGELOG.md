@@ -2,6 +2,20 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.20.0
+
+### 利用者向け
+
+#### 改善
+
+- Static Web向けの正式配布構成を追加しました。端末内の保存・計算とGoogle Account同期を、アプリケーションサーバーなしで利用できます。
+- 更新前後のアプリと計算データが混在した場合は処理を止め、再読み込みを案内します。
+
+### 開発者向け
+
+- production static build、artifact容量・hash検証、Pages向けcache設定、手動deploy / rollback手順を追加しました。
+- JSにLocal manifestのSHA-256を固定し、runtime・wheel・reference / performance dataを同一buildへ結び付けます。公開承認とproduction実環境の受入は別gateです。
+
 ## 1.19.0
 
 ### 利用者向け

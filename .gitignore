@@ -35,3 +35,7 @@ services/taf-proxy/wrangler.local.jsonc
 /firebase-debug.log
 /firestore-debug.log
 /.firebase/
+
+web/dist-static/
+/.wrangler/
+/web/.wrangler/
