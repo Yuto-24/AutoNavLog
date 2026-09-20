@@ -21,7 +21,7 @@ function fixture(t) {
   put("weather/msm/catalog.json", catalog);
   const seal = () => {
     const files = inventory(root); delete files["release.json"];
-    put("release.json", { version: "1.0.0", pyodideVersion: "0.27.7", files });
+    put("release.json", { version: "1.0.0", pyodideVersion: "0.27.7", dirty: false, files });
   };
   seal(); return { root, put, seal };
 }
@@ -62,4 +62,25 @@ test("untracked source is dirty while unrelated Codex state is excluded", t => {
   assert.equal(sourceDirty(root), false);
   mkdirSync(join(root, "src")); writeFileSync(join(root, "src", "untracked.py"), "source");
   assert.equal(sourceDirty(root), true);
+});
+
+test("dirty artifacts fail production checks unless explicitly allowed for development", t => {
+  const { root, put } = fixture(t);
+  const release = JSON.parse(readFileSync(join(root, "release.json")));
+  put("release.json", { ...release, dirty: true });
+  assert.throws(() => checkArtifact(root), /Dirty source artifact/);
+  const report = checkArtifact(root, { allowDirty: true });
+  assert.equal(report.dirty, true);
+  assert.equal(report.allowDirty, true);
+  const cli = join(import.meta.dirname, "check-static.mjs");
+  assert.throws(() => execFileSync(process.execPath, [cli, root], { stdio: "pipe" }));
+  const accepted = JSON.parse(execFileSync(process.execPath, [cli, root, "--allow-dirty"], { encoding: "utf8" }));
+  assert.equal(accepted.dirty, true);
+});
+test("a missing dirty flag is not proof of a clean source even with a development opt-out", t => {
+  const { root, put } = fixture(t);
+  const release = JSON.parse(readFileSync(join(root, "release.json")));
+  delete release.dirty; put("release.json", release);
+  assert.throws(() => checkArtifact(root), /Missing or invalid/);
+  assert.throws(() => checkArtifact(root, { allowDirty: true }), /Missing or invalid/);
 });

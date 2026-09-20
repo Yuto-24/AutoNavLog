@@ -4,6 +4,9 @@ import { resolve } from "node:path";
 import { loadEnv } from "vite";
 import { inventory, checkArtifact, sourceDirty } from "./static-artifact.mjs";
 
+const args = process.argv.slice(2);
+if (args.some(arg => arg !== "--allow-dirty")) throw new Error("Unknown build:static option");
+const allowDirty = args.includes("--allow-dirty");
 const env = { ...loadEnv("production", ".", ""), ...process.env, VITE_CALCULATION_MODE: "local" };
 if (env.AUTONAVLOG_TEST_FIXTURES === "1") throw new Error("Production cannot contain test fixtures");
 if (!env.AUTONAVLOG_MSM_FEED) throw new Error("AUTONAVLOG_MSM_FEED is required for production");
@@ -36,4 +39,4 @@ const release = {
   files: inventory(resolve("dist-static")),
 };
 writeFileSync("dist-static/release.json", JSON.stringify(release, null, 2) + "\n");
-console.log(JSON.stringify(checkArtifact(resolve("dist-static")), null, 2));
+console.log(JSON.stringify(checkArtifact(resolve("dist-static"), { allowDirty }), null, 2));

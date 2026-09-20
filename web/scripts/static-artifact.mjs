@@ -26,9 +26,11 @@ export function inventory(root) {
   if (Object.keys(files).length > limits.files) throw new Error("Pages file count exceeds 20000");
   return files;
 }
-export function checkArtifact(root, { freshWeather = true } = {}) {
+export function checkArtifact(root, { freshWeather = true, allowDirty = false } = {}) {
   const files = inventory(root);
   const release = JSON.parse(readFileSync(join(root, "release.json")));
+  if (typeof release.dirty !== "boolean") throw new Error("Missing or invalid source dirty flag");
+  if (release.dirty && !allowDirty) throw new Error("Dirty source artifact cannot pass a production check");
   const recorded = { ...files };
   delete recorded["release.json"];
   if (JSON.stringify(recorded) !== JSON.stringify(release.files)) throw new Error("Artifact inventory mismatch");
@@ -55,7 +57,7 @@ export function checkArtifact(root, { freshWeather = true } = {}) {
     if (file?.bytes !== asset.bytes || file?.sha256 !== asset.sha256) throw new Error("MSM asset mismatch: " + asset.file);
   }
   const entries = Object.entries(files);
-  return { version: release.version, fileCount: entries.length,
+  return { version: release.version, dirty: release.dirty, allowDirty, fileCount: entries.length,
     totalBytes: entries.reduce((sum, [, file]) => sum + file.bytes, 0),
     largest: entries.sort((a, b) => b[1].bytes - a[1].bytes).slice(0, 5),
     limits, weatherExpiresAt: catalog.expires_at, freshWeather };

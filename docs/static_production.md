@@ -51,7 +51,13 @@ npm --prefix web run test:static
 
 `release.json`はVERSION、source commit、tracked / untracked変更の有無（`.codex`以外）、公開接続設定と
 全配布ファイル（自分自身を除く）のbyte数 / SHA-256を記録する。
-`check:static`は全ファイル・Local manifest・weather hash・期限・Pages制限を検証する。
+`build:static` / `check:static`の通常検査では`release.dirty === false`を必須とし、
+modified / untracked sourceを含むartifactやdirty flag欠落を拒否する。
+`check:static`は全ファイル・Local manifest・weather hash・期限・Pages制限も検証する。
+開発中の未commit変更でdry-runを行う場合だけ、`npm --prefix web run build:static -- --allow-dirty`と
+`npm --prefix web run check:static -- --allow-dirty`を明示する。このopt-outは公開用のgateではない。
+配布前にはclean commitから再buildし、opt-outなしの通常検査を通す。
+検査reportには`dirty` / `allowDirty`を残し、開発用の成功とproductionの合格を区別する。
 改変後にinventoryを手で書き直さず、同じsource / 設定でbuildをやり直す。
 配布前はclean commitからbuildし、release.json、検査結果、artifact archiveをprivateな
 release保管場所へ保存する。artifactはFirebaseの公開識別子を含む。
