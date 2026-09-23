@@ -190,3 +190,56 @@ def test_msm_adapter_samples_lsurf_temperature_with_provenance(
     )
     assert wrong_unit.availability == Availability.UNAVAILABLE
     assert wrong_unit.reason_code == "SURFACE_TEMPERATURE_INVALID"
+
+
+@pytest.mark.parametrize(
+    'speed_ms,speed_kt,direction,warning,available,normalized',
+    [
+        (0.0, 0.0, None, True, True, True),
+        (0.07906136508871421, 0.15368299909253264, None, True, True, True),
+        (0.099999, 0.19438, None, True, True, True),
+        (0.1, 0.194384, None, True, True, False),
+        (2.0, 3.88768, None, False, True, False),
+        (0.079, 0.154, None, False, True, False),
+        (0.079, 0.154, 282.0, True, True, False),
+        (0.079, 0.154, None, True, False, False),
+        (-0.01, -0.02, None, True, True, False),
+        (float('nan'), 0.154, None, True, True, False),
+        (0.079, float('inf'), None, True, True, False),
+        (0.079, 2.0, None, True, True, False),
+        (None, 0.154, None, True, True, False),
+        (False, 0.154, None, True, True, False),
+    ],
+)
+def test_msm_calm_normalization_preserves_source_and_failure(
+    monkeypatch, tmp_path, speed_ms, speed_kt, direction, warning, available, normalized,
+) -> None:
+    monkeypatch.setitem(sys.modules, 'jma_gpv_weather', _stub_msm_module())
+    provider = MsmWeatherProvider(tmp_path, client=object())
+    request = WeatherRequest(
+        request_id='calm', kind=WeatherRequestKind.ALOFT,
+        latitude_deg=32.07245440868941, longitude_deg=131.45257761837706,
+        valid_time_utc=datetime(2026, 9, 24, 4, 7, tzinfo=UTC), altitude_ft_msl=2759.5,
+    )
+    raw = SimpleNamespace(
+        availability='available' if available else 'unavailable',
+        reason_code=None if available else 'MISSING_SOURCE_VALUE',
+        warnings=('CALM_WIND_DIRECTION_UNDEFINED',) if warning else (),
+        values={'wind_speed_ms': speed_ms, 'wind_speed_kt': speed_kt,
+                'wind_direction_deg_from': direction, 'temperature_c': 19.877212780635944,
+                'u_ms': -0.07367847895593366, 'v_ms': -0.02867370203568071},
+        provenance={'run': '20260923030000'},
+    )
+    result = provider._from_result(request, raw)
+    expected = Availability.AVAILABLE if available else Availability.UNAVAILABLE
+    assert result.availability == expected
+    assert result.reason_code == raw.reason_code
+    assert result.warnings == raw.warnings
+    assert result.metadata['provenance'] == raw.provenance
+    assert ('calm_normalization' in result.metadata) is normalized
+    if normalized:
+        assert result.values['wind_speed_kt'] == 0.0
+        assert result.metadata['calm_normalization']['original_values'] == raw.values
+        assert raw.values['wind_speed_kt'] == speed_kt
+    else:
+        assert result.values == raw.values

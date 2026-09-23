@@ -540,6 +540,7 @@ class CalculationService:
                 previous_times,
                 arrival_altitude_ft_msl,
                 previous_arrival_time_utc=previous_arrival_time_utc,
+                fixed_rca_distance_nm=self._fixed_rca_distance(rjfm_departure_plan, geometries),
             )
             results = self._query_weather(provider, selected_run_id, requests, issues)
             iteration_result = self._calculate_iteration(
@@ -874,21 +875,33 @@ class CalculationService:
             return None
 
     @staticmethod
-    def _weather_phases(section: NavSection) -> tuple[FlightPhase, ...]:
+    def _weather_phases(
+        section: NavSection, *, beyond_fixed_rca: bool = False,
+    ) -> tuple[FlightPhase, ...]:
         if section.phase == FlightPhase.VISUAL_ARRIVAL:
             return (section.phase,)
-        return (
+        phases = (
             section.phase,
             *(
                 phase
-                for phase in (
-                    FlightPhase.CLIMB,
-                    FlightPhase.CRUISE,
-                    FlightPhase.DESCENT,
-                )
+                for phase in (FlightPhase.CLIMB, FlightPhase.CRUISE, FlightPhase.DESCENT)
                 if phase != section.phase
             ),
         )
+        return tuple(
+            phase
+            for phase in phases
+            if not (beyond_fixed_rca and phase == FlightPhase.CLIMB)
+        )
+
+    @staticmethod
+    def _fixed_rca_distance(
+        plan: RjfmDeparturePlan | None, geometries: list[_Geometry],
+    ) -> float | None:
+        if plan is None:
+            return None
+        distance = float(plan.virtual_rca_distance_nm)
+        return distance if distance < sum(g.distance_nm for g in geometries) - 1e-9 else None
 
     @staticmethod
     def _weather_request_id(section: NavSection, phase: FlightPhase) -> str:
@@ -905,9 +918,11 @@ class CalculationService:
         arrival_altitude_ft_msl: float | None = None,
         *,
         previous_arrival_time_utc: datetime | None = None,
+        fixed_rca_distance_nm: float | None = None,
     ) -> list[WeatherRequest]:
         requests: list[WeatherRequest] = []
         elapsed = 0.0
+        offsets = self._route_leg_offsets(geometries)
         for index, geometry in enumerate(geometries):
             default_seconds = (
                 geometry.distance_nm
@@ -920,7 +935,13 @@ class CalculationService:
                 + timedelta(seconds=elapsed + default_seconds / 2),
             )
             elapsed += default_seconds
-            for phase in self._weather_phases(geometry.section):
+            for phase in self._weather_phases(
+                geometry.section,
+                beyond_fixed_rca=(
+                    fixed_rca_distance_nm is not None
+                    and offsets[index][0] >= fixed_rca_distance_nm - 1e-9
+                ),
+            ):
                 altitude_ft_msl, altitude_metadata = self._weather_request_representative_altitude(
                     index,
                     geometries,
@@ -1108,6 +1129,7 @@ class CalculationService:
         departure: Airport,
         destination: Airport,
         arrival_altitude_ft_msl: float | None,
+        fixed_rca_distance_nm: float | None = None,
     ) -> list[_LegEnvironment]:
         environments: list[_LegEnvironment] = []
         descent_basis_index = next(
@@ -1118,10 +1140,17 @@ class CalculationService:
             ),
             None,
         )
+        offsets = self._route_leg_offsets(geometries)
         for index, geometry in enumerate(geometries):
             section = geometry.section
             phase_environments: dict[FlightPhase, _PhaseEnvironment] = {}
-            for phase in self._weather_phases(section):
+            for phase in self._weather_phases(
+                section,
+                beyond_fixed_rca=(
+                    fixed_rca_distance_nm is not None
+                    and offsets[index][0] >= fixed_rca_distance_nm - 1e-9
+                ),
+            ):
                 weather = weather_by_id.get(self._weather_request_id(section, phase))
                 wind_direction, wind_speed, temperature, metadata, warnings = self._section_weather(
                     section, weather, phase
@@ -1250,6 +1279,7 @@ class CalculationService:
         unique_weights: list[float],
         performance_usable: bool,
         issues: list[Issue],
+        fixed_rca_distance_nm: float | None = None,
     ) -> _ClimbPlan | None:
         climb_environment = next(
             (
@@ -1309,24 +1339,26 @@ class CalculationService:
             tas_method = "MANUAL_OVERRIDE"
             cas_kt = None
         duration_seconds = climb.time_min * 60.0
-        traversal = self._distance_after_duration(
-            environments,
-            duration_seconds,
-            tas_kt,
-            issues,
-            section.id,
-        )
-        route_end_distance = traversal.distance_nm
+        route_end_distance = fixed_rca_distance_nm
         if route_end_distance is None:
-            if traversal.route_exhausted:
-                issues.append(
-                    self._blocker(
-                        "RCA_OUTSIDE_ROUTE",
-                        "上昇完了までの飛行距離が計画経路端を越えます。",
-                        section.id,
+            traversal = self._distance_after_duration(
+                environments,
+                duration_seconds,
+                tas_kt,
+                issues,
+                section.id,
+            )
+            route_end_distance = traversal.distance_nm
+            if route_end_distance is None:
+                if traversal.route_exhausted:
+                    issues.append(
+                        self._blocker(
+                            "RCA_OUTSIDE_ROUTE",
+                            "上昇完了までの飛行距離が計画経路端を越えます。",
+                            section.id,
+                        )
                     )
-                )
-            return None
+                return None
         for warning in climb.warnings:
             issues.append(
                 Issue(
@@ -2319,6 +2351,7 @@ class CalculationService:
             use_table_boundaries=True,
         )
         unique_weights = sorted({row.weight_lb for row in self.performance.climb_rows})
+        fixed_rca_distance = self._fixed_rca_distance(rjfm_departure_plan, geometries)
         environments = self._build_leg_environments(
             geometries,
             weather_by_id,
@@ -2326,6 +2359,7 @@ class CalculationService:
             departure,
             destination,
             arrival_altitude_ft_msl,
+            fixed_rca_distance,
         )
         climb_plan = self._build_climb_plan(
             departure,
@@ -2334,6 +2368,7 @@ class CalculationService:
             unique_weights,
             performance_usable,
             issues,
+            fixed_rca_distance,
         )
         if climb_plan is not None and rjfm_departure_plan is not None:
             requested_rca_distance = float(rjfm_departure_plan.virtual_rca_distance_nm)
