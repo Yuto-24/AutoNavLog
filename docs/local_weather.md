@@ -139,3 +139,20 @@ WindowsやPlaywright WebKitの結果をこのgateの代替にしない。
 
 #161にはGSM、model priority/coverage fallback、model+Run永続化、2クリック更新を残す。
 #144ではMSM単独の取得/transport/public library/WeatherProvider境界だけを実装する。
+
+## CALMとRJFM固定RCAの計算境界
+
+LegacyとLocalは共通の`MsmWeatherProvider`で気象値を投影します。
+上空気象がAVAILABLEで、ライブラリの`CALM_WIND_DIRECTION_UNDEFINED`警告があり、
+風向なし・有限かつ非負の風速が0.1 m/s未満の場合だけ、航法計算用の風速を0 ktへ
+正規化します。元のvector・風速・気温は`calm_normalization.original_values`へ保持し、
+provenanceと警告も残します。通常風の風向欠落や取得失敗はCALMとして扱いません。
+
+検証済みRJFM固定RCAは通常の風によるRCA探索を経ずに適用します。POH上昇時間・燃料、
+上昇代表高度の気温とTAS、および各実効区間の表示風・手動overrideは従来どおりです。
+固定境界以降の物理区間にはCLIMB気象を要求しません。仮想UMKが物理区間内にある場合は
+同区間のCLIMBとCRUISEの両方を保持します。古い・不整合な計画と経路外固定RCAは
+既存の検証・通常RCA処理に従います。
+
+Issue #204の固定fixtureは診断時の代表気象値と経路を保持しています。全時空間のMSM
+予報archiveではなく、未記録の気象はテスト用値です。実データのライブ受入とは区別します。

@@ -176,6 +176,29 @@ class MsmWeatherProvider:
         warnings = tuple(result.warnings)
         reason = result.reason_code
         metadata = {"provenance": _jsonable(result.provenance)}
+        speed_ms = values.get("wind_speed_ms")
+        speed_kt = values.get("wind_speed_kt")
+        if (
+            request.kind == WeatherRequestKind.ALOFT
+            and available
+            and "CALM_WIND_DIRECTION_UNDEFINED" in warnings
+            and values.get("wind_direction_deg_from") is None
+            and isinstance(speed_ms, (int, float))
+            and not isinstance(speed_ms, bool)
+            and isfinite(speed_ms)
+            and 0.0 <= speed_ms < 0.1
+            and isinstance(speed_kt, (int, float))
+            and not isinstance(speed_kt, bool)
+            and isfinite(speed_kt)
+            and 0.0 <= speed_kt < 0.1 / 0.514444
+        ):
+            # Keep the provider's vector and sampled magnitudes for provenance;
+            # only the speed consumed by the navigation solver becomes CALM.
+            metadata["calm_normalization"] = {
+                "original_values": _jsonable(dict(values)),
+                "policy": "MSM_CALM_WIND_DIRECTION_UNDEFINED_TO_ZERO_KT",
+            }
+            values["wind_speed_kt"] = 0.0
         if request.kind == WeatherRequestKind.SURFACE_TEMPERATURE:
             metadata.update(
                 {

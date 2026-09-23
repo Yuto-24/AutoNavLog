@@ -483,3 +483,66 @@ def test_direct_calculation_rejects_tampered_rjfm_rca_distance(
         result.performance_metadata.get("boundary_method") != "RJFM_UMK_FIXED_RCA"
         for result in outcome.sections
     )
+
+
+@pytest.mark.parametrize('virtual_umk', [False, True])
+@pytest.mark.parametrize('missing_required', [None, 'wind', 'all'])
+def test_fixed_rca_only_requires_climb_weather_before_boundary(
+    airports, performance_repository, project, virtual_umk, missing_required,
+) -> None:
+    from autonavlog.domain.enums import Availability
+    from autonavlog.weather.fake_provider import _default_result
+
+    working = project.model_copy(deep=True)
+    first = working.ordered_nodes()[1]
+    first.latitude_deg, first.longitude_deg = (32.16272, 131.47349) if virtual_umk else (
+        31.98218, 131.43171
+    )
+    plan = apply_rjfm_departure_exception(working, _references(
+        umk=(31.98218, 131.43171), omaru=(32.16272, 131.47349),
+    ))
+    assert plan is not None
+    first_id = working.ordered_sections()[0].id
+
+    def weather(request):
+        result = _default_result(request)
+        if request.metadata.get('phase') == 'CLIMB':
+            if missing_required == 'wind':
+                result.values['wind_speed_kt'] = None
+                return result
+            if missing_required or not request.request_id.startswith(f'section:{first_id}:'):
+                return result.model_copy(update={
+                    'availability': Availability.UNAVAILABLE,
+                    'values': {}, 'reason_code': 'MISSING_SOURCE_VALUE',
+                })
+        return result
+
+    service = _calculation_service(airports, performance_repository)
+    outcome = service.calculate(working, FakeWeatherProvider(result_factory=weather))
+    climb_requests = [r for r in service.last_weather_requests
+                      if r.metadata.get('phase') == 'CLIMB']
+    assert climb_requests
+    assert all(r.request_id.startswith(f'section:{first_id}:') for r in climb_requests)
+    if missing_required == 'wind':
+        assert any(i.code == 'WIND_UNAVAILABLE' for i in outcome.issues)
+        assert outcome.sections[0].ground_speed_kt.adopted() is None
+        return
+    if missing_required:
+        assert any(i.code == 'TEMPERATURE_UNAVAILABLE' for i in outcome.issues)
+        assert outcome.sections[0].tas_kt.adopted() is None
+        assert outcome.sections[0].section_fuel_gal.adopted() is None
+        return
+    assert not any(i.code in {'WIND_UNAVAILABLE', 'TEMPERATURE_UNAVAILABLE',
+                             'WIND_TRIANGLE_FAILED'} for i in outcome.issues)
+    climb = [r for r in outcome.sections if r.phase == FlightPhase.CLIMB]
+    assert climb
+    assert sum(r.zone_distance_nm.adopted() for r in climb) == pytest.approx(
+        plan.virtual_rca_distance_nm,
+    )
+    assert sum(r.zone_ete_seconds.adopted() for r in climb) == pytest.approx(
+        climb[0].performance_metadata['planned_duration_seconds'],
+    )
+    assert sum(r.section_fuel_gal.adopted() for r in climb) == pytest.approx(
+        climb[0].performance_metadata['planned_fuel_gal'],
+    )
+    assert all(r.tas_kt.adopted() > 0 for r in climb)
