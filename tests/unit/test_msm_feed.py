@@ -71,7 +71,7 @@ def test_rollover_retains_source_listing_and_rejects_corrupt_asset(producer, mon
     from scripts.local_reference import reference_state
 
     output = tmp_path / "feed"
-    prepare_msm_feed.produce(output, tmp_path / "cache", START, 3, Bounds())
+    prepare_msm_feed.produce(output, tmp_path / "cache", START, 3, Bounds(), now=START)
     with monkeypatch.context() as rollover:
         # Isolate the publisher's retention contract from upstream Run discovery:
         # the next acquisition window no longer includes the old source directory.
@@ -87,9 +87,19 @@ def test_rollover_retains_source_listing_and_rejects_corrupt_asset(producer, mon
         rollover.setattr(MsmClient, "listing_urls", listing_urls)
         rollover.setattr(prepare_msm_feed, "urlopen", lambda *args, **kw: io.BytesIO(b""))
         rollover.setattr(MsmClient, "discover_runs", lambda *args, **kw: [])
-        prepare_msm_feed.produce(output, tmp_path / "cache", START, 3, Bounds())
+        prepare_msm_feed.produce(output, tmp_path / "cache", START, 3, Bounds(), now=START)
     weather = LocalMsmWeather()
     project = Project.model_validate(reference_state(feed=str(FEED), pinned=True)["project"])
+    # The captured Runs must stay within the seven-day retention window regardless
+    # of the wall clock. Freeze the consumer clock after constructing its Project.
+    from autonavlog.weather import local_msm
+
+    class DeviceClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return START.astimezone(tz)
+
+    monkeypatch.setattr(local_msm, "datetime", DeviceClock)
     requirement = ForecastRequirement(valid_times_utc=(START,), require_surface_temperature=True)
     asset = json.loads(weather.plan(project, requirement, (output / "catalog.json").read_text()))
     assert asset["run"] == "20260915180000"
@@ -100,10 +110,10 @@ def test_rollover_retains_source_listing_and_rejects_corrupt_asset(producer, mon
     (output / "catalog.json").write_text(json.dumps(catalog))
     damaged_catalog = (output / "catalog.json").read_bytes()
     with pytest.raises(ValueError, match="size mismatch"):
-        prepare_msm_feed.produce(output, tmp_path / "cache", START, 3, Bounds())
+        prepare_msm_feed.produce(output, tmp_path / "cache", START, 3, Bounds(), now=START)
     assert (output / "catalog.json").read_bytes() == damaged_catalog
     (output / "catalog.json").write_bytes(before)
     (output / asset["file"]).write_bytes(b"x" * asset["bytes"])
     with pytest.raises(CacheIntegrityError):
-        prepare_msm_feed.produce(output, tmp_path / "cache", START, 3, Bounds())
+        prepare_msm_feed.produce(output, tmp_path / "cache", START, 3, Bounds(), now=START)
     assert (output / "catalog.json").read_bytes() == before
