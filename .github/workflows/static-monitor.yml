@@ -1,0 +1,30 @@
+name: static-monitor
+on:
+  schedule:
+    - cron: '53 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: static-monitor
+  cancel-in-progress: false
+jobs:
+  monitor:
+    if: vars.STATIC_MONITOR_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check public catalog freshness (read only)
+        env:
+          STATIC_ORIGIN: ${{ vars.STATIC_ORIGIN }}
+        run: python3 scripts/static_ops/operations.py monitor --origin "$STATIC_ORIGIN" >> "$GITHUB_STEP_SUMMARY"
+      - name: Evaluate account-shared quota observations even if weather failed
+        if: always()
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          STATIC_QUOTA_REPORT: ${{ vars.STATIC_QUOTA_REPORT }}
+        run: python3 scripts/static_ops/operations.py quota >> "$GITHUB_STEP_SUMMARY"

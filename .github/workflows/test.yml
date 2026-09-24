@@ -106,6 +106,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm --prefix web ci
       - run: npm --prefix web run test:application
+      - run: npm --prefix web run test:static-artifact
       - run: npm --prefix web run test:release-notes
       - run: npm --prefix web run typecheck
       - run: npm --prefix web run build

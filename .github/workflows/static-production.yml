@@ -1,0 +1,129 @@
+name: static-production
+
+on:
+  schedule:
+    - cron: '23 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Reviewed full application commit SHA (empty = approved feed-refresh source)'
+        type: string
+      publish:
+        description: 'Publish after production environment approval; false is build/test only'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Shared with all app/feed deployments. Never interrupt an atomic upload.
+concurrency:
+  group: static-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.STATIC_AUTOMATION_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ (github.event_name == 'schedule' || inputs.publish) && 'static-production' || 'static-validation' }}
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+      STATIC_ORIGIN: ${{ vars.STATIC_ORIGIN }}
+      STATIC_QUOTA_REPORT: ${{ vars.STATIC_QUOTA_REPORT }}
+      APPROVED_SHA: ${{ vars.STATIC_APPROVED_SHA }}
+      REQUESTED_SHA: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tooling
+          persist-credentials: false
+      - name: Validate approved source and free-tier evidence
+        id: source
+        run: |
+          set -euo pipefail
+          source_sha="${REQUESTED_SHA:-$APPROVED_SHA}"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          python3 tooling/scripts/static_ops/operations.py quota --publication
+          python3 tooling/scripts/static_ops/operations.py preflight --origin "$STATIC_ORIGIN" --sha "$APPROVED_SHA"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          path: app
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked Web and existing Python build dependencies
+        working-directory: app
+        run: |
+          python -m pip install 'setuptools>=69' wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl '.[test]'
+          npm --prefix web ci
+          npm --prefix web exec -- playwright install --with-deps chromium
+      - name: Restore rolling feed and generate fresh catalog
+        run: |
+          python3 tooling/scripts/static_ops/operations.py restore --origin "$STATIC_ORIGIN" --output "$RUNNER_TEMP/feed"
+          python3 tooling/scripts/static_ops/refresh_feed.py --producer app/scripts/prepare_msm_feed.py --output "$RUNNER_TEMP/feed" --cache "$RUNNER_TEMP/msm-cache"
+      - name: Build and validate production artifact without application server
+        working-directory: app
+        env:
+          AUTONAVLOG_MSM_FEED: ${{ runner.temp }}/feed
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          VITE_TAF_PROXY_URL: ${{ vars.VITE_TAF_PROXY_URL }}
+          VITE_LEGACY_MIGRATION_URL: ${{ vars.VITE_LEGACY_MIGRATION_URL }}
+        run: |
+          python scripts/validate_release.py
+          python scripts/validate_performance_data.py data/performance
+          python scripts/validate_runtime_data.py data
+          python scripts/export_schemas.py --check
+          npm --prefix web run build:static
+          npm --prefix web run test:static-artifact
+          npm --prefix web run check:static
+      - name: Production Browser E2E
+        working-directory: app
+        run: |
+          python -m http.server 4121 --bind 127.0.0.1 --directory web/dist-static > "$RUNNER_TEMP/static-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4121/ >/dev/null
+          npm --prefix web run test:static
+      - name: Record build identity
+        working-directory: app
+        run: |
+          sha256sum web/dist-static/release.json >> "$GITHUB_STEP_SUMMARY"
+          npm --prefix web run check:static >> "$GITHUB_STEP_SUMMARY"
+      - name: Repeat publication gates
+        if: github.event_name == 'schedule' || inputs.publish
+        env:
+          EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
+        run: |
+          python3 tooling/scripts/static_ops/operations.py quota --publication
+          python3 tooling/scripts/static_ops/operations.py preflight --origin "$STATIC_ORIGIN" --sha "$APPROVED_SHA"
+          npm --prefix app/web run check:static
+          python3 tooling/scripts/static_ops/check_candidate.py app/web/dist-static/release.json
+      - name: Install independent upload CLI
+        if: github.event_name == 'schedule' || inputs.publish
+        run: npm --prefix tooling/services/taf-proxy ci
+      - name: Upload static files only (TAF Worker is independent)
+        if: github.event_name == 'schedule' || inputs.publish
+        working-directory: app/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
+        run: ../../tooling/services/taf-proxy/node_modules/.bin/wrangler pages deploy dist-static --project-name navmate --branch main --commit-hash "$EXPECTED_SOURCE"
+      - name: Verify canonical deployment and fresh catalog
+        if: github.event_name == 'schedule' || inputs.publish
+        env:
+          EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
+        run: |
+          python3 tooling/scripts/static_ops/check_candidate.py app/web/dist-static/release.json --remote >> "$GITHUB_STEP_SUMMARY"
+          python3 tooling/scripts/static_ops/operations.py monitor --origin "$STATIC_ORIGIN" >> "$GITHUB_STEP_SUMMARY"
