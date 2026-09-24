@@ -177,7 +177,7 @@ artifactの整合性を検証する。
 
 ## 無料枠の運用条件
 
-公式情報確認日: **2026-09-19**。永続的な上限として扱わず、release時に再確認する。
+公式情報再確認日: **2026-09-24**。永続的な上限として扱わず、release時に再確認する。
 
 - [Pages Free limits](https://developers.cloudflare.com/pages/platform/limits/):
   20,000 files、1 file 25 MiB、500 builds/月、同時build 1、build timeout 20分。
@@ -234,3 +234,8 @@ Sync / Weather障害時の保持は既存テストとproduction artifact試験�
 - #121 / #116の完了更新（承認前は完了checkboxを付けない）
 
 実装・local検証・PR・merge・production acceptanceを別の状態として記録する。
+
+#121のremote production検証結果、実Pages rollback、Free/Sparkの初期使用量評価は
+[acceptance audit](evidence/issue-121/remote-production-2026-09-24.md)に記録する。
+現在のPages配置はprebuilt artifactのWrangler Direct Upload。将来の継続的なMSM
+feed更新、deploy自動化、account共有quotaの監視は#123で扱う。
