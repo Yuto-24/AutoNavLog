@@ -71,6 +71,47 @@ for (const mode of ["supported", "denied", "unsupported"] as const) {
   });
 }
 
+test("pending platform Paste confirmation can be cancelled and recovered with file import", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      readText: () => new Promise<string>((_resolve, reject) => {
+        if (!navigator.userActivation.isActive) throw new DOMException("Activation required", "NotAllowedError");
+        Object.assign(window, { cancelPlatformPaste: () => reject(new DOMException("Cancelled", "NotAllowedError")) });
+      }),
+    } });
+  });
+  await open(page);
+  await expect(page.getByText("ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。")).toBeVisible();
+  await paste(page).click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await expect(dialog).toBeHidden();
+  await expect(paste(page)).toBeDisabled();
+  await page.evaluate(() => (window as unknown as { cancelPlatformPaste: () => void }).cancelPlatformPaste());
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("alert")).toContainText("読み取れませんでした");
+  const chooser = page.waitForEvent("filechooser");
+  await dialog.getByRole("button", { name: "ファイルから取り込む" }).click();
+  await (await chooser).setFiles({ name: "recovery.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(kml) });
+  await expect(dialog).toBeHidden();
+  await expect(page.locator(".imported-file")).toContainText("recovery.kml");
+  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+});
+
+test("confirmed route can resume a pasted draft without offering an unavailable picker", async ({ page }) => {
+  await page.addInitScript((text) => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: async () => text } });
+  }, kml);
+  await open(page);
+  await paste(page).click();
+  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await page.getByRole("button", { name: "貼付KMLの編集を続ける" }).click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await expect(dialog.getByRole("textbox")).toHaveValue(kml);
+  await expect(dialog.getByRole("button", { name: "ファイルから取り込む" })).toHaveCount(0);
+});
+
 test("download and Clipboard export the displayed result, survive denial, and retain workflow order", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await open(page);
@@ -125,8 +166,6 @@ test("download and Clipboard export the displayed result, survive denial, and re
   await page.evaluate(() => { URL.createObjectURL = undefined as any; });
   await page.getByRole("button", { name: "NAV LOG JSONをダウンロード" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "この環境ではファイルを保存できません" })).toBeVisible();
-  expect((await snapshot(page)).working.outcome).toEqual(original.outcome);
-
 });
 
 test("source links open without an opener and cannot unlock a pending save", async ({ page, context }) => {

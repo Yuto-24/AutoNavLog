@@ -130,6 +130,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [pasteMessage, setPasteMessage] = useState<string | null>(null);
   const pasteInFlight = useRef(false);
   const pasteReturnFocus = useRef<HTMLElement | null>(null);
+  const routeFileInput = useRef<HTMLInputElement | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [projectName, setProjectName] = useState("未保存の新規作業");
   const [pendingKmz, setPendingKmz] = useState<PendingKmz | null>(null);
@@ -1560,7 +1561,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           busy={busy}
           onResumePaste={pastedKml && !pasteOpen ? () => setPasteOpen(true) : undefined}
           onResumeKmz={pendingKmz && !kmzOpen ? () => setKmzOpen(true) : undefined}
-          fileInput={<FileInput busy={busy} onFile={handleFile} />}
+          fileInput={<FileInput busy={busy} onFile={handleFile} inputRef={routeFileInput} />}
           onPaste={() => void handlePasteImport("clipboard")}
         />
         <RouteWorkspace
@@ -1708,6 +1709,10 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         busy={busy}
         onChange={setPastedKml}
         onClose={() => setPasteOpen(false)}
+        onChooseFile={!state.project ? () => {
+          setPasteOpen(false);
+          routeFileInput.current?.click();
+        } : undefined}
         onImport={() => void handlePasteImport()}
       />
 
