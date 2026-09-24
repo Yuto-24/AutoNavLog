@@ -86,6 +86,15 @@ for (const width of [1100, 1440]) {
     ));
     compare(calculationCoreGolden(state), calculationCoreGolden(native));
     expect(state.readiness.calculationIsCurrent).toBe(true);
+    const vorSelect = page.getByLabel("VOR基準局", { exact: true });
+    await expect(vorSelect.locator("option:checked")).toHaveText("自動 MZE");
+    await vorSelect.selectOption("AKE");
+    await expect(vorSelect).toHaveValue("AKE");
+    // AKE -> 米ノ津 TO point: GeographicLib WGS84 157.5778915705 deg true,
+    // 23.6085683845 NM, plus the AIP station declination of 7 deg west.
+    await expect(page.locator(".nav-leg-heading-row .vor-reference-cell").first()).toHaveText("165 / 23.6");
+    await vorSelect.selectOption("__AUTO__");
+    await expect(vorSelect.locator("option:checked")).toHaveText("自動 MZE");
     const boxes = await Promise.all(
       [".input-rail", ".route-workspace", ".status-rail", ".nav-log-scroll"]
         .map(selector => page.locator(selector).boundingBox()),

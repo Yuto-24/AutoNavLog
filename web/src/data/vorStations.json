@@ -9,6 +9,18 @@
   "radius_km": 540,
   "stations": [
     {
+      "identifier": "AKE",
+      "name": "AMAKUSA",
+      "type": "VOR/DME",
+      "frequency_mhz": 113.45,
+      "latitude_deg": 32.48023611111111,
+      "longitude_deg": 130.16096666666667,
+      "variation_west_deg": 7.0,
+      "variation_source": "AD 2.19 VOR declination",
+      "source_file": "RJDA__20251201.pdf",
+      "source_page": 6
+    },
+    {
       "identifier": "AME",
       "name": "AMAMI",
       "type": "VOR/DME",
