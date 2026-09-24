@@ -79,30 +79,54 @@ reload and database continuity, not a second content-hash comparison.
 ## Free-tier and current usage audit
 
 - Cloudflare account `cae366c3bb569163773b80f4bdff2d8e` reports
-  `workers/settings.free_tier=true`. Account-wide GraphQL analytics reported
-  **6 Worker requests**, 0 runtime errors and 2 subrequests for the current UTC
-  day at the time of the query; all reported requests belonged to `autonavlog-taf`.
-  Metrics can lag. The Pages project has no Functions, and the account has one
-  Pages project with 15 September deployments after the rollback checks. The project remains on `main`
-  with automatic production and preview deployment disabled.
+  `workers/settings.free_tier=true`. The operator confirmed the account plan is
+  **Free**. The dashboard showed 6 / 100,000 Worker requests today, 58 requests
+  for September 1–24, 80 ms of CPU and 0 minutes of Workers Builds. The earlier
+  account-wide GraphQL query reported 6 requests, 0 runtime errors and 2
+  subrequests for the queried UTC day; metrics may have different windows or lag.
+  The Pages project has no Functions. The account has one Pages project and 15
+  September deployment records after rollback checks. The project remains on
+  `main` with automatic production and preview deployment disabled.
+- NavMate's active Pages deployment path is Wrangler **Direct Upload** of a
+  prebuilt static artifact. Cloudflare's [Direct Upload guide](https://developers.cloudflare.com/pages/get-started/direct-upload/)
+  describes this as uploading assets built before deployment; this path does
+  not invoke a Pages build. The 0 minutes of **Workers Builds** is a separate
+  dashboard metric and is not presented as a Pages build-quota reading. The 15
+  deployment records are also not a Pages build-quota reading. The confirmed
+  Free plan, prebuilt Direct Upload workflow and asset-limit check establish
+  the initial Pages Free operation. Future automated build/deploy volume and
+  account-shared quota monitoring belong to #123.
 - Firebase project `navmate-prod` reports `billingEnabled=false`, no billing
-  account, and `Firestore (default).freeTier=true`. Cloud Monitoring returned
-  70 document reads and 20 writes over the preceding 24 hours. A delete metric
-  returned no series, which is not proof of zero deletes. These Monitoring
-  figures can lag and are not the billing report.
+  account, and `Firestore (default).freeTier=true`. The operator confirmed the
+  project is on **Spark** and that Firebase Usage displayed **61 reads, 18
+  writes and 0 deletes**; the allocation view showed reads and writes below
+  0.1% of their daily limits. An earlier Cloud Monitoring query returned 70
+  reads and 20 writes over its preceding 24-hour window; these are different
+  sources/windows and are not substituted for the operator's Usage reading.
+- The `(default)` database was newly created during this acceptance, with no
+  earlier stored data. Even if all 18 writes created distinct documents at the
+  [1 MiB document maximum](https://firebase.google.com/docs/firestore/quotas)
+  and each reached the 8 MiB maximum sum of index entries, document-plus-index
+  storage would be about **162 MiB**, versus the 1 GiB free quota. Firestore
+  can include additional storage overhead, so this is a conservative
+  application-data estimate, not a measured billable-byte count. Similarly,
+  61 reads of maximum-size documents represent about **61 MiB** of document
+  payload, far below the 10 GiB monthly outbound allowance; serialized
+  responses and other request overhead are not measured by this estimate.
+  Exact stored bytes and outbound GiB were unavailable in the console. The
+  large margin, new database, Spark plan and disabled billing support the
+  initial Free-tier acceptance; ongoing usage checks belong to #123.
 - The current official [Pages limits](https://developers.cloudflare.com/pages/platform/limits/),
   [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
   and [Firestore free quota](https://firebase.google.com/docs/firestore/quotas)
   were checked. The artifact and observed request counts fit the documented
   Free-tier limits. No paid feature or billing change was made.
 
-**Still unverified:** the Cloudflare account subscription API returns HTTP 403,
-and the browser dashboard is not signed in, so the Pages plan and its exact
-account-shared monthly build usage are not directly confirmed. Fifteen
-deployments are a conservative observed activity count, not the provider's
-  build-quota reading. Cloud Monitoring returned no Firestore storage series and
-did not provide a usable outbound-transfer metric; the current storage and
-monthly outbound usage require the Firebase Usage dashboard or another
-authoritative account-specific reading. These gaps leave the #121 Free-tier /
-current-usage production gate open. #121 should remain OPEN, and #122 / #123
-should retain their #121 dependency until the readings are confirmed.
+**Gate result:** the Free/Spark plan and observed initial usage, combined with
+the conservative Firestore size estimates, satisfy #121's requirement that
+normal initial operation not require a paid Cloud service. The missing exact
+stored-byte and outbound-GiB counters remain measurement limits, not evidence
+of zero usage. The account-shared Pages build counter was not read directly;
+the current Wrangler Direct Upload path uses a prebuilt artifact and does not
+consume a Pages build. #123 owns future feed/deployment automation and ongoing
+Free-tier monitoring. The #121 remote production acceptance is complete.
