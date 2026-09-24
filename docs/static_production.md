@@ -234,3 +234,6 @@ Sync / Weather障害時の保持は既存テストとproduction artifact試験�
 - #121 / #116の完了更新（承認前は完了checkboxを付けない）
 
 実装・local検証・PR・merge・production acceptanceを別の状態として記録する。
+
+#121の2026-09-24時点のremote production検証結果、実Pages rollback、残る
+Free-tier使用量gateは[acceptance audit](evidence/issue-121/remote-production-2026-09-24.md)に記録する。
