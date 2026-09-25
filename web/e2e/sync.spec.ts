@@ -5,7 +5,8 @@ async function start(page: Page, subject: string) {
   await page.goto("/e2e/auth-harness/index.html?sync");
   await expect.poll(() => page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
-  await expect.poll(() => page.evaluate(() => (window as any).authTest.state().account?.displayName)).toBe(subject);
+  // Vite may reload the first page while generated Local assets settle in CI.
+  await expect.poll(() => page.evaluate(() => (window as any).authTest?.state().account?.displayName)).toBe(subject);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 
 }
