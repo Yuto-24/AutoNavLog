@@ -92,9 +92,14 @@ def test_msm_provider_receives_cache_configuration(
     factory, label, development = runtime._weather_factory(config)
     provider = factory()
 
-    assert isinstance(provider, RecordingMsm)
+    assert isinstance(provider, runtime.ForecastWeatherProvider)
+    assert isinstance(provider.models["MSM"], RecordingMsm)
+    other = factory()
+    provider.selected_model = "GSM"
+    assert other.selected_model == "MSM"
+    assert provider.models["MSM"] is not other.models["MSM"]
     assert captured["cache_dir"] == tmp_path / "msm"
-    assert label == "MSM予報"
+    assert label == "MSM / GSM予報"
     assert development is False
 
 

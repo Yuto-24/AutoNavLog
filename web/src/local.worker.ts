@@ -58,7 +58,14 @@ local_application = LocalApplication(Path("/home/pyodide/data"))
 }
 
 let ready: ReturnType<typeof initialize> | undefined;
-const weather = new LocalWeatherTransport();
+const weather = {
+  MSM: new LocalWeatherTransport(),
+  GSM: new LocalWeatherTransport(
+    new URL(`${import.meta.env.BASE_URL}weather/gsm/`, self.location.origin),
+    "autonavlog.weather.gsm.v1",
+  ),
+};
+interface WeatherRequest { model: "MSM" | "GSM"; kind: "catalog" | "prepared"; asset?: PreparedAsset }
 
 function weatherResult<T>(json: string): T {
   const value = JSON.parse(json);
@@ -66,28 +73,38 @@ function weatherResult<T>(json: string): T {
   return value as T;
 }
 
-async function acquireWeather(pyodide: Awaited<ReturnType<typeof initialize>>) {
-  if (!pyodide.runPython("local_application.requires_weather()")) return;
-  const asset = await weather.catalog(catalog => {
-    pyodide.globals.set("weather_catalog", catalog);
-    try {
-      return weatherResult<PreparedAsset>(pyodide.runPython(
-        "local_application.weather_plan(weather_catalog)",
-      ) as string);
-    } finally { pyodide.globals.delete("weather_catalog"); }
-  });
-  await weather.prepared(asset, bytes => {
-    pyodide.globals.set("weather_bytes", bytes);
-    pyodide.globals.set("weather_sha256", asset.sha256);
-    try {
-      weatherResult(pyodide.runPython(
-        "local_application.accept_weather(bytes(weather_bytes.to_py()), weather_sha256)",
-      ) as string);
-    } finally {
-      pyodide.globals.delete("weather_bytes");
-      pyodide.globals.delete("weather_sha256");
-    }
-  });
+async function acquireWeather(
+  pyodide: Awaited<ReturnType<typeof initialize>>, request: WeatherRequest,
+) {
+  const transport = weather[request.model];
+  if (!transport) throw new WeatherError("WEATHER_PROCESSING_FAILED", "予報モデルが不正です。");
+  pyodide.globals.set("weather_model", request.model);
+  try {
+    if (request.kind === "catalog") {
+      await transport.catalog(catalog => {
+        pyodide.globals.set("weather_catalog", catalog);
+        try {
+          return weatherResult(pyodide.runPython(
+            "local_application.weather_catalog(weather_model, weather_catalog)",
+          ) as string);
+        } finally { pyodide.globals.delete("weather_catalog"); }
+      });
+    } else if (request.kind === "prepared" && request.asset) {
+      const asset = request.asset;
+      await transport.prepared(asset, bytes => {
+        pyodide.globals.set("weather_bytes", bytes);
+        pyodide.globals.set("weather_sha256", asset.sha256);
+        try {
+          weatherResult(pyodide.runPython(
+            "local_application.accept_weather(weather_model, bytes(weather_bytes.to_py()), weather_sha256)",
+          ) as string);
+        } finally {
+          pyodide.globals.delete("weather_bytes");
+          pyodide.globals.delete("weather_sha256");
+        }
+      });
+    } else throw new WeatherError("WEATHER_PROCESSING_FAILED", "予報取得要求が不正です。");
+  } finally { pyodide.globals.delete("weather_model"); }
 }
 // Serialize mutations while the runtime initializes; Comlink supplies the RPC protocol.
 let queue = Promise.resolve();
@@ -118,18 +135,27 @@ local_application.dispatch_response("updateProject", json.loads(local_body_json)
           if (JSON.parse(updated).error) return updated;
           pyodide.globals.set("local_dispatch_path", "calculate");
         }
-        try { await acquireWeather(pyodide); }
-        catch (error) {
-          return JSON.stringify({ error: {
-            code: error instanceof WeatherError ? error.code : "WEATHER_PROCESSING_FAILED",
-            message: error instanceof WeatherError ? error.message : "MSMの端末内処理に失敗しました。",
-          } });
-        }
+        pyodide.runPython("local_application.begin_weather()");
       }
-      return pyodide.runPython(`
+      try {
+        // Replay the same action after each explicitly requested asset. No partial
+        // calculation is published, persisted, or counted as the second click.
+        for (let attempts = 0; attempts < 128; attempts += 1) {
+          const response = pyodide.runPython(`
 import json
 local_application.dispatch_response(local_dispatch_path, json.loads(local_body_json), error_operation=local_path)
 `) as string;
+          const request = (JSON.parse(response) as { weather_request?: WeatherRequest }).weather_request;
+          if (!request) return response;
+          await acquireWeather(pyodide, request);
+        }
+        throw new WeatherError("WEATHER_PROCESSING_FAILED", "予報取得が収束しませんでした。");
+      } catch (error) {
+        return JSON.stringify({ error: {
+          code: error instanceof WeatherError ? error.code : "WEATHER_PROCESSING_FAILED",
+          message: error instanceof WeatherError ? error.message : "予報の端末内処理に失敗しました。",
+        } });
+      }
     });
     queue = result.then(() => undefined, () => undefined);
     return result;

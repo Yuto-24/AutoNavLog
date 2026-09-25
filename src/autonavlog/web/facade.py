@@ -15,6 +15,7 @@ from autonavlog.application.arrival import calculate_arrival_altitude, standard_
 from autonavlog.application.calculation_service import CalculationService
 from autonavlog.application.checkpoints import project_check_points
 from autonavlog.application.navlog_display import reproject_route_node_labels
+from autonavlog.application.project_fingerprints import forecast_selection_fingerprint
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.readiness import ReadinessEvaluation
 from autonavlog.application.readiness_service import MaterializedReadiness, ReadinessService
@@ -90,6 +91,7 @@ from autonavlog.weather.destination_taf import (
     DestinationWindProvider,
     unavailable_destination_wind,
 )
+from autonavlog.weather.forecast_provider import ForecastWeatherProvider
 from autonavlog.weather.ftd_provider import FtdWeatherProvider
 from autonavlog.weather.provider import WeatherProvider
 
@@ -148,6 +150,11 @@ ISSUE_ACTIONS: dict[str, str] = {
     "VISUAL_REPORTING_POINT_REQUIRED": "目的空港直前のVREPを選択してください。",
     "VISUAL_REPORTING_POINT_ROUTE_INVALID": "VREPの位置と到着順序を確認してください。",
     "ARRIVAL_ALTITUDE_OVERRIDE_REASON_REQUIRED": "変則Entryの高度と理由を入力してください。",
+    "FORECAST_UPDATE_AVAILABLE": "同じ入力でもう一度NAV LOGを再計算するとForecastを更新します。",
+    "FORECAST_UPDATE_REQUIRED": (
+        "同じ入力でもう一度NAV LOGを再計算してください。前回結果は保持されます。"
+    ),
+    "FORECAST_UNAVAILABLE": "飛行日時・経路・高度を確認してください。前回結果は保持されます。",
     "FORECAST_PREPARE_FAILED": "通信とForecast Runを確認して再計算してください。",
     "FORECAST_RUN_OUT_OF_COVERAGE": "互換Forecast Runへ切り替えてください。",
     "WEATHER_QUERY_FAILED": "通信と気象providerを確認して再計算してください。",
@@ -194,6 +201,7 @@ class WebSession:
     restore_warning: str | None = None
     persist_working: bool = True
     last_calculation: WorkingCalculation | None = None
+    forecast_update_fingerprint: str | None = None
 
 
 class AutoNavLogWebApplication:
@@ -754,12 +762,7 @@ class AutoNavLogWebApplication:
             request.flight_date,
             request.departure_time_jst,
         )
-        forecast_selection_invalidated = (
-            working.flight_date != request.flight_date
-            or working.planned_departure_time_jst != requested_departure_time
-            or working.weather_mode != request.weather_mode
-            or working.ftd_weather != request.ftd_weather
-        )
+        weather_mode_changed = working.weather_mode != request.weather_mode
         working.flight_date = request.flight_date
         working.planned_departure_time_jst = requested_departure_time
         if request.pilot_name is not None:
@@ -778,8 +781,11 @@ class AutoNavLogWebApplication:
                 "ftd_weather": request.ftd_weather,
                 "selected_forecast_run_id": (
                     None
-                    if forecast_selection_invalidated
+                    if weather_mode_changed
                     else working.selected_forecast_run_id
+                ),
+                "selected_forecast_model": (
+                    None if weather_mode_changed else working.selected_forecast_model
                 ),
             }
         )
@@ -837,6 +843,7 @@ class AutoNavLogWebApplication:
                 status_code=409,
             )
         if project.weather_mode == "FTD":
+            session.forecast_update_fingerprint = None
             if project.ftd_weather is None:
                 raise WebApplicationError(
                     "FTD_WEATHER_REQUIRED",
@@ -855,13 +862,27 @@ class AutoNavLogWebApplication:
             ).model_copy(update={"source_label": "FTD固定気象"})
             return self._with_rjfm_guidance(session, project, outcome), ftd_destination_wind
 
+        if isinstance(session.weather_provider, ForecastWeatherProvider):
+            session.weather_provider.begin_calculation()
+        fingerprint = forecast_selection_fingerprint(project)
+        refresh_forecast = (
+            isinstance(session.weather_provider, ForecastWeatherProvider)
+            and session.forecast_update_fingerprint == fingerprint
+        )
+        # Consume intent only after a completed application calculation. Local
+        # transport may suspend and resume this action to acquire a missing Run.
         destination_wind: DestinationWindForecast | None = None
         outcome = session.calculation_service.calculate(
             project,
             session.weather_provider,
             progress=progress,
+            refresh_forecast=refresh_forecast,
         )
         for _ in range(3):
+            if not outcome.sections or any(
+                issue.code.startswith(("FORECAST_", "WEATHER_")) for issue in outcome.blockers
+            ):
+                break
             forecast = self._destination_wind(project, outcome)
             current_signature = self._destination_wind_signature(destination_wind)
             forecast_signature = self._destination_wind_signature(forecast)
@@ -873,7 +894,14 @@ class AutoNavLogWebApplication:
                 session.weather_provider,
                 forecast,
                 progress=progress,
+                refresh_forecast=refresh_forecast,
             )
+        session.forecast_update_fingerprint = (
+            fingerprint if any(
+                issue.code in {"FORECAST_UPDATE_AVAILABLE", "FORECAST_UPDATE_REQUIRED"}
+                for issue in outcome.issues
+            ) else None
+        )
         if not self.development_weather:
             return self._with_rjfm_guidance(session, project, outcome), destination_wind
         decorated = outcome.model_copy(
@@ -931,7 +959,10 @@ class AutoNavLogWebApplication:
         state = self.project_service.ui_state(project)
         fingerprint_project = project.model_copy(
             deep=True,
-            update={"selected_forecast_run_id": outcome.selected_forecast_run_id},
+            update={
+                "selected_forecast_run_id": outcome.selected_forecast_run_id,
+                "selected_forecast_model": outcome.selected_forecast_model,
+            },
         )
         fingerprint = session.readiness_service.fingerprints(
             fingerprint_project,
@@ -1273,6 +1304,12 @@ class AutoNavLogWebApplication:
             return self._present_unlocked(session)
 
     def _present_unlocked(self, session: WebSession) -> dict[str, Any]:
+        # Observe every input mutation, including an edit away and then back.
+        # Comparing only on the second click would incorrectly revive old intent.
+        if session.project is None or session.forecast_update_fingerprint != (
+            forecast_selection_fingerprint(session.project)
+        ):
+            session.forecast_update_fingerprint = None
         evaluation = None if session.project is None else self._evaluate(session)
         issues: list[dict[str, Any]] = []
         displayed_issue_keys: set[tuple[str, UUID | None, int | None]] = set()

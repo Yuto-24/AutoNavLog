@@ -471,8 +471,8 @@
       "type": "boolean"
     },
     "schema_version": {
-      "const": 4,
-      "default": 4,
+      "const": 5,
+      "default": 5,
       "title": "Schema Version",
       "type": "integer"
     },
@@ -482,6 +482,22 @@
       },
       "title": "Sections",
       "type": "array"
+    },
+    "selected_forecast_model": {
+      "anyOf": [
+        {
+          "enum": [
+            "MSM",
+            "GSM"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Forecast Model"
     },
     "selected_forecast_run_id": {
       "anyOf": [

@@ -21,6 +21,7 @@ from .enums import (
     RouteNodeRole,
     VisualReferenceRole,
 )
+from .weather import ForecastModel, legacy_forecast_model
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -140,7 +141,7 @@ class NavSection(DomainModel):
 
 class Project(DomainModel):
     id: UUID = Field(default_factory=uuid4)
-    schema_version: Literal[4] = 4
+    schema_version: Literal[5] = 5
     name: str = Field(min_length=1)
     pilot_name: str = ""
     ship_identifier: str = ""
@@ -159,6 +160,7 @@ class Project(DomainModel):
     descent_rate_fpm: Literal[500, 1000] = 500
     tgl_count: int = Field(default=0, ge=0)
     selected_forecast_run_id: str | None = None
+    selected_forecast_model: ForecastModel | None = None
     revision: int = Field(default=0, ge=0)
     status: ProjectStatus = ProjectStatus.DRAFT
     acknowledged_warning_codes: set[str] = Field(default_factory=set)
@@ -168,6 +170,18 @@ class Project(DomainModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def migrate_schema_version(cls, value: Any) -> Any:
+        return 5 if value == 4 else value
+
+    @model_validator(mode="after")
+    def migrate_forecast_selection(self) -> Project:
+        if "selected_forecast_model" not in self.model_fields_set:
+            object.__setattr__(self, "selected_forecast_model",
+                               legacy_forecast_model(self.selected_forecast_run_id))
+        return self
 
     @field_validator("planned_departure_time_jst")
     @classmethod

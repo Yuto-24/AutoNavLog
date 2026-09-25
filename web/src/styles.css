@@ -1176,7 +1176,8 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .nav-log-add-column-button { min-height: 30px; padding: 0 10px; font-size: 11px; }
 .nav-log-heading { margin-bottom: 12px; }
-.nav-log-heading > span { color: var(--slate-500); font-size: 10px; }
+.nav-log-heading > span { color: var(--slate-500); font-size: 10px; overflow-wrap: anywhere; }
+.forecast-fallback { margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid var(--teal-700); background: var(--slate-50); color: var(--navy-800); font-size: 12px; line-height: 1.6; }
 .nav-log-scroll { contain: layout paint; border: 1px solid var(--slate-200); border-radius: var(--radius-sm); }
 .nav-log-summary {
   display: flex;

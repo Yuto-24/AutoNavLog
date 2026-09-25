@@ -14,13 +14,14 @@ def test_prepare_local_replaces_generated_tree(tmp_path, monkeypatch):
     for name in ("src/autonavlog", "data/performance", "data/reference", "vendor", "web/public"):
         (tmp_path / name).mkdir(parents=True)
     (tmp_path / "web/package.json").write_text(json.dumps({"dependencies": {"pyodide": "0.27.7"}}))
-    (tmp_path / "vendor/jma_gpv_weather-0.5.0-py3-none-any.whl").write_bytes(b"vendor")
+    (tmp_path / "vendor/jma_gpv_weather-0.6.0-py3-none-any.whl").write_bytes(b"vendor")
     (tmp_path / "web/public/current.txt").write_text("current")
     stale = tmp_path / "web/public-local"
     stale.mkdir()
     (stale / "_redirects").write_text("/* https://old.example 302")
     (stale / "removed.txt").write_text("old")
     monkeypatch.delenv("AUTONAVLOG_MSM_FEED", raising=False)
+    monkeypatch.delenv("AUTONAVLOG_GSM_FEED", raising=False)
     monkeypatch.delenv("AUTONAVLOG_TEST_FIXTURES", raising=False)
 
     def build(command, **kwargs):

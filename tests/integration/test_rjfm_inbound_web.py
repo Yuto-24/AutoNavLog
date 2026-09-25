@@ -70,11 +70,13 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-async def _wait_for_calculation(client: httpx.AsyncClient) -> dict[str, Any]:
+async def _wait_for_calculation(
+    client: httpx.AsyncClient, *, timeout_seconds: float = 90.0,
+) -> dict[str, Any]:
     created = await client.post("/api/calculation-jobs")
     assert created.status_code == 202, created.text
     job = created.json()
-    deadline = asyncio.get_running_loop().time() + 90.0
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
     while asyncio.get_running_loop().time() < deadline:
         response = await client.get(f"/api/calculation-jobs/{job['job_id']}")
         assert response.status_code == 200, response.text
@@ -319,7 +321,10 @@ async def test_production_available_reference_returns_numeric_v2_guidance(
         )
         assert manual.status_code == 200, manual.text
         assert manual.json()["project"]["sections"][-1]["planned_altitude_ft_msl"] == 2500
-        calculated = await _wait_for_calculation(client)
+        # The production avoidance search exceeds 90 seconds under coverage,
+        # including on the unchanged baseline. Keep its numeric assertions below
+        # and a finite deadline without turning this into a performance test.
+        calculated = await _wait_for_calculation(client, timeout_seconds=180.0)
         outcome = calculated["outcome"]
         guidance = outcome["rjfm_inbound_guidance"]
         assert guidance is not None

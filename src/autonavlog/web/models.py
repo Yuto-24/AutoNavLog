@@ -204,6 +204,8 @@ class WorkingCalculation(BaseModel):
             raise ValueError("calculation fingerprint must match its Project")
         if self.project.selected_forecast_run_id != self.outcome.selected_forecast_run_id:
             raise ValueError("calculation forecast run must match its Project")
+        if self.project.selected_forecast_model != self.outcome.selected_forecast_model:
+            raise ValueError("calculation forecast model must match its Project")
         return self
 
 

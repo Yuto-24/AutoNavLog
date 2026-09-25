@@ -34,3 +34,13 @@ class WeatherProvider(Protocol):
         forecast_run_id: str,
         requests: Sequence[WeatherRequest],
     ) -> Sequence[WeatherResult]: ...
+
+
+class ForecastCandidateProvider(WeatherProvider, Protocol):
+    def candidate_runs(self, requirement: ForecastRequirement) -> Sequence[str]:
+        """Newest first; distinguish offline exclusion from discovery failure."""
+        ...
+
+    def check_run(self, run: str, requirement: ForecastRequirement) -> None:
+        """Prepare and check the entire request, including actual HGT coverage."""
+        ...

@@ -23,7 +23,7 @@ dependencies = [
 autonavlog-web = "autonavlog.web.__main__:main"
 
 [project.optional-dependencies]
-msm = ["jma-gpv-weather==0.5.0"]
+msm = ["jma-gpv-weather==0.6.0"]
 test = [
   "anyio>=4,<5",
   "build>=1.2,<2",
