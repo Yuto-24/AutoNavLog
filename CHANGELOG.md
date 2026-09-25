@@ -2,7 +2,7 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
-## 1.20.3
+## 1.20.4
 
 ### 利用者向け
 
@@ -13,6 +13,18 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 ### 開発者向け
 
 - 既存のPlatform Capability経由でClipboardを読み取り、確認待ち・キャンセルを模したテストとChromiumの回帰を検証しました。
+
+## 1.20.3
+
+### 利用者向け
+
+#### 修正
+
+- Safariで初回NAV LOG計算後に結果位置へ自動スクロールされない不具合を修正しました。
+
+### 開発者向け
+
+- NAV LOGのDOM反映後にスクロールし、ChromiumとiPhone・iPad WebKitの初回計算・再計算をbrowser testで確認します。
 
 ## 1.20.2
 
