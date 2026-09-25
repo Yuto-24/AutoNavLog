@@ -40,7 +40,7 @@ test("first login migrates 200 Legacy Projects through Firestore and fresh devic
     const fresh = await second.newPage();
     await fresh.goto(path);
     await enterImportWorkflow(fresh);
-  await expect(fresh.getByLabel("DATE", { exact: true })).toBeVisible();
+    await expect(fresh.getByLabel("DATE", { exact: true })).toBeVisible();
     await fresh.evaluate(subject => (window as any).authTest.signIn(subject), subject);
     await expect(fresh.locator(`#saved-project option[value="${projectId}"]`)).toHaveCount(1);
     await fresh.locator("#saved-project").selectOption(projectId);

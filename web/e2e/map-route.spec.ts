@@ -52,6 +52,7 @@ for (const width of [1100, 1440]) {
     await expect(strip(page).locator("li")).toHaveCount(1);
     expect(await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(viewport);
     await page.getByRole("button", { name: "Zoom out" }).click();
+    await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).zoom)).toBe(8);
     await page.getByRole("button", { name: "Zoom out" }).click();
     await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).zoom)).toBe(7);
     await pick(page, 32.115635, 130.337678);

@@ -132,7 +132,7 @@ test("cached authentication survives offline/provider failure at startup, termin
     await page.reload();
     await expect.poll(async () => (await authState(page)).account?.account_id).toBe(accountId);
     await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
     expect(await savedNames(page)).toContain("Retained A");
     await page.evaluate(() => (window as any).authTest.refresh());
     expect((await authState(page)).account.account_id).toBe(accountId);
@@ -198,7 +198,7 @@ test("browser process restart keeps account ownership offline; startup revocatio
     await page.reload();
     await expect.poll(async () => (await authState(page)).account).toBeNull();
     await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
     expect(await savedNames(page)).not.toContain("Restart account route");
     service.failure = ""; await signIn(page, "Restart");
     expect(await savedNames(page)).toContain("Restart account route");
