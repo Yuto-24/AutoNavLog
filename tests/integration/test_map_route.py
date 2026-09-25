@@ -130,3 +130,55 @@ def test_direct_airports_and_repeated_airport_occurrences(local):
 def test_invalid_map_routes_rejected(points):
     with pytest.raises(ValueError):
         ConfirmRouteRequest.model_validate(payload(points))
+
+
+def test_map_route_removes_only_consecutive_duplicates(local):
+    state = json.loads(local.dispatch("confirmRoute", payload([
+        point("FROM", airport="RJFM"), point("repeat", airport="RJFM"),
+        point("WP1"), point("WP2"),
+        point("via", airport="RJFO"), point("return", airport="RJFM"),
+        point("TO", airport="RJFO"), point("repeat TO", airport="RJFO"),
+    ])))
+    nodes = state["project"]["route_nodes"]
+    assert [node["name"] for node in nodes] == ["RJFM", "WP1", "RJFO", "RJFM", "RJFO"]
+    assert all(
+        (a["latitude_deg"], a["longitude_deg"]) != (b["latitude_deg"], b["longitude_deg"])
+        for a, b in zip(nodes, nodes[1:], strict=False)
+    )
+
+
+def test_identical_airports_rejected_before_creating_project(local):
+    from autonavlog.web.facade import WebApplicationError
+    with pytest.raises(WebApplicationError) as failure:
+        local.dispatch("confirmRoute", payload([
+            point("FROM", airport="RJFM"), point("TO", airport="RJFM"),
+        ]))
+    assert failure.value.code == "ROUTE_INCOMPLETE"
+    assert json.loads(local.dispatch("bootstrap"))["project"] is None
+
+
+def test_map_reference_slots_keep_generated_provenance(local):
+    from autonavlog.storage.rjfm_reference import RjfmReferencePack
+    pack = RjfmReferencePack.from_directory(ROOT / "data/reference/rjfm")
+    umk = pack.points["UMK"].position
+    omaru = pack.points["OMARU"].position
+    state = json.loads(local.dispatch("confirmRoute", payload([
+        point("FROM", airport="RJFM"),
+        point("WP1", float(umk.latitude_deg), float(umk.longitude_deg)),
+        point("WP2", float(omaru.latitude_deg), float(omaru.longitude_deg)),
+        point("TO", airport="RJFO"),
+    ])))
+    nodes = state["project"]["route_nodes"]
+    assert [node["name"] for node in nodes][1:3] == ["UMK", "OMARU"]
+    assert all(node["name_source"] == "GENERATED" for node in nodes)
+    assert all(node["source"] != "KML/KMZ Point" for node in nodes)
+
+
+def test_duplicate_destination_coordinate_keeps_airport_identity(local):
+    destination = local.app.airports.get("RJFO")
+    state = json.loads(local.dispatch("confirmRoute", payload([
+        point("FROM", airport="RJFM"),
+        point("WP1", float(destination.latitude_deg), float(destination.longitude_deg)),
+        point("TO", airport="RJFO"),
+    ])))
+    assert [node["name"] for node in state["project"]["route_nodes"]] == ["RJFM", "RJFO"]

@@ -111,6 +111,31 @@ for (const width of [1100, 1440]) {
     await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
     await expect(page.locator(".nav-log-table")).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(savedView);
+    // A synced/older Project without a device preference must not open at another route.
+    await page.evaluate(id => {
+      localStorage.removeItem(`autonavlog.map-viewport.v1.anonymous.project.${id}`);
+      localStorage.setItem("autonavlog.map-viewport.v1.anonymous.last", JSON.stringify({ latitude: 35.68, longitude: 139.76, zoom: 12 }));
+    }, projectId);
+    await page.reload();
+    await expect(page.locator(".nav-log-table")).toBeVisible({ timeout: 120_000 });
+    await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).longitude)).toBeLessThan(132);
+    const fitted = await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"));
+    await page.reload();
+    await expect(page.locator(".nav-log-table")).toBeVisible({ timeout: 120_000 });
+    expect(await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(fitted);
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await page.evaluate(id => {
+      localStorage.removeItem(`autonavlog.map-viewport.v1.anonymous.project.${id}`);
+      localStorage.setItem("autonavlog.map-viewport.v1.anonymous.last", JSON.stringify({ latitude: 35.68, longitude: 139.76, zoom: 12 }));
+    }, projectId);
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible({ timeout: 120_000 });
+    await page.getByLabel("保存済み", { exact: true }).selectOption(projectId);
+    await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
+    await expect(page.locator(".nav-log-table")).toBeVisible();
+    await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).longitude)).toBeLessThan(132);
     expect(api).toEqual([]);
     await page.screenshot({ path: info.outputPath("map-route.png"), fullPage: true });
   });

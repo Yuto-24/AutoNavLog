@@ -50,6 +50,7 @@ interface RouteWorkspaceProps {
   mapBuilder?: MapRouteBuilderProps;
   viewportStorage: KeyValueStorage;
   viewportScope: string;
+  preserveRouteViewport: boolean;
   onOpenExternalUrl: (url: string) => void;
   checkPointDraft: CheckPointDraft;
   setCheckPointDraft: Dispatch<SetStateAction<CheckPointDraft>>;
@@ -184,7 +185,7 @@ function CheckPointMapPicker({
 }
 
 export function RouteWorkspace({
-  mapBuilder, viewportStorage, viewportScope,
+  mapBuilder, viewportStorage, viewportScope, preserveRouteViewport,
   onOpenExternalUrl,
   checkPointDraft, setCheckPointDraft, nodeNameDraft: nodeDraft, setNodeNameDraft: setNodeDraft,
   candidate,
@@ -803,7 +804,7 @@ export function RouteWorkspace({
             </CircleMarker>
           )}
           {mapBuilder && <MapDraftLayers {...mapBuilder} />}
-          <MapViewport storage={viewportStorage} scope={viewportScope} projectId={project?.id ?? null} />
+          <MapViewport storage={viewportStorage} scope={viewportScope} projectId={project?.id ?? null} coordinates={fitCoordinates} preserveViewport={preserveRouteViewport} />
           <CheckPointMapPicker active={!mapBuilder && pickingCheckPoint} onPick={handleMapPick} />
           {!mapBuilder && !project && <FitBounds
             coordinates={fitCoordinates}

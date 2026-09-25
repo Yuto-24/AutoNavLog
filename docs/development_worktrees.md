@@ -109,7 +109,7 @@ Stop:
 docker compose down --remove-orphans
 ```
 
-Typecheck:
+Typecheck（ホストに `node` と `npm` がある場合）:
 
 ```bash
 npm --prefix web run typecheck

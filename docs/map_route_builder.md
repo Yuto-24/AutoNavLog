@@ -9,9 +9,11 @@ FROM → TO route has no synthetic VREP. Existing Readiness rules still apply.
 
 `ConfirmRouteRequest` accepts `candidate_kind=map` and ordered `map_points`.
 The common Python facade resolves airport identities against the active catalog,
-uses canonical airport coordinates, and installs the route through the existing
+uses canonical airport coordinates, removes consecutive equal coordinates (retaining
+the destination airport), rejects routes with fewer than two distinct consecutive
+positions, and installs the route through the existing
 Project/arrival/phase normalization and Readiness boundaries. Geometry is never
-converted to KML. Planning, Check Points, Calculation, Last Calculation, and the
+converted to KML; generated MAP labels never become imported Point provenance. Planning, Check Points, Calculation, Last Calculation, and the
 Local/Legacy Repository contracts remain shared with existing routes.
 
 Draft occurrences live only in the optional `mapRouteDraft` field of the existing
@@ -24,7 +26,8 @@ the existing account boundary. Confirmed routes reopen in Planning.
 Viewport preferences (center/zoom) use Platform persistence values, scoped by account
 and Project UUID, with a last-used view for new work and RJFM as the initial fallback.
 They are best-effort device preferences, not synchronized Project or Calculation data.
-Selecting FROM never fits/recenters the map. Resizing invalidates the Leaflet canvas
+Opening a confirmed Project without a saved device viewport fits its route once.
+Draft confirmation retains its current view. Selecting FROM never fits/recenters the map. Resizing invalidates the Leaflet canvas
 without fitting the route. Existing KML candidate preview retains its fit behavior.
 
 The KML compatibility workflow is still available through `KML/KMZから開始` and the

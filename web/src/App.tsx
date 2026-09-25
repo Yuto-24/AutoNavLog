@@ -140,6 +140,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [selectedKmzDocument, setSelectedKmzDocument] = useState("");
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const navLogRef = useRef<HTMLDivElement | null>(null);
+  const [preserveRouteViewport, setPreserveRouteViewport] = useState(false);
   const planningPanelRef = useRef<HTMLElement>(null);
   const messageBarRef = useRef<HTMLDivElement>(null);
   const focusPlanning = (showError = false) => window.requestAnimationFrame(() => {
@@ -213,8 +214,10 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       syncCalculationInputs?: boolean;
       syncDerivedArrival?: boolean;
       freshImport?: boolean;
+      preserveRouteViewport?: boolean;
     } = {},
   ) => {
+    setPreserveRouteViewport(Boolean(options.preserveRouteViewport));
     if (next.project || options.freshImport) setMapRouteDraft([]);
     const nextProjectId = next.project?.id ?? null;
     const nextPatternBasis = patternRequestBasis(next);
@@ -463,7 +466,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           (reason.details.operation === "confirmRoute" && projectIdRef.current === null))) {
       // Retain raw UI drafts while advancing canonical recovery and its storage token.
       const newRoute = reason.details.operation === "confirmRoute" && projectIdRef.current === null;
-      applyState(reason.committedState, { syncCalculationInputs: false });
+      applyState(reason.committedState, { syncCalculationInputs: false, preserveRouteViewport: reason.details.operation === "confirmRoute" });
       if (newRoute) focusPlanning(true);
       return true;
     }
@@ -514,6 +517,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       syncCalculationInputs?: boolean;
       operation?: Exclude<ActiveOperation, null>;
       freshImport?: boolean;
+      preserveRouteViewport?: boolean;
     } = {},
   ) => {
     const generation = calculationInputGenerationRef.current;
@@ -627,7 +631,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       flight_date: defaults.flightDate, departure_time_jst: defaults.departureTimeJst,
       weather_mode: defaults.weatherMode, ftd_weather: defaults.weatherMode === "FTD" ? ftdWeatherSettings(defaults) : null,
       total_usable_fuel_gal: 90, default_variation_deg_east: from && from.latitudeDeg < 32 ? 7 : 8,
-    }), "経路を確定しました。飛行計画を入力してください。", { syncCalculationInputs: true });
+    }), "経路を確定しました。飛行計画を入力してください。", { syncCalculationInputs: true, preserveRouteViewport: true });
     if (confirmed?.project) focusPlanning();
   };
 
@@ -686,7 +690,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           use_penultimate_as_vrep: form.usePenultimateAsVrep,
         }),
       "経路を確定し、目的空港の場周経路高度を適用しました。",
-      { syncCalculationInputs: true },
+      { syncCalculationInputs: true, preserveRouteViewport: true },
     );
     if (confirmed?.project) {
       setAltitudeInputs(
@@ -1627,6 +1631,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         <RouteWorkspace
           mapBuilder={mapBuilder}
           viewportStorage={platform.persistence.values}
+          preserveRouteViewport={preserveRouteViewport}
           viewportScope={application.auth?.getState().account?.account_id ?? "anonymous"}
           onOpenExternalUrl={(url) => {
             try { platform.openExternalUrl(url); }
