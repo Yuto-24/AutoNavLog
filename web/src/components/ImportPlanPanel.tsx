@@ -104,6 +104,7 @@ export function ImportPlanPanel({
               <ClipboardPaste aria-hidden="true" size={17} />
               KMLを貼り付け
             </button>
+            <p className="quiet-state">ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。</p>
           </>
         )}
         {importState.filename && (

@@ -16,6 +16,30 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 - Map Routeを既存のApplication確定処理・Project・Calculation contractへ接続しました。
 - Codex WorktreeはホストのNode.jsがなくてもDockerで依存関係を準備し、CPU上限をDocker環境に合わせます。
 
+## 1.20.4
+
+### 利用者向け
+
+#### 修正
+
+- Safariで経路を貼り付ける際、ブラウザ標準の確認操作を案内し、キャンセルや読み取り失敗後に手動貼り付けまたはファイル選択へ進めるようにしました。
+
+### 開発者向け
+
+- 既存のPlatform Capability経由でClipboardを読み取り、確認待ち・キャンセルを模したテストとChromiumの回帰を検証しました。
+
+## 1.20.3
+
+### 利用者向け
+
+#### 修正
+
+- Safariで初回NAV LOG計算後に結果位置へ自動スクロールされない不具合を修正しました。
+
+### 開発者向け
+
+- NAV LOGのDOM反映後にスクロールし、ChromiumとiPhone・iPad WebKitの初回計算・再計算をbrowser testで確認します。
+
 ## 1.20.2
 
 ### 利用者向け
