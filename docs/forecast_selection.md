@@ -103,8 +103,8 @@ ran the actual pinned Pyodide runtime for both GSM and the existing MSM boundary
 The live source checks used a small Miyazaki-area crop; they do not establish
 full-domain payload sizes or physical mobile memory limits.
 
-AutoNavLog's nine Local integration tests compare native and portable results,
-cover acquisition suspension/replay and preserve Last Calculation on failure.
+Nine AutoNavLog Local integration cases cover acquisition suspension/replay,
+fixed Forecast behavior and Last Calculation preservation on failure.
 The browser GSM fixture exercises actual Pyodide calculation, complete canonical
 Legacy parity, model/provenance persistence across reload, explicit return to MSM,
 and workflow positions at 1100 and 1440 pixels. Captured real MSM data supplies the
