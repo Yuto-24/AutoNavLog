@@ -166,6 +166,7 @@ test("download and Clipboard export the displayed result, survive denial, and re
   await page.evaluate(() => { URL.createObjectURL = undefined as any; });
   await page.getByRole("button", { name: "NAV LOG JSONをダウンロード" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "この環境ではファイルを保存できません" })).toBeVisible();
+  expect((await snapshot(page)).working.outcome).toEqual(original.outcome);
 });
 
 test("source links open without an opener and cannot unlock a pending save", async ({ page, context }) => {
