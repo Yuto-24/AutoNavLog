@@ -5,13 +5,14 @@ import { useModalFocusTrap } from "../useModalFocusTrap";
 
 const unavailable: AuthState = { account: null, available: false };
 const noSubscribe = () => () => {};
-export function AccountControl({ auth, busy }: { auth?: AuthProvider; busy: boolean }) {
+export function AccountControl({ auth, busy, onBeforeChange }: { auth?: AuthProvider; busy: boolean; onBeforeChange?: () => boolean }) {
   const state = useSyncExternalStore(auth?.subscribe ?? noSubscribe, auth?.getState ?? (() => unavailable));
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialog = useModalFocusTrap<HTMLElement>(open);
   const act = async (operation: () => Promise<void>) => {
+    if (onBeforeChange && !onBeforeChange()) return;
     setPending(true); setError(null);
     try { await operation(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "認証操作に失敗しました。"); }

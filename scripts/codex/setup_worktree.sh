@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
-for command_name in docker python3 node npm; do
+for command_name in docker python3; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "Required command not found: $command_name" >&2
         exit 1
@@ -13,6 +13,12 @@ for command_name in docker python3 node npm; do
 done
 
 docker compose version >/dev/null
+DOCKER_CPUS="$(docker info --format '{{.NCPU}}')"
+if [[ ! "$DOCKER_CPUS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Cannot determine Docker CPU capacity: $DOCKER_CPUS" >&2
+    exit 1
+fi
+CPU_LIMIT=$(( DOCKER_CPUS < 10 ? DOCKER_CPUS : 10 ))
 
 ENV_FILE="$ROOT/.env"
 STATE_DIR="$ROOT/.autonavlog-worktree"
@@ -54,6 +60,12 @@ services:
     image: "${AUTONAVLOG_IMAGE}"
 EOF
     fi
+    cat >>"$OVERRIDE_FILE" <<EOF
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT}"
+EOF
 }
 
 if [[ -e "$ENV_FILE" ]]; then
@@ -136,7 +148,15 @@ if [[ ! "$AUTONAVLOG_HOST_PORT" =~ ^[0-9]+$ ]] || (( AUTONAVLOG_HOST_PORT < 2000
 fi
 
 write_override
-npm --prefix web ci
+if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    npm --prefix web ci
+else
+    # Match the Dockerfile frontend runtime without requiring a host Node install.
+    docker run --rm --user "$(id -u):$(id -g)" \
+        --env npm_config_cache=/tmp/npm-cache \
+        --mount "type=bind,source=$ROOT/web,target=/work/web" \
+        --workdir /work node:22-bookworm-slim npm --prefix web ci
+fi
 
 printf 'Codex worktree ready: project=%s port=%s\n' "$COMPOSE_PROJECT_NAME" "$AUTONAVLOG_HOST_PORT"
 printf 'AutoNavLog URL after startup: http://127.0.0.1:%s\n' "$AUTONAVLOG_HOST_PORT"

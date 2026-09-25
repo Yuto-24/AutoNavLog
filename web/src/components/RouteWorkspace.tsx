@@ -1,3 +1,6 @@
+import { MapDraftLayers, RouteStrip, type MapRouteBuilderProps } from "./MapRouteBuilder";
+import { MapViewport } from "./MapViewport";
+import type { KeyValueStorage } from "../platform";
 import { ExternalLink } from "./ExternalLink";
 import type { Dispatch, SetStateAction } from "react";
 import type { CheckPointDraft, NodeNameDraft } from "../applicationSession";
@@ -44,6 +47,9 @@ import "./RouteWorkspacePhase.css";
 import { localMode } from "../executionMode";
 
 interface RouteWorkspaceProps {
+  mapBuilder?: MapRouteBuilderProps;
+  viewportStorage: KeyValueStorage;
+  viewportScope: string;
   onOpenExternalUrl: (url: string) => void;
   checkPointDraft: CheckPointDraft;
   setCheckPointDraft: Dispatch<SetStateAction<CheckPointDraft>>;
@@ -178,6 +184,7 @@ function CheckPointMapPicker({
 }
 
 export function RouteWorkspace({
+  mapBuilder, viewportStorage, viewportScope,
   onOpenExternalUrl,
   checkPointDraft, setCheckPointDraft, nodeNameDraft: nodeDraft, setNodeNameDraft: setNodeDraft,
   candidate,
@@ -513,14 +520,14 @@ export function RouteWorkspace({
   } as CSSProperties;
 
   return (
-    <section className="route-workspace" aria-label="経路地図とLeg設定">
+    <section className={`route-workspace${mapBuilder ? " is-route-building" : ""}`} aria-label="経路地図とLeg設定">
       <div className="workspace-heading">
         <div>
           <h2>経路</h2>
           <p>
             {project
               ? `${project.departure_airport_id} → ${project.destination_airport_id}`
-              : candidate?.name ?? "飛行経路候補を選択すると地図へ表示します"}
+              : mapBuilder ? "MAPで経路を作成" : candidate?.name ?? "飛行経路候補を選択すると地図へ表示します"}
           </p>
         </div>
         {project && <span className="route-count">{nodes.length}点 / {sections.length} Leg</span>}
@@ -533,8 +540,8 @@ export function RouteWorkspace({
         <MapContainer
           // Local Account changes may unmount immediately; Leaflet zoom timers outlive remove().
           zoomAnimation={!localMode}
-          center={[32.6, 131.3]}
-          zoom={7}
+          center={[31.8772, 131.4486]}
+          zoom={9}
           scrollWheelZoom
           className="route-map"
           aria-label="飛行経路地図"
@@ -795,12 +802,14 @@ export function RouteWorkspace({
               </Tooltip>
             </CircleMarker>
           )}
-          <CheckPointMapPicker active={pickingCheckPoint} onPick={handleMapPick} />
-          <FitBounds
+          {mapBuilder && <MapDraftLayers {...mapBuilder} />}
+          <MapViewport storage={viewportStorage} scope={viewportScope} projectId={project?.id ?? null} />
+          <CheckPointMapPicker active={!mapBuilder && pickingCheckPoint} onPick={handleMapPick} />
+          {!mapBuilder && !project && <FitBounds
             coordinates={fitCoordinates}
             signature={coordinateSignature}
             viewportRevision={mapHeight}
-          />
+          />}
         </MapContainer>
         {(rjfmMapReference || rjfmGuidance) && (
           <div
@@ -852,14 +861,14 @@ export function RouteWorkspace({
             )}
           </div>
         )}
-        {!coordinates.length && (
+        {!mapBuilder && !coordinates.length && (
           <div className="map-empty">
             <strong>経路はまだありません</strong>
             <span>KML/KMZを読み込み、飛行経路候補を選択してください。</span>
           </div>
         )}
       </div>
-      <MapResizeHandle value={mapHeight} min={320} max={900} onChange={setMapHeight} />
+      {mapBuilder ? <RouteStrip {...mapBuilder} /> : <MapResizeHandle value={mapHeight} min={320} max={900} onChange={setMapHeight} />}
       {rjfmMapReference && (
         <aside className="rjfm-airspace-note" aria-label="RJFM空域データ注記">
           <span>{rjfmMapReference.civilTrainingTestAirspace.caution}</span>
@@ -884,7 +893,7 @@ export function RouteWorkspace({
       )}
 
       <RouteConfirmation
-        visible={Boolean(candidate && !project)}
+        visible={Boolean(candidate && !project && !mapBuilder)}
         polygon={candidate?.kind === "polygon"}
         routeUseConfirmed={routeUseConfirmed}
         polygonRouteConfirmed={polygonRouteConfirmed}

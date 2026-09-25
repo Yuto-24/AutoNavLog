@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { resolve } from "node:path";
 
@@ -10,6 +11,7 @@ test.beforeEach(async ({ context }) => {
 });
 async function open(page: Page) {
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 }
 async function imported(page: Page) {
@@ -84,6 +86,7 @@ test("new discards recovery; new tabs including opener clones never inherit work
   const popupPromise = page.waitForEvent("popup");
   await page.evaluate(() => window.open(location.href, "_blank"));
   const popup = await popupPromise;
+  await enterImportWorkflow(popup);
   await expect(popup.getByLabel("TGL", { exact: true })).toHaveValue("0");
   expect((await snapshot(popup)).working.project).toBeNull();
   await popup.close();
@@ -93,6 +96,7 @@ test("new discards recovery; new tabs including opener clones never inherit work
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("3");
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "新規", exact: true }).click();
+  await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("0");
   await page.reload();
   expect((await snapshot(page)).working.project).toBeNull();
@@ -110,7 +114,7 @@ for (const corruption of ["json", "version", "working"]) {
     }, { key, corruption });
     await page.reload();
     await expect(page.getByText("前回の作業を復元できなかったため、新規作業を開始しました。")).toBeVisible();
-    await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
     expect((await snapshot(page)).working.project).toBeNull();
   });
 }

@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { test, expect, type Page } from "@playwright/test";
 import { resolve } from "node:path";
 import { backend } from "./helpers/sync-auth";
@@ -6,6 +7,7 @@ async function start(page: Page, subject: string) {
   await expect.poll(() => page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
   await expect.poll(() => page.evaluate(() => (window as any).authTest.state().account?.displayName)).toBe(subject);
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 
 }
@@ -88,6 +90,7 @@ test("anonymous Latest collision is durable and blocks editing until named save"
     await app.repository.write(copy, null, true);
   });
   await page.evaluate(() => (window as any).authTest.signOut());
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await create(page, "Anonymous saved");
   await page.evaluate(async () => {
@@ -119,5 +122,24 @@ for (const operation of ["resolve", "import"] as const) test("post-" + operation
   else await page.getByRole("button", { name: "破棄", exact: true }).click();
   await expect(page.locator(".account-sync-dialog")).not.toBeVisible();
   await expect(page.getByRole("button", { name: "元に戻す", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("alert").filter({ hasText: "Projectの再読み込みに失敗しました" })).toBeVisible();
+});
+
+
+for (const operation of ["resolve", "import"] as const) test("draft guard precedes sync " + operation, async ({ page }) => {
+  await page.goto("/e2e/auth-harness/index.html");
+  await page.evaluate(async operation => {
+    const modulePath = "/e2e/auth-harness/sync-control.tsx";
+    const { mount } = await import(/* @vite-ignore */ modulePath);
+    mount(operation, true);
+  }, operation);
+  const action = page.getByRole("button", { name: operation === "resolve" ? "同期先の内容を採用" : "破棄", exact: true });
+  page.once("dialog", dialog => dialog.dismiss());
+  await action.click();
+  await expect(page.locator(".account-sync-dialog")).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "Projectの再読み込みに失敗しました" })).toHaveCount(0);
+  page.once("dialog", dialog => dialog.accept());
+  await action.click();
+  await expect(page.locator(".account-sync-dialog")).not.toBeVisible();
   await expect(page.getByRole("alert").filter({ hasText: "Projectの再読み込みに失敗しました" })).toBeVisible();
 });

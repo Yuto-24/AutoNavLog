@@ -122,7 +122,17 @@ export class LocalApplication implements AutoNavLogApplication {
         }
         throw error;
       }
-      return operation === "importRoute" ? this.present(state) : this.persist(state);
+      if (operation === "importRoute") return this.present(state);
+      try { return await this.persist(state); }
+      catch (error) {
+        if (operation === "confirmRoute" && error instanceof ApplicationError) {
+          // Python has accepted the route; retain it for session recovery/save retry.
+          const committed = await this.present(state).catch(() => state);
+          throw new ApplicationError(error.message, error.code,
+            { ...error.details, operation: "confirmRoute" }, committed);
+        }
+        throw error;
+      }
     });
   }
   bootstrap(recovery?: WorkingRecovery) {

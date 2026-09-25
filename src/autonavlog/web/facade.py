@@ -394,21 +394,46 @@ class AutoNavLogWebApplication:
                     "地図とKML記載順を確認してから経路を確定してください。",
                 )
             result = session.import_result
-            if result is None:
-                raise WebApplicationError("KML_REQUIRED", "先にKML/KMZを読み込んでください。")
-            entries = self._entries_from_candidate(result, request)
-            original_departure_coordinate = [entries[0][1], entries[0][2]]
-            original_destination_coordinate = [entries[-1][1], entries[-1][2]]
-            departure, destination = self._airports_for_route_endpoints(
-                (entries[0][1], entries[0][2]),
-                (entries[-1][1], entries[-1][2]),
-            )
-            entries = self._align_route_endpoints(entries, departure.id, destination.id)
-            explicit_point_names = self._explicit_point_names_for_candidate(
-                result,
-                request,
-                entries,
-            )
+            if request.candidate_kind == "map":
+                if session.project is not None:
+                    raise WebApplicationError(
+                        "PROJECT_ALREADY_CONFIRMED", "新規作業から経路を作成してください。"
+                    )
+                departure, destination = self._selected_airports(
+                    request.map_points[0].airport_id or "",
+                    request.map_points[-1].airport_id or "",
+                )
+                entries = []
+                for point in request.map_points:
+                    if point.airport_id:
+                        airport, _ = self._selected_airports(point.airport_id, point.airport_id)
+                        entries.append((
+                            airport.icao, float(airport.latitude_deg), float(airport.longitude_deg),
+                            f"REFERENCE:{airport.source_revision}", RouteNodeNameSource.GENERATED,
+                        ))
+                    else:
+                        entries.append((
+                            point.name, point.latitude_deg, point.longitude_deg,
+                            "MAP", RouteNodeNameSource.GENERATED,
+                        ))
+                explicit_point_names = {index: entry[0] for index, entry in enumerate(entries)}
+            else:
+                if result is None:
+                    raise WebApplicationError("KML_REQUIRED", "先にKML/KMZを読み込んでください。")
+                entries = self._entries_from_candidate(result, request)
+                departure, destination = self._airports_for_route_endpoints(
+                    (entries[0][1], entries[0][2]),
+                    (entries[-1][1], entries[-1][2]),
+                )
+                original_departure_coordinate = [entries[0][1], entries[0][2]]
+                original_destination_coordinate = [entries[-1][1], entries[-1][2]]
+                entries = self._align_route_endpoints(entries, departure.id, destination.id)
+                explicit_point_names = self._explicit_point_names_for_candidate(
+                    result, request, entries
+                )
+            if request.candidate_kind == "map":
+                original_departure_coordinate = [entries[0][1], entries[0][2]]
+                original_destination_coordinate = [entries[-1][1], entries[-1][2]]
             entries = self._reserve_rjfm_northbound_name_slots(
                 entries,
                 departure.id,
@@ -452,13 +477,16 @@ class AutoNavLogWebApplication:
                 {
                     "project_name_auto": True,
                     "project_name_generated": project.name,
-                    "web_import_filename": session.import_filename,
+                    "web_import_filename": (
+                        None if request.candidate_kind == "map" else session.import_filename
+                    ),
                     "web_owner_id": session.owner_id,
                     "web_original_departure_coordinate": list(original_departure_coordinate),
                     "web_original_destination_coordinate": list(original_destination_coordinate),
                 }
             )
             if request.candidate_kind == "connected_lines":
+                assert result is not None
                 connected = result.connected_lines[request.candidate_index]
                 project.metadata.update(
                     {

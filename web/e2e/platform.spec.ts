@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -14,6 +15,7 @@ test.beforeEach(async ({ context }) => {
 });
 async function open(page: Page) {
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(paste(page)).toBeEnabled();
 }
 async function drop(page: Page, name: string, content: string) {

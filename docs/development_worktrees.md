@@ -23,7 +23,20 @@ bash scripts/codex/cleanup_worktree.sh
 
 Codex 側の環境変数は不要です。macOS / Windows 固有の設定も、現在の WSL/Linux 運用では不要です。
 
-セットアップは `docker`, `docker compose`, `python3`, `node`, `npm` を確認し、`npm --prefix web ci` を実行します。Python runtime/test dependencies は既存の Docker test stage を使用します。
+セットアップには稼働中の Docker daemon、`docker compose`、`python3` が必要です。
+ホストに `node` と `npm` がある場合は `npm --prefix web ci` を実行します。
+ない場合は Dockerfile と同じ `node:22-bookworm-slim` で実行するため、ホストへの Node.js のインストールは不要です。
+生成ファイルは実行ユーザーの UID/GID で作成します。Python runtime/test dependencies は既存の Docker test stage を使用します。
+Worktree の CPU 上限は Docker daemon の CPU 数と通常の上限 10 の小さい方に設定します。
+通常 checkout の Compose 設定は変更しません。
+
+ホストに Node.js がない場合の型チェックは、リポジトリのルートで次のように実行できます。
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" \
+  --mount "type=bind,source=$PWD,target=/work" --workdir /work \
+  node:22-bookworm-slim npm --prefix web run typecheck
+```
 
 ## 生成される設定
 

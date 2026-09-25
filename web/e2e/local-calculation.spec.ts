@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -59,6 +60,7 @@ for (const width of [1100, 1440]) {
     await page.context().route("**/api/**", route => route.abort());
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/");
+  await enterImportWorkflow(page);
     await expect(page).toHaveTitle(/AutoNavLog/);
     await expect(page.locator(".brand-subtitle").filter({ hasText: " / Local" })).toBeVisible();
     await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
@@ -150,6 +152,7 @@ for (const corrupt of [false, true]) {
       await page.context().route("**/local/manifest.json", route => route.fulfill({ status: 503, body: "" }));
     }
     await page.goto("/");
+  await enterImportWorkflow(page);
     await expect(page.getByRole("alert")).toContainText("処理を実行できませんでした。画面を再読み込みしてください。");
     expect(apiRequests).toEqual([]);
   });
@@ -171,6 +174,7 @@ test("strong FTD wind preserves Python Warning and Blocker results", async ({ pa
   });
   await page.context().route("**/api/**", route => route.abort());
   await page.goto("/");
+  await enterImportWorkflow(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.getByLabel("地上風向 ° FROM").fill("360");
   await page.getByLabel("地上風速 kt").fill("200");
@@ -214,6 +218,7 @@ test("actual MSM FORECAST reaches NAV LOG with Python provenance and no fallback
   });
   await page.context().route("**/api/**", route => route.abort());
   await page.goto("/");
+  await enterImportWorkflow(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-12");
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
   await page.getByLabel("気象モード").selectOption("FORECAST");

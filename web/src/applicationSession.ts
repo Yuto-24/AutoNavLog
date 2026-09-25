@@ -1,3 +1,4 @@
+import { validMapDraft, type MapRoutePoint } from "./mapRouteDraft";
 import type { KeyValueStorage, PlatformCapabilities } from "./platform";
 import type { PlanningForm } from "./forms";
 import { initialPlanningForm } from "./forms";
@@ -45,6 +46,8 @@ export function restoreProjectDraft(project: Project, draft: ProjectDraft): Proj
 }
 export interface VorColumn { id: number; stationIdentifier: string | null }
 export interface ApplicationSession {
+  mapRouteDraft?: MapRoutePoint[];
+  legacyRouteInput?: boolean;
   vorColumns: VorColumn[];
   checkPointDraft: CheckPointDraft;
   nodeNameDraft: NodeNameDraft;
@@ -98,6 +101,11 @@ export function decodeSession(raw: string): ApplicationSession {
           record(section) && typeof section.id === "string" && typeof section.planned_altitude_ft_msl === "number" &&
           ["CLIMB", "CRUISE", "DESCENT", "VISUAL_ARRIVAL"].includes(String(section.phase)))))) {
     throw new Error("Incompatible working session");
+  }
+  if (value.legacyRouteInput !== undefined && typeof value.legacyRouteInput !== "boolean") throw new Error("Incompatible route input mode");
+  if (value.mapRouteDraft !== undefined && (!validMapDraft(value.mapRouteDraft) ||
+      (value.working.project !== null && value.mapRouteDraft.length > 0))) {
+    throw new Error("Incompatible Map Route Draft");
   }
   return value as unknown as ApplicationSession;
 }

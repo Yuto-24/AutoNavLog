@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, chromium, type BrowserContext, type Page } from "@playwright/test";
 import { resolve, join } from "node:path";
 import { mkdtempSync } from "node:fs";
@@ -16,11 +17,13 @@ const authState = (page: Page) => page.evaluate(() => ((window as any).authTest?
 const signIn = async (page: Page, subject: string) => {
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
   await expect.poll(async () => (await authState(page)).account?.displayName).toBe(subject);
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 };
 const start = async (page: Page) => {
   await page.goto(path);
   await expect.poll(() => page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 };
 function jwt(subject: string) {
@@ -128,7 +131,8 @@ test("cached authentication survives offline/provider failure at startup, termin
     service.failure = failure;
     await page.reload();
     await expect.poll(async () => (await authState(page)).account?.account_id).toBe(accountId);
-    await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+    await enterImportWorkflow(page);
+  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
     expect(await savedNames(page)).toContain("Retained A");
     await page.evaluate(() => (window as any).authTest.refresh());
     expect((await authState(page)).account.account_id).toBe(accountId);
@@ -193,7 +197,8 @@ test("browser process restart keeps account ownership offline; startup revocatio
     service.failure = "USER_DISABLED";
     await page.reload();
     await expect.poll(async () => (await authState(page)).account).toBeNull();
-    await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+    await enterImportWorkflow(page);
+  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
     expect(await savedNames(page)).not.toContain("Restart account route");
     service.failure = ""; await signIn(page, "Restart");
     expect(await savedNames(page)).toContain("Restart account route");
@@ -268,6 +273,7 @@ test("logout from calculation overlay terminates in-flight work without modifyin
   await page.locator(".calculation-progress-dialog").getByRole("button", { name: "ログアウト", exact: true }).click();
   expect((await authState(page)).account).toBeNull();
   await expect(page.locator(".calculation-progress-backdrop")).not.toBeVisible();
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   expect(await savedNames(page)).not.toContain("A calculation");
   await page.evaluate(() => (window as any).restoreWorker());

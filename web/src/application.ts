@@ -11,7 +11,8 @@ export type PlanningInput = Pick<Project,
   "descent_rate_fpm" | "tgl_count"
 >> & { departure_time_jst: string; defaults_confirmed?: boolean };
 export type ConfirmRouteInput = PlanningInput & {
-  candidate_kind: "line" | "connected_lines" | "polygon" | "points";
+  candidate_kind: "line" | "connected_lines" | "polygon" | "points" | "map";
+  map_points?: Omit<import("./mapRouteDraft").MapRoutePoint, "id">[];
   candidate_index?: number;
   point_indices?: number[];
   route_use_confirmed: boolean;
