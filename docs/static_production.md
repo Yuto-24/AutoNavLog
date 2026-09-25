@@ -76,7 +76,8 @@ producerにProjectを送らず、static catalog / NPZだけを公開する。
 Pagesは全artifact単位の配置なので、**現在配信中の承認済みsource commitと設定**から
 新feedを同梱してbuild・checkし、全体を手動uploadする。app更新とfeed更新を
 混ぜないため、未承認branchからweatherだけを配布しない。
-定期ジョブ / CI / 継続監視は#123で自動化する。それまではoperatorがこの手順を実施する。
+定期ジョブ / CI / 継続監視は[#123の運用手順](static_operations.md)を参照する。
+承認・activation前や自動化停止時には、この手動手順を利用する。
 
 Pagesはatomicなdeploymentでcatalogとpayloadを一緒に切り替える。
 他hostでin-place更新する場合はpayloadを先に置き、catalogを最後に置換する。
@@ -239,3 +240,5 @@ Sync / Weather障害時の保持は既存テストとproduction artifact試験�
 [acceptance audit](evidence/issue-121/remote-production-2026-09-24.md)に記録する。
 現在のPages配置はprebuilt artifactのWrangler Direct Upload。将来の継続的なMSM
 feed更新、deploy自動化、account共有quotaの監視は#123で扱う。
+
+#123の継続更新・CI・quota評価・activation gateは[Static operations](static_operations.md)を参照。

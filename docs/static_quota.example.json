@@ -1,0 +1,100 @@
+{
+  "plans": {
+    "cloudflare": "Free",
+    "workers": "Free",
+    "firebase": "Spark",
+    "github_runner": "public-standard",
+    "automatic_billing": false
+  },
+  "limits_checked_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
+  "metrics": {
+    "pages_builds": {
+      "used": null,
+      "limit": null,
+      "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
+      "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
+      "window": {
+        "start": "REPLACE_WITH_CURRENT_PERIOD_START",
+        "end": "REPLACE_WITH_CURRENT_PERIOD_END"
+      },
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+    },
+    "workers_requests": {
+      "used": null,
+      "limit": null,
+      "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
+      "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
+      "window": {
+        "start": "REPLACE_WITH_CURRENT_PERIOD_START",
+        "end": "REPLACE_WITH_CURRENT_PERIOD_END"
+      },
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+    },
+    "firestore_reads": {
+      "used": null,
+      "limit": null,
+      "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
+      "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
+      "window": {
+        "start": "REPLACE_WITH_CURRENT_PERIOD_START",
+        "end": "REPLACE_WITH_CURRENT_PERIOD_END"
+      },
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+    },
+    "firestore_writes": {
+      "used": null,
+      "limit": null,
+      "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
+      "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
+      "window": {
+        "start": "REPLACE_WITH_CURRENT_PERIOD_START",
+        "end": "REPLACE_WITH_CURRENT_PERIOD_END"
+      },
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+    },
+    "firestore_deletes": {
+      "used": null,
+      "limit": null,
+      "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
+      "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
+      "window": {
+        "start": "REPLACE_WITH_CURRENT_PERIOD_START",
+        "end": "REPLACE_WITH_CURRENT_PERIOD_END"
+      },
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+    },
+    "firestore_storage_bytes": {
+      "used": null,
+      "limit": null,
+      "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
+      "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
+      "window": "instant",
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+    },
+    "firestore_outbound_bytes": {
+      "used": null,
+      "limit": null,
+      "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
+      "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
+      "window": {
+        "start": "REPLACE_WITH_CURRENT_PERIOD_START",
+        "end": "REPLACE_WITH_CURRENT_PERIOD_END"
+      },
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+    },
+    "actions_storage_bytes": {
+      "used": null,
+      "limit": null,
+      "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
+      "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
+      "window": "instant",
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+    }
+  },
+  "scopes": {
+    "cloudflare_account": "REPLACE_WITH_ACCOUNT_ID",
+    "firebase_project": "REPLACE_WITH_PROJECT_ID",
+    "github_owner": "REPLACE_WITH_GITHUB_OWNER"
+  },
+  "plans_observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP"
+}

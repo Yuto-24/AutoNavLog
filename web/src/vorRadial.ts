@@ -1,4 +1,4 @@
-import vorStationData from "./data/vorStations.json";
+import vorStationData from "./data/vorStations.json" with { type: "json" };
 
 const METERS_PER_NM = 1852;
 const WGS84_A_METERS = 6378137;
