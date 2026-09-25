@@ -22,6 +22,19 @@
 
 参照値はProjectへsnapshotとして保存されます。後からmasterが更新されても、既存Projectの計算結果を暗黙に別の参照値へ切り替えません。
 
+## NAV LOGのVOR/DME基準局
+
+`web/src/data/vorStations.json`は、2026-08-06サイクルのJCAB AIP AD 2から転記した、
+RJFM ARPから540 km圏内の基準局データです。各局に元PDF名・1始まりのPDFページ番号・
+偏差の出典を保持します。
+
+天草（AKE）は同サイクルの`AD2_Combine/RJDA__20251201.pdf`、PDF 6ページの
+RJDA AD2-6 / AD 2.19（ページ適用日2018-01-04）で照合しました。
+113.45 MHz、32°28′48.85″N / 130°09′39.48″E、VOR局偏差7°W（2016）を採用し、
+空港全体のMAG VARは使いません。元PDFのSHA-256は
+`71673449f5c131d7065cb5c87b5e41953755788cc7736416c1dc181fafa19e51`です。
+これは既存サイクル内の欠落補正であり、データセット全体の更新ではありません。
+
 ## RJFM参照パック
 
 `data/reference/rjfm`は、RJFM専用の経路・空域・案内Policyに必要な固定参照値を保持します。
