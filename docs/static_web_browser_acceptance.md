@@ -72,7 +72,8 @@ The browser acceptance suite exercises the same application path in desktop
 Chromium/WebKit, iPhone/iPad WebKit emulation and Android phone/tablet Chromium emulation.
 The existing persistence, platform, session and static production suites remain
 the source for their deeper contracts. A green emulated run is engine evidence,
-not a physical-device pass.
+not a physical-device pass. The `local-browser` CI job runs this suite against
+its built Local static files before the separate TAF fixture build.
 
 ## Local run (2026-09-26)
 
