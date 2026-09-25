@@ -136,6 +136,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [selectedKmzDocument, setSelectedKmzDocument] = useState("");
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const navLogRef = useRef<HTMLDivElement | null>(null);
+  const scrollToCalculatedNavLogRef = useRef<NonNullable<WebState["outcome"]> | null>(null);
   const kmzDialogRef = useModalFocusTrap<HTMLElement>(kmzOpen && Boolean(pendingKmz));
   const calculationInputGenerationRef = useRef(0);
   const navLogEditPendingRef = useRef(false);
@@ -382,6 +383,16 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     });
     return () => { active = false; lifecycle.current += 1; };
   }, [application, bootstrapAttempt]);
+
+  useLayoutEffect(() => {
+    if (!state?.outcome || state.outcome !== scrollToCalculatedNavLogRef.current) return;
+    scrollToCalculatedNavLogRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      navLogRef.current?.focus({ preventScroll: true });
+      navLogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [state?.outcome]);
 
   useLayoutEffect(() => {
     if (!sessionReady || !state?.workingRecovery || sessionDiscarded.current) return;
@@ -1282,24 +1293,19 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const handleCalculate = async () => {
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
+    scrollToCalculatedNavLogRef.current = null;
     setCalculationProgress({ percent: 0, message: "計算を開始しています。" });
     const calculated = await run(async () => {
       const saved = await flushDraftAutosave(true);
       if (!saved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-      return application.calculate(setCalculationProgress);
+      const next = await application.calculate(setCalculationProgress);
+      scrollToCalculatedNavLogRef.current = next.outcome;
+      return next;
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
       syncCalculationInputs: true,
       operation: "calculate",
     });
-    if (calculated?.outcome) {
-      window.requestAnimationFrame(() => {
-        navLogRef.current?.focus({ preventScroll: true });
-        navLogRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-      });
-    }
+    if (!calculated?.outcome) scrollToCalculatedNavLogRef.current = null;
   };
 
   const handleSave = async (name: string) => {
