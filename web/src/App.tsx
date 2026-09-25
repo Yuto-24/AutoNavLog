@@ -130,12 +130,14 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [pasteMessage, setPasteMessage] = useState<string | null>(null);
   const pasteInFlight = useRef(false);
   const pasteReturnFocus = useRef<HTMLElement | null>(null);
+  const routeFileInput = useRef<HTMLInputElement | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [projectName, setProjectName] = useState("未保存の新規作業");
   const [pendingKmz, setPendingKmz] = useState<PendingKmz | null>(null);
   const [selectedKmzDocument, setSelectedKmzDocument] = useState("");
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const navLogRef = useRef<HTMLDivElement | null>(null);
+  const scrollToCalculatedNavLogRef = useRef<NonNullable<WebState["outcome"]> | null>(null);
   const kmzDialogRef = useModalFocusTrap<HTMLElement>(kmzOpen && Boolean(pendingKmz));
   const calculationInputGenerationRef = useRef(0);
   const navLogEditPendingRef = useRef(false);
@@ -382,6 +384,16 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     });
     return () => { active = false; lifecycle.current += 1; };
   }, [application, bootstrapAttempt]);
+
+  useLayoutEffect(() => {
+    if (!state?.outcome || state.outcome !== scrollToCalculatedNavLogRef.current) return;
+    scrollToCalculatedNavLogRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      navLogRef.current?.focus({ preventScroll: true });
+      navLogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [state?.outcome]);
 
   useLayoutEffect(() => {
     if (!sessionReady || !state?.workingRecovery || sessionDiscarded.current) return;
@@ -1282,24 +1294,19 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const handleCalculate = async () => {
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
+    scrollToCalculatedNavLogRef.current = null;
     setCalculationProgress({ percent: 0, message: "計算を開始しています。" });
     const calculated = await run(async () => {
       const saved = await flushDraftAutosave(true);
       if (!saved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-      return application.calculate(setCalculationProgress);
+      const next = await application.calculate(setCalculationProgress);
+      scrollToCalculatedNavLogRef.current = next.outcome;
+      return next;
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
       syncCalculationInputs: true,
       operation: "calculate",
     });
-    if (calculated?.outcome) {
-      window.requestAnimationFrame(() => {
-        navLogRef.current?.focus({ preventScroll: true });
-        navLogRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-      });
-    }
+    if (!calculated?.outcome) scrollToCalculatedNavLogRef.current = null;
   };
 
   const handleSave = async (name: string) => {
@@ -1560,7 +1567,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           busy={busy}
           onResumePaste={pastedKml && !pasteOpen ? () => setPasteOpen(true) : undefined}
           onResumeKmz={pendingKmz && !kmzOpen ? () => setKmzOpen(true) : undefined}
-          fileInput={<FileInput busy={busy} onFile={handleFile} />}
+          fileInput={<FileInput busy={busy} onFile={handleFile} inputRef={routeFileInput} />}
           onPaste={() => void handlePasteImport("clipboard")}
         />
         <RouteWorkspace
@@ -1708,6 +1715,10 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         busy={busy}
         onChange={setPastedKml}
         onClose={() => setPasteOpen(false)}
+        onChooseFile={!state.project ? () => {
+          setPasteOpen(false);
+          routeFileInput.current?.click();
+        } : undefined}
         onImport={() => void handlePasteImport()}
       />
 
