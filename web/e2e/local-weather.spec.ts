@@ -37,9 +37,10 @@ async function setup(page: Page) {
   }
 }
 async function calculate(page: Page) {
-  const previous = await page.evaluate(() => (window as any).weatherStates.length);
+  const previous = await page.evaluate(() => (window as any).weatherCalculations.length);
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
-  await page.waitForFunction(count => (window as any).weatherStates.length > count, previous);
+  await page.waitForFunction(count => (window as any).weatherCalculations.length > count, previous);
+  await expect(page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ })).toBeEnabled();
   await expect.poll(async () => (await state(page))?.readiness?.calculationIsCurrent).toBe(true);
   await expect(page.locator(".nav-log-table")).toBeVisible();
 }
@@ -61,14 +62,22 @@ test.beforeEach(async ({ page, context }) => {
   }));
   await page.addInitScript(() => {
     (window as any).weatherStates = [];
+    (window as any).weatherCalculations = [];
     const Original = window.Worker;
     window.Worker = class extends Original {
+      calculationIds = new Set<string>();
+      postMessage(message: any, transfer?: any) {
+        if (message?.type === "APPLY" && message.argumentList?.[0]?.value === "calculate")
+          this.calculationIds.add(message.id);
+        super.postMessage(message, transfer);
+      }
       constructor(url: string | URL, options?: WorkerOptions) {
         super(url, options);
         this.addEventListener("message", event => {
           if (typeof event.data.value === "string") {
             try { const parsed = JSON.parse(event.data.value);
               if (parsed.workingRecovery || parsed.error) (window as any).weatherStates.push(parsed);
+              if (this.calculationIds.delete(event.data.id)) (window as any).weatherCalculations.push(parsed);
             } catch { /* other RPC result */ }
           }
         });
