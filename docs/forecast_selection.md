@@ -87,3 +87,34 @@ The source catalog may advertise more Runs than the static publisher has built.
 Do not filter discovery to published assets: an unevaluated older Run can still
 satisfy the requirement. Missing delivery stops selection; publishing enough
 candidate data is an operator responsibility, documented in Local Weather.
+
+
+## Delivery and validation evidence (2026-09-26 JST)
+
+Upstream PR #19 was merged only after all eight hosted checks passed, independent
+review findings were fixed and re-reviewed, and CodeRabbit approved the reviewed
+head. The merge tree matches that head. The vendored 0.6.0 wheel records the merged
+commit and SHA-256 in `vendor/README.md`.
+
+The upstream suite passed 239 tests (two opt-in tests excluded). A separate live
+RISH GSM run checked eight source files and forecast hours through 264, including
+native/portable round-trip queries and post-prepare HGT coverage. Node and Chromium
+ran the actual pinned Pyodide runtime for both GSM and the existing MSM boundary.
+The live source checks used a small Miyazaki-area crop; they do not establish
+full-domain payload sizes or physical mobile memory limits.
+
+AutoNavLog's nine Local integration tests compare native and portable results,
+cover acquisition suspension/replay and preserve Last Calculation on failure.
+The browser GSM fixture exercises actual Pyodide calculation, complete canonical
+Legacy parity, model/provenance persistence across reload, explicit return to MSM,
+and workflow positions at 1100 and 1440 pixels. Captured real MSM data supplies the
+existing browser regression; GSM policy fixtures are explicitly synthetic and are
+not production weather. See `tests/fixtures/forecast-policy-README.md`.
+
+The implementation and final verification record are tracked in
+[AutoNavLog PR #217](https://github.com/Yuto-24/AutoNavLog/pull/217). Parent roadmap
+[#116](https://github.com/Yuto-24/AutoNavLog/issues/116) records this follow-up as
+awaiting the AutoNavLog merge; it remains non-blocking for Local-first and #146.
+The isolated worktree Compose runtime uses release 1.21.0 with library 0.6.0 and
+retains its existing named volume. Remote production publication and scheduled
+GSM generation are outside this delivery.
