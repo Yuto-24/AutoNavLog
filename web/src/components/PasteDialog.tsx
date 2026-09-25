@@ -10,6 +10,7 @@ interface PasteDialogProps {
   busy: boolean;
   onChange: (value: string) => void;
   onClose: () => void;
+  onChooseFile?: () => void;
   onImport: () => void;
 }
 
@@ -21,6 +22,7 @@ export function PasteDialog({
   busy,
   onChange,
   onClose,
+  onChooseFile,
   onImport,
 }: PasteDialogProps) {
   const dialogRef = useModalFocusTrap<HTMLElement>(open, returnFocusRef);
@@ -81,6 +83,16 @@ export function PasteDialog({
           placeholder="<?xml version=...><kml ...>"
         />
         <div className="modal-actions">
+          {onChooseFile && (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={onChooseFile}
+              disabled={busy}
+            >
+              ファイルから取り込む
+            </button>
+          )}
           <button
             className="secondary-button"
             type="button"
