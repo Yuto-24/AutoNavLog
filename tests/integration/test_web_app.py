@@ -152,7 +152,7 @@ async def _calculate(client: httpx.AsyncClient) -> dict[str, object]:
     ("flight_date", "departure_time_jst"),
     [("2026-08-11", "09:00"), ("2026-08-10", "10:00")],
 )
-async def test_saved_forecast_pin_is_invalidated_after_date_update_without_ftd(
+async def test_saved_forecast_pin_is_preserved_after_date_update_without_ftd(
     tmp_path: Path,
     flight_date: str,
     departure_time_jst: str,
@@ -209,7 +209,7 @@ async def test_saved_forecast_pin_is_invalidated_after_date_update_without_ftd(
         )
         updated = await client.put("/api/project", json=payload)
         assert updated.status_code == 200, updated.text
-        assert updated.json()["project"]["selected_forecast_run_id"] is None
+        assert updated.json()["project"]["selected_forecast_run_id"] == historical_run_id
 
 
 @pytest.mark.anyio

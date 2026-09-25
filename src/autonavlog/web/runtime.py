@@ -23,6 +23,8 @@ from autonavlog.weather.destination_taf import (
     FakeDestinationWindProvider,
 )
 from autonavlog.weather.fake_provider import FakeWeatherProvider
+from autonavlog.weather.forecast_provider import ForecastWeatherProvider
+from autonavlog.weather.gsm_adapter import GsmWeatherProvider
 from autonavlog.weather.msm_adapter import MsmWeatherProvider
 from autonavlog.weather.prewarm import WeatherPrewarmer
 from autonavlog.weather.provider import WeatherProvider
@@ -142,13 +144,15 @@ def _weather_factory(
         raise ValueError(f"unsupported weather mode: {config.weather_mode}")
 
     _prune_msm_cache(cache_dir)
-    shared_provider = MsmWeatherProvider(cache_dir=cache_dir)
+    def create_forecast() -> WeatherProvider:
+        # Mutable model choice and prepared records belong to each session.
+        # Desktop raw/normalized cache remains shared through the library locks.
+        return ForecastWeatherProvider({
+            "MSM": MsmWeatherProvider(cache_dir=cache_dir),
+            "GSM": GsmWeatherProvider(cache_dir=cache_dir),
+        })
 
-    def shared_msm() -> WeatherProvider:
-        """Return the process-wide provider with shared prepared runs."""
-        return shared_provider
-
-    return shared_msm, "MSM予報", False
+    return create_forecast, "MSM / GSM予報", False
 
 
 def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
@@ -188,7 +192,9 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
     weather_prewarmer = None
     if config.weather_mode == "msm":
         weather_prewarmer = WeatherPrewarmer(
-            weather_factory(),
+            MsmWeatherProvider(
+                cache_dir=config.msm_cache_dir or (config.storage_root / "msm-cache")
+            ),
             cleanup=lambda: _prune_msm_cache(
                 config.msm_cache_dir or (config.storage_root / "msm-cache")
             ),

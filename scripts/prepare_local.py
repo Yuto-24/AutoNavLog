@@ -64,21 +64,22 @@ manifest = {
 
 # A production feed is generated independently of the app build/ordinary CI.
 # Retire only these generated Weather assets so an old feed cannot leak into a build.
-weather_target = target.parent / "weather/msm"
-weather_target.mkdir(parents=True, exist_ok=True)
-for stale in [weather_target / "catalog.json", *weather_target.glob("*.npz")]:
-    stale.unlink(missing_ok=True)
-if feed_directory := os.environ.get("AUTONAVLOG_MSM_FEED"):
-    from autonavlog.weather.local_msm import WeatherCatalog
+for model in ("MSM", "GSM"):
+    weather_target = target.parent / "weather" / model.lower()
+    weather_target.mkdir(parents=True, exist_ok=True)
+    for stale in [weather_target / "catalog.json", *weather_target.glob("*.npz")]:
+        stale.unlink(missing_ok=True)
+    if feed_directory := os.environ.get(f"AUTONAVLOG_{model}_FEED"):
+        from autonavlog.weather.local_msm import WeatherCatalog
 
-    feed = Path(feed_directory).resolve()
-    catalog = WeatherCatalog.model_validate_json((feed / "catalog.json").read_text())
-    for asset in catalog.assets:
-        source = feed / asset.file
-        if (
-            source.stat().st_size != asset.bytes
-            or hashlib.sha256(source.read_bytes()).hexdigest() != asset.sha256
-        ):
-            raise ValueError(f"MSM feed asset integrity failure: {asset.file}")
-        shutil.copyfile(source, weather_target / asset.file)
-    shutil.copyfile(feed / "catalog.json", weather_target / "catalog.json")
+        feed = Path(feed_directory).resolve()
+        catalog = WeatherCatalog.model_validate_json((feed / "catalog.json").read_text())
+        for asset in catalog.assets:
+            source = feed / asset.file
+            if (
+                source.stat().st_size != asset.bytes
+                or hashlib.sha256(source.read_bytes()).hexdigest() != asset.sha256
+            ):
+                raise ValueError(f"{model} feed asset integrity failure: {asset.file}")
+            shutil.copyfile(source, weather_target / asset.file)
+        shutil.copyfile(feed / "catalog.json", weather_target / "catalog.json")

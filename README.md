@@ -193,9 +193,16 @@ docker compose -p autonavlog-dev down
 ## 気象と参照データ
 
 標準コンテナは `msm` モードで動きます。上空の風と気温、出発地・目的地の地表面気温には
-MSM予報値を使います。QNHは入力・取得・計算・帳票の対象にしません。
+MSMを優先し、正常に評価したMSM候補がすべて必要範囲外の場合だけ、NAV LOG全体をGSM日本域で
+計算します。通信・decode・cache・source値欠損などの障害では別Run/modelへ切り替えません。
+NAV LOGに使用modelとRunを表示し、正常なGSM切替では理由も表示します。
+固定Forecastの更新が通知された場合、入力を変えずに既存の「NAV LOGを再計算」をもう一度
+押すと再選択します。更新待ちや失敗時も前回の正常な計算は保存されます。
+詳細は[Forecast selection](docs/forecast_selection.md)、LocalのGSM配信準備は
+[Local Weather](docs/local_weather.md#gsmのon-demand取得)を参照してください。
+QNHは入力・取得・計算・帳票の対象にしません。
 
-NAV LOGの出発地・目的地TOATには、その地点と表示時刻のMSM地上気温を使います。上空の
+NAV LOGの出発地・目的地TOATには、その地点と表示時刻の選択モデルの地上気温を使います。上空の
 気圧面気温を空港標高へ外挿しません。地上気温を取得できない場合は値を補完せず「未取得」と
 表示します。
 
@@ -359,7 +366,7 @@ mainへのmerge後はGitHub Actionsが `vX.Y.Z` tagとGitHub Releaseを作成し
 | `src/autonavlog/domain` | Project、計算結果、気象のデータ契約 |
 | `src/autonavlog/nav` | 測地線、PA、TAS/CAS、風、燃料、丸め |
 | `src/autonavlog/performance` | 性能 CSV の検査、上昇補間、巡航セル選択 |
-| `src/autonavlog/weather` | MSM、TAF の取得と変換 |
+| `src/autonavlog/weather` | MSM / GSM、TAF の取得と変換 |
 | `src/autonavlog/storage` | Project と参照データのローカル保存 |
 | `src/autonavlog/web` | FastAPI と Web API |
 | `web` | React、TypeScript、Vite、Playwright |

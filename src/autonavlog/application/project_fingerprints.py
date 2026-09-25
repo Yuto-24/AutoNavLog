@@ -16,6 +16,39 @@ from autonavlog.weather.ftd_provider import FTD_WEATHER_POLICY_VERSION
 from .fingerprints import make_fingerprint
 
 
+def forecast_selection_fingerprint(project: Project) -> str:
+    """Bind explicit Forecast refresh intent to weather-relevant inputs.
+
+    Selection itself, save/revision bookkeeping and warning acknowledgements are
+    excluded so recording the first calculation cannot consume the second click.
+    Manual inputs are included because they can change iterative flight timing.
+    """
+    state = project.metadata.get("ui_state", {})
+    return make_fingerprint(
+        kind="forecast_selection",
+        fields={
+            **project.model_dump(
+                mode="python",
+                include={
+                    "id", "flight_date", "planned_departure_time_jst",
+                    "departure_airport_id", "destination_airport_id", "aircraft_profile_id",
+                    "weather_mode", "ftd_weather", "route_nodes", "sections",
+                    "visual_references", "descent_rate_fpm", "tgl_count",
+                    "default_variation_deg_east", "nose_fairing_enabled",
+                    "air_conditioning_enabled", "run_up_included", "total_usable_fuel_gal",
+                },
+            ),
+            "planning": {
+                key: state.get(key)
+                for key in (
+                    "arrival_plan", "rjfm_departure_plan", "rjfm_inbound_plan",
+                    "reference_data_snapshot",
+                )
+            } if isinstance(state, dict) else None,
+        },
+    )
+
+
 def selected_reference_fingerprint(snapshot: ReferenceDataSnapshot) -> str:
     return make_fingerprint(
         kind="selected_reference",
@@ -115,6 +148,7 @@ def current_calculation_input_fingerprint(
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
             "selected_forecast_run_id": project.selected_forecast_run_id,
+            "selected_forecast_model": project.selected_forecast_model,
             "weather_mode": project.weather_mode,
             "ftd_weather": (
                 None

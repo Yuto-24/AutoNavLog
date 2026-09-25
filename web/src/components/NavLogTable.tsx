@@ -678,8 +678,29 @@ export function NavLogTable({
           <h2 id="nav-log-title">NAV LOG</h2>
           <p>入力色の欄は直接編集でき、約0.7秒後に自動再計算します。</p>
         </div>
-        <span>Forecast Run: {outcome.selected_forecast_run_id ?? "未選択"}</span>
+        <span aria-label="使用Forecast">
+          {project.weather_mode === "FTD" ? "FTD固定気象" : (
+            <>Forecast: {outcome.selected_forecast_model ?? "未選択"} / Run: {outcome.selected_forecast_run_id ?? "未選択"}</>
+          )}
+        </span>
       </div>
+      {outcome.forecast_provenance?.fallback === true && (
+        <p className="forecast-fallback" role="note" aria-label="Forecast切替理由">
+          GSM日本域を使用しています。MSMでは今回の経路・時刻・高度に必要な予報範囲を満たせないため、
+          NAV LOG全体をGSMで計算しました。
+          {Array.isArray(outcome.forecast_provenance.coverage_reason_codes) && (
+            <span> 理由: {outcome.forecast_provenance.coverage_reason_codes.map((code: string) => (
+              ({
+                ALTITUDE_OUTSIDE_HGT_RANGE: "必要高度が予報の高度範囲外",
+                OUTSIDE_DOMAIN: "経路が予報の対象領域外",
+                NO_SPEC_COMPATIBLE_RUN: "必要時刻全体を覆うRunがない",
+                UNSUPPORTED_VARIABLE: "必要な気象要素が対象外",
+                PRESSURE_LEVEL_UNSUPPORTED: "必要な気圧面が対象外",
+              } as Record<string, string>)[code] ?? code
+            )).join("、")}</span>
+          )}
+        </p>
+      )}
       <NavLogSummary outcome={outcome} destinationWind={destinationWind} />
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
         <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>

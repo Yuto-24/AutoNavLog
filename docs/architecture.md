@@ -64,11 +64,14 @@ Composeの`autonavlog-data` named volumeがProject repositoryを保持します�
 last-good calculationは復元できます。`docker compose down -v`またはvolumeの明示削除はこの永続状態を
 削除します。
 
-MSMのmodel spec、Run選択、coverage、GRIB2 decode、補間、provenanceは
+MSM / GSMのmodel spec、Run discovery、coverage、GRIB2 decode、補間、provenanceは
 `jma-gpv-weather==0.5.0` の公開APIを正本とします。AutoNavLogのadapterは型、request ID、
 単位境界、既存の入力検査と表示metadataを変換します。地上気温も公開
 `SurfaceTemperatureQuery` を使用し、private compatibility branchは廃止しました。
-Localでは静的供給された `MsmPreparedData` をWorkerで取得・検証し、同じProviderへ接続します。
+Localでは静的供給された `MsmPreparedData` / `GsmPreparedData` をWorkerで必要時に取得・検証し、
+Legacyと同じモデル別Providerへ接続します。MSM優先・coverageだけを理由にしたGSM切替、
+固定model + Runと2クリック更新、最終Requirementでの全体再計算はアプリの責務です。
+[Forecast selection](forecast_selection.md)にpolicy、fingerprint、provenanceを定義します。
 Calculation CoreへHTTP、Browser storage、source URL選択を追加しません。
 [Local Weather Adapterと静的feedの運用](local_weather.md)を参照してください。
 

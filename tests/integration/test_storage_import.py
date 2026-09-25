@@ -207,7 +207,7 @@ def test_legacy_project_fields_migrate_without_resaving_obsolete_values(
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     migrated = repository.load(saved.id)
-    assert migrated.schema_version == 4
+    assert migrated.schema_version == 5
     assert migrated.run_up_included is True
     assert migrated.nose_fairing_enabled is False
     assert migrated.air_conditioning_enabled is True
@@ -226,7 +226,7 @@ def test_legacy_project_fields_migrate_without_resaving_obsolete_values(
     assert stored["nose_fairing_enabled"] is False
     assert stored["air_conditioning_enabled"] is True
     assert stored["descent_rate_fpm"] == 500
-    assert stored["schema_version"] == 4
+    assert stored["schema_version"] == 5
     assert "project_id" not in stored["route_nodes"][0]
     assert "safe_enroute_altitude_ft_msl" not in stored["sections"][0]
     assert "loss_time_seconds" not in stored["sections"][0]

@@ -16,6 +16,7 @@ from uuid import UUID
 from pydantic import BaseModel, ValidationError
 
 from autonavlog.application.project_service import ProjectService
+from autonavlog.domain.weather import ForecastModel
 from autonavlog.importers.kml import (
     KmlDocumentSelectionRequired,
     KmlImportError,
@@ -30,7 +31,9 @@ from autonavlog.storage.reference_data import ReferenceDataCatalogRepository
 from autonavlog.storage.rjfm_inbound_reference import RjfmInboundGuidanceReference
 from autonavlog.storage.rjfm_reference import RjfmReferencePack
 from autonavlog.weather.destination_taf import DecodedTafProvider
-from autonavlog.weather.local_msm import LocalMsmWeather, LocalWeatherError
+from autonavlog.weather.forecast_provider import ForecastWeatherProvider
+from autonavlog.weather.local_forecast import LocalForecastWeather, LocalWeatherRequest
+from autonavlog.weather.local_msm import LocalWeatherError
 from autonavlog.weather.msm_adapter import MsmWeatherProvider
 from autonavlog.weather.msm_fixture import FIXTURE_WEATHER_LABEL, fixture_weather_provider
 from autonavlog.web.facade import AutoNavLogWebApplication, WebApplicationError
@@ -75,10 +78,10 @@ class _LocalFacade(AutoNavLogWebApplication):
 
 class LocalApplication:
     def __init__(self, data_root: Path, *, forecast_fixture: Path | None = None) -> None:
-        self.local_weather = None if forecast_fixture else LocalMsmWeather()
+        self.local_weather = None if forecast_fixture else LocalForecastWeather()
         local_weather = self.local_weather
 
-        def weather_factory() -> MsmWeatherProvider:
+        def weather_factory() -> MsmWeatherProvider | ForecastWeatherProvider:
             if forecast_fixture:
                 return fixture_weather_provider(forecast_fixture)
             assert local_weather is not None
@@ -104,7 +107,9 @@ class LocalApplication:
             reference_repository=references,
             reference_catalog=catalog,
             weather_factory=weather_factory,
-            weather_label=FIXTURE_WEATHER_LABEL if forecast_fixture else "実MSM（端末内処理）",
+            weather_label=(
+                FIXTURE_WEATHER_LABEL if forecast_fixture else "MSM / GSM予報（端末内処理）"
+            ),
             development_weather=False,
             destination_wind_provider=DecodedTafProvider([], "TAF_PROXY_NOT_CONFIGURED"),
         )
@@ -119,23 +124,22 @@ class LocalApplication:
             and self.session.project.weather_mode == "FORECAST"
         )
 
-    def weather_plan(self, catalog_json: str) -> str:
-        """Adapter preflight, called by the Worker before synchronous calculation."""
-        assert self.local_weather is not None and self.session.project is not None
+    def begin_weather(self) -> None:
+        if self.local_weather is not None:
+            self.local_weather.begin()
+
+    def weather_catalog(self, model: ForecastModel, catalog_json: str) -> str:
+        assert self.local_weather is not None
         try:
-            requirement = (
-                self.session.calculation_service.forecast_service.build_initial_requirement(
-                    self.session.project
-                )
-            )
-            return self.local_weather.plan(self.session.project, requirement, catalog_json)
+            self.local_weather.catalog(model, catalog_json)
+            return "{}"
         except LocalWeatherError as error:
             return json.dumps({"error": {"code": error.code, "message": str(error)}})
 
-    def accept_weather(self, payload: bytes, sha256: str) -> str:
+    def accept_weather(self, model: ForecastModel, payload: bytes, sha256: str) -> str:
         assert self.local_weather is not None
         try:
-            self.local_weather.accept(payload, sha256)
+            self.local_weather.accept(model, payload, sha256)
             return "{}"
         except LocalWeatherError as error:
             return json.dumps({"error": {"code": error.code, "message": str(error)}})
@@ -287,6 +291,8 @@ class LocalApplication:
         details: dict[str, Any] = {}
         try:
             return self.dispatch(operation, body)
+        except LocalWeatherRequest as request:
+            return json.dumps({"weather_request": request.request})
         except _RequestValidationError as error:
             code, message = "VALIDATION_FAILED", str(error)
             details["issues"] = error.issues

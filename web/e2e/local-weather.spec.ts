@@ -177,3 +177,96 @@ for (const failure of ["listing", "communication", "missing", "integrity", "deco
     expect((await record(page)).lastCalculation).toBeNull();
   });
 }
+
+async function policyFeed(context: import("@playwright/test").BrowserContext, model: "msm" | "gsm", directory: string) {
+  const catalog = JSON.parse(readFileSync(resolve(directory, "catalog.json"), "utf8"));
+  await context.route(`**/weather/${model}/catalog.json`, route => route.fulfill({
+    contentType: "application/json", body: JSON.stringify({ ...catalog,
+      generated_at: new Date(Date.now() - 1000).toISOString(),
+      expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+    }),
+  }));
+  await context.route(`**/weather/${model}/*.npz`, route => route.fulfill({
+    contentType: "application/octet-stream",
+    body: readFileSync(resolve(directory, new URL(route.request().url()).pathname.split("/").at(-1)!)),
+  }));
+}
+const policyFixture = (name: string) => resolve("../tests/fixtures/forecast-policy", name);
+
+test("portable GSM fallback: complete Local NAV LOG matches Legacy, persists model and needs two clicks to return to MSM", async ({ page, context }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  const downloads: string[] = [];
+  context.on("request", r => { if (/\/weather\/(msm|gsm)\//.test(r.url())) downloads.push(r.url()); });
+  await policyFeed(context, "msm", policyFixture("msm-outside-hgt"));
+  await policyFeed(context, "gsm", policyFixture("gsm"));
+  await setup(page); await calculate(page);
+  const fallback = await state(page);
+  expect(fallback.outcome.selected_forecast_model).toBe("GSM");
+  expect(fallback.outcome.selected_forecast_run_id).toBe("20260915060000");
+  expect(fallback.outcome.forecast_provenance.coverage_reason_codes).toEqual(["ALTITUDE_OUTSIDE_HGT_RANGE"]);
+  await expect(page.getByLabel("使用Forecast")).toHaveText("Forecast: GSM / Run: 20260915060000");
+  await expect(page.getByRole("note", { name: "Forecast切替理由" })).toContainText("必要高度が予報の高度範囲外");
+  expect(downloads.filter(url => url.endsWith(".npz")).map(url => url.includes("/gsm/") ? "GSM" : "MSM"))
+    .toEqual(["MSM", "MSM", "GSM"]);
+  for (const width of [1100, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const boxes = await Promise.all([".input-rail", ".route-workspace", ".status-rail", ".nav-log-section"]
+      .map(selector => page.locator(selector).boundingBox()));
+    expect(boxes.every(Boolean)).toBe(true);
+    if (width <= 1240) {
+      for (let i = 1; i < boxes.length; i++) expect(boxes[i]!.y)
+        .toBeGreaterThanOrEqual(boxes[i - 1]!.y + boxes[i - 1]!.height - 1);
+    } else {
+      expect(boxes[0]!.x + boxes[0]!.width).toBeLessThanOrEqual(boxes[1]!.x + 1);
+      expect(boxes[1]!.x + boxes[1]!.width).toBeLessThanOrEqual(boxes[2]!.x + 1);
+      expect(boxes[3]!.y).toBeGreaterThanOrEqual(Math.max(...boxes.slice(0, 3).map(b => b!.y + b!.height)) - 1);
+    }
+  }
+  const native = JSON.parse(execFileSync(
+    process.env.AUTONAVLOG_REFERENCE_PYTHON ?? resolve("../.venv/bin/python"),
+    [resolve("../scripts/local_reference.py"), "--feed", policyFixture("msm-outside-hgt"),
+      "--gsm-feed", policyFixture("gsm")], { encoding: "utf8" },
+  ));
+  compare(calculationCoreGolden(fallback), calculationCoreGolden(native));
+  const last = (await record(page)).lastCalculation;
+  expect(last.project.selected_forecast_model).toBe("GSM");
+  expect(last.outcome.forecast_provenance).toEqual(fallback.outcome.forecast_provenance);
+  await page.reload();
+  await expect(page.getByLabel("使用Forecast")).toContainText("GSM");
+  expect((await record(page)).lastCalculation).toEqual(last);
+  await policyFeed(context, "msm", fixture);
+  await page.evaluate(() => caches.delete("autonavlog.weather.msm.v1"));
+  await calculate(page);
+  expect((await state(page)).outcome.selected_forecast_model).toBe("GSM");
+  expect((await state(page)).outcome.issues.map((issue: any) => issue.code)).toContain("FORECAST_UPDATE_AVAILABLE");
+  await calculate(page);
+  expect((await state(page)).outcome.selected_forecast_model).toBe("MSM");
+  await expect(page.getByLabel("使用Forecast")).toContainText("MSM");
+  expect(errors).toEqual([]);
+});
+
+test("portable selection uses older MSM after affirmative newest HGT exclusion without fetching GSM", async ({ page, context }) => {
+  await policyFeed(context, "msm", policyFixture("msm-newest-outside-hgt"));
+  await context.route("**/weather/gsm/**", route => { throw new Error(`Unnecessary GSM: ${route.request().url()}`); });
+  await setup(page); await calculate(page);
+  expect((await state(page)).outcome.selected_forecast_model).toBe("MSM");
+  expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915180000");
+  await expect(page.getByRole("note", { name: "Forecast切替理由" })).toHaveCount(0);
+});
+
+test("portable source-value failure preserves saved NAV LOG and does not try older Run or GSM", async ({ page, context }) => {
+  await setup(page); await calculate(page);
+  const previous = (await record(page)).lastCalculation;
+  await policyFeed(context, "msm", policyFixture("msm-source-unavailable"));
+  await page.evaluate(() => caches.delete("autonavlog.weather.msm.v1"));
+  const payloads: string[] = [];
+  context.on("request", r => { if (r.url().includes("/weather/") && r.url().endsWith(".npz")) payloads.push(r.url()); });
+  await context.route("**/weather/gsm/**", route => { throw new Error(`Error-driven GSM fallback: ${route.request().url()}`); });
+  await page.getByRole("button", { name: "NAV LOGを再計算", exact: true }).click();
+  await expect.poll(async () => (await state(page))?.outcome?.issues.map((i: any) => i.code))
+    .toContain("FORECAST_PREPARE_FAILED");
+  expect(payloads).toHaveLength(1);
+  expect((await record(page)).lastCalculation).toEqual(previous);
+  await expect(page.locator(".nav-log-table")).toBeVisible();
+});

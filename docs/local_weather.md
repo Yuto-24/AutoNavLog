@@ -1,7 +1,8 @@
-# Local MSM Weather Adapter (#144)
+# Local Forecast Weather Adapter (#144 / #161)
 
-Local FORECASTは固定fixtureを使わず、同一originの`weather/msm/catalog.json`と
-library-produced `MsmPreparedData`を取得し、Pyodide内で検証・補間・計算する。
+Local FORECASTは固定fixtureを使わず、同一originの`weather/msm/catalog.json`または
+`weather/gsm/catalog.json`と、library-produced `MsmPreparedData` / `GsmPreparedData`を
+取得し、Pyodide内で検証・補間・計算する。
 `jma-gpv-weather 0.5.0`のpublic APIがRun discovery/selection、model/time/area/altitude
 coverage、decode、補間、provenanceの正本。Legacyも同じ公開`SurfaceTemperatureQuery`を使う。
 旧private surface-temperature compatibility branchは削除した。
@@ -56,14 +57,15 @@ Browser transportは`credentials: "omit"`を使用するため、ログイン必
 
 ## Cacheと失敗
 
-Browserはportable payloadだけを`autonavlog.weather.msm.v1` Cache Storageへ保存する。
+Browserはportable payloadだけをモデル別の`autonavlog.weather.msm.v1` /
+`autonavlog.weather.gsm.v1` Cache Storageへ保存する。
 raw/normalized cacheはproducer側libraryにのみ存在する。
 
 | 項目 | 契約 |
 | --- | --- |
 | catalog | TTL 5分かつcatalog失効まで。schema検証後に保存 |
 | payload | SHA-256名、TTL 7日、library integrity検証後に保存 |
-| 容量 | cache合計128 MiB、payload 32 MiB、catalog 4 MiB。stream中も上限確認 |
+| 容量 | モデルごとのcache合計128 MiB、payload 32 MiB、catalog 4 MiB。stream中も上限確認 |
 | invalidation | hash変更/TTL/不正cache。古いentryからevict |
 | corruption | 不正entryを削除し1回再取得。失敗時は明示error |
 | storage拒否/quota | 計算済み値は使えるがwarm reuseは保証しない |
@@ -76,13 +78,13 @@ Last Calculationを置換しない。`updateAndRecalculate`の入力commitと失
 
 | 失敗 | 表現 |
 | --- | --- |
-| libraryのmodel/time/area coverage | `WEATHER_OUT_OF_COVERAGE` |
-| post-prepare altitude/point coverage | 既存Availabilityとlibrary reason codes |
+| libraryのmodel/time/area coverage | アプリの候補評価。全MSM候補の明示coverage外のみGSMへ。両モデル外は`FORECAST_UNAVAILABLE` |
+| post-prepare altitude/point coverage | `ALTITUDE_OUTSIDE_HGT_RANGE`のみ高度coverage除外。他のUnavailableは処理失敗 |
 | listing HTTP/discovery | `WEATHER_DISCOVERY_FAILED` |
 | fetch/timeout/CORS | `WEATHER_COMMUNICATION_FAILED` |
 | source file 404/503 | `WEATHER_SOURCE_UNAVAILABLE` |
 | download中断/サイズ/その他HTTP | `WEATHER_DOWNLOAD_FAILED` |
-| Run不在/未配信 | `WEATHER_RUN_UNAVAILABLE` / `WEATHER_PREPARED_UNAVAILABLE` |
+| library discovery / Run不在 / 未配信 / source値不足 | `FORECAST_PREPARE_FAILED`でBlock（原因を保持）。取得障害から別Run/modelへ退避しない |
 | catalog schema/期限 | `WEATHER_CATALOG_INVALID` / `WEATHER_CATALOG_EXPIRED` |
 | payload hash/format/decode | `WEATHER_PAYLOAD_INTEGRITY_FAILED` |
 | 不正cacheの再取得失敗 | `WEATHER_CACHE_CORRUPT` |
@@ -137,8 +139,41 @@ Weather失敗時のProject/Last Calculation保持と、OOM/予期しないreload
 今後再確認する場合もOS/browser、Run、日時、cold/warm、失敗時のProject/Last Calculation保持を記録する。
 WindowsやPlaywright WebKitの結果をこのgateの代替にしない。
 
-#161にはGSM、model priority/coverage fallback、model+Run永続化、2クリック更新を残す。
-#144ではMSM単独の取得/transport/public library/WeatherProvider境界だけを実装する。
+#144のMSM transport境界を#161でモデル別に接続する。優先順位、固定Run、更新意思、
+最終Requirementの再計算は[Forecast selection](forecast_selection.md)を参照。
+
+## GSMのon-demand取得
+
+GSMは常時prewarmしない。LegacyはMSMのcoverage不足が確定した計算、または保存済み
+GSM Runの再計算でのみ上流GSM clientをprepareする。既存MSM prewarmerはMSM専用のまま。
+Local WorkerもPythonの要求に応じて必要なcatalog / 正確なRun assetだけを取得する。
+候補評価に必要な複数Runを順番に取得でき、取得中断時には計算結果・Last Calculation・
+2クリック更新意思を確定しない。同一actionを再実行し、全体が完了してから既存の
+persistenceへ反映する。取得の再実行は128回、モデル切替を伴う全体再計算は4回で制限する。
+
+静的配信のGSM payloadは運用者が必要な範囲・時間帯を明示して生成する。
+既存のMSM定期feed workflowにGSM生成は加えない。GSM公開がない・期限切れ・要求する
+assetがない場合は取得障害として停止し、モデルcoverage外と偽って計算を続けない。
+保存済みNAV LOGの閲覧にはWeather feedを必要としない。
+高度を理由に「全MSM候補がcoverage外」と確定するには、discoveryが返した候補をすべて
+評価できる配信が必要になる。通常の2 Run feedだけで不足する場合は、MSM producerの
+`--max-runs 32`等で対象候補を配信する。未生成の古いRunを候補から隠してGSMへ進めない。
+モデル全体のoffline仕様外なら、そのモデルのpayload取得は不要。
+
+```sh
+python scripts/prepare_msm_feed.py --model GSM --output /tmp/gsm-feed --cache /tmp/gsm-cache \
+  --start YYYY-MM-DDTHH:00:00+00:00 --hours 24 --bounds 29.7 35.2 128.5 134.8
+AUTONAVLOG_MSM_FEED=/tmp/msm-feed AUTONAVLOG_GSM_FEED=/tmp/gsm-feed npm --prefix web run build:local
+```
+
+`--model`省略時は従来どおりMSM。両モデルとも取得、GRIB decode、cache、portable生成は
+公開library APIへ委譲する。同じ配信catalogの形式を再利用し、独自気象formatやHTTP
+計算endpointを追加しない。GSM catalogを含むStatic artifactはMSMと同じhash・期限・
+assetサイズ検証を必須とする。実際の外部公開は通常のproduction承認手順に従う。
+
+#161のsynthetic GSM / 改変MSM acceptance fixtureは
+[生成条件](../tests/fixtures/forecast-policy-README.md)を参照。ライブGSM配信の容量や
+物理iOS端末のmemory確認を過去のMSM受入実績で代替しない。
 
 ## CALMとRJFM固定RCAの計算境界
 

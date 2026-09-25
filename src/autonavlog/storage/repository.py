@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from autonavlog.domain.calculation import CalculationOutcome
 from autonavlog.domain.enums import ProjectStatus
 from autonavlog.domain.project import Project
+from autonavlog.domain.weather import ForecastModel, legacy_forecast_model
 from autonavlog.weather.destination_taf import DestinationWindForecast
 
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
@@ -70,9 +71,16 @@ class LastCalculationRecord(BaseModel):
     outcome: CalculationOutcome
     destination_wind: DestinationWindForecast | None = None
     selected_forecast_run_id: str | None = None
+    selected_forecast_model: ForecastModel | None = None
     forecast_metadata: dict[str, Any] = Field(default_factory=dict)
     calculation_fingerprint: str
     saved_at_utc: datetime
+
+    @model_validator(mode="after")
+    def migrate_forecast_selection(self) -> LastCalculationRecord:
+        if "selected_forecast_model" not in self.model_fields_set:
+            self.selected_forecast_model = legacy_forecast_model(self.selected_forecast_run_id)
+        return self
 
     @model_validator(mode="after")
     def validate_record_identity(self) -> LastCalculationRecord:
@@ -92,6 +100,11 @@ class LastCalculationRecord(BaseModel):
             raise ValueError("last calculation forecast run does not match the outcome")
         if self.project.selected_forecast_run_id != self.selected_forecast_run_id:
             raise ValueError("last calculation forecast run does not match the Project snapshot")
+        if not (
+            self.selected_forecast_model == self.outcome.selected_forecast_model
+            == self.project.selected_forecast_model
+        ):
+            raise ValueError("last calculation forecast model does not match its snapshots")
         raw_ui_state = self.project.metadata.get("ui_state")
         if not isinstance(raw_ui_state, dict):
             raise ValueError("last calculation Project has no persisted UI state")

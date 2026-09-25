@@ -21,6 +21,7 @@ def test_prepare_local_replaces_generated_tree(tmp_path, monkeypatch):
     (stale / "_redirects").write_text("/* https://old.example 302")
     (stale / "removed.txt").write_text("old")
     monkeypatch.delenv("AUTONAVLOG_MSM_FEED", raising=False)
+    monkeypatch.delenv("AUTONAVLOG_GSM_FEED", raising=False)
     monkeypatch.delenv("AUTONAVLOG_TEST_FIXTURES", raising=False)
 
     def build(command, **kwargs):

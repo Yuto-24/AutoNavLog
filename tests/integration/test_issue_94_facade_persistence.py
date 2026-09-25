@@ -7,9 +7,12 @@ import pytest
 
 from autonavlog.domain.calculation import Issue, RjfmInboundGuidance
 from autonavlog.domain.enums import IssueSeverity
-from autonavlog.domain.weather import ForecastRequirement, ForecastRun, RunSelectionStatus
+from autonavlog.domain.weather import (
+    ForecastCoverageError, ForecastRequirement, ForecastRun, RunSelectionStatus,
+)
 from autonavlog.importers.kml import import_kml_text
 from autonavlog.weather.fake_provider import FakeWeatherProvider
+from autonavlog.weather.forecast_provider import ForecastWeatherProvider
 from autonavlog.web.facade import AutoNavLogWebApplication, WebApplicationError
 from autonavlog.web.models import ConfirmRouteRequest, SaveProjectRequest, UpdateProjectRequest
 from autonavlog.web.runtime import WebRuntimeConfig, build_web_application
@@ -44,6 +47,14 @@ class BoundedForecastWeatherProvider(FakeWeatherProvider):
             if min(requirement.valid_times_utc) >= cls.cutoff_utc
             else cls.old_run_id
         )
+
+    def candidate_runs(self, requirement: ForecastRequirement):
+        return self.runs
+
+    def check_run(self, run: str, requirement: ForecastRequirement) -> None:
+        if run != self._selected_run(requirement):
+            raise ForecastCoverageError(("TIME_OUTSIDE_FORECAST",))
+        self.prepare_run(run, requirement)
 
     def resolve_run(self, requirement: ForecastRequirement) -> ForecastRun:
         run_id = self._selected_run(requirement)
@@ -546,7 +557,7 @@ def test_forecast_identity_metadata_and_warning_outcome_are_persisted(
         (date(2026, 8, 10), "10:00"),
     ],
 )
-def test_saved_forecast_pin_is_invalidated_for_changed_departure_datetime(
+def test_changed_departure_datetime_preserves_pin_until_two_click_refresh(
     tmp_path: Path,
     flight_date: date,
     departure_time_jst: str,
@@ -556,7 +567,7 @@ def test_saved_forecast_pin_is_invalidated_for_changed_departure_datetime(
     session, state = _new_project(application, weather_mode="FORECAST")
     assert session.project is not None
     provider = BoundedForecastWeatherProvider()
-    session.weather_provider = provider
+    session.weather_provider = ForecastWeatherProvider({"MSM": provider, "GSM": provider})
 
     historical_run_id = provider.old_run_id
     saved_project = session.project.model_copy(
@@ -573,7 +584,13 @@ def test_saved_forecast_pin_is_invalidated_for_changed_departure_datetime(
         }
     )
     updated = application.update_project(session, request)
-    assert updated["project"]["selected_forecast_run_id"] is None
+    # #161 replaces the former per-field clearing rule: the pin survives input
+    # edits, while refresh intent is scoped to the new requirement fingerprint.
+    assert updated["project"]["selected_forecast_run_id"] == historical_run_id
+    first = application.calculate(session)
+    assert first["project"]["selected_forecast_run_id"] == historical_run_id
+    assert "FORECAST_UPDATE_REQUIRED" in [issue["code"] for issue in first["outcome"]["issues"]]
+    assert not first["outcome"]["sections"]
 
     calculated = application.calculate(session)
     assert calculated["outcome"]["selected_forecast_run_id"] == provider.fresh_run_id

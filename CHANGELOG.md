@@ -2,6 +2,22 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.21.0
+
+### 利用者向け
+
+#### 改善
+
+- MSMで経路・時刻・高度に必要な予報範囲を満たせない場合、NAV LOG全体をGSM日本域で計算します。通信やデータ処理の失敗では予報を切り替えません。
+- 固定Forecastの更新には既存の再計算ボタンを使用します。同じ入力で1回目は現在のForecastを維持して更新を案内し、2回目に利用可能なForecastを選び直します。
+- NAV LOGに使用model・RunとGSMへの切替理由を表示し、更新待ちや計算失敗でも前回の正常な計算結果を保持します。
+
+### 開発者向け
+
+- modelとRunを分けてProject・CalculationOutcome・Last Calculationへ保存し、既存のRunのみの記録をMSMとして移行します。
+- coverageのみを理由とするモデル選択と、反復計算後の要求に基づく全体再計算をLocal / Legacyの共通計算境界で処理します。
+- GSMのportable preparationは`jma-gpv-weather`の公開APIを使用し、モデル仕様・GRIB・HGT判定をアプリ側へ複製しません。
+
 ## 1.20.2
 
 ### 利用者向け
