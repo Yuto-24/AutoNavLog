@@ -24,24 +24,27 @@ R2, paid runner, paid plan, billing activation, or automatic paid fallback is re
   the origin allowlist; never deploy the checked-in empty default allowlist as production.
   Pages never runs `wrangler deploy`.
 
-**Not performed by this PR:** create/change GitHub environments or variables/secrets,
+**Not performed by PR #211:** create/change GitHub environments or variables/secrets,
 Cloudflare/Firebase settings, scheduler activation, deployment, rollback, DNS or billing.
 Before authorization, review the exact target, SHA, public configuration and plan evidence.
 
 After explicit authorization, the operator configures:
 
-1. GitHub `static-production` environment with production branch
-   restricted to `main`; required reviewers for one-off publication. For unattended
-   recurring feed updates, explicitly approve the recurring policy and the environment
-   protection arrangement. A pending reviewer on every scheduled run is not unattended
-   operation. Do not silently remove protection to unblock a run.
+1. GitHub `static-production` environment for unattended recurring feed updates,
+   restricted to `main` without required reviewers after explicit recurring-policy
+   approval. Use a separate `static-publication` environment, restricted to `main`
+   with required reviewers, for one-off `publish=true` dispatches. Build-only
+   dispatches use `static-validation`. A pending reviewer on every scheduled run is
+   not unattended operation. Do not silently remove publication protection to
+   unblock a run.
 2. Repository variables `STATIC_ORIGIN=https://navmate.pages.dev`, `STATIC_APPROVED_SHA`
    (the full canonical production SHA), and the six public `VITE_*` settings documented
    in #121. Keep these in repository variables so build and monitor see the same values;
    do not shadow them with different environment values. No credentials in `VITE_*`.
-3. `CLOUDFLARE_ACCOUNT_ID`; environment secret `CLOUDFLARE_PAGES_TOKEN` scoped only to
-   Pages edit in the intended account. Keep #145 Worker credentials and configuration
-   outside this workflow. Never expose the Pages token to the application build.
+3. `CLOUDFLARE_ACCOUNT_ID`; install environment secret `CLOUDFLARE_PAGES_TOKEN` in
+   both `static-production` and `static-publication`, scoped only to Pages edit in
+   the intended account. Keep #145 Worker credentials and configuration outside
+   this workflow. Never expose the Pages token to the application build.
 4. `STATIC_QUOTA_REPORT` using the schema below, then `STATIC_MONITOR_ENABLED=true`.
    Enable GitHub Actions failure notifications for the operator. Run the monitor once
    and verify receipt of an intentional test failure before relying on it.
