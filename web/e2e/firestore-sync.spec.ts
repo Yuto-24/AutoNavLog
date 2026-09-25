@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { initializeApp, deleteApp } from "firebase/app";
-import { connectFirestoreEmulator, doc, getDoc, getFirestore, setDoc, terminate } from "firebase/firestore";
+import { connectFirestoreEmulator, deleteDoc, doc, getDoc, getFirestore, setDoc, terminate } from "firebase/firestore";
 import { FirestoreSyncRepository } from "../src/firestoreSyncRepository";
 import type { SyncProject } from "../src/accountSync";
 
@@ -32,6 +32,34 @@ test("Firestore Rules enforce Google ownership, CAS, atomic batches and irrevers
     const tombstone = { ...pending, revision: 3, deletion: "DELETED" as const, version: crypto.randomUUID() };
     expect(await repository.commit([{ expectedVersion: pending.version, value: tombstone }])).toEqual({ committed: true });
   } finally { repository.dispose(); await terminate(db); await deleteApp(app); }
+});
+
+test("account deletion closes the old generation and re-registration isolates ownership", async () => {
+  const subject = `lifecycle-${crypto.randomUUID()}`;
+  const app = initializeApp({ projectId: "demo-autonavlog-sync", apiKey: "test" }, subject);
+  const db = getFirestore(app);
+  connectFirestoreEmulator(db, "127.0.0.1", 8088, { mockUserToken: { sub: "firebase-owner", firebase: { sign_in_provider: "google.com", identities: { "google.com": [subject] } } } });
+  const oldId = `account_v1_${"a".repeat(64)}`, newId = `account_v2_${crypto.randomUUID()}`;
+  const account = doc(db, "googleAccounts", subject);
+  const oldProject = doc(db, "googleAccounts", subject, "projects", crypto.randomUUID());
+  const nextProject = doc(db, "googleAccounts", subject, "generations", newId, "projects", crypto.randomUUID());
+  const payload = (id: string) => ({ schema: 1, id, version: crypto.randomUUID(), revision: 1, baseVersion: null,
+    latestDeviceId: null, deletion: "ACTIVE", undoUntil: null, payload: JSON.stringify({ id }) });
+  try {
+    await setDoc(account, { schema: 1, accountId: oldId, state: "ACTIVE" });
+    await setDoc(oldProject, payload(oldProject.id));
+    await expect(setDoc(account, { schema: 1, accountId: newId, state: "ACTIVE" })).rejects.toMatchObject({ code: "permission-denied" });
+    await setDoc(account, { schema: 1, accountId: oldId, state: "DELETING" });
+    await expect(setDoc(doc(db, "googleAccounts", subject, "projects", crypto.randomUUID()), payload(crypto.randomUUID()))).rejects.toMatchObject({ code: "permission-denied" });
+    await deleteDoc(oldProject);
+    await setDoc(account, { schema: 1, accountId: oldId, state: "DELETED" });
+    await expect(setDoc(oldProject, payload(oldProject.id))).rejects.toMatchObject({ code: "permission-denied" });
+    await setDoc(account, { schema: 1, accountId: newId, state: "ACTIVE" });
+    await setDoc(nextProject, payload(nextProject.id));
+    expect((await getDoc(nextProject)).exists()).toBe(true);
+    await expect(getDoc(oldProject)).rejects.toMatchObject({ code: "permission-denied" });
+    await expect(setDoc(oldProject, payload(oldProject.id))).rejects.toMatchObject({ code: "permission-denied" });
+  } finally { await terminate(db); await deleteApp(app); }
 });
 
 test("Rules bound the Undo window at create/update and reject extending a pending deletion", async () => {

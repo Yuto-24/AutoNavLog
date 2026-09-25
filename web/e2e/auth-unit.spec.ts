@@ -2,10 +2,12 @@ import { expect, test } from "@playwright/test";
 import { IDBFactory, IDBObjectStore } from "fake-indexeddb";
 import { IndexedDbProjectRepository, type LocalProjectRecord } from "../src/localProjectRepository";
 import { accountBoundaryClosed, type AuthProvider } from "../src/auth";
-import { googleAccount, retainAuthDuringOutage } from "../src/firebaseAuthProvider";
+import { FirebaseAuthProvider, googleAccount, retainAuthDuringOutage } from "../src/firebaseAuthProvider";
+import type { Auth, User } from "firebase/auth";
 import { createAccountContext } from "../src/accountContext";
 import { browserPlatform } from "../src/browserPlatform";
 import { LocalApplication } from "../src/localApplication";
+import { currentAccount, removeLocalAccount } from "../src/accountLifecycle";
 import type { Project } from "../src/types";
 
 const validate = async (row: unknown) => structuredClone(row) as LocalProjectRecord;
@@ -20,6 +22,105 @@ test("internal account identity is stable across devices/Firebase UIDs and indep
   expect(await googleAccount(user("firebase-two", "new@example.test"))).toEqual(account);
   expect((await googleAccount({ ...user("firebase-one", "old@example.test"), providerData: [{ providerId: "google.com", uid: "other" }] })).account_id).not.toBe(account.account_id);
   await expect(googleAccount({ ...user("a", "a"), providerData: [] })).rejects.toThrow();
+});
+
+test("account purge removes its namespace and claimed originals while preserving another owner", async () => {
+  const factory = new IDBFactory();
+  const previousIdb = globalThis.indexedDB;
+  const previousSession = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  const sessions = new Map<string, string>();
+  Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: factory });
+  Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: {
+    removeItem(key: string) { sessions.delete(key); },
+  } });
+  try {
+    const scope = (account_id: string | null) => new IndexedDbProjectRepository(validate, undefined, () => factory,
+      { account_id, assertActive() {}, onClose: () => () => {} });
+    const anonymous = scope(null), owner = scope("owner-a"), other = scope("owner-b");
+    await anonymous.write(record("claimed", true), null, false);
+    await anonymous.claimAnonymous("owner-a");
+    await anonymous.write(record("unclaimed", true), null, false);
+    await owner.write(record("owner-data", true), null, false);
+    await other.write(record("other-data", true), null, false);
+    sessions.set("autonavlog.working-session.v1.owner-a", "old input");
+    await removeLocalAccount("owner-a");
+    expect((await scope("owner-a").list()).projects).toHaveLength(0);
+    expect((await anonymous.list()).projects.map(row => row.id)).toEqual(["unclaimed"]);
+    expect((await other.list()).projects.map(row => row.id)).toEqual(["other-data"]);
+    expect(sessions.size).toBe(0);
+  } finally {
+    if (previousIdb) Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: previousIdb });
+    else delete (globalThis as { indexedDB?: IDBFactory }).indexedDB;
+    if (previousSession) Object.defineProperty(globalThis, "sessionStorage", previousSession);
+    else delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
+  }
+});
+
+test("a remotely retired account cache cannot reopen its Local namespace offline", async () => {
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: false } });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+    getItem(key: string) { return values.get(key) ?? null; },
+  } });
+  const user = { uid: "firebase-owner", providerData: [{ providerId: "google.com", uid: "offline-owner" }] } as User;
+  try {
+    values.set("autonavlog.account.current.offline-owner", "account_v1_old");
+    expect((await currentAccount(user)).accountId).toBe("account_v1_old");
+    values.set("autonavlog.account.current.offline-owner", "retired:account_v1_old");
+    await expect(currentAccount(user)).rejects.toThrow("オンライン接続と再認証が必要");
+  } finally {
+    if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+    else delete (globalThis as { navigator?: Navigator }).navigator;
+    if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
+    else delete (globalThis as { localStorage?: Storage }).localStorage;
+  }
+});
+
+test("remote generation change closes an in-flight old owner write before purging its database", async () => {
+  const factory = new IDBFactory(), previousIdb = globalThis.indexedDB;
+  const previousSession = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: factory });
+  Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: { removeItem() {} } });
+  const user = { uid: "firebase-owner", providerData: [{ providerId: "google.com", uid: "google-owner" }] } as User;
+  const auth = { currentUser: user } as Auth;
+  let changed = false, active = true, change: Promise<void> | undefined;
+  const closures = new Set<() => void>();
+  const provider = new FirebaseAuthProvider(auth, async (_user, _register, close) => {
+    if (!changed) return { accountId: "owner-old", deleting: false };
+    close();
+    await removeLocalAccount("owner-old");
+    return { accountId: "owner-new", deleting: false };
+  });
+  const context = { account_id: "owner-old", assertActive() { if (!active) throw accountBoundaryClosed(); },
+    onClose(fn: () => void) { closures.add(fn); return () => { closures.delete(fn); }; } };
+  const repo = new IndexedDbProjectRepository(validate, undefined, () => factory, context);
+  const getAll = IDBObjectStore.prototype.getAll;
+  try {
+    await (provider as any).accept(user);
+    provider.subscribe(() => {
+      if (!provider.getState().account) { active = false; closures.forEach(fn => fn()); }
+    });
+    await repo.write(record("old", true), null, false);
+    changed = true;
+    IDBObjectStore.prototype.getAll = function (...args: Parameters<typeof getAll>) {
+      const request = getAll.apply(this, args);
+      change ??= (provider as any).accept(user);
+      return request;
+    };
+    await expect(repo.write(record("racing", true), null, false)).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
+    await change;
+    expect((await new IndexedDbProjectRepository(validate, undefined, () => factory, context).list().catch(() => null))).toBeNull();
+    active = true;
+    expect((await new IndexedDbProjectRepository(validate, undefined, () => factory, context).list()).projects).toHaveLength(0);
+  } finally {
+    IDBObjectStore.prototype.getAll = getAll;
+    if (previousIdb) Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: previousIdb });
+    else delete (globalThis as { indexedDB?: IDBFactory }).indexedDB;
+    if (previousSession) Object.defineProperty(globalThis, "sessionStorage", previousSession);
+    else delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
+  }
 });
 
 test("all Repository operations isolate anonymous, A and B including Latest cleanup and Last Calculation", async () => {

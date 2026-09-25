@@ -10,11 +10,12 @@ export function AccountControl({ auth, busy }: { auth?: AuthProvider; busy: bool
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDeletion, setConfirmDeletion] = useState(false);
   const dialog = useModalFocusTrap<HTMLElement>(open);
   const act = async (operation: () => Promise<void>) => {
     setPending(true); setError(null);
-    try { await operation(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "認証操作に失敗しました。"); }
+    try { await operation(); return true; }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "認証操作に失敗しました。"); return false; }
     finally { setPending(false); }
   };
   return <>
@@ -33,9 +34,17 @@ export function AccountControl({ auth, busy }: { auth?: AuthProvider; busy: bool
         {!state.available && !state.notice && <p>この環境ではGoogleログインが設定されていません。未ログインのまま利用できます。</p>}
         {(error || state.notice) && <p role="alert">{error || state.notice}</p>}
         <button type="button" className="primary-button" disabled={!auth || !state.available || pending || (busy && !state.account && !state.signOutPending)}
-          onClick={() => auth && void act((state.account || state.signOutPending) ? () => auth.signOut() : () => auth.signIn())}>
-          {state.signOutPending ? "ログアウトを再試行" : state.account ? "ログアウト" : "Googleでログイン"}
+          onClick={() => auth && void act((state.account || state.signOutPending || state.deletionPending) ? () => auth.signOut() : () => auth.signIn())}>
+          {state.signOutPending ? "ログアウトを再試行" : state.account || state.deletionPending ? "ログアウト" : "Googleでログイン"}
         </button>
+        {auth?.deleteAccount && (state.account || state.deletionPending) && <>
+          {confirmDeletion && <p>このアカウントの同期データと、この端末の保存データを削除します。元に戻せません。Googleアカウントは削除されません。</p>}
+          <button type="button" disabled={pending || busy} onClick={() => {
+            if (!confirmDeletion && !state.deletionPending) { setConfirmDeletion(true); return; }
+            void act(() => auth.deleteAccount!()).then(success => { if (success) setConfirmDeletion(false); });
+          }}>{state.deletionPending ? "削除を再試行" : confirmDeletion ? "NavMateアカウントを削除する" : "アカウントを削除"}</button>
+          {confirmDeletion && <button type="button" disabled={pending} onClick={() => setConfirmDeletion(false)}>キャンセル</button>}
+        </>}
       </section>
     </div>}
   </>;

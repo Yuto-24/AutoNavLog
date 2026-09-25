@@ -4,9 +4,9 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { initializeFirestore, connectFirestoreEmulator } from "firebase/firestore";
 import { createFirestoreSyncRepository } from "../../src/firestoreSyncRepository";
-import { getApp } from "firebase/app";
+import { getApp, initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithCredential } from "firebase/auth";
-import { createFirebaseAuthProvider } from "../../src/firebaseAuthProvider";
+import { createFirebaseAuthProvider, googleAccount } from "../../src/firebaseAuthProvider";
 import { observeAccountContexts } from "../../src/accountContext";
 import { browserPlatform } from "../../src/browserPlatform";
 import { BrowserFileInput } from "../../src/BrowserFileInput";
@@ -18,12 +18,14 @@ import "../../src/styles.css";
 import "../../src/flightPlanLayout.css";
 
 const syncEnabled = new URLSearchParams(location.search).has("sync");
-const provider = await createFirebaseAuthProvider({ apiKey: "issue-184-test", projectId: syncEnabled ? "demo-autonavlog-sync" : "autonavlog-test", authDomain: "autonavlog-test.firebaseapp.com", appId: "test-app" });
+const config = { apiKey: "issue-184-test", projectId: syncEnabled ? "demo-autonavlog-sync" : "autonavlog-test", authDomain: "autonavlog-test.firebaseapp.com", appId: "test-app" };
 // Playwright WebKit's routed HTTP emulator stream can remain buffered. Complete
 // each response with the SDK transport option; live builds retain SDK defaults.
-if (syncEnabled) connectFirestoreEmulator(initializeFirestore(getApp(), {
+if (syncEnabled) connectFirestoreEmulator(initializeFirestore(initializeApp(config), {
   experimentalForceLongPolling: true,
 }), "127.0.0.1", 8088);
+const provider = await createFirebaseAuthProvider(config,
+  syncEnabled ? undefined : async user => ({ accountId: (await googleAccount(user)).account_id, deleting: false }));
 const root = createRoot(document.getElementById("root")!);
 let generation = 0;
 const contexts: any[] = [];
@@ -44,6 +46,12 @@ observeAccountContexts(browserPlatform, provider, ({ application, platform }) =>
   contexts,
   generation: () => generation,
   signIn: (subject: string) => signInWithCredential(getAuth(), GoogleAuthProvider.credential(subject)),
+  register: (subject: string, cachedOldId?: string) => provider.signInWith(async () => {
+    const user = (await signInWithCredential(getAuth(), GoogleAuthProvider.credential(subject))).user;
+    if (cachedOldId) localStorage.setItem(`autonavlog.account.current.${subject}`, cachedOldId);
+    return user;
+  }),
+  deleteAccount: () => provider.deleteAccount(),
   signOut: () => provider.signOut(),
   refresh: () => provider.refresh(),
 };
