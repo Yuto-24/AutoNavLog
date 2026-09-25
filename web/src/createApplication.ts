@@ -32,7 +32,9 @@ export async function startApplication(platform: PlatformCapabilities, present: 
   const { activateLegacyAccount } = await import("./legacyMigration");
   observeAccountContexts(platform, auth, present, createFirestoreSyncRepository,
     import.meta.env.VITE_LEGACY_MIGRATION_URL
-      ? (accountId, signal) => activateLegacyAccount(accountId, signal, report)
+      ? (accountId, signal) => accountId.startsWith("account_v2_")
+        ? Promise.resolve() // A newly registered generation cannot inherit the old Legacy link.
+        : activateLegacyAccount(accountId, signal, report)
       : undefined,
     (error, retry) => report({ percent: 0, message: "Legacyの引継ぎ状態を確認中", error, retry }));
 }

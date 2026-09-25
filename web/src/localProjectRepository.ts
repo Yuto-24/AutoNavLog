@@ -90,7 +90,10 @@ export class IndexedDbProjectRepository implements LocalProjectRepository {
         const read = store.getAll();
         read.onsuccess = () => {
           try { this.context?.assertActive(); value = action(store, read.result); }
-          catch (cause) { error = cause; tx.abort(); }
+          catch (cause) {
+            error = cause;
+            try { tx.abort(); } catch { reject(cause); } // another context may already have closed this transaction
+          }
         };
       });
     } finally { db.close(); }

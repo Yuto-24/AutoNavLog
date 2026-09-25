@@ -5,7 +5,8 @@ async function start(page: Page, subject: string) {
   await page.goto("/e2e/auth-harness/index.html?sync");
   await expect.poll(() => page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
-  await expect.poll(() => page.evaluate(() => (window as any).authTest.state().account?.displayName)).toBe(subject);
+  // Vite may reload the first page while generated Local assets settle in CI.
+  await expect.poll(() => page.evaluate(() => (window as any).authTest?.state().account?.displayName)).toBe(subject);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 
 }
@@ -30,6 +31,17 @@ async function open(page: Page, name: string) {
   await page.getByLabel("保存済み", { exact: true }).selectOption({ label: name });
   await page.getByRole("button", { name: "保存済みProjectを開く" }).click();
   await expect(page.locator(".nav-log-table")).toBeVisible();
+}
+async function blockLocalDeletion(page: Page, accountId: string) {
+  await page.evaluate(oldId => new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open(`autonavlog.projects.${oldId}`);
+    request.onsuccess = () => {
+      (window as any).blockedAccountDb = request.result;
+      request.result.onversionchange = () => {};
+      resolve();
+    };
+    request.onerror = () => reject(request.error);
+  }), accountId);
 }
 test("real SDK: fresh device Last Calculation, offline edit, blocking conflict both, delete Undo and account separation", async ({ browser, page, context }) => {
   await backend(context);
@@ -71,6 +83,90 @@ test("real SDK: fresh device Last Calculation, offline edit, blocking conflict b
     await start(ipad, `other-${subject}`);
     await expect.poll(() => ipad.locator("#saved-project option").count()).toBe(1);
   } finally { await other.close(); }
+});
+
+test("account deletion drains Remote and Local, closes an offline device, and re-registers with a new owner", async ({ browser, page, context }) => {
+  await backend(context);
+  const subject = `delete-${crypto.randomUUID()}`;
+  await start(page, subject); await create(page, "Old route");
+  const oldId = await page.evaluate(() => (window as any).authTest.state().account.account_id);
+  await expect.poll(async () => page.evaluate(async () => {
+    const rows = await (window as any).authTest.contexts.at(-1).repository.rows();
+    return rows.some((row: any) => row.draft.name === "Old route" && !row.sync.dirty);
+  })).toBe(true);
+  const staleContext = await browser.newContext(); await backend(staleContext);
+  const stalePage = await staleContext.newPage();
+  const otherContext = await browser.newContext(); await backend(otherContext);
+  const otherPage = await otherContext.newPage();
+  try {
+    await start(stalePage, subject); await open(stalePage, "Old route");
+    await staleContext.setOffline(true);
+    await start(otherPage, `other-${subject}`); await create(otherPage, "Other route");
+    await page.getByRole("button", { name: "アカウント", exact: true }).click();
+    await page.getByRole("button", { name: "アカウントを削除", exact: true }).click();
+    await blockLocalDeletion(page, oldId);
+    await blockLocalDeletion(stalePage, oldId);
+    await page.getByRole("button", { name: "NavMateアカウントを削除する", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).authTest.state().deletionPending)).toBe(true);
+    await expect(page.getByRole("alert").filter({ hasText: "削除が途中" })).toBeVisible();
+    expect(await page.evaluate(subject => localStorage.getItem(`autonavlog.account.current.${subject}`), subject)).toBe(`retired:${oldId}`);
+    await expect(stalePage.locator("#saved-project option").filter({ hasText: "Old route" })).toHaveCount(1);
+    await staleContext.setOffline(false);
+    await expect(stalePage.getByRole("alert").filter({ hasText: "削除が途中" })).toBeVisible();
+    await expect.poll(() => stalePage.evaluate(() => (window as any).authTest.state().account)).toBeNull();
+    await expect(stalePage.locator("#saved-project option").filter({ hasText: "Old route" })).toHaveCount(0);
+    expect(await stalePage.evaluate(subject => localStorage.getItem(`autonavlog.account.current.${subject}`)?.startsWith("retired:"), subject)).toBe(true);
+    await stalePage.getByRole("button", { name: "アカウント", exact: true }).click();
+    await expect(stalePage.getByRole("button", { name: "削除を再試行", exact: true })).toBeVisible();
+    await stalePage.getByRole("button", { name: "削除を再試行", exact: true }).click();
+    await expect(stalePage.getByRole("alert").filter({ hasText: "端末内のデータを削除できませんでした" })).toBeVisible();
+    await stalePage.getByRole("button", { name: "アカウントを閉じる" }).click();
+    await stalePage.evaluate(() => { (window as any).blockedAccountDb.close(); });
+    await page.evaluate(() => { (window as any).blockedAccountDb.close(); });
+    await page.getByRole("button", { name: "アカウント", exact: true }).click();
+    await page.getByRole("button", { name: "削除を再試行", exact: true }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "NavMateアカウントを削除しました" }).first()).toBeVisible();
+    await stalePage.evaluate(() => (window as any).authTest.refresh());
+    await expect.poll(async () => stalePage.evaluate(oldId => indexedDB.databases().then(rows => rows.some(row => row.name === `autonavlog.projects.${oldId}`)), oldId)).toBe(false);
+    expect(await page.evaluate(oldId => indexedDB.databases().then(rows => rows.some(row => row.name === `autonavlog.projects.${oldId}`)), oldId)).toBe(false);
+    await expect(otherPage.locator("#saved-project option").filter({ hasText: "Other route" })).toHaveCount(1);
+    const rejectRegistration = /documents:commit\?/;
+    await context.route(rejectRegistration, async route => {
+      const writes = route.request().postDataJSON()?.writes ?? [];
+      if (writes.some((write: { update?: { fields?: { state?: { stringValue?: string } } } }) =>
+        write.update?.fields?.state?.stringValue === "ACTIVE")) {
+        await route.fulfill({ status: 403, json: { error: { code: 403, status: "PERMISSION_DENIED", message: "injected registration failure" } } });
+      } else await route.continue();
+    });
+    await page.evaluate(([subject, oldId]) => (window as any).authTest.register(subject, oldId), [subject, oldId]);
+    expect(await page.evaluate(() => (window as any).authTest.state().account)).toBeNull();
+    await context.unroute(rejectRegistration);
+    await page.evaluate(subject => (window as any).authTest.register(subject), subject);
+    await expect.poll(() => page.evaluate(() => (window as any).authTest.state().account?.account_id)).not.toBeNull();
+    const newId = await page.evaluate(() => (window as any).authTest.state().account.account_id);
+    expect(newId).not.toBe(oldId);
+    await expect(page.locator("#saved-project option").filter({ hasText: "Old route" })).toHaveCount(0);
+    await create(page, "New route");
+    await expect.poll(async () => page.evaluate(async () => {
+      const rows = await (window as any).authTest.contexts.at(-1).repository.rows();
+      return rows.some((row: any) => row.draft.name === "New route" && !row.sync.dirty);
+    })).toBe(true);
+  } finally { await staleContext.close(); await otherContext.close(); }
+});
+
+test("offline account deletion is rejected without a Local-only deletion queue", async ({ page, context }) => {
+  await backend(context);
+  const subject = `offline-delete-${crypto.randomUUID()}`;
+  await start(page, subject); await create(page, "Keep route");
+  const oldId = await page.evaluate(() => (window as any).authTest.state().account.account_id);
+  await page.getByRole("button", { name: "アカウント", exact: true }).click();
+  await page.getByRole("button", { name: "アカウントを削除", exact: true }).click();
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "NavMateアカウントを削除する", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "オンライン接続と再認証" })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).authTest.state().account?.account_id)).toBe(oldId);
+  await expect(page.locator("#saved-project option").filter({ hasText: "Keep route" })).toHaveCount(1);
+  expect(await page.evaluate(oldId => indexedDB.databases().then(rows => rows.some(row => row.name === `autonavlog.projects.${oldId}`)), oldId)).toBe(true);
 });
 
 test("anonymous Latest collision is durable and blocks editing until named save", async ({ page, context }) => {

@@ -4,7 +4,6 @@ import { collection, doc, getDocsFromServer, getFirestore, onSnapshot, runTransa
   type Firestore, type DocumentData } from "firebase/firestore";
 import { ApplicationError } from "./application";
 import { accountBoundaryClosed } from "./auth";
-import { googleAccount } from "./firebaseAuthProvider";
 import { deletionState, type AccountSyncRepository, type SyncProject, type SyncMutation, type SyncCommit } from "./accountSync";
 import type { LocalAccountContext } from "./localProjectRepository";
 
@@ -23,22 +22,25 @@ function decode(data: DocumentData, id: string): SyncProject {
 export async function createFirestoreSyncRepository(context: LocalAccountContext): Promise<AccountSyncRepository> {
   const auth = getAuth(getApp());
   const user = auth.currentUser;
-  if (!user || (await googleAccount(user)).account_id !== context.account_id) throw accountBoundaryClosed();
+  if (!user || !context.account_id) throw accountBoundaryClosed();
   const subject = user.providerData.find(identity => identity.providerId === "google.com")!.uid;
   const assert = () => {
     context.assertActive();
     const current = auth.currentUser;
     if (current?.uid !== user.uid || current.providerData.find(identity => identity.providerId === "google.com")?.uid !== subject) throw accountBoundaryClosed();
   };
-  return new FirestoreSyncRepository(getFirestore(getApp()), subject, assert);
+  return new FirestoreSyncRepository(getFirestore(getApp()), subject, assert, context.account_id);
 }
 export class FirestoreSyncRepository implements AccountSyncRepository {
   private active = true;
   private readonly projects;
-  constructor(private readonly db: Firestore, subject: string, private readonly assertContext: () => void) {
+  constructor(private readonly db: Firestore, subject: string, private readonly assertContext: () => void,
+    accountId?: string) {
     // Backend key is verified by Rules against the authenticated Google subject.
     // Internal account_id remains independent of provider paths/UIDs.
-    this.projects = collection(db, "googleAccounts", subject, "projects");
+    this.projects = accountId?.startsWith("account_v2_")
+      ? collection(db, "googleAccounts", subject, "generations", accountId, "projects")
+      : collection(db, "googleAccounts", subject, "projects");
   }
   private assert() { this.assertContext(); if (!this.active) throw accountBoundaryClosed(); }
   async list() {
