@@ -15,7 +15,15 @@ async function expectNavLogAtViewportTop(page: Page) {
 test("first Local NAV LOG calculation and recalculation scroll to the result", async ({ page }) => {
   await page.addInitScript(() => {
     const original = Element.prototype.scrollIntoView;
+    const originalPostMessage = Worker.prototype.postMessage;
     (window as any).navLogScrolls = 0;
+    (window as any).navLogScrollsAtCalculationStart = -1;
+    Worker.prototype.postMessage = function (message: any, ...args: any[]) {
+      if (message?.type === "APPLY" && message.argumentList?.[0]?.value === "calculate") {
+        (window as any).navLogScrollsAtCalculationStart = (window as any).navLogScrolls;
+      }
+      return (originalPostMessage as any).call(this, message, ...args);
+    };
     Element.prototype.scrollIntoView = function (...args) {
       if (this.getAttribute("aria-label") === "計算済みNAV LOG") {
         (window as any).navLogScrolls += 1;
@@ -40,6 +48,7 @@ test("first Local NAV LOG calculation and recalculation scroll to the result", a
   await expect(page.getByLabel("計算済みNAV LOG")).toHaveCount(0);
   await page.getByRole("button", { name: "NAV LOGを作る", exact: true }).click();
   await expectNavLogAtViewportTop(page);
+  expect(await page.evaluate(() => (window as any).navLogScrollsAtCalculationStart)).toBe(0);
   expect(await page.evaluate(() => (window as any).navLogScrolls)).toBe(1);
   const firstTable = await page.locator(".nav-log-table").innerText();
 
@@ -48,6 +57,7 @@ test("first Local NAV LOG calculation and recalculation scroll to the result", a
     .toBeGreaterThan(await page.evaluate(() => window.innerHeight / 3));
   await page.getByRole("button", { name: "NAV LOGを再計算", exact: true }).click();
   await expectNavLogAtViewportTop(page);
+  expect(await page.evaluate(() => (window as any).navLogScrollsAtCalculationStart)).toBe(1);
   expect(await page.evaluate(() => (window as any).navLogScrolls)).toBe(2);
   await expect(page.locator(".nav-log-table")).toHaveText(firstTable, { useInnerText: true });
 });
