@@ -8,7 +8,10 @@ import pytest
 from autonavlog.domain.calculation import Issue, RjfmInboundGuidance
 from autonavlog.domain.enums import IssueSeverity
 from autonavlog.domain.weather import (
-    ForecastCoverageError, ForecastRequirement, ForecastRun, RunSelectionStatus,
+    ForecastCoverageError,
+    ForecastRequirement,
+    ForecastRun,
+    RunSelectionStatus,
 )
 from autonavlog.importers.kml import import_kml_text
 from autonavlog.weather.fake_provider import FakeWeatherProvider

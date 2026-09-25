@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-16T00:00:00Z",
+  "expires_at": "2026-09-16T06:00:00Z",
+  "listings": {
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/16": "",
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/15": "Z__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0000-0100_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0101-0200_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0201-0300_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0301-0400_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0401-0500_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0501-0512_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0515-0700_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0703-0900_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0903-1100_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0000-0100_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0103-0200_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0203-0300_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0303-0400_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0403-0500_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0503-0512_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0518-0700_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0706-0900_grib2.bin\nZ__C_RJTD_20260915000000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0906-1100_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0000-0100_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0101-0200_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0201-0300_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0301-0400_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0401-0500_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0501-0512_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0000-0100_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0103-0200_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0203-0300_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0303-0400_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0403-0500_grib2.bin\nZ__C_RJTD_20260915060000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0503-0512_grib2.bin",
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/14": "",
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/13": "",
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/12": "",
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/11": "",
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/10": "",
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/09": "",
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/08": "",
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/07": "",
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/06": "",
+    "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/05": ""
+  },
+  "assets": [
+    {
+      "run": "20260915060000",
+      "file": "b7372bed3ffe785bd737650c7d9f54e7bcd1036b9733b339e8ad09a8ac9cbb0d.npz",
+      "sha256": "b7372bed3ffe785bd737650c7d9f54e7bcd1036b9733b339e8ad09a8ac9cbb0d",
+      "bytes": 52675
+    },
+    {
+      "run": "20260915000000",
+      "file": "a38ed27284f7444f3e1b30248d829ecaa4eb3c248ae3abc5bf241b377ca9c94c.npz",
+      "sha256": "a38ed27284f7444f3e1b30248d829ecaa4eb3c248ae3abc5bf241b377ca9c94c",
+      "bytes": 52674
+    }
+  ]
+}

@@ -3,7 +3,7 @@
 Local FORECASTは固定fixtureを使わず、同一originの`weather/msm/catalog.json`または
 `weather/gsm/catalog.json`と、library-produced `MsmPreparedData` / `GsmPreparedData`を
 取得し、Pyodide内で検証・補間・計算する。
-`jma-gpv-weather 0.5.0`のpublic APIがRun discovery/selection、model/time/area/altitude
+`jma-gpv-weather 0.6.0`のpublic APIがRun discovery/selection、model/time/area/altitude
 coverage、decode、補間、provenanceの正本。Legacyも同じ公開`SurfaceTemperatureQuery`を使う。
 旧private surface-temperature compatibility branchは削除した。
 

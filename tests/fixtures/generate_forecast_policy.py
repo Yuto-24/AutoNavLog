@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -59,13 +60,17 @@ class Source:
         return destination
 
 
-def records(paths, target_date, bounds, valid_times, *, pressure_levels):
+def records(paths, target_date, bounds, valid_times, *, pressure_levels, initial):
     lat = np.array([[35., 35.], [31., 31.]])
     lon = np.array([[130., 133.], [130., 133.]])
     surface, pressure = {}, {}
     for valid in valid_times:
         # Source scheduling and required levels are supplied by the native client.
-        surface[valid, 2, "tmp_surface"] = (np.full_like(lat, 293.15), lat, lon)
+        hour = (valid - initial).total_seconds() / 3600
+        if hour in spec.forecast_hours(initial, "Lsurf"):
+            surface[valid, 2, "tmp_surface"] = (np.full_like(lat, 293.15), lat, lon)
+        if hour not in spec.forecast_hours(initial, "L-pall"):
+            continue
         for level in pressure_levels:
             height = (1000 - level) * 20 + 100
             for name, value in (("hgt", height), ("u", 4.), ("v", -3.),
@@ -96,9 +101,10 @@ def generate():
         client = GsmClient(cache, BOUNDS, source=Source())
         runs = client.discover_runs(req)
         payloads = []
-        with patch("jma_gpv_weather.grib.read_grib_records", side_effect=records):
-            for selection in runs:
-                run = RunId(selection.run_utc)
+        for selection in runs:
+            run = RunId(selection.run_utc)
+            with patch("jma_gpv_weather.grib.read_grib_records",
+                       side_effect=partial(records, initial=selection.run_utc)):
                 forecast = client.prepare_run(run, req, available_runs=runs)
                 payloads.append((str(run), GsmPreparedData.from_forecast(forecast).to_bytes()))
         write_feed(ROOT / "forecast-policy/gsm", {

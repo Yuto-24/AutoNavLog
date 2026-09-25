@@ -15,7 +15,7 @@ from autonavlog.weather.msm_adapter import MsmWeatherProvider
 from autonavlog.weather.provider import WeatherProvider
 
 PINNED_MSM_DISTRIBUTION = "jma-gpv-weather"
-PINNED_MSM_VERSION = "0.5.0"
+PINNED_MSM_VERSION = "0.6.0"
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 

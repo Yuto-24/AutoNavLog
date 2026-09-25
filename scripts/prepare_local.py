@@ -49,7 +49,7 @@ with ZipFile(target / "data.zip", "w", ZIP_DEFLATED) as archive:
         for path in sorted((root / "tests/fixtures/msm").glob("*")):
             if path.suffix in {".npz", ".json"}:
                 archive.write(path, Path("data/msm-fixture") / path.name)
-msm_wheel = root / "vendor/jma_gpv_weather-0.5.0-py3-none-any.whl"
+msm_wheel = root / "vendor/jma_gpv_weather-0.6.0-py3-none-any.whl"
 shutil.copyfile(msm_wheel, target / msm_wheel.name)
 assets = [application_wheel, msm_wheel.name, "data.zip"]
 pyodide_version = json.loads((root / "web/package.json").read_text())["dependencies"]["pyodide"]

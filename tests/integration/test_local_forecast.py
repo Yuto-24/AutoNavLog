@@ -132,8 +132,10 @@ def test_public_gsm_portable_fallback_preserves_one_model_and_last_calculation(l
     assert last["project"]["selected_forecast_model"] == "GSM"
     assert last["outcome"]["forecast_provenance"] == outcome["forecast_provenance"]
     assert last["forecast_metadata"]["model"] == "GSM"
-    assert all(result.metadata["model"] == "GSM"
-               for result in local.session.calculation_service.last_weather_results)
+    weather = local.session.calculation_service.last_weather_results
+    assert weather
+    assert all(result.metadata["provenance"]["trace"]["model"] == "GSM_JAPAN"
+               for result in weather)
 
 
 def test_actual_newest_msm_hgt_exclusion_still_prefers_older_msm(local):

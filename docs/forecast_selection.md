@@ -38,21 +38,22 @@ carry model identity as well. Migration uses the existing Local/Legacy validatio
 and transaction boundaries; it must not replace a historical calculation or
 delete an invalid record.
 
-## Integration prerequisite and current status
+## Upstream boundary
 
-Legacy selection, session-scoped dispatch, two-click refresh, final-requirement
-restart, persistence and provenance presentation are implemented with focused
-integration tests. Local GSM integration and final delivery checks remain in progress
-pending the upstream public API merge. Existing AutoNavLog changes are preserved.
+Legacy and Local share selection, two-click refresh, final-requirement restart,
+persistence and provenance semantics. GSM portable preparation uses the public
+API delivered in [jma-gpv-weather PR #19](https://github.com/Yuto-24/jma-gpv-weather/pull/19)
+for [upstream Issue #18](https://github.com/Yuto-24/jma-gpv-weather/issues/18),
+merged as `208f288fc95bcd1d1e951e7b62046b490d1b7958` (version 0.6.0).
 
-Inspection on 2026-09-25 found that the vendored `jma-gpv-weather 0.5.0` and the
-upstream GSM client expose desktop prepare only. Unlike MSM, GSM has no public
-portable-data codec or prepared-data injection, and its discovery has no acquired
-listing injection. Its prepare path performs filesystem acquisition/native
-decode. The existing Local adapter cannot call that path in Pyodide.
+Inspection on 2026-09-25 found that the vendored `jma-gpv-weather 0.5.0` and its
+upstream GSM client exposed desktop prepare only. Unlike MSM, that version had no
+public portable-data codec, prepared-data injection or acquired-listing discovery.
+Its prepare path performed filesystem acquisition/native decode, which the Local
+adapter could not call in Pyodide.
 
-The upstream library therefore needs the GSM equivalents of the public MSM
-portable boundary before the Local path can be completed without duplicating
+The upstream change adds the GSM equivalents of the public MSM portable
+boundary. AutoNavLog consumes that boundary without duplicating
 meteorological logic or creating an AutoNavLog-specific weather format. The
 existing static feed architecture and its source-CORS evidence are documented
 in [Local Weather](local_weather.md). Raw GRIB processing must remain upstream;

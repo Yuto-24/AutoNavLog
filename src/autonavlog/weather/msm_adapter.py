@@ -42,9 +42,9 @@ def _jsonable(value: Any) -> Any:
 
 
 class MsmWeatherProvider:
-    """Adapter for jma-gpv-weather v0.5.0; no GRIB or cache internals leak upstream."""
+    """Adapter for jma-gpv-weather v0.6.0; no GRIB or cache internals leak upstream."""
 
-    package_version = "0.5.0"
+    package_version = "0.6.0"
     model: ForecastModel = "MSM"
 
     def __init__(
@@ -56,10 +56,10 @@ class MsmWeatherProvider:
             import jma_gpv_weather
         except ImportError as error:
             raise RuntimeError(
-                "jma-gpv-weather 0.5.0 is required for MsmWeatherProvider"
+                "jma-gpv-weather 0.6.0 is required for MsmWeatherProvider"
             ) from error
         if getattr(jma_gpv_weather, "__version__", None) != self.package_version:
-            raise RuntimeError("MsmWeatherProvider requires jma-gpv-weather 0.5.0 exactly")
+            raise RuntimeError("MsmWeatherProvider requires jma-gpv-weather 0.6.0 exactly")
         self._msm = jma_gpv_weather
         self.client = client or jma_gpv_weather.MsmClient(cache_dir=cache_dir)
         self._desktop_discovery = client is None
@@ -98,7 +98,7 @@ class MsmWeatherProvider:
     def _discover_candidates(self, requirement: ForecastRequirement) -> Any:
         native = self._requirement(requirement)
         if self._desktop_discovery:
-            # The 0.5.0 desktop MSM discovery swallows individual listing errors.
+            # Desktop MSM discovery swallows individual listing errors.
             # Its public acquired-listing boundary preserves errors, so obtain a
             # complete mapping via the library's source before invoking discovery.
             for url in self.client.listing_urls(native):
