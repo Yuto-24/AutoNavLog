@@ -29,6 +29,15 @@ test("account purge removes its namespace and claimed originals while preserving
   const previousIdb = globalThis.indexedDB;
   const previousSession = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
   const sessions = new Map<string, string>();
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const views = new Map([["autonavlog.map-viewport.v1.owner-a.last", "a"],
+    ["autonavlog.map-viewport.v1.owner-a.project.route", "a"],
+    ["autonavlog.map-viewport.v1.owner-ab.last", "b"],
+    ["autonavlog.map-viewport.v1.anonymous.last", "anonymous"]]);
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+    get length() { return views.size; }, key(index: number) { return [...views.keys()][index] ?? null; },
+    removeItem(key: string) { views.delete(key); },
+  } });
   Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: factory });
   Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: {
     removeItem(key: string) { sessions.delete(key); },
@@ -48,7 +57,10 @@ test("account purge removes its namespace and claimed originals while preserving
     expect((await anonymous.list()).projects.map(row => row.id)).toEqual(["unclaimed"]);
     expect((await other.list()).projects.map(row => row.id)).toEqual(["other-data"]);
     expect(sessions.size).toBe(0);
+    expect([...views.keys()]).toEqual(["autonavlog.map-viewport.v1.owner-ab.last", "autonavlog.map-viewport.v1.anonymous.last"]);
   } finally {
+    if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
+    else delete (globalThis as { localStorage?: Storage }).localStorage;
     if (previousIdb) Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: previousIdb });
     else delete (globalThis as { indexedDB?: IDBFactory }).indexedDB;
     if (previousSession) Object.defineProperty(globalThis, "sessionStorage", previousSession);

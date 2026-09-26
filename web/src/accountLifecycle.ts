@@ -104,6 +104,14 @@ export async function removeLocalAccount(accountId: string): Promise<void> {
     request.onblocked = () => { clearTimeout(timeout); reject(blocked()); };
   });
   sessionStorage.removeItem(`${SESSION_KEY}.${accountId}`);
+  // MAP preferences added on main are scoped to the account too.
+  const viewportPrefix = `autonavlog.map-viewport.v1.${accountId}.`;
+  if (typeof localStorage !== "undefined") {
+    for (let index = localStorage.length - 1; index >= 0; index--) {
+      const key = localStorage.key(index);
+      if (key?.startsWith(viewportPrefix)) localStorage.removeItem(key);
+    }
+  }
   // #185 keeps claimed anonymous originals for interrupted import recovery.
   // Once their owner is deleted, they must not remain as hidden local copies.
   await new Promise<void>((resolve, reject) => {
