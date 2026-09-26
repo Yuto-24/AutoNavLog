@@ -55,6 +55,12 @@ without an earlier async permission probe. Unsupported and denied access produce
 opens the existing manual KML paste dialog; write failure is visible and never
 reports a successful copy. Clipboard generally requires a secure context and
 Browser permission; file input/download use standard Browser controls.
+On Safari, WebKit may show its own Paste UI before resolving the read. The Browser
+Platform still calls the native API directly on the click; the application does not
+probe permission or bypass WebKit's confirmation. Rejected reads, including a
+cancelled platform Paste UI, open manual paste with a direct route to the existing
+Browser file picker. Automated WebKit checks can exercise the pending/rejected
+promise path but cannot prove the physical iPhone/iPad Paste UI itself.
 
 External reference links use a shared link component and `openExternalUrl`, allow
 only HTTP(S), and open with `noopener noreferrer`. Standard anchor affordances

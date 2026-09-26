@@ -1,3 +1,4 @@
+import { canConfirmMapDraft, nextWaypointName, type MapRoutePoint } from "./mapRouteDraft";
 import { AccountSyncControl } from "./components/AccountSyncControl";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
@@ -101,6 +102,9 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const restoredCandidate = useRef<string | null>(null);
   const [kmzOpen, setKmzOpen] = useState(false);
   const [state, setState] = useState<WebState | null>(null);
+  const [mapRouteDraft, setMapRouteDraft] = useState<MapRoutePoint[]>([]);
+  const [legacyRouteInput, setLegacyRouteInput] = useState(false);
+  const confirmDiscardMapDraft = () => mapRouteDraft.length === 0 || window.confirm("作成中のRoute Draftを破棄しますか？");
   const [form, setForm] = useState<PlanningForm>(() => initialPlanningForm());
   const [altitudeInputs, setAltitudeInputs] = useState<Record<string, string>>({});
   const [navLogDrafts, setNavLogDrafts] = useState<NavLogEditDrafts>({});
@@ -130,12 +134,22 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [pasteMessage, setPasteMessage] = useState<string | null>(null);
   const pasteInFlight = useRef(false);
   const pasteReturnFocus = useRef<HTMLElement | null>(null);
+  const routeFileInput = useRef<HTMLInputElement | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [projectName, setProjectName] = useState("未保存の新規作業");
   const [pendingKmz, setPendingKmz] = useState<PendingKmz | null>(null);
   const [selectedKmzDocument, setSelectedKmzDocument] = useState("");
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const navLogRef = useRef<HTMLDivElement | null>(null);
+  const [preserveRouteViewport, setPreserveRouteViewport] = useState(false);
+  const planningPanelRef = useRef<HTMLElement>(null);
+  const messageBarRef = useRef<HTMLDivElement>(null);
+  const focusPlanning = (showError = false) => window.requestAnimationFrame(() => {
+    (showError ? messageBarRef.current : planningPanelRef.current)?.scrollIntoView({ block: "start" });
+    planningPanelRef.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+  });
+
+  const scrollToCalculatedNavLogRef = useRef<NonNullable<WebState["outcome"]> | null>(null);
   const kmzDialogRef = useModalFocusTrap<HTMLElement>(kmzOpen && Boolean(pendingKmz));
   const calculationInputGenerationRef = useRef(0);
   const navLogEditPendingRef = useRef(false);
@@ -203,8 +217,11 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       syncCalculationInputs?: boolean;
       syncDerivedArrival?: boolean;
       freshImport?: boolean;
+      preserveRouteViewport?: boolean;
     } = {},
   ) => {
+    setPreserveRouteViewport(Boolean(options.preserveRouteViewport));
+    if (next.project || options.freshImport) setMapRouteDraft([]);
     const nextProjectId = next.project?.id ?? null;
     const nextPatternBasis = patternRequestBasis(next);
     const patternBasisChanged = destinationPatternBasisRef.current !== nextPatternBasis;
@@ -358,6 +375,8 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         if (next.project && restored.projectDraft) {
           setState({ ...next, project: restoreProjectDraft(next.project, restored.projectDraft) });
         }
+        setMapRouteDraft(restored.mapRouteDraft ?? []);
+        setLegacyRouteInput(restored.legacyRouteInput ?? false);
         setForm(restored.form);
         restoredPattern.current = restored.form.destinationPatternAltitudeFtMsl;
         restoredCandidate.current = restored.form.candidateKey;
@@ -384,9 +403,19 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   }, [application, bootstrapAttempt]);
 
   useLayoutEffect(() => {
+    if (!state?.outcome || state.outcome !== scrollToCalculatedNavLogRef.current) return;
+    scrollToCalculatedNavLogRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      navLogRef.current?.focus({ preventScroll: true });
+      navLogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [state?.outcome]);
+
+  useLayoutEffect(() => {
     if (!sessionReady || !state?.workingRecovery || sessionDiscarded.current) return;
     const snapshot: ApplicationSession = {
-      checkPointDraft, nodeNameDraft, vorColumns,
+      mapRouteDraft, legacyRouteInput, checkPointDraft, nodeNameDraft, vorColumns,
       version: 1, working: state.workingRecovery, form, altitudeInputs, navLogDrafts,
       projectDraft: projectDraft(state.project), calculationInputsAreLocallyCurrent, pastedKml,
       projectName, selectedProjectId, pendingKmz, selectedKmzDocument,
@@ -395,7 +424,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     if (!writeSession(snapshot, platform.session.storage)) {
       setNotice("作業状態を一時保存できません。再読み込みすると未保存の作業を失う可能性があります。");
     }
-  }, [sessionReady, state, form, altitudeInputs, navLogDrafts, checkPointDraft, nodeNameDraft, vorColumns,
+  }, [sessionReady, state, form, mapRouteDraft, legacyRouteInput, altitudeInputs, navLogDrafts, checkPointDraft, nodeNameDraft, vorColumns,
     calculationInputsAreLocallyCurrent, pastedKml, projectName, selectedProjectId, pendingKmz, selectedKmzDocument]);
 
   useEffect(() => {
@@ -446,9 +475,12 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
 
   const applyCommittedFailure = (reason: unknown) => {
     if (reason instanceof ApplicationError && reason.committedState &&
-        reason.committedState.project?.id === projectIdRef.current) {
+        (reason.committedState.project?.id === projectIdRef.current ||
+          (reason.details.operation === "confirmRoute" && projectIdRef.current === null))) {
       // Retain raw UI drafts while advancing canonical recovery and its storage token.
-      applyState(reason.committedState, { syncCalculationInputs: false });
+      const newRoute = reason.details.operation === "confirmRoute" && projectIdRef.current === null;
+      applyState(reason.committedState, { syncCalculationInputs: false, preserveRouteViewport: reason.details.operation === "confirmRoute" });
+      if (newRoute) focusPlanning(true);
       return true;
     }
     return false;
@@ -498,6 +530,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       syncCalculationInputs?: boolean;
       operation?: Exclude<ActiveOperation, null>;
       freshImport?: boolean;
+      preserveRouteViewport?: boolean;
     } = {},
   ) => {
     const generation = calculationInputGenerationRef.current;
@@ -545,6 +578,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   };
 
   const handleFile = async (file: FileContentSource) => {
+    if (!confirmDiscardMapDraft()) return;
     await runTask(
       async () => {
         const input = routeImportInput(await platform.files.read(file));
@@ -555,7 +589,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   };
 
   const handlePasteImport = async (source: "manual" | "clipboard" = "manual") => {
-    if (busy || pasteInFlight.current) return;
+    if (busy || pasteInFlight.current || !confirmDiscardMapDraft()) return;
     if (source === "clipboard") {
       pasteReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     }
@@ -598,6 +632,20 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     } finally {
       pasteInFlight.current = false;
     }
+  };
+
+  const handleConfirmMapRoute = async () => {
+    if (!state || busy || !canConfirmMapDraft(mapRouteDraft)) return;
+    const defaults = initialPlanningForm(state.airports);
+    const from = state.airports.find(airport => airport.id === mapRouteDraft[0]?.airport_id);
+    const confirmed = await run(() => application.confirmRoute({
+      candidate_kind: "map", map_points: mapRouteDraft.map(({ id: _id, ...point }) => point),
+      route_use_confirmed: true, use_penultimate_as_vrep: true,
+      flight_date: defaults.flightDate, departure_time_jst: defaults.departureTimeJst,
+      weather_mode: defaults.weatherMode, ftd_weather: defaults.weatherMode === "FTD" ? ftdWeatherSettings(defaults) : null,
+      total_usable_fuel_gal: 90, default_variation_deg_east: from && from.latitudeDeg < 32 ? 7 : 8,
+    }), "経路を確定しました。飛行計画を入力してください。", { syncCalculationInputs: true, preserveRouteViewport: true });
+    if (confirmed?.project) focusPlanning();
   };
 
   const handleConfirmRoute = async () => {
@@ -655,7 +703,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           use_penultimate_as_vrep: form.usePenultimateAsVrep,
         }),
       "経路を確定し、目的空港の場周経路高度を適用しました。",
-      { syncCalculationInputs: true },
+      { syncCalculationInputs: true, preserveRouteViewport: true },
     );
     if (confirmed?.project) {
       setAltitudeInputs(
@@ -1282,24 +1330,19 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const handleCalculate = async () => {
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
+    scrollToCalculatedNavLogRef.current = null;
     setCalculationProgress({ percent: 0, message: "計算を開始しています。" });
     const calculated = await run(async () => {
       const saved = await flushDraftAutosave(true);
       if (!saved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-      return application.calculate(setCalculationProgress);
+      const next = await application.calculate(setCalculationProgress);
+      scrollToCalculatedNavLogRef.current = next.outcome;
+      return next;
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
       syncCalculationInputs: true,
       operation: "calculate",
     });
-    if (calculated?.outcome) {
-      window.requestAnimationFrame(() => {
-        navLogRef.current?.focus({ preventScroll: true });
-        navLogRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-      });
-    }
+    if (!calculated?.outcome) scrollToCalculatedNavLogRef.current = null;
   };
 
   const handleSave = async (name: string) => {
@@ -1329,7 +1372,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   };
 
   const handleLoad = async () => {
-    if (!selectedProjectId) return;
+    if (!selectedProjectId || !confirmDiscardMapDraft()) return;
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
     const loaded = await run(
@@ -1381,6 +1424,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   };
 
   const handleNew = async () => {
+    if (!confirmDiscardMapDraft()) return;
     if (state?.project && !window.confirm("現在の未保存入力を閉じて新規作業を始めますか？")) {
       return;
     }
@@ -1489,9 +1533,25 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     ? state.outcome?.rjfm_inbound_guidance ?? null
     : null;
 
+  const buildingRoute = !state.project && !state.import.candidates.length && !legacyRouteInput;
+  const mapBuilder = buildingRoute ? {
+    points: mapRouteDraft, airports: state.airports, busy,
+    onAirport: (airport: WebState["airports"][number]) => setMapRouteDraft(current => [...current, {
+      id: crypto.randomUUID(), name: airport.icao, airport_id: airport.id,
+      latitude_deg: airport.latitudeDeg, longitude_deg: airport.longitudeDeg,
+    }]),
+    onPoint: (latitude: number, longitude: number) => setMapRouteDraft(current => [...current, {
+      id: crypto.randomUUID(), name: nextWaypointName(current), airport_id: null,
+      latitude_deg: latitude, longitude_deg: longitude,
+    }]),
+    onRemove: (id: string) => setMapRouteDraft(current => current.filter(point => point.id !== id)),
+    onClear: () => { if (confirmDiscardMapDraft()) setMapRouteDraft([]); },
+    onConfirm: () => void handleConfirmMapRoute(),
+  } : undefined;
+
   return (
     <div className="app-shell">
-      <AccountSyncControl sync={application.sync} onChange={() => {
+      <AccountSyncControl sync={application.sync} onBeforeResolve={confirmDiscardMapDraft} onChange={() => {
         if (application.refreshProjects) void application.refreshProjects().then(next => {
           setState(current => current ? { ...current, savedProjects: next.savedProjects, storageWarning: next.storageWarning } : current);
         }).catch(() => {});
@@ -1507,6 +1567,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         }
       }} />
       <Header
+        onBeforeAccountChange={confirmDiscardMapDraft}
         auth={application.auth}
         appVersion={state.runtime.appVersion}
         projectName={projectName}
@@ -1532,6 +1593,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       {(error || notice) && (
         <div
           className={`message-bar ${error ? "message-error" : "message-success"}`}
+          ref={messageBarRef}
           role={error ? "alert" : "status"}
           aria-live={error ? "assertive" : "polite"}
         >
@@ -1550,8 +1612,20 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
 
       {state.storageWarning && <div className="message-bar message-error" role="alert">{state.storageWarning}</div>}
 
-      <main className="app-workspace">
-        <ImportPlanPanel
+      <main className={`app-workspace${buildingRoute ? " is-route-building" : ""}`}>
+        {buildingRoute ? <aside className="input-rail map-input-rail" aria-label="経路作成">
+          <h2>経路作成</h2>
+          {pastedKml && !pasteOpen && <button className="secondary-button" onClick={() => setPasteOpen(true)}>貼付KMLの編集を続ける</button>}
+          {pendingKmz && !kmzOpen && <button className="secondary-button" onClick={() => setKmzOpen(true)}>KMZ文書の選択を続ける</button>}
+          <p>FROMの空港から飛行順に地点を選択します。</p>
+          <button className="secondary-button" disabled={busy} onClick={() => {
+            if (confirmDiscardMapDraft()) { setMapRouteDraft([]); setLegacyRouteInput(true); }
+          }}>KML/KMZから開始</button>
+          <FileInput busy={busy} onFile={handleFile} inputRef={routeFileInput} />
+          <button className="secondary-button" disabled={busy} onClick={() => void handlePasteImport("clipboard")}>KMLを貼り付け</button>
+          <p className="quiet-state">ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。</p>
+        </aside> : <ImportPlanPanel
+          panelRef={planningPanelRef}
           importState={state.import}
           airports={state.airports}
           form={form}
@@ -1560,10 +1634,14 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           busy={busy}
           onResumePaste={pastedKml && !pasteOpen ? () => setPasteOpen(true) : undefined}
           onResumeKmz={pendingKmz && !kmzOpen ? () => setKmzOpen(true) : undefined}
-          fileInput={<FileInput busy={busy} onFile={handleFile} />}
+          fileInput={<FileInput busy={busy} onFile={handleFile} inputRef={routeFileInput} />}
           onPaste={() => void handlePasteImport("clipboard")}
-        />
+        />}
         <RouteWorkspace
+          mapBuilder={mapBuilder}
+          viewportStorage={platform.persistence.values}
+          preserveRouteViewport={preserveRouteViewport}
+          viewportScope={application.auth?.getState().account?.account_id ?? "anonymous"}
           onOpenExternalUrl={(url) => {
             try { platform.openExternalUrl(url); }
             catch (reason) {
@@ -1612,7 +1690,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           onConfirmRoute={handleConfirmRoute}
           onReplaceCheckPoints={handleReplaceCheckPoints}
         />
-        <StatusPanel
+        {!buildingRoute && <StatusPanel
           runtime={state.runtime}
           readiness={state.readiness}
           projectExists={Boolean(state.project)}
@@ -1623,7 +1701,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           activeOperation={activeOperation}
           onCalculate={handleCalculate}
           onAcknowledge={handleAcknowledge}
-        />
+        />}
       </main>
 
       {state.outcome && state.project && (
@@ -1708,6 +1786,10 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         busy={busy}
         onChange={setPastedKml}
         onClose={() => setPasteOpen(false)}
+        onChooseFile={!state.project ? () => {
+          setPasteOpen(false);
+          routeFileInput.current?.click();
+        } : undefined}
         onImport={() => void handlePasteImport()}
       />
 

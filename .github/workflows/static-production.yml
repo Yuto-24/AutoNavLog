@@ -26,7 +26,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.STATIC_AUTOMATION_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    environment: ${{ (github.event_name == 'schedule' || inputs.publish) && 'static-production' || 'static-validation' }}
+    environment: ${{ github.event_name == 'schedule' && 'static-production' || inputs.publish && 'static-publication' || 'static-validation' }}
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}

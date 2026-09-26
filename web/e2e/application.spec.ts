@@ -267,3 +267,33 @@ for (const storageFails of [false, true]) {
     }
   });
 }
+
+test("Local route confirmation exposes committed Project after storage failure for save retry", async () => {
+  const project = { id: "map-project", revision: 0, name: "Route", metadata: {} };
+  let fail = true;
+  let stored: any;
+  let working: any = { version: 1, project, last_calculation: null };
+  const repository = {
+    list: async () => ({ projects: [], unavailable: [] }),
+    read: async () => stored,
+    write: async (record: any, expected: string | null) => {
+      expect(expected).toBeNull();
+      if (fail) { fail = false; throw new ApplicationError("storage failed", "LOCAL_STORAGE_FAILED"); }
+      stored = record;
+    },
+  } as unknown as LocalProjectRepository;
+  const app = new LocalApplication(() => repository, () => ({
+    request: async <T>(operation: string, input?: any) => {
+      if (operation === "bootstrap") working = input;
+      return structuredClone({ ...state, project: working.project, workingRecovery: working }) as T;
+    }, dispose() {},
+  }));
+  const failure = await app.confirmRoute({ ...update, candidate_kind: "map", route_use_confirmed: true }).catch(error => error);
+  expect(failure.code).toBe("LOCAL_STORAGE_FAILED");
+  expect(failure.details.operation).toBe("confirmRoute");
+  expect(failure.committedState.workingRecovery.project.id).toBe(project.id);
+  expect(failure.committedState.workingRecovery.durableToken).toBeNull();
+  await app.saveProject("Recovered route");
+  expect(stored.draft.id).toBe(project.id);
+  expect(stored.checkpoint.name).toBe("Recovered route");
+});

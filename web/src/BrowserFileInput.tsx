@@ -1,15 +1,16 @@
 import { FileUp } from "lucide-react";
-import type { DragEvent } from "react";
+import type { DragEvent, RefObject } from "react";
 import type { FileContentSource } from "./platform";
 
 export interface FileInputProps {
   busy: boolean;
   onFile: (file: FileContentSource) => void;
+  inputRef?: RefObject<HTMLInputElement | null>;
 }
 
 // Browser-only presentation bridge. The composition root supplies this control;
 // feature components and Importer receive content, never paths or DOM events.
-export function BrowserFileInput({ busy, onFile }: FileInputProps) {
+export function BrowserFileInput({ busy, onFile, inputRef }: FileInputProps) {
   const acceptDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     if (busy) return;
@@ -33,6 +34,7 @@ export function BrowserFileInput({ busy, onFile }: FileInputProps) {
         ファイルを選択
       </label>
       <input
+        ref={inputRef}
         id="route-file"
         className="visually-hidden"
         type="file"

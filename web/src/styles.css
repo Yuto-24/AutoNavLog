@@ -1668,3 +1668,21 @@ tbody tr:last-child td { border-bottom: 0; }
 .account-sync-dialog .modal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .sync-undo { position: fixed; bottom: 20px; right: 20px; z-index: 1200; max-width: calc(100vw - 40px); padding: 12px 16px; border-radius: 8px; background: #172b3a; color: white; box-shadow: 0 4px 16px #0004; }
 .sync-undo button { margin-left: 12px; }
+
+/* New routes start on the map; confirmed routes retain the Planning workspace. */
+.app-workspace.is-route-building { grid-template-columns: minmax(180px, 220px) minmax(0, 1fr); }
+.route-workspace.is-route-building .map-frame { height: min(65vh, 720px); min-height: 420px; }
+.route-workspace.is-route-building .route-table-scroll { display: none; }
+.airport-draft-marker { color: white; background: #173b5e; border: 2px solid white; border-radius: 50%; text-align: center; font-size: 19px; line-height: 24px; }
+.airport-draft-marker:focus-visible { outline: 3px solid #0c7c78; outline-offset: 3px; }
+.map-input-rail { padding: 16px; }
+.map-input-rail p, .map-route-controls p { font-size: 13px; }
+.map-route-controls { padding: 12px 16px; }
+.route-strip { display: flex; flex-wrap: wrap; list-style: none; gap: 8px; padding: 0; }
+.route-strip li { display: flex; align-items: center; gap: 8px; border: 1px solid #d8e0e8; border-radius: 6px; padding: 6px 10px; }
+.route-strip button { border: 0; background: none; color: #b42318; cursor: pointer; }
+.map-route-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+@media (max-width: 1240px) {
+  .app-workspace.is-route-building { grid-template-columns: minmax(0, 1fr); }
+  .route-workspace.is-route-building .map-frame { height: 60vh; min-height: 360px; }
+}

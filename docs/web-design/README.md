@@ -163,3 +163,14 @@ layout at 390 px, 1,100 px, and 1,440 px.
 - The current bundled RJFM/RJFO reference rows remain `UNVERIFIED`; visual fidelity does not
   override the primary-source release gate.
 - Fake weather remains the local default and prevents a release-ready status by design.
+
+
+## New MAP routes (Issue #174)
+
+New work uses an input rail followed by a large MAP (at least 360 px on narrow
+screens), with airport selection and an ordered Route Strip. Planning and Readiness
+appear only after route confirmation. Above 1240 px the draft uses two columns;
+confirmation restores the existing input / route / readiness three-column workspace.
+At 1240 px and below both stages preserve the downward input → map → readiness
+flow. Draft edits do not auto-fit or recenter the MAP. Existing KML input remains an
+explicit compatibility entry; it is not a Map Draft import in this issue.
