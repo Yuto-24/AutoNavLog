@@ -28,6 +28,7 @@ Local-firstの保存と復元は[Local Persistence](docs/local_persistence.md)�
 
 ## できること
 
+- MAP上の空港と任意地点から経路を作成する
 - KML/KMZ から経路を取り込む
 - 飛行計画、性能、MSM の風と気温から NAV LOG を計算する
 - 計算結果、警告、確認事項を Web 画面で見る
@@ -58,6 +59,19 @@ autosaveが成功すると、以前のautosave-only Projectは自動削除され
 Projectをserver storageから復元します。更新日時が新しいだけの別Projectは自動選択しません。
 markerが欠落・破損している場合や所有者が一致しない場合はProjectを自動選択せず、所有中の一覧から
 明示的に開きます。Projectと復元結果は同じownerだけが読み込めます。
+
+## MAPで経路を作成する
+
+新規作業では大きなMAPから開始します。最初にFROMの空港Markerを選び、
+任意地点や途中の空港を飛行順に追加してください。Route Stripで順序を確認し、
+不要な地点を削除できます。最後に空港を選んで「経路を確定」を押すと、
+その空港がTOになり、飛行計画・Check Point・NAV LOG計算へ進めます。
+途中地点がある場合はTO直前の地点をVREPとします。FROM → TOだけでも確定できます。
+
+未確定経路は同じタブの再読み込みで復元します。クリアやProject切替では破棄前に確認します。
+確定済みProjectはPlanningから再開します。MAP表示範囲はProjectごとにこの端末へ保持します。
+KMLの既存入力は「KML/KMZから開始」から利用できます。
+実装境界と検証は [MAP Route creation](docs/map_route_builder.md) を参照してください。
 
 ## 経路を取り込む
 

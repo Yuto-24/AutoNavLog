@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -14,6 +15,7 @@ test.beforeEach(async ({ context }) => {
 });
 async function open(page: Page) {
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(paste(page)).toBeEnabled();
 }
 async function drop(page: Page, name: string, content: string) {
@@ -71,7 +73,8 @@ for (const mode of ["supported", "denied", "unsupported"] as const) {
   });
 }
 
-test("pending platform Paste confirmation can be cancelled and recovered with file import", async ({ page }) => {
+for (const entry of ["map", "import"] as const) {
+test(`pending platform Paste confirmation can be cancelled and recovered with file import (${entry})`, async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
       readText: () => new Promise<string>((_resolve, reject) => {
@@ -80,7 +83,10 @@ test("pending platform Paste confirmation can be cancelled and recovered with fi
       }),
     } });
   });
-  await open(page);
+  if (entry === "map") {
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+  } else await open(page);
   await expect(page.getByText("ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。")).toBeVisible();
   await paste(page).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
@@ -96,6 +102,7 @@ test("pending platform Paste confirmation can be cancelled and recovered with fi
   await expect(page.locator(".imported-file")).toContainText("recovery.kml");
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
 });
+}
 
 test("confirmed route can resume a pasted draft without offering an unavailable picker", async ({ page }) => {
   await page.addInitScript((text) => {

@@ -1,9 +1,10 @@
 import { ClipboardPaste, Route } from "lucide-react";
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import type { Dispatch, ReactNode, Ref, SetStateAction } from "react";
 import type { PlanningForm } from "../forms";
 import type { AirportOption, ImportState } from "../types";
 
 interface ImportPlanPanelProps {
+  panelRef?: Ref<HTMLElement>;
   importState: ImportState;
   airports: AirportOption[];
   form: PlanningForm;
@@ -48,6 +49,7 @@ function routeCandidateLabel(
 }
 
 export function ImportPlanPanel({
+  panelRef,
   importState,
   airports,
   form,
@@ -78,7 +80,7 @@ export function ImportPlanPanel({
   const routeSelectionRequired = importState.candidates.length > 0 && !form.candidateKey;
 
   return (
-    <aside className="input-rail" aria-label="経路と飛行計画">
+    <aside ref={panelRef} className="input-rail" aria-label="経路と飛行計画">
       {onResumePaste && (
         <button className="secondary-button" onClick={onResumePaste}>貼付KMLの編集を続ける</button>
       )}
@@ -87,7 +89,7 @@ export function ImportPlanPanel({
       )}
       <section className="rail-section">
         <div className="section-heading-row">
-          <h2>経路を取り込む</h2>
+          <h2>{projectExists ? "確定済み経路" : "経路を取り込む"}</h2>
           {projectExists && <span className="quiet-state">確定済み</span>}
         </div>
         {!projectExists && (

@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { resolve } from "node:path";
 
@@ -50,6 +51,7 @@ test("Static Local TAF success, quota/timeout/outage and recovery preserve navig
     }]) });
   });
   await page.goto("/");
+  await enterImportWorkflow(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-12");
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
   await page.getByLabel("気象モード").selectOption("FORECAST");

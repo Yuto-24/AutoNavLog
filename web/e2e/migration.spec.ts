@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { test, expect } from "@playwright/test";
 import { backend } from "./helpers/sync-auth";
 
@@ -18,6 +19,7 @@ test("first login migrates 200 Legacy Projects through Firestore and fresh devic
     await route.continue();
   });
   await page.goto(path);
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
   await expect(page.getByRole("status", { name: "NavMateへ引継ぎ中" })).toBeVisible();
@@ -26,6 +28,7 @@ test("first login migrates 200 Legacy Projects through Firestore and fresh devic
   await expect(page.getByLabel("DATE", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).authTest.contexts.length)).toBe(1);
   release();
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await expect(page.locator(`#saved-project option[value="${projectId}"]`)).toHaveCount(1);
   await expect(page.locator("#saved-project option")).toHaveCount(201);
@@ -36,6 +39,7 @@ test("first login migrates 200 Legacy Projects through Firestore and fresh devic
     await second.route("**/api/navmate-migration/**", route => route.continue());
     const fresh = await second.newPage();
     await fresh.goto(path);
+    await enterImportWorkflow(fresh);
     await expect(fresh.getByLabel("DATE", { exact: true })).toBeVisible();
     await fresh.evaluate(subject => (window as any).authTest.signIn(subject), subject);
     await expect(fresh.locator(`#saved-project option[value="${projectId}"]`)).toHaveCount(1);
@@ -69,6 +73,7 @@ test("activation failure never creates account Application; retry progresses aut
     await route.fulfill({ json: { state: operation === "status" ? "LINKED" : operation === "begin" ? "MIGRATING" : "NAVMATE_ACTIVE", completed: 0, total: 200, navmateUrl: "/" } });
   });
   await page.goto(path);
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await page.evaluate(() => (window as any).authTest.signIn("migration-retry"));
   await expect(page.getByRole("alert")).toContainText("接続を確認して再試行してください");
@@ -76,6 +81,7 @@ test("activation failure never creates account Application; retry progresses aut
   await expect(page.getByLabel("DATE", { exact: true })).toHaveCount(0);
   fail = false;
   await page.getByRole("button", { name: "再試行", exact: true }).click();
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   expect(steps).toBe(2);
 });
@@ -92,6 +98,7 @@ test("Legacy account UI preserves 1100/1300 workflow order and locks then redire
     await route.fulfill({ response });
   });
   await page.goto("http://127.0.0.1:5180/");
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   for (const width of [1100, 1300]) {
     await page.setViewportSize({ width, height: 1100 });

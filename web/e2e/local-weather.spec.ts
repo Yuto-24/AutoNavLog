@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -25,6 +26,7 @@ const record = (page: Page) => page.evaluate(() => new Promise<any>((resolve, re
 
 async function setup(page: Page) {
   await page.goto("/");
+  await enterImportWorkflow(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-16");
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
   await page.getByLabel("気象モード").selectOption("FORECAST");
@@ -102,6 +104,7 @@ test("saved Run stays fixed while a newer Run is available", async ({ page }) =>
   const recovery = native.workingRecovery;
   for (const project of [recovery.project, recovery.last_calculation.project]) delete project.metadata.web_owner_id;
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await page.evaluate(recovery => new Promise<void>((resolve, reject) => {
     const opening = indexedDB.open("autonavlog.projects", 1);
@@ -116,6 +119,7 @@ test("saved Run stays fixed while a newer Run is available", async ({ page }) =>
     };
   }), recovery);
   await page.goto("/");
+  await enterImportWorkflow(page);
   await page.getByLabel("保存済み", { exact: true }).selectOption(recovery.project.id);
   await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
   await expect(page.locator(".nav-log-table")).toBeVisible();

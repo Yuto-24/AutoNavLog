@@ -36,8 +36,16 @@ class ImportRouteRequest(WebRequestModel):
         return self
 
 
+class MapRoutePoint(WebRequestModel):
+    name: str = Field(min_length=1, max_length=100)
+    latitude_deg: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude_deg: float = Field(ge=-180, le=180, allow_inf_nan=False)
+    airport_id: str | None = Field(default=None, min_length=1, max_length=100)
+
+
 class ConfirmRouteRequest(WebRequestModel):
-    candidate_kind: Literal["line", "connected_lines", "polygon", "points"]
+    candidate_kind: Literal["line", "connected_lines", "polygon", "points", "map"]
+    map_points: list[MapRoutePoint] = Field(default_factory=list, max_length=500)
     candidate_index: int = Field(default=0, ge=0)
     point_indices: list[Annotated[int, Field(ge=0)]] = Field(
         default_factory=list,
@@ -64,6 +72,15 @@ class ConfirmRouteRequest(WebRequestModel):
 
     @model_validator(mode="after")
     def validate_ftd_weather(self) -> ConfirmRouteRequest:
+        if self.candidate_kind == "map":
+            if (
+                len(self.map_points) < 2
+                or not self.map_points[0].airport_id
+                or not self.map_points[-1].airport_id
+            ):
+                raise ValueError("Map route requires at least two points and airport endpoints")
+        elif self.map_points:
+            raise ValueError("map_points requires candidate_kind=map")
         if self.weather_mode == "FTD" and self.ftd_weather is None:
             raise ValueError("ftd_weather is required in FTD mode")
         return self

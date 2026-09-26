@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, chromium, type Page, type BrowserContext } from "@playwright/test";
 import { mkdtempSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -31,6 +32,7 @@ async function put(page: Page, rows: any[]) {
 }
 async function start(page: Page) {
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 }
 async function confirm(page: Page) {
@@ -133,11 +135,13 @@ test("Latest replacement, promotion, opening another Project and explicit delete
   await save(page, "Named");
   page.on("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "新規", exact: true }).click();
+  await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await confirm(page);
   expect((await records(page)).filter(row => !row.checkpoint)).toHaveLength(1);
   const oldLatest = (await working(page)).project.id;
   await page.getByRole("button", { name: "新規", exact: true }).click();
+  await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await confirm(page);
   const replaced = await records(page);
@@ -183,7 +187,8 @@ test("migration and corruption are isolated per Project, originals survive faile
   corrupt.id = corrupt.draft.id = corrupt.checkpoint.id = crypto.randomUUID();
   corrupt.schemaVersion = 999;
   await put(page, [old, corrupt]);
-  await page.goto("/"); // fresh navigation, explicit selection only
+  await page.goto("/");
+  await enterImportWorkflow(page); // fresh navigation, explicit selection only
   await expect(page.getByRole("alert")).toContainText("一部のProject");
   expect((await records(page)).find(row => row.id === corrupt.id)).toEqual(corrupt);
   await page.evaluate(() => {
@@ -226,6 +231,7 @@ test("Forecast snapshot loads with its pinned Run and provenance without calcula
     updatedAt: new Date().toISOString() };
   await put(page, [record]);
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("保存済み", { exact: true }).locator("option")).toHaveCount(2);
   await load(page, record.id);
   await expect(page.locator(".nav-log-table")).toBeVisible();

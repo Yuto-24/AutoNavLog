@@ -2,6 +2,20 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.21.0
+
+### 利用者向け
+
+#### 追加
+
+- KMLなしで、MAPの空港と任意地点から経路を作成できます。Route Stripで地点順序を確認・削除し、経路確定後に飛行計画とNAV LOG計算へ進めます。
+- 未確定経路を同じタブの再読み込みで復元し、ProjectごとのMAP表示範囲を端末内に保持します。
+
+### 開発者向け
+
+- Map Routeを既存のApplication確定処理・Project・Calculation contractへ接続しました。
+- Codex WorktreeはホストのNode.jsがなくてもDockerで依存関係を準備し、CPU上限をDocker環境に合わせます。
+
 ## 1.20.4
 
 ### 利用者向け
