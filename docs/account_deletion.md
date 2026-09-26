@@ -39,3 +39,10 @@ device with a cached ID may continue Local work during a transient outage.
 Deleting account data is irreversible. Physical browser/production acceptance
 must use a real Google account, deployed Rules, and two devices, and separately
 verify the old device after reconnect plus a deliberate re-registration.
+
+Account resolution carries the provider's current authentication generation.
+Deletion invalidates outstanding resolutions before preflight and suppresses
+same-owner token/focus refresh until cleanup finishes. Each asynchronous lifecycle
+lookup checks that generation before changing the ownership cache or registering
+a successor. External logout or an identity switch still closes the old
+Application immediately; the new identity is resolved after cleanup finishes.

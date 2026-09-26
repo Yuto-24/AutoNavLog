@@ -17,8 +17,9 @@ const retired = (value: string) => `retired:${value}`;
 const cachedId = (value: string | null) => value?.startsWith("retired:") ? value.slice(8) : value;
 const onlineRequired = () => new Error("アカウント削除にはオンライン接続と再認証が必要です。");
 
-export async function currentAccount(user: User, register = false, closeOldContext: () => void = () => {}): Promise<{ accountId: string; deleting: boolean }> {
+export async function currentAccount(user: User, register = false, closeOldContext: () => void = () => {}, assertCurrent: () => void = () => {}): Promise<{ accountId: string; deleting: boolean }> {
   const legacyId = (await googleAccount(user)).account_id;
+  assertCurrent();
   const key = localKey(user);
   let serverConfirmedInactive = false;
   if (!navigator.onLine) {
@@ -29,15 +30,18 @@ export async function currentAccount(user: User, register = false, closeOldConte
   try {
     const ref = recordRef(user);
     const snapshot = await getDocFromServer(ref);
+    assertCurrent();
     let value = snapshot.data() as AccountRecord | undefined;
     if (!value) {
       value = { schema: 1, accountId: legacyId, state: "ACTIVE" };
       await runTransaction(ref.firestore, async transaction => {
         const existing = await transaction.get(ref);
+        assertCurrent();
         if (!existing.exists()) transaction.set(ref, value!);
         else value = existing.data() as AccountRecord;
       });
     }
+    assertCurrent();
     if (value.schema !== 1 || typeof value.accountId !== "string") throw new Error("アカウント情報を確認できません。");
     serverConfirmedInactive = value.state !== "ACTIVE";
     const previous = cachedId(localStorage.getItem(key));
@@ -51,11 +55,13 @@ export async function currentAccount(user: User, register = false, closeOldConte
       } catch (error) {
         throw new Error("ACCOUNT_DELETION_PENDING", { cause: error });
       }
+      assertCurrent();
       return { accountId: value.accountId, deleting: true };
     }
     if (value.state === "DELETED") {
       await removeLocalAccount(value.accountId);
       if (previous && previous !== value.accountId) await removeLocalAccount(previous);
+      assertCurrent();
       if (!register) {
         localStorage.removeItem(key);
         throw new Error("ACCOUNT_DELETED");
@@ -63,6 +69,7 @@ export async function currentAccount(user: User, register = false, closeOldConte
       const next = { schema: 1, accountId: `account_v2_${crypto.randomUUID()}`, state: "ACTIVE" } as const;
       value = await runTransaction(ref.firestore, async transaction => {
         const existing = (await transaction.get(ref)).data() as AccountRecord;
+        assertCurrent();
         if (existing.state !== "DELETED") return existing;
         transaction.set(ref, next);
         return next;
@@ -70,9 +77,11 @@ export async function currentAccount(user: User, register = false, closeOldConte
     }
     if (previous && previous !== value.accountId) await removeLocalAccount(previous);
     if (value.accountId !== legacyId) await removeLocalAccount(legacyId);
+    assertCurrent();
     localStorage.setItem(key, value.accountId);
     return { accountId: value.accountId, deleting: value.state === "DELETING" };
   } catch (error) {
+    assertCurrent();
     // Cached identity permits existing Local work during an outage. A missing
     // cache on a fresh device must never guess which generation owns its data.
     if (!serverConfirmedInactive && (!navigator.onLine || ["unavailable", "deadline-exceeded"].includes((error as { code?: string })?.code ?? ""))) {

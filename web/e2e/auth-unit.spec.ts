@@ -254,3 +254,98 @@ for (const operation of ["list", "read"] as const) test(`closing during async va
   active = false; release();
   await expect(pending).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
 });
+
+test("deletion rejects delayed account checks and token events until cleanup ends", async () => {
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: true } });
+  const user = { providerData: [{ providerId: "google.com", uid: "deleting-owner" }] } as User;
+  const auth = { currentUser: user } as Auth;
+  let resolveDelayed!: (value: { accountId: string; deleting: boolean }) => void;
+  let finishCleanup!: () => void;
+  let calls = 0, pending = false;
+  let cachedOwner = "old-owner";
+  const provider = new FirebaseAuthProvider(auth, async (_user, _register, _close, assertCurrent) => {
+    calls++;
+    if (calls === 2) {
+      const identity = await new Promise<{ accountId: string; deleting: boolean }>(resolve => { resolveDelayed = resolve; });
+      assertCurrent?.();
+      cachedOwner = identity.accountId;
+      return identity;
+    }
+    return { accountId: "old-owner", deleting: pending };
+  }, async (_user, _id, close) => {
+    pending = true;
+    cachedOwner = "retired:old-owner";
+    close();
+    await new Promise<void>(resolve => { finishCleanup = resolve; });
+    throw new Error("cleanup failed");
+  });
+  try {
+    await (provider as any).accept(user);
+    const delayed = (provider as any).accept(user);
+    const deleting = provider.deleteAccount();
+    await expect.poll(() => provider.getState().deletionPending).toBe(true);
+    resolveDelayed({ accountId: "old-owner", deleting: false });
+    await delayed;
+    expect(cachedOwner).toBe("retired:old-owner");
+    await (provider as any).accept(user); // onIdTokenChanged after fresh token
+    await provider.refresh(); // focus/periodic refresh
+    expect(provider.getState().account).toBeNull();
+    expect(provider.getState().deletionPending).toBe(true);
+    expect(calls).toBe(3);
+    await expect(provider.deleteAccount()).rejects.toThrow("既に実行中");
+    finishCleanup();
+    await expect(deleting).rejects.toThrow("cleanup failed");
+    await (provider as any).accept(user);
+    expect(provider.getState().account).toBeNull();
+    expect(provider.getState().deletionPending).toBe(true);
+  } finally {
+    if (previousNavigator) Object.defineProperty(globalThis, "navigator", previousNavigator);
+    else delete (globalThis as { navigator?: Navigator }).navigator;
+  }
+});
+
+test("external account switch closes access during deletion preflight and opens only the new owner afterwards", async () => {
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: true } });
+  const oldUser = { providerData: [{ providerId: "google.com", uid: "old" }] } as User;
+  const newUser = { providerData: [{ providerId: "google.com", uid: "new" }] } as User;
+  const auth = { currentUser: oldUser } as Auth;
+  let rejectPreflight!: (error: Error) => void;
+  let calls = 0;
+  const provider = new FirebaseAuthProvider(auth, async user => {
+    if (++calls === 2) return new Promise((_resolve, reject) => { rejectPreflight = reject; });
+    return { accountId: user === oldUser ? "old-owner" : "new-owner", deleting: false };
+  });
+  try {
+    await (provider as any).accept(oldUser);
+    const deleting = provider.deleteAccount();
+    expect(provider.getState().account?.account_id).toBe("old-owner");
+    const invalidUser = { providerData: [] } as unknown as User;
+    (auth as any).currentUser = invalidUser;
+    await (provider as any).accept(invalidUser);
+    expect(provider.getState().account).toBeNull();
+    (auth as any).currentUser = null;
+    await (provider as any).accept(null);
+    expect(provider.getState().account).toBeNull();
+    (auth as any).currentUser = newUser;
+    await (provider as any).accept(newUser);
+    expect(provider.getState().account).toBeNull();
+    rejectPreflight(new Error("preflight failed"));
+    await expect(deleting).rejects.toThrow("preflight failed");
+    expect(provider.getState().account?.account_id).toBe("new-owner");
+  } finally {
+    if (previousNavigator) Object.defineProperty(globalThis, "navigator", previousNavigator);
+    else delete (globalThis as { navigator?: Navigator }).navigator;
+  }
+});
+
+test("lifecycle checks an invalidated lookup before accessing cached ownership", async () => {
+  const user = { providerData: [{ providerId: "google.com", uid: "invalidated" }] } as User;
+  let asserted = false;
+  await expect(currentAccount(user, false, () => {}, () => {
+    asserted = true;
+    throw accountBoundaryClosed();
+  })).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
+  expect(asserted).toBe(true);
+});
