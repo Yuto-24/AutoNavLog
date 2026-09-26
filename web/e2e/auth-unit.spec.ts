@@ -349,3 +349,26 @@ test("lifecycle checks an invalidated lookup before accessing cached ownership",
   })).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
   expect(asserted).toBe(true);
 });
+
+test("successful deletion retains its completion notice after its own logout", async () => {
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: true } });
+  const user = { providerData: [{ providerId: "google.com", uid: "completed" }] } as User;
+  const auth = { currentUser: user } as Auth;
+  const provider = new FirebaseAuthProvider(auth,
+    async () => ({ accountId: "old-owner", deleting: false }), async (_user, _id, close) => { close(); });
+  provider.signOut = async () => {
+    (auth as any).currentUser = null;
+    (provider as any).publish({ account: null, available: true });
+  };
+  try {
+    await (provider as any).accept(user);
+    await provider.deleteAccount();
+    expect(provider.getState().account).toBeNull();
+    expect(provider.getState().notice).toContain("NavMateアカウントを削除しました");
+    expect(provider.getState().deletionPending).toBeUndefined();
+  } finally {
+    if (previousNavigator) Object.defineProperty(globalThis, "navigator", previousNavigator);
+    else delete (globalThis as { navigator?: Navigator }).navigator;
+  }
+});

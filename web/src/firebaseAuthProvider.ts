@@ -230,7 +230,7 @@ export class FirebaseAuthProvider implements AuthProvider {
     } finally {
       ++this.generation;
       this.deleting = false;
-      if (this.auth.currentUser !== user) await this.accept(this.auth.currentUser);
+      if (this.auth.currentUser && this.auth.currentUser !== user) await this.accept(this.auth.currentUser);
     }
   }
   dispose() {

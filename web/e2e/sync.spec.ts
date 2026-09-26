@@ -14,6 +14,7 @@ async function start(page: Page, subject: string) {
 }
 async function state(page: Page) { return page.evaluate(() => (window as any).authTest.contexts.at(-1).sync.getState()); }
 async function create(page: Page, name: string) {
+  await enterImportWorkflow(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
   await page.getByLabel("地図とKML記載順を確認しました").check();
