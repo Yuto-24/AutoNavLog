@@ -2,10 +2,12 @@ import { expect, test } from "@playwright/test";
 import { IDBFactory, IDBObjectStore } from "fake-indexeddb";
 import { IndexedDbProjectRepository, type LocalProjectRecord } from "../src/localProjectRepository";
 import { accountBoundaryClosed, type AuthProvider } from "../src/auth";
-import { googleAccount, retainAuthDuringOutage } from "../src/firebaseAuthProvider";
+import { FirebaseAuthProvider, googleAccount, retainAuthDuringOutage } from "../src/firebaseAuthProvider";
+import type { Auth, User } from "firebase/auth";
 import { createAccountContext } from "../src/accountContext";
 import { browserPlatform } from "../src/browserPlatform";
 import { LocalApplication } from "../src/localApplication";
+import { currentAccount, removeLocalAccount } from "../src/accountLifecycle";
 import type { Project } from "../src/types";
 
 const validate = async (row: unknown) => structuredClone(row) as LocalProjectRecord;
@@ -20,6 +22,117 @@ test("internal account identity is stable across devices/Firebase UIDs and indep
   expect(await googleAccount(user("firebase-two", "new@example.test"))).toEqual(account);
   expect((await googleAccount({ ...user("firebase-one", "old@example.test"), providerData: [{ providerId: "google.com", uid: "other" }] })).account_id).not.toBe(account.account_id);
   await expect(googleAccount({ ...user("a", "a"), providerData: [] })).rejects.toThrow();
+});
+
+test("account purge removes its namespace and claimed originals while preserving another owner", async () => {
+  const factory = new IDBFactory();
+  const previousIdb = globalThis.indexedDB;
+  const previousSession = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  const sessions = new Map<string, string>();
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const views = new Map([["autonavlog.map-viewport.v1.owner-a.last", "a"],
+    ["autonavlog.map-viewport.v1.owner-a.project.route", "a"],
+    ["autonavlog.map-viewport.v1.owner-ab.last", "b"],
+    ["autonavlog.map-viewport.v1.anonymous.last", "anonymous"]]);
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+    get length() { return views.size; }, key(index: number) { return [...views.keys()][index] ?? null; },
+    removeItem(key: string) { views.delete(key); },
+  } });
+  Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: factory });
+  Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: {
+    removeItem(key: string) { sessions.delete(key); },
+  } });
+  try {
+    const scope = (account_id: string | null) => new IndexedDbProjectRepository(validate, undefined, () => factory,
+      { account_id, assertActive() {}, onClose: () => () => {} });
+    const anonymous = scope(null), owner = scope("owner-a"), other = scope("owner-b");
+    await anonymous.write(record("claimed", true), null, false);
+    await anonymous.claimAnonymous("owner-a");
+    await anonymous.write(record("unclaimed", true), null, false);
+    await owner.write(record("owner-data", true), null, false);
+    await other.write(record("other-data", true), null, false);
+    sessions.set("autonavlog.working-session.v1.owner-a", "old input");
+    await removeLocalAccount("owner-a");
+    expect((await scope("owner-a").list()).projects).toHaveLength(0);
+    expect((await anonymous.list()).projects.map(row => row.id)).toEqual(["unclaimed"]);
+    expect((await other.list()).projects.map(row => row.id)).toEqual(["other-data"]);
+    expect(sessions.size).toBe(0);
+    expect([...views.keys()]).toEqual(["autonavlog.map-viewport.v1.owner-ab.last", "autonavlog.map-viewport.v1.anonymous.last"]);
+  } finally {
+    if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
+    else delete (globalThis as { localStorage?: Storage }).localStorage;
+    if (previousIdb) Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: previousIdb });
+    else delete (globalThis as { indexedDB?: IDBFactory }).indexedDB;
+    if (previousSession) Object.defineProperty(globalThis, "sessionStorage", previousSession);
+    else delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
+  }
+});
+
+test("a remotely retired account cache cannot reopen its Local namespace offline", async () => {
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: false } });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+    getItem(key: string) { return values.get(key) ?? null; },
+  } });
+  const user = { uid: "firebase-owner", providerData: [{ providerId: "google.com", uid: "offline-owner" }] } as User;
+  try {
+    values.set("autonavlog.account.current.offline-owner", "account_v1_old");
+    expect((await currentAccount(user)).accountId).toBe("account_v1_old");
+    values.set("autonavlog.account.current.offline-owner", "retired:account_v1_old");
+    await expect(currentAccount(user)).rejects.toThrow("オンライン接続と再認証が必要");
+  } finally {
+    if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+    else delete (globalThis as { navigator?: Navigator }).navigator;
+    if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
+    else delete (globalThis as { localStorage?: Storage }).localStorage;
+  }
+});
+
+test("remote generation change closes an in-flight old owner write before purging its database", async () => {
+  const factory = new IDBFactory(), previousIdb = globalThis.indexedDB;
+  const previousSession = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: factory });
+  Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: { removeItem() {} } });
+  const user = { uid: "firebase-owner", providerData: [{ providerId: "google.com", uid: "google-owner" }] } as User;
+  const auth = { currentUser: user } as Auth;
+  let changed = false, active = true, change: Promise<void> | undefined;
+  const closures = new Set<() => void>();
+  const provider = new FirebaseAuthProvider(auth, async (_user, _register, close) => {
+    if (!changed) return { accountId: "owner-old", deleting: false };
+    close();
+    await removeLocalAccount("owner-old");
+    return { accountId: "owner-new", deleting: false };
+  });
+  const context = { account_id: "owner-old", assertActive() { if (!active) throw accountBoundaryClosed(); },
+    onClose(fn: () => void) { closures.add(fn); return () => { closures.delete(fn); }; } };
+  const repo = new IndexedDbProjectRepository(validate, undefined, () => factory, context);
+  const getAll = IDBObjectStore.prototype.getAll;
+  try {
+    await (provider as any).accept(user);
+    provider.subscribe(() => {
+      if (!provider.getState().account) { active = false; closures.forEach(fn => fn()); }
+    });
+    await repo.write(record("old", true), null, false);
+    changed = true;
+    IDBObjectStore.prototype.getAll = function (...args: Parameters<typeof getAll>) {
+      const request = getAll.apply(this, args);
+      change ??= (provider as any).accept(user);
+      return request;
+    };
+    await expect(repo.write(record("racing", true), null, false)).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
+    await change;
+    expect((await new IndexedDbProjectRepository(validate, undefined, () => factory, context).list().catch(() => null))).toBeNull();
+    active = true;
+    expect((await new IndexedDbProjectRepository(validate, undefined, () => factory, context).list()).projects).toHaveLength(0);
+  } finally {
+    IDBObjectStore.prototype.getAll = getAll;
+    if (previousIdb) Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: previousIdb });
+    else delete (globalThis as { indexedDB?: IDBFactory }).indexedDB;
+    if (previousSession) Object.defineProperty(globalThis, "sessionStorage", previousSession);
+    else delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
+  }
 });
 
 test("all Repository operations isolate anonymous, A and B including Latest cleanup and Last Calculation", async () => {
@@ -152,4 +265,122 @@ for (const operation of ["list", "read"] as const) test(`closing during async va
   await expect.poll(() => Boolean(release)).toBe(true);
   active = false; release();
   await expect(pending).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
+});
+
+test("deletion rejects delayed account checks and token events until cleanup ends", async () => {
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: true } });
+  const user = { providerData: [{ providerId: "google.com", uid: "deleting-owner" }] } as User;
+  const auth = { currentUser: user } as Auth;
+  let resolveDelayed!: (value: { accountId: string; deleting: boolean }) => void;
+  let finishCleanup!: () => void;
+  let calls = 0, pending = false;
+  let cachedOwner = "old-owner";
+  const provider = new FirebaseAuthProvider(auth, async (_user, _register, _close, assertCurrent) => {
+    calls++;
+    if (calls === 2) {
+      const identity = await new Promise<{ accountId: string; deleting: boolean }>(resolve => { resolveDelayed = resolve; });
+      assertCurrent?.();
+      cachedOwner = identity.accountId;
+      return identity;
+    }
+    return { accountId: "old-owner", deleting: pending };
+  }, async (_user, _id, close) => {
+    pending = true;
+    cachedOwner = "retired:old-owner";
+    close();
+    await new Promise<void>(resolve => { finishCleanup = resolve; });
+    throw new Error("cleanup failed");
+  });
+  try {
+    await (provider as any).accept(user);
+    const delayed = (provider as any).accept(user);
+    const deleting = provider.deleteAccount();
+    await expect.poll(() => provider.getState().deletionPending).toBe(true);
+    resolveDelayed({ accountId: "old-owner", deleting: false });
+    await delayed;
+    expect(cachedOwner).toBe("retired:old-owner");
+    await (provider as any).accept(user); // onIdTokenChanged after fresh token
+    await provider.refresh(); // focus/periodic refresh
+    expect(provider.getState().account).toBeNull();
+    expect(provider.getState().deletionPending).toBe(true);
+    expect(calls).toBe(3);
+    await expect(provider.deleteAccount()).rejects.toThrow("既に実行中");
+    finishCleanup();
+    await expect(deleting).rejects.toThrow("cleanup failed");
+    await (provider as any).accept(user);
+    expect(provider.getState().account).toBeNull();
+    expect(provider.getState().deletionPending).toBe(true);
+  } finally {
+    if (previousNavigator) Object.defineProperty(globalThis, "navigator", previousNavigator);
+    else delete (globalThis as { navigator?: Navigator }).navigator;
+  }
+});
+
+test("external account switch closes access during deletion preflight and opens only the new owner afterwards", async () => {
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: true } });
+  const oldUser = { providerData: [{ providerId: "google.com", uid: "old" }] } as User;
+  const newUser = { providerData: [{ providerId: "google.com", uid: "new" }] } as User;
+  const auth = { currentUser: oldUser } as Auth;
+  let rejectPreflight!: (error: Error) => void;
+  let calls = 0;
+  const provider = new FirebaseAuthProvider(auth, async user => {
+    if (++calls === 2) return new Promise((_resolve, reject) => { rejectPreflight = reject; });
+    return { accountId: user === oldUser ? "old-owner" : "new-owner", deleting: false };
+  });
+  try {
+    await (provider as any).accept(oldUser);
+    const deleting = provider.deleteAccount();
+    expect(provider.getState().account?.account_id).toBe("old-owner");
+    const invalidUser = { providerData: [] } as unknown as User;
+    (auth as any).currentUser = invalidUser;
+    await (provider as any).accept(invalidUser);
+    expect(provider.getState().account).toBeNull();
+    (auth as any).currentUser = null;
+    await (provider as any).accept(null);
+    expect(provider.getState().account).toBeNull();
+    (auth as any).currentUser = newUser;
+    await (provider as any).accept(newUser);
+    expect(provider.getState().account).toBeNull();
+    rejectPreflight(new Error("preflight failed"));
+    await expect(deleting).rejects.toThrow("preflight failed");
+    expect(provider.getState().account?.account_id).toBe("new-owner");
+  } finally {
+    if (previousNavigator) Object.defineProperty(globalThis, "navigator", previousNavigator);
+    else delete (globalThis as { navigator?: Navigator }).navigator;
+  }
+});
+
+test("lifecycle checks an invalidated lookup before accessing cached ownership", async () => {
+  const user = { providerData: [{ providerId: "google.com", uid: "invalidated" }] } as User;
+  let asserted = false;
+  await expect(currentAccount(user, false, () => {}, () => {
+    asserted = true;
+    throw accountBoundaryClosed();
+  })).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
+  expect(asserted).toBe(true);
+});
+
+test("successful deletion retains its completion notice after its own logout", async () => {
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: true } });
+  const user = { providerData: [{ providerId: "google.com", uid: "completed" }] } as User;
+  const auth = { currentUser: user } as Auth;
+  const provider = new FirebaseAuthProvider(auth,
+    async () => ({ accountId: "old-owner", deleting: false }), async (_user, _id, close) => { close(); });
+  provider.signOut = async () => {
+    (auth as any).currentUser = null;
+    (provider as any).publish({ account: null, available: true });
+  };
+  try {
+    await (provider as any).accept(user);
+    await provider.deleteAccount();
+    expect(provider.getState().account).toBeNull();
+    expect(provider.getState().notice).toContain("NavMateアカウントを削除しました");
+    expect(provider.getState().deletionPending).toBeUndefined();
+  } finally {
+    if (previousNavigator) Object.defineProperty(globalThis, "navigator", previousNavigator);
+    else delete (globalThis as { navigator?: Navigator }).navigator;
+  }
 });

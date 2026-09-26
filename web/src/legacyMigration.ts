@@ -65,7 +65,10 @@ export async function prepareLegacyLink() {
   legacyProvider ??= fetch("/api/account-link/config").then(async response => {
     if (!response.ok) throw new Error("この環境ではアカウント紐付けが設定されていません。");
     const { createFirebaseAuthProvider } = await import("./firebaseAuthProvider");
-    return createFirebaseAuthProvider(await response.json());
+    // The Legacy link dialog authenticates Google only. Account generation and
+    // Firestore lifecycle belong to the NavMate Local context after linking.
+    const config = await response.json();
+    return createFirebaseAuthProvider(config, async user => ({ accountId: (await googleAccount(user)).account_id, deleting: false }));
   }).catch(error => { legacyProvider = undefined; throw error; });
   const auth = await legacyProvider;
   await auth.signOut();

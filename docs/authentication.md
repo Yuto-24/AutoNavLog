@@ -53,6 +53,9 @@ another device; no mapping server or provider-linking framework is required. Tre
 mapping as an identity contract, not a replaceable display hash. A future provider change
 must explicitly preserve this account_id mapping. The ID is not an authentication credential;
 #185 must enforce remote ownership against verified authentication, never trust a client-supplied ID.
+After Account deletion, a server-held [generation record](account_deletion.md)
+assigns a new internal account ID on explicit re-registration. The original
+deterministic ID is never restored by the current client.
 
 Anonymous data continues to use `autonavlog.projects`. Each account uses
 `autonavlog.projects.<account_id>` with the unchanged #124 records and transactions. The
