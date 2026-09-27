@@ -32,6 +32,50 @@ async function pick(page: Page, latitude: number, longitude: number) {
   const target = project(latitude, longitude), center = project(view.latitude, view.longitude);
   await page.mouse.click(frame.x + frame.width / 2 + target[0]! - center[0]!, frame.y + frame.height / 2 + target[1]! - center[1]!);
 }
+
+test("Leaflet zoom controls contain long-press styling without blocking map interaction", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await start(page);
+  const zoomButtons = page.locator("#route-map-frame .leaflet-control-zoom a");
+  await expect(zoomButtons).toHaveCount(2);
+  for (const button of await zoomButtons.all()) {
+    expect(await button.evaluate(element => {
+      const style = getComputedStyle(element);
+      return style.userSelect || style.getPropertyValue("-webkit-user-select");
+    })).toBe("none");
+  }
+  const stylesheetHref = await page.locator('link[rel="stylesheet"]').getAttribute("href");
+  expect(stylesheetHref).not.toBeNull();
+  const stylesheet = await page.request.get(new URL(stylesheetHref!, page.url()).href);
+  expect(stylesheet.ok()).toBe(true);
+  expect(await stylesheet.text()).toMatch(
+    /\.map-frame\s+\.leaflet-control-zoom\s+a\s*\{[^}]*-webkit-touch-callout:\s*none/s,
+  );
+  await expect(page.locator("body")).not.toHaveCSS("user-select", "none");
+  await expect(page.locator(".workspace-heading h2")).not.toHaveCSS("user-select", "none");
+
+  const map = page.locator(".route-map");
+  await map.scrollIntoViewIfNeeded();
+  const mapBounds = (await map.boundingBox())!;
+  await expect(map).toHaveCSS("touch-action", "none");
+  const getMapViewport = () => page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"));
+  await expect.poll(getMapViewport).not.toBeNull();
+  const centerBeforePan = await getMapViewport();
+  await page.mouse.move(mapBounds.x + mapBounds.width / 2, mapBounds.y + mapBounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(mapBounds.x + mapBounds.width / 2 + 28, mapBounds.y + mapBounds.height / 2 + 16, { steps: 3 });
+  await page.mouse.up();
+  await expect.poll(getMapViewport).not.toBe(centerBeforePan);
+
+  const initialZoom = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).zoom as number,
+  );
+  await page.getByRole("button", { name: "Zoom out" }).click();
+  await expect.poll(async () => page.evaluate(() =>
+    JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).zoom as number,
+  )).toBe(initialZoom - 1);
+});
+
 for (const width of [1100, 1440]) {
   test(`MAP to Planning and NAV LOG, reload, save and reopen at ${width}px`, async ({ page }, info) => {
     test.setTimeout(360_000);
