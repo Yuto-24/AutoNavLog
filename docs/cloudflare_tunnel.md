@@ -38,7 +38,9 @@ curl --fail --silent http://127.0.0.1:8123/healthz
 
 `--weather fake` はUIと計算確認専用で、release-ready statusにはなりません。標準imageは
 同梱の `jma-gpv-weather==0.6.0` wheelを組み込み、`--weather msm` で起動します。
-上空風・気温と地表面気温はMSM、目的地の参考風はAviationWeather.govのTAFから取得します。
+上空風・上空気温・地表面気温は選択されたモデルから取得します。MSM候補がすべて
+必要範囲外の場合はGSMへ切り替えます。
+目的地の参考風はAviationWeather.govのTAFから取得します。
 
 ## 2. 接続済みのremotely-managed tunnel
 
