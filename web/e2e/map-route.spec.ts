@@ -45,26 +45,26 @@ test("Leaflet zoom controls contain long-press styling without blocking map inte
   await expect(osm).toBeVisible();
   await expect(leaflet).toHaveAttribute("href", "https://leafletjs.com");
   await expect(osm).toHaveAttribute("href", "https://www.openstreetmap.org/copyright");
-  for (const button of [...await zoomButtons.all(), attribution, ...await attribution.locator("*").all()]) {
-    expect(await button.evaluate(element => {
-      const style = getComputedStyle(element);
-      const callout = style.getPropertyValue("-webkit-touch-callout");
-      if (CSS.supports("-webkit-touch-callout", "none") && callout !== "none") {
-        throw new Error(`Unexpected touch callout: ${callout}`);
-      }
-      return style.userSelect || style.getPropertyValue("-webkit-user-select");
-    })).toBe("none");
-  }
+  const frame = page.locator("#route-map-frame");
+  expect(await frame.evaluate(root => [root, ...root.querySelectorAll("*")].every(element => {
+    const style = getComputedStyle(element);
+    return (style.userSelect || style.getPropertyValue("-webkit-user-select")) === "none"
+      && (!CSS.supports("-webkit-touch-callout", "none") || style.getPropertyValue("-webkit-touch-callout") === "none");
+  }))).toBe(true);
   const stylesheetHref = await page.locator('link[rel="stylesheet"]').getAttribute("href");
   expect(stylesheetHref).not.toBeNull();
   const stylesheet = await page.request.get(new URL(stylesheetHref!, page.url()).href);
   expect(stylesheet.ok()).toBe(true);
   expect(await stylesheet.text()).toMatch(
-    /\.map-frame\s+\.leaflet-control-attribution\s+\*\s*\{[^}]*-webkit-touch-callout:\s*none/s,
+    /\.map-frame\s+\*\s*\{[^}]*-webkit-touch-callout:\s*none/s,
   );
   await expect(page.locator("body")).not.toHaveCSS("user-select", "none");
   await expect(page.locator(".workspace-heading h2")).not.toHaveCSS("user-select", "none");
 
+  // Prepare the route before panning, while its airport markers are in view.
+  await page.getByRole("button", { name: "Zoom out" }).click();
+  await airport(page, "RJFM").click();
+  await airport(page, "RJFK").click();
   const map = page.locator(".route-map");
   await map.scrollIntoViewIfNeeded();
   const mapBounds = (await map.boundingBox())!;
@@ -85,6 +85,16 @@ test("Leaflet zoom controls contain long-press styling without blocking map inte
   await expect.poll(async () => page.evaluate(() =>
     JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).zoom as number,
   )).toBe(initialZoom - 1);
+
+  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await expect(frame.getByText("RJFM空域", { exact: true })).toBeVisible();
+  const legend = frame.getByRole("group", { name: "RJFMガイダンス凡例" });
+  expect(await legend.locator("*").evaluateAll(elements => elements.every(element => {
+    const style = getComputedStyle(element);
+    return (style.userSelect || style.getPropertyValue("-webkit-user-select")) === "none"
+      && (!CSS.supports("-webkit-touch-callout", "none") || style.getPropertyValue("-webkit-touch-callout") === "none");
+  }))).toBe(true);
+  await expect(page.getByRole("complementary", { name: "RJFM空域データ注記" })).not.toHaveCSS("user-select", "none");
 });
 
 for (const width of [1100, 1440]) {
