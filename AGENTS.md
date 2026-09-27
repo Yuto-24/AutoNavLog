@@ -6,6 +6,7 @@
 - Review code changes with a model independent of the implementer. Self-review alone is not sufficient.
 - Before substantive work, inspect the relevant repository documentation, Issues/PRs, prior decisions, and analogous code. Reuse prior knowledge only after checking it against the current code, specification, and dependencies.
 - Keep reusable, non-obvious findings in the appropriate external documentation. Do not turn AGENTS.md into a work log or duplicate detailed evidence.
+- When adding or changing user-facing UI copy, use Gemini CLI to determine the wording. Codex, GPT, and other implementation agents must not choose the final wording themselves. User-provided wording takes precedence. If Gemini CLI is unavailable, preserve existing copy where possible or leave the final wording unresolved and report the blocker instead of inventing it.
 
 ## Product constraints
 
