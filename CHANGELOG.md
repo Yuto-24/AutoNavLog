@@ -2,6 +2,18 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.22.1
+
+### 利用者向け
+
+#### 修正
+
+- iPad SafariでMAPを長押ししたとき、LeafletのZoomコントロールが選択されて標準のコンテキストUIが表示される問題を抑えます。
+
+### 開発者向け
+
+- 選択とcalloutの抑制をMAP内のLeaflet Zoomコントロールに限定し、既存のMAP gesture設定と通常のzoom操作を維持します。
+
 ## 1.22.0
 
 ### 利用者向け
