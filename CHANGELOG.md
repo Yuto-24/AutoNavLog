@@ -2,6 +2,18 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.22.1
+
+### 利用者向け
+
+#### 修正
+
+- iPad SafariでMAPを長押ししたとき、地図内のZoomコントロール、帰属表示（Leaflet / OpenStreetMap）、RJFM空域の凡例などの文字が選択されて標準のコンテキストUIが表示される問題を抑えます。
+
+### 開発者向け
+
+- 選択とcalloutの抑制をMAP枠内に限定し、MAP外の文字選択、帰属リンク、既存のMAP gesture設定と通常のzoom操作を維持します。
+
 ## 1.22.0
 
 ### 利用者向け
