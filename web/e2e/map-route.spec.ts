@@ -38,9 +38,20 @@ test("Leaflet zoom controls contain long-press styling without blocking map inte
   await start(page);
   const zoomButtons = page.locator("#route-map-frame .leaflet-control-zoom a");
   await expect(zoomButtons).toHaveCount(2);
-  for (const button of await zoomButtons.all()) {
+  const attribution = page.locator("#route-map-frame .leaflet-control-attribution");
+  const leaflet = attribution.getByRole("link", { name: "Leaflet", exact: true });
+  const osm = attribution.getByRole("link", { name: "OpenStreetMap", exact: true });
+  await expect(leaflet).toBeVisible();
+  await expect(osm).toBeVisible();
+  await expect(leaflet).toHaveAttribute("href", "https://leafletjs.com");
+  await expect(osm).toHaveAttribute("href", "https://www.openstreetmap.org/copyright");
+  for (const button of [...await zoomButtons.all(), attribution, ...await attribution.locator("*").all()]) {
     expect(await button.evaluate(element => {
       const style = getComputedStyle(element);
+      const callout = style.getPropertyValue("-webkit-touch-callout");
+      if (CSS.supports("-webkit-touch-callout", "none") && callout !== "none") {
+        throw new Error(`Unexpected touch callout: ${callout}`);
+      }
       return style.userSelect || style.getPropertyValue("-webkit-user-select");
     })).toBe("none");
   }
@@ -49,7 +60,7 @@ test("Leaflet zoom controls contain long-press styling without blocking map inte
   const stylesheet = await page.request.get(new URL(stylesheetHref!, page.url()).href);
   expect(stylesheet.ok()).toBe(true);
   expect(await stylesheet.text()).toMatch(
-    /\.map-frame\s+\.leaflet-control-zoom\s+a\s*\{[^}]*-webkit-touch-callout:\s*none/s,
+    /\.map-frame\s+\.leaflet-control-attribution\s+\*\s*\{[^}]*-webkit-touch-callout:\s*none/s,
   );
   await expect(page.locator("body")).not.toHaveCSS("user-select", "none");
   await expect(page.locator(".workspace-heading h2")).not.toHaveCSS("user-select", "none");
