@@ -39,7 +39,12 @@ from autonavlog.domain.planning import (
 )
 from autonavlog.domain.project import Airport, NavSection, Project, RouteNode
 from autonavlog.domain.values import AdoptedValue
-from autonavlog.domain.weather import ForecastRequirement, WeatherRequest, WeatherResult
+from autonavlog.domain.weather import (
+    ForecastCoverageError,
+    ForecastRequirement,
+    WeatherRequest,
+    WeatherResult,
+)
 from autonavlog.nav.airspeed import (
     cas_from_tas,
     isa_temperature_c,
@@ -60,10 +65,12 @@ from autonavlog.performance.cruise import (
 from autonavlog.performance.repository import PerformanceDataError, PerformanceRepository
 from autonavlog.storage.airports import AirportRepository
 from autonavlog.weather.destination_taf import DestinationWindForecast
+from autonavlog.weather.forecast_provider import ForecastWeatherProvider
 from autonavlog.weather.provider import WeatherProvider
 
 from .arrival import calculate_arrival_altitude
 from .checkpoints import project_check_points
+from .forecast_selection import ForecastUnavailable, select_forecast
 from .forecast_service import ForecastService
 from .navlog_display import (
     NavLogPhysicalLeg,
@@ -228,6 +235,15 @@ def _unavailable(reason_code: str = "AUTOMATIC_VALUE_UNAVAILABLE") -> AdoptedVal
     )
 
 
+class _ForecastRetry(Exception):
+    def __init__(self, requirement: ForecastRequirement):
+        self.requirement = requirement
+
+
+class _ForecastProcessingError(Exception):
+    pass
+
+
 class CalculationService:
     def __init__(
         self,
@@ -316,6 +332,56 @@ class CalculationService:
         provider: WeatherProvider,
         destination_wind: DestinationWindForecast | None = None,
         progress: Callable[[int, str], None] | None = None,
+        *,
+        refresh_forecast: bool = False,
+    ) -> CalculationOutcome:
+        requirement: ForecastRequirement | None = None
+        # A restart discards every intermediate section and weather result.
+        # Requirements only grow across attempts, so selection cannot oscillate
+        # back to a Run already excluded by a later iteration.
+        for _ in range(4):
+            try:
+                return self._calculate(
+                    project, provider, destination_wind, progress,
+                    refresh_forecast=refresh_forecast, requirement_override=requirement,
+                )
+            except _ForecastRetry as retry:
+                requirement = self._merge_requirement(requirement, retry.requirement)
+            except _ForecastProcessingError as error:
+                return self._empty_outcome(project, [self._blocker(
+                    "WEATHER_PROCESSING_FAILED", str(error),
+                )])
+        return self._empty_outcome(project, [self._blocker(
+            "FORECAST_SELECTION_NOT_CONVERGED",
+            "反復計算中のForecast選択が収束しませんでした。前回の計算結果を保持します。",
+        )])
+
+    @staticmethod
+    def _merge_requirement(
+        previous: ForecastRequirement | None, current: ForecastRequirement,
+    ) -> ForecastRequirement:
+        if previous is None:
+            return current
+        return ForecastRequirement(
+            valid_times_utc=(*previous.valid_times_utc, *current.valid_times_utc),
+            require_aloft_wind=previous.require_aloft_wind or current.require_aloft_wind,
+            require_aloft_temperature=(previous.require_aloft_temperature
+                                       or current.require_aloft_temperature),
+            require_surface_temperature=(previous.require_surface_temperature
+                                         or current.require_surface_temperature),
+            coverage_requests=(*previous.coverage_requests, *current.coverage_requests),
+            route_points=tuple(dict.fromkeys((*previous.route_points, *current.route_points))),
+        )
+
+    def _calculate(
+        self,
+        project: Project,
+        provider: WeatherProvider,
+        destination_wind: DestinationWindForecast | None,
+        progress: Callable[[int, str], None] | None,
+        *,
+        refresh_forecast: bool,
+        requirement_override: ForecastRequirement | None,
     ) -> CalculationOutcome:
         report = progress or (lambda _percent, _message: None)
         report(15, "経路データを準備しています。")
@@ -512,11 +578,20 @@ class CalculationService:
 
         report(25, "気象データを準備しています。")
         initial_requirement = self.forecast_service.build_initial_requirement(working)
+        if isinstance(provider, ForecastWeatherProvider):
+            initial_requirement = initial_requirement.model_copy(update={
+                "coverage_requests": tuple(self._weather_requests(
+                    working, departure, destination, geometries, {}, arrival_altitude_ft_msl,
+                    fixed_rca_distance_nm=self._fixed_rca_distance(rjfm_departure_plan, geometries),
+                )),
+            })
+            initial_requirement = self._merge_requirement(requirement_override, initial_requirement)
         selected_run_id = self._select_and_prepare_run(
             working,
             provider,
             initial_requirement,
             issues,
+            refresh_forecast=refresh_forecast,
         )
         if selected_run_id is None:
             return self._empty_outcome(working, issues, check_point_projections, arrival_altitude)
@@ -599,7 +674,14 @@ class CalculationService:
                 check_point_projections,
                 arrival_altitude,
             )
-            return outcome.model_copy(update={"selected_forecast_run_id": selected_run_id})
+            return outcome.model_copy(update={
+                "selected_forecast_run_id": selected_run_id,
+                "selected_forecast_model": (
+                    provider.selected_model if isinstance(provider, ForecastWeatherProvider)
+                    else outcome.selected_forecast_model
+                ),
+                "forecast_provenance": dict(self.last_forecast_metadata),
+            })
 
         if final.arrival_time_utc is not None:
             destination_request = next(
@@ -677,8 +759,25 @@ class CalculationService:
                 tuple(final.representative_times.values()),
                 arrival_time_utc=final.arrival_time_utc,
             )
-            run_status = provider.inspect_run_status(selected_run_id, final_requirement)
-            if not run_status.selected_run_covers_requirement:
+            if isinstance(provider, ForecastWeatherProvider):
+                final_requirement = final_requirement.model_copy(update={
+                    "coverage_requests": tuple(final_weather_requests),
+                })
+                final_requirement = self._merge_requirement(initial_requirement, final_requirement)
+                old_model = provider.selected_model
+                final_run = self._select_and_prepare_run(
+                    working, provider, final_requirement, issues,
+                    refresh_forecast=refresh_forecast,
+                )
+                if final_run is not None and (
+                    final_run != selected_run_id or provider.selected_model != old_model
+                ):
+                    raise _ForecastRetry(final_requirement)
+                covers = final_run is not None
+            else:
+                run_status = provider.inspect_run_status(selected_run_id, final_requirement)
+                covers = run_status.selected_run_covers_requirement
+            if not covers:
                 issues.append(
                     self._blocker(
                         "FORECAST_RUN_OUT_OF_COVERAGE",
@@ -707,6 +806,11 @@ class CalculationService:
         return CalculationOutcome(
             project_id=working.id,
             selected_forecast_run_id=selected_run_id,
+            selected_forecast_model=(
+                provider.selected_model if isinstance(provider, ForecastWeatherProvider)
+                else (None if working.weather_mode == "FTD" else "MSM")
+            ),
+            forecast_provenance=dict(self.last_forecast_metadata),
             sections=final.sections,
             display_rows=final.display_rows,
             derived_points=derived_points,
@@ -822,10 +926,42 @@ class CalculationService:
         provider: WeatherProvider,
         requirement: ForecastRequirement,
         issues: list[Issue],
+        *,
+        refresh_forecast: bool = False,
     ) -> str | None:
         try:
             initial_time_utc: datetime | None = None
-            if project.selected_forecast_run_id is None:
+            selection_metadata: dict[str, Any] = {}
+            if isinstance(provider, ForecastWeatherProvider):
+                selection = select_forecast(
+                    provider.models, requirement,
+                    selected_model=project.selected_forecast_model,
+                    selected_run_id=project.selected_forecast_run_id,
+                    refresh=refresh_forecast,
+                )
+                if selection.update_required:
+                    issues.append(self._blocker(
+                        "FORECAST_UPDATE_REQUIRED",
+                        "固定Forecastでは計算できません。同じ入力でもう一度再計算すると更新します。",
+                    ))
+                    return None
+                provider.selected_model = selection.model
+                selected_run_id = selection.run_id
+                initial_time_utc = datetime.strptime(selected_run_id, "%Y%m%d%H%M%S").replace(
+                    tzinfo=UTC,
+                )
+                selection_metadata = {
+                    "model": selection.model,
+                    "fallback": selection.fallback_from is not None,
+                    "fallback_from": selection.fallback_from,
+                    "coverage_reason_codes": list(selection.coverage_reason_codes),
+                }
+                if selection.update_available:
+                    issues.append(Issue(
+                        code="FORECAST_UPDATE_AVAILABLE", severity=IssueSeverity.WARNING,
+                        message="更新可能なForecastがあります。同じ入力でもう一度再計算すると更新します。",
+                    ))
+            elif project.selected_forecast_run_id is None:
                 run = provider.resolve_run(requirement)
                 selected_run_id = run.id
                 initial_time_utc = run.initial_time_utc.astimezone(UTC)
@@ -865,11 +1001,15 @@ class CalculationService:
                     )
             prepared = provider.prepare_run(selected_run_id, requirement)
             metadata = dict(prepared.metadata)
+            metadata.update(selection_metadata)
             metadata["forecast_run_id"] = selected_run_id
             if initial_time_utc is not None:
                 metadata["initial_time_utc"] = initial_time_utc.isoformat().replace("+00:00", "Z")
             self.last_forecast_metadata = metadata
             return selected_run_id
+        except ForecastUnavailable as error:
+            issues.append(self._blocker("FORECAST_UNAVAILABLE", str(error)))
+            return None
         except Exception as error:
             issues.append(self._blocker("FORECAST_PREPARE_FAILED", str(error)))
             return None
@@ -1096,8 +1236,28 @@ class CalculationService:
         if selected_run_id is None:
             return []
         try:
+            if isinstance(provider, ForecastWeatherProvider):
+                requirement = ForecastRequirement(
+                    valid_times_utc=tuple(request.valid_time_utc for request in requests),
+                    coverage_requests=tuple(requests),
+                    require_aloft_wind=any(r.kind == WeatherRequestKind.ALOFT for r in requests),
+                    require_aloft_temperature=any(
+                        r.kind == WeatherRequestKind.ALOFT for r in requests
+                    ),
+                    require_surface_temperature=any(
+                        r.kind == WeatherRequestKind.SURFACE_TEMPERATURE for r in requests
+                    ),
+                )
+                try:
+                    provider.current.check_run(selected_run_id, requirement)
+                except ForecastCoverageError:
+                    raise _ForecastRetry(requirement) from None
             results = list(provider.query_batch(selected_run_id, requests))
+        except _ForecastRetry:
+            raise
         except Exception as error:
+            if isinstance(provider, ForecastWeatherProvider):
+                raise _ForecastProcessingError(str(error)) from error
             issues.append(self._blocker("WEATHER_QUERY_FAILED", str(error)))
             return []
         if {item.request_id for item in results} != {item.request_id for item in requests}:
@@ -3490,6 +3650,7 @@ class CalculationService:
         return CalculationOutcome(
             project_id=project.id,
             selected_forecast_run_id=project.selected_forecast_run_id,
+            selected_forecast_model=project.selected_forecast_model,
             arrival_altitude=arrival_altitude,
             fuel_plan=FuelPlan(
                 total_usable_gal=project.total_usable_fuel_gal,

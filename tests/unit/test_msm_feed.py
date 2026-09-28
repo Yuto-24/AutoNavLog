@@ -117,3 +117,29 @@ def test_rollover_retains_source_listing_and_rejects_corrupt_asset(producer, mon
     with pytest.raises(CacheIntegrityError):
         prepare_msm_feed.produce(output, tmp_path / "cache", START, 3, Bounds(), now=START)
     assert (output / "catalog.json").read_bytes() == before
+
+
+def test_gsm_is_an_explicit_feed_using_the_public_gsm_codec(monkeypatch, tmp_path):
+    from jma_gpv_weather import GsmClient, GsmPreparedData
+
+    feed = FEED.parent / "forecast-policy/gsm"
+    catalog = json.loads((feed / "catalog.json").read_text())
+    payloads = {a["run"]: GsmPreparedData.from_bytes((feed / a["file"]).read_bytes())
+                for a in catalog["assets"]}
+    monkeypatch.setattr(prepare_msm_feed, "urlopen",
+                        lambda url, **kw: io.BytesIO(catalog["listings"][url.rstrip("/")].encode()))
+    native = GsmClient.prepare_run
+
+    def prepared(self, run, requirements, **kwargs):
+        return native(self, run, requirements, prepared_data=payloads[str(run)], **kwargs)
+
+    monkeypatch.setattr(GsmClient, "prepare_run", prepared)
+    output = tmp_path / "gsm"
+    report = prepare_msm_feed.produce(output, tmp_path / "cache", START, 3,
+                                      Bounds(31, 35, 130, 133), model="GSM", now=START)
+    assert report["model"] == "GSM"
+    assert len(report["runs"]) == 2
+    for asset in json.loads((output / "catalog.json").read_text())["assets"]:
+        data = GsmPreparedData.from_bytes((output / asset["file"]).read_bytes(),
+                                          expected_sha256=asset["sha256"])
+        assert data.selection.run_utc.strftime("%Y%m%d%H%M%S") == asset["run"]

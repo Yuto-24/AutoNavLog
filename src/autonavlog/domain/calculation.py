@@ -15,6 +15,7 @@ from .enums import (
 )
 from .planning import ArrivalAltitudeResult, CheckPointProjection, RjfmDepartureGuidance
 from .values import AdoptedValue
+from .weather import ForecastModel, legacy_forecast_model
 
 
 class CalculationModel(BaseModel):
@@ -263,6 +264,15 @@ class NavLogSummary(CalculationModel):
 class CalculationOutcome(CalculationModel):
     project_id: UUID
     selected_forecast_run_id: str | None
+    selected_forecast_model: ForecastModel | None = None
+    forecast_provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def migrate_forecast_selection(self) -> CalculationOutcome:
+        if "selected_forecast_model" not in self.model_fields_set:
+            self.selected_forecast_model = legacy_forecast_model(self.selected_forecast_run_id)
+        return self
+
     sections: list[SectionResult] = Field(
         default_factory=list,
         description=(

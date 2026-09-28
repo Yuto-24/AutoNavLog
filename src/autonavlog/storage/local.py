@@ -75,8 +75,8 @@ def _migrate_project_payload(payload: Any) -> tuple[Any, bool]:
     migrated = False
     if payload.pop("manual_qnh_hpa", None) is not None:
         migrated = True
-    if payload.get("schema_version") != 4:
-        payload["schema_version"] = 4
+    if payload.get("schema_version") != 5:
+        payload["schema_version"] = 5
         migrated = True
     for field in ("run_up_included", "air_conditioning_enabled"):
         if field not in payload:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -8,10 +9,45 @@ import autonavlog.application.project_fingerprints as project_fingerprints
 from autonavlog.application.project_fingerprints import (
     current_calculation_input_fingerprint,
     defaults_review_fingerprint,
+    forecast_selection_fingerprint,
 )
 from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.planning import PersistedUiState
 from autonavlog.domain.project import FtdWeatherSettings, ManualWind, Project
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda p: setattr(p, "flight_date", p.flight_date + timedelta(days=1)),
+        lambda p: setattr(p, "planned_departure_time_jst",
+                          p.planned_departure_time_jst + timedelta(minutes=1)),
+        lambda p: setattr(p, "departure_airport_id", "RJFO"),
+        lambda p: setattr(p, "destination_airport_id", "RJFT"),
+        lambda p: setattr(p, "tgl_count", p.tgl_count + 1),
+        lambda p: setattr(p, "descent_rate_fpm", 1000),
+        lambda p: setattr(p.sections[0], "planned_altitude_ft_msl", 6500),
+        lambda p: setattr(p.sections[0], "manual_tas_kt", 110),
+        lambda p: setattr(p.route_nodes[0], "longitude_deg",
+                          p.route_nodes[0].longitude_deg + 0.1),
+        lambda p: p.metadata.update(ui_state={"arrival_plan": {"altitude": 2000}}),
+    ],
+)
+def test_forecast_refresh_intent_changes_with_requirement_inputs(project, mutation):
+    baseline = forecast_selection_fingerprint(project)
+    mutation(project)
+    assert forecast_selection_fingerprint(project) != baseline
+
+
+def test_forecast_refresh_intent_survives_selection_and_save_bookkeeping(project):
+    baseline = forecast_selection_fingerprint(project)
+    project.selected_forecast_run_id = "20260915000000"
+    project.revision += 1
+    project.name = "Saved flight"
+    project.pilot_name = "Pilot"
+    project.acknowledged_warning_codes.add("FORECAST_UPDATE_AVAILABLE")
+    project.metadata["ui_state"] = {"calculated_against_fingerprint": "0" * 64}
+    assert forecast_selection_fingerprint(project) == baseline
 
 
 def _calculation_fingerprint(
