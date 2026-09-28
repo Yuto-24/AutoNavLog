@@ -60,6 +60,31 @@ test("reject unauthorized origins, methods, routes and queries without upstream"
   assert.equal(h.calls(), 0);
 });
 
+test("cutover CSV allows both origins temporarily; canonical-only rejects old cached access", async () => {
+  const h = harness();
+  const canonical = "https://custom.example";
+  const get = (requestOrigin, allowed) => h.run(undefined, {
+    headers: { Origin: requestOrigin, "CF-Connecting-IP": "192.0.2.1" },
+  }, { ...env, ALLOWED_ORIGINS: allowed });
+  const transition = `${origin},${canonical}`;
+  for (const requestOrigin of [origin, canonical]) {
+    const response = await get(requestOrigin, transition);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), requestOrigin);
+    assert.equal(response.headers.get("Vary"), "Origin");
+  }
+  for (const requestOrigin of [origin, `${canonical}/`, "https://custom.example.evil.test"]) {
+    const response = await get(requestOrigin, canonical);
+    assert.equal(response.status, 403);
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), null);
+  }
+  const response = await get(canonical, canonical);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), canonical);
+  assert.equal(h.calls(), 1); // cached payload never carries an old CORS grant
+  assert.equal((await get(canonical, "")).status, 403);
+});
+
 test("client, station and aggregate rate limits plus unavailable binding fail closed", async () => {
   for (const name of ["CLIENT_RATE", "UPSTREAM_RATE", "STATION_RATE"]) {
     const h = harness();
