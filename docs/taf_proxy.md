@@ -96,7 +96,9 @@ rate limiterを課金上限とはみなさない。既にPaidのaccountを使う
 2. `npm --prefix services/taf-proxy ci`。固定Wranglerで`npm --prefix services/taf-proxy run check`を実行する。
 3. `services/taf-proxy/wrangler.jsonc`を同じdirectoryのignored `wrangler.local.jsonc`へコピーし、
    `ALLOWED_ORIGINS`に本番Static Webのorigin（scheme + host + optional port、末尾slashなし）を設定する。
-   複数originはcomma区切り。wildcardを入れず、本番でlocalhostを許可しない。
+   **値は文字列**。複数originはcomma区切りで、JSON配列ではない（Workerは`.split(",")`する）。
+   wildcardを入れず、本番でlocalhostを許可しない。tracked templateの空文字はfail closed用で、
+   本番値は書き込まない。既存local設定がある場合は上書きcopyせず、該当値だけを編集する。
    Rate namespace IDはaccount内で他Workerと重複しないことを確認する。
 4. operatorがWrangler loginし、対象accountを確認して
    `npm --prefix services/taf-proxy run deploy -- --config wrangler.local.jsonc`を実行する。
@@ -107,6 +109,14 @@ rate limiterを課金上限とはみなさない。既にPaidのaccountを使う
 6. 静的配信originからのGET・目的地TAF表示を確認する。workers.dev独立endpointを使い、
    AutoNavLog / AviationWeather originへのfail-open routeを設定しない。
    custom routeを後で採用する場合はCloudflare設定もfail closedにする。
+
+#123のcanonical originは`https://navmate.yuto24.com`。ignored `wrangler.local.jsonc`の
+最終値は`"ALLOWED_ORIGINS": "https://navmate.yuto24.com"`とする。
+切替確認中だけ旧originを許可する場合は
+`"ALLOWED_ORIGINS": "https://navmate.pages.dev,https://navmate.yuto24.com"`。
+これは一時的なTAF互換設定で、Legacy migrationの複数origin対応を意味しない。
+旧入口のredirect後に旧originを削除し、canonical成功・旧origin拒否を検証する。
+[Cutover手順](custom_domain_cutover.md)にdry-run、実CORS確認とoperator作業をまとめる。
 
 ローカル検証:
 

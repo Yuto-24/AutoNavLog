@@ -15,6 +15,9 @@ Web 画面に表示します。
 
 ## Static Webの正式production path
 
+Canonical production URL は **https://navmate.yuto24.com**。配信基盤はCloudflare Pages / Direct Uploadを継続します。
+旧 `navmate.pages.dev` からの切替とoperator設定は[custom-domain cutover](docs/custom_domain_cutover.md)を参照してください。
+
 新しい本番構成は[Static Web](docs/static_production.md)です。ブラウザ内でProject保存・
 KML/KMZ import・計算を行い、Google Accountで同期できます。FastAPI / Dockerは本番配信に不要です。
 production build、無料枠条件、手動deploy / rollback、公開前のdry-runは同文書を参照してください。

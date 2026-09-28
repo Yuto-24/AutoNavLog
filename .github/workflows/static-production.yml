@@ -89,6 +89,8 @@ jobs:
           npm --prefix web run check:static
       - name: Production Browser E2E
         working-directory: app
+        env:
+          AUTONAVLOG_REFERENCE_PYTHON: python3
         run: |
           python -m http.server 4121 --bind 127.0.0.1 --directory web/dist-static > "$RUNNER_TEMP/static-server.log" 2>&1 &
           server_pid=$!

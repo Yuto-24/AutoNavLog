@@ -8,7 +8,11 @@ Docker Composeは移行中のLegacy runtimeとPython Referenceのサポート構
 
 この文書のbuild / dry-runは公開を行わない。**remote deploy、preview公開、DNS変更、
 Firebase Rules変更、TAF Worker変更は個別の公開承認後に行う。**
-#145で確保した `navmate.pages.dev` の既存配置は#121完了の証拠ではない。
+Canonical production originは **`https://navmate.yuto24.com`**（#123、2026-09-27決定）。
+Hosting backendはCloudflare Pages / Direct Uploadのまま、Firebase Hostingへは移行しない。
+`navmate.pages.dev` は切替期間の旧入口であり、canonical URLとして使わない。
+[Custom-domain cutover](custom_domain_cutover.md)に設定の正本、切替順序と完了gateを定義する。
+過去の#121 acceptanceは当時のoriginの証跡として保持し、新originの検証と区別する。
 
 ## Buildと配布物
 

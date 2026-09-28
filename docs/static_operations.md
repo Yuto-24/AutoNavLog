@@ -6,6 +6,12 @@ This runbook adds CI orchestration, not an Application runtime. The output is st
 ordinary Vite files with Pyodide wheels/data, served at the same origin. No Functions,
 R2, paid runner, paid plan, billing activation, or automatic paid fallback is required.
 
+The canonical production origin is **`https://navmate.yuto24.com`**. Pages / Direct
+Upload remains the hosting backend. Follow [custom-domain cutover](custom_domain_cutover.md)
+before activation: publication, retention restore, monitoring and rollback acceptance
+all target this origin. The historical #121 pages.dev evidence is not new-origin acceptance.
+`STATIC_ORIGIN` remains an operator-owned GitHub variable, not a tracked workflow default.
+
 ## Ownership and activation
 
 - `publish-github-release.yml` continues to publish VERSION/CHANGELOG GitHub releases.
@@ -37,7 +43,7 @@ After explicit authorization, the operator configures:
    dispatches use `static-validation`. A pending reviewer on every scheduled run is
    not unattended operation. Do not silently remove publication protection to
    unblock a run.
-2. Repository variables `STATIC_ORIGIN=https://navmate.pages.dev`, `STATIC_APPROVED_SHA`
+2. Repository variables `STATIC_ORIGIN=https://navmate.yuto24.com`, `STATIC_APPROVED_SHA`
    (the full canonical production SHA), and the six public `VITE_*` settings documented
    in #121. Keep these in repository variables so build and monitor see the same values;
    do not shadow them with different environment values. No credentials in `VITE_*`.
@@ -140,7 +146,7 @@ If stored bytes or outbound cannot be obtained, record unknown and keep the gate
 CLOUDFLARE_ACCOUNT_ID=your-account VITE_FIREBASE_PROJECT_ID=your-project \
   GITHUB_REPOSITORY_OWNER=your-owner STATIC_QUOTA_REPORT="$(cat /private/path/quota.json)" \
   python3 scripts/static_ops/operations.py quota
-python3 scripts/static_ops/operations.py monitor --origin https://navmate.pages.dev
+python3 scripts/static_ops/operations.py monitor --origin https://navmate.yuto24.com
 ```
 
 At >=80% of a recorded current limit, the check warns/fails; at 100% the provider's
@@ -185,6 +191,9 @@ Validate actual producer/browser duration and retained payload volume during act
   Existing Project / Last Calculation, FTD and saved NAV LOG remain available meanwhile.
 - Worker rollback follows #145 independently; app rollback does not roll back Firebase
   Rules, schema, billing or TAF. Incompatible schema requires a forward fix.
+- Keep the custom domain, `STATIC_ORIGIN`, migration origin and canonical-only TAF
+  allowlist through artifact rollback. Returning users to pages.dev is an origin/data
+  cutover, not a same-origin rollback; use the separate cutover recovery procedure.
 
 ## Acceptance still requiring production authorization
 
