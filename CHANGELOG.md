@@ -2,7 +2,7 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
-## 1.21.0
+## 1.23.0
 
 ### 利用者向け
 
@@ -17,6 +17,46 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 - modelとRunを分けてProject・CalculationOutcome・Last Calculationへ保存し、既存のRunのみの記録をMSMとして移行します。
 - coverageのみを理由とするモデル選択と、反復計算後の要求に基づく全体再計算をLocal / Legacyの共通計算境界で処理します。
 - GSMのportable preparationは`jma-gpv-weather`の公開APIを使用し、モデル仕様・GRIB・HGT判定をアプリ側へ複製しません。
+
+## 1.22.1
+
+### 利用者向け
+
+#### 修正
+
+- iPad SafariでMAPを長押ししたとき、地図内のZoomコントロール、帰属表示（Leaflet / OpenStreetMap）、RJFM空域の凡例などの文字が選択されて標準のコンテキストUIが表示される問題を抑えます。
+
+### 開発者向け
+
+- 選択とcalloutの抑制をMAP枠内に限定し、MAP外の文字選択、帰属リンク、既存のMAP gesture設定と通常のzoom操作を維持します。
+
+## 1.22.0
+
+### 利用者向け
+
+#### 改善
+
+- オンラインで認証済みの利用者がNavMateアカウントと同期データを削除できるようにしました。端末内のコピーも削除し、別端末には次回オンライン確認時に反映します。
+- 削除後に同じGoogleアカウントで再登録すると、新しいNavMateアカウントとして始まります。Googleアカウント自体は変更しません。
+
+### 開発者向け
+
+- 永続的な削除状態とアカウント世代の所有境界をFirestore Rulesに追加しました。旧端末による再同期と削除前のLegacyデータの再取込を防ぎます。
+- Remote / Local削除、途中失敗からの再試行、別端末の後続削除、再登録を検証するテストと運用説明を追加しました。
+
+## 1.21.0
+
+### 利用者向け
+
+#### 追加
+
+- KMLなしで、MAPの空港と任意地点から経路を作成できます。Route Stripで地点順序を確認・削除し、経路確定後に飛行計画とNAV LOG計算へ進めます。
+- 未確定経路を同じタブの再読み込みで復元し、ProjectごとのMAP表示範囲を端末内に保持します。
+
+### 開発者向け
+
+- Map Routeを既存のApplication確定処理・Project・Calculation contractへ接続しました。
+- Codex WorktreeはホストのNode.jsがなくてもDockerで依存関係を準備し、CPU上限をDocker環境に合わせます。
 
 ## 1.20.4
 

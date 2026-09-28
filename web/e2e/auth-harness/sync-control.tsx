@@ -4,7 +4,7 @@ import { AccountSyncControl } from "../../src/components/AccountSyncControl";
 import type { SyncStatus } from "../../src/accountSync";
 
 // Exercise the production component with an immediately failing post-sync refresh.
-export function mount(operation: "resolve" | "import") {
+export function mount(operation: "resolve" | "import", guard = false) {
   let state: SyncStatus = { conflicts: operation === "resolve" ? [{ id: "project", name: "Route" }] : [],
     imports: operation === "import" ? [{ id: "project", name: "Route" }] : [], undo: [], generation: 0 };
   const listeners = new Set<() => void>();
@@ -17,5 +17,6 @@ export function mount(operation: "resolve" | "import") {
     resolve: finish, importLatest: finish, undo: async () => {} };
   const host = document.createElement("div"); document.body.append(host);
   createRoot(host).render(createElement(AccountSyncControl, { sync, onChange() {},
+    onBeforeResolve: guard ? () => window.confirm("Route Draftを破棄しますか？") : undefined,
     onResolved: async () => { throw new Error("Projectの再読み込みに失敗しました"); } }));
 }

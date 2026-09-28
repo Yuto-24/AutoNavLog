@@ -21,10 +21,44 @@ service cloud.firestore {
         || (resource.data.deletion == 'PENDING_DELETE'
           && resource.data.undoUntil <= request.time.toMillis());
     }
-    match /googleAccounts/{subject}/projects/{id} {
+    function active(subject, accountId) {
+      return owner(subject) && exists(/databases/$(database)/documents/googleAccounts/$(subject))
+        && get(/databases/$(database)/documents/googleAccounts/$(subject)).data.state == 'ACTIVE'
+        && get(/databases/$(database)/documents/googleAccounts/$(subject)).data.accountId == accountId;
+    }
+    function deleting(subject, accountId) {
+      return owner(subject) && exists(/databases/$(database)/documents/googleAccounts/$(subject))
+        && get(/databases/$(database)/documents/googleAccounts/$(subject)).data.state == 'DELETING'
+        && get(/databases/$(database)/documents/googleAccounts/$(subject)).data.accountId == accountId;
+    }
+    function legacyGeneration(subject, state) {
+      return owner(subject) && exists(/databases/$(database)/documents/googleAccounts/$(subject))
+        && get(/databases/$(database)/documents/googleAccounts/$(subject)).data.state == state
+        && get(/databases/$(database)/documents/googleAccounts/$(subject)).data.accountId.matches('account_v1_[0-9a-f]{64}');
+    }
+    match /googleAccounts/{subject} {
       allow read: if owner(subject);
-      allow create: if owner(subject) && valid(id) && request.resource.data.baseVersion == null && request.resource.data.revision == 1;
-      allow update: if owner(subject) && valid(id)
+      allow create: if owner(subject) && request.resource.data.keys().hasOnly(['schema', 'accountId', 'state'])
+        && request.resource.data.schema == 1 && request.resource.data.accountId is string
+        && request.resource.data.state == 'ACTIVE';
+      allow update: if owner(subject) && request.resource.data.keys().hasOnly(['schema', 'accountId', 'state'])
+        && request.resource.data.schema == 1 && request.resource.data.accountId is string
+        && ((resource.data.state == 'ACTIVE' && request.resource.data.state == 'DELETING'
+              && resource.data.accountId == request.resource.data.accountId)
+          || (resource.data.state == 'DELETING' && request.resource.data.state == 'DELETED'
+              && resource.data.accountId == request.resource.data.accountId)
+          || (resource.data.state == 'DELETED' && request.resource.data.state == 'ACTIVE'
+              && resource.data.accountId != request.resource.data.accountId));
+      allow delete: if false;
+    }
+    match /googleAccounts/{subject}/projects/{id} {
+      // Existing #185/#186 documents retain their path for the first generation.
+      allow read: if owner(subject) && (!exists(/databases/$(database)/documents/googleAccounts/$(subject))
+        || legacyGeneration(subject, 'ACTIVE') || legacyGeneration(subject, 'DELETING'));
+      allow create: if owner(subject) && (!exists(/databases/$(database)/documents/googleAccounts/$(subject))
+        || legacyGeneration(subject, 'ACTIVE')) && valid(id) && request.resource.data.baseVersion == null && request.resource.data.revision == 1;
+      allow update: if owner(subject) && (!exists(/databases/$(database)/documents/googleAccounts/$(subject))
+        || legacyGeneration(subject, 'ACTIVE')) && valid(id)
         && request.resource.data.baseVersion == resource.data.version
         && request.resource.data.version != resource.data.version
         && request.resource.data.revision == resource.data.revision + 1
@@ -33,7 +67,20 @@ service cloud.firestore {
           || request.resource.data.undoUntil == resource.data.undoUntil)
         && (!deleted() || request.resource.data.deletion == 'DELETED');
       // Durable tombstones are never physically deleted by browser clients.
-      allow delete: if false;
+      allow delete: if legacyGeneration(subject, 'DELETING');
+    }
+    match /googleAccounts/{subject}/generations/{accountId}/projects/{id} {
+      allow read: if active(subject, accountId) || deleting(subject, accountId);
+      allow create: if active(subject, accountId) && valid(id) && request.resource.data.baseVersion == null && request.resource.data.revision == 1;
+      allow update: if active(subject, accountId) && valid(id)
+        && request.resource.data.baseVersion == resource.data.version
+        && request.resource.data.version != resource.data.version
+        && request.resource.data.revision == resource.data.revision + 1
+        && (resource.data.deletion != 'PENDING_DELETE'
+          || request.resource.data.deletion != 'PENDING_DELETE'
+          || request.resource.data.undoUntil == resource.data.undoUntil)
+        && (!deleted() || request.resource.data.deletion == 'DELETED');
+      allow delete: if deleting(subject, accountId);
     }
   }
 }

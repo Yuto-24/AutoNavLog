@@ -4,7 +4,8 @@ import type { AccountSyncControl as Control, ConflictChoice, SyncStatus } from "
 
 const empty: SyncStatus = { conflicts: [], imports: [], undo: [], generation: 0 };
 const noop = () => () => {};
-export function AccountSyncControl({ sync, onChange, onResolved }: {
+export function AccountSyncControl({ sync, onChange, onResolved, onBeforeResolve }: {
+  onBeforeResolve?: () => boolean;
   sync?: Control; onChange(): void; onResolved(id: string): Promise<void>;
 }) {
   const state = useSyncExternalStore(sync?.subscribe ?? noop, sync?.getState ?? (() => empty));
@@ -29,6 +30,7 @@ export function AccountSyncControl({ sync, onChange, onResolved }: {
     finally { setPending(false); }
   };
   const resolve = (choice: ConflictChoice) => conflict && sync && void act(async () => {
+    if (onBeforeResolve && !onBeforeResolve()) return;
     const id = await sync.resolve(conflict.id, choice);
     await onResolved(id);
   });
@@ -55,8 +57,8 @@ export function AccountSyncControl({ sync, onChange, onResolved }: {
         <p>アカウントのLatestを引き継ぎます。未ログイン中のLatestは、名前を付けて保存しない場合は破棄されます。</p>
         <label>Project名<input maxLength={60} value={name} onChange={event => setName(event.target.value)} autoFocus /></label>
         <div className="modal-actions">
-          <button type="button" disabled={pending || !name.trim()} onClick={() => sync && void act(async () => { await sync.importLatest(imported.id, name); await onResolved(imported.id); })}>名前を付けて保存</button>
-          <button type="button" disabled={pending} onClick={() => sync && void act(async () => { await sync.importLatest(imported.id, null); await onResolved(imported.id); })}>破棄</button>
+          <button type="button" disabled={pending || !name.trim()} onClick={() => sync && void act(async () => { if (onBeforeResolve && !onBeforeResolve()) return; await sync.importLatest(imported.id, name); await onResolved(imported.id); })}>名前を付けて保存</button>
+          <button type="button" disabled={pending} onClick={() => sync && void act(async () => { if (onBeforeResolve && !onBeforeResolve()) return; await sync.importLatest(imported.id, null); await onResolved(imported.id); })}>破棄</button>
         </div>
       </> : null}
       {error && <p role="alert">{error}</p>}

@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
@@ -32,6 +33,7 @@ test("first Local NAV LOG calculation and recalculation scroll to the result", a
     };
   });
   await page.goto("/");
+  await enterImportWorkflow(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地上風向 ° FROM").fill("360");

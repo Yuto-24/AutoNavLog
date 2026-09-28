@@ -1,5 +1,8 @@
 # Account Sync (#185)
 
+NavMate Account deletion and generation isolation are documented in
+[Account deletion](account_deletion.md).
+
 Local mode composes `AccountProjectRepository` with `AccountSyncController` and
 `AccountSyncRepository`. The initial remote adapter uses the existing Firebase SDK's
 Firestore transactions and snapshots. Domain Project / WorkingCalculation schemas and

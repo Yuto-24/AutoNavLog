@@ -7,6 +7,7 @@ import type { SavedProject } from "../types";
 
 interface HeaderProps {
   auth?: AuthProvider;
+  onBeforeAccountChange?: () => boolean;
   appVersion: string;
   projectName: string;
   revision: number | null;
@@ -25,7 +26,7 @@ interface HeaderProps {
 }
 
 export function Header({
-  auth,
+  auth, onBeforeAccountChange,
   appVersion,
   projectName,
   revision,
@@ -67,7 +68,7 @@ export function Header({
         {revision !== null && <span className="header-revision">rev.{revision}</span>}
       </div>
       <div className="header-actions">
-        {localMode ? <AccountControl auth={auth} busy={busy} /> : <LegacyAccountControl busy={busy} />}
+        {localMode ? <AccountControl auth={auth} busy={busy} onBeforeChange={onBeforeAccountChange} /> : <LegacyAccountControl busy={busy} />}
         <button
           className={`header-button information-button${knownIssuesUnread ? " information-warning" : ""}`}
           type="button"
