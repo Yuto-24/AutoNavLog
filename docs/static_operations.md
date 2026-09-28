@@ -87,7 +87,20 @@ feed publication rejects configuration drift. All app/feed jobs share a non-canc
 concurrency group. Quota/source/artifact checks repeat immediately before upload.
 Atomic Pages upload switches payload and catalog together. Post-upload checks compare
 canonical **whole release inventory**, not just the version, and check freshness.
-Failure after upload needs investigation; it does not automatically roll production back.
+The post-upload verifier immediately checks canonical `release.json`, then retries failed
+checks after 10 seconds for up to 300 seconds (monotonic deadline). Each check runs the
+unchanged `check_candidate.py --remote` in a child process with at most 30 seconds,
+clipped to the remaining overall budget; a hung or slowly streaming response cannot
+extend the polling window. Inventory mismatch, HTTP/network errors, invalid JSON and
+other checker failures are retried within that budget. Redirects remain rejected on
+every attempt and are never followed; only exact inventory equality passes. Reads
+retain the existing `Cache-Control: no-cache` header, origin and byte budget.
+Deadline expiry fails closed, including a match returned at/after the deadline. Attempt
+diagnostics go to the job log; only successful identity verification enters the summary.
+The fresh MSM monitor runs **after** identity verification succeeds, never on timeout.
+These retries do not re-upload, change the approved SHA/configuration gates, or authorize
+another deployment. Failure after upload needs investigation; it does not automatically
+roll production back.
 
 No large build artifacts or raw MSM caches are stored in Actions. Production itself is
 the next retention source; job summaries record release hash and size/freshness report.
