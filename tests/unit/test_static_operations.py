@@ -198,3 +198,20 @@ def test_optional_quota_does_not_stop_feed_but_unknown_plan_does():
     evidence["plans"]["automatic_billing"] = True
     with pytest.raises(ValueError):
         ops.quota(evidence, NOW, SCOPES, publication=True)
+
+
+@pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
+def test_fetch_never_follows_redirect_even_to_matching_inventory(monkeypatch, code):
+    def opener(handler):
+        def open_url(request, **kwargs):
+            assert request.get_header("Cache-control") == "no-cache"
+            handler().redirect_request(request, None, code, "redirect", {}, "https://other.example/")
+            pytest.fail("Redirect must not be followed")
+
+        from types import SimpleNamespace
+
+        return SimpleNamespace(open=open_url)
+
+    monkeypatch.setattr(ops, "build_opener", opener)
+    with pytest.raises(ValueError, match="redirected"):
+        ops.fetch("https://example.com/release.json")
