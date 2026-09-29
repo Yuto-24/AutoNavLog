@@ -44,6 +44,7 @@ COPY scripts ./scripts
 COPY VERSION CHANGELOG.md KNOWN_ISSUES.md Dockerfile .dockerignore ./
 COPY web/package.json web/package-lock.json ./web/
 COPY .github/workflows/test.yml ./.github/workflows/test.yml
+COPY .github/workflows/static-production.yml ./.github/workflows/static-production.yml
 
 RUN chmod 755 scripts/run_ci_checks.sh \
     && python -m pip install vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]" \
