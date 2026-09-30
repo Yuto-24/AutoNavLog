@@ -1127,10 +1127,14 @@ def test_eoc_backtracks_with_common_descent_wind_and_leg_specific_ground_speeds(
     assert wp2_row.pa.text == "(5300)"
 
 
-def test_eoc_wind_dependent_cells_start_a_new_display_context(
+@pytest.mark.parametrize("descent_temperature", [15.0, -5.0], ids=["equal", "different"])
+@pytest.mark.parametrize("manual_temperature", [False, True], ids=["weather", "manual"])
+def test_eoc_wind_and_toat_cells_start_a_new_display_context(
     airports,
     performance_repository,
     project,
+    descent_temperature,
+    manual_temperature,
 ) -> None:
     """EOC exposes its first DESCENT zone even when a cell value is unchanged."""
     routed, sections = _eoc_backtracking_project(
@@ -1144,9 +1148,32 @@ def test_eoc_wind_dependent_cells_start_a_new_display_context(
         },
     )
 
+    descent_request_id = f"section:{sections[1].id}:descent"
+
+    def phase_weather(request):
+        return WeatherResult(
+            request_id=request.request_id,
+            availability=Availability.AVAILABLE,
+            kind=request.kind,
+            values={
+                "temperature_c": (
+                    descent_temperature
+                    if not manual_temperature and request.request_id == descent_request_id
+                    else 15.0
+                ),
+                "wind_direction_deg_from": 360.0,
+                "wind_speed_kt": 0.0,
+            },
+        )
+
+    if manual_temperature:
+        sections[1].manual_temperature_c_by_phase = {
+            FlightPhase.DESCENT: descent_temperature,
+        }
+
     outcome = CalculationService(airports, performance_repository).calculate(
         routed,
-        FakeWeatherProvider(),
+        FakeWeatherProvider(result_factory=phase_weather),
     )
 
     assert not outcome.blockers
@@ -1154,6 +1181,22 @@ def test_eoc_wind_dependent_cells_start_a_new_display_context(
     eoc_descent = _section_for_source(outcome, sections[1].id, FlightPhase.DESCENT)
     next_descent = _section_for_source(outcome, sections[2].id, FlightPhase.DESCENT)
     assert eoc_descent.from_name == "EOC"
+    assert cruise.temperature_c.adopted() == 15.0
+    assert eoc_descent.temperature_c.adopted() == descent_temperature
+    # TOAT belongs to this crossed Leg's phase, not the common wind's basis Leg.
+    assert next_descent.temperature_c.adopted() == 15.0
+    cruise_parent = next(
+        row for row in outcome.display_rows
+        if row.row_type == "PHYSICAL_LEG_SUMMARY" and row.section_id == sections[1].id
+    )
+    cruise_row = next(
+        row for row in outcome.display_rows
+        if row.row_type == "CALCULATION_ZONE"
+        and row.source_result_sequence == cruise.sequence
+    )
+    assert cruise_parent.toat.text == "15.0"
+    assert cruise_row.toat.state == DisplayCellState.INHERIT
+    assert cruise_row.toat.text is None
     assert cruise.wind_speed_kt.adopted() == 0.0
     assert eoc_descent.wind_direction_deg_from.adopted() == 270.0
     assert eoc_descent.wind_speed_kt.adopted() == 20.0
@@ -1174,6 +1217,10 @@ def test_eoc_wind_dependent_cells_start_a_new_display_context(
     )
     assert eoc_row.wind.state == DisplayCellState.DISPLAY_VALUE
     assert eoc_row.wind.text == "270/20"
+    assert eoc_row.toat.state == DisplayCellState.DISPLAY_VALUE
+    assert eoc_row.toat.effective_value == descent_temperature
+    assert eoc_row.toat.text == f"{descent_temperature:.1f}"
+    assert eoc_row.toat.manual is manual_temperature
     assert eoc_row.section_id == sections[1].id
     assert eoc_row.wind_source_section_id == sections[2].id
     for name in ("wca", "mh", "gs"):
@@ -1200,6 +1247,8 @@ def test_eoc_wind_dependent_cells_start_a_new_display_context(
     assert next_row.wca.state == DisplayCellState.INHERIT
     assert next_row.mh.state == DisplayCellState.INHERIT
     assert next_row.gs.state == DisplayCellState.INHERIT
+    assert next_row.toat.state == DisplayCellState.INHERIT
+    assert next_row.toat.text is None
 
 
 def test_eoc_common_wind_does_not_require_preceding_leg_descent_wind(
@@ -1284,11 +1333,12 @@ def test_snapped_eoc_wind_dependent_cells_do_not_inherit_parent_values(
         if row.row_type == "CALCULATION_ZONE"
         and row.source_result_sequence == eoc_descent.sequence
     )
-    for name in ("wind", "wca", "mh", "gs"):
+    for name in ("toat", "wind", "wca", "mh", "gs"):
         assert getattr(eoc_row, name).state == DisplayCellState.DISPLAY_VALUE
         assert getattr(eoc_row, name).text is not None
-    # Non-wind cells retain ordinary parent/preceding-value inheritance.
-    for name in ("toat", "cas", "tas", "tc", "variation", "mc"):
+    assert eoc_row.toat.effective_value == eoc_descent.temperature_c.adopted()
+    # Other cells retain ordinary parent/preceding-value inheritance.
+    for name in ("cas", "tas", "tc", "variation", "mc"):
         assert getattr(eoc_row, name).state == DisplayCellState.INHERIT
 
 
