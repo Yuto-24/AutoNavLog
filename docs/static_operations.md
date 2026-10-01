@@ -117,72 +117,177 @@ opt-outs, synthetic forecasts, a different application branch or Legacy fallback
 
 ## Quota evidence and monitoring
 
-`static-monitor.yml` evaluates quota evidence hourly, including when weather failed.
-This is continuous **evaluation**, not an invented provider usage API: aggregate account
-counters unavailable to the current token must be exported/read by the operator. Missing,
-null, non-finite, stale (>36 hours), or unattributed observations fail, never count as zero.
-The operator updates plan evidence at least daily and refreshes usage after each
-provider reset (UTC and Pacific); before that refresh the monitor reports unknown/current-
-period evidence missing, not healthy zero. These usage alerts do not stop MSM publication.
-Plan/billing evidence older than 36 hours blocks publication until it is rechecked.
-An independently authorized read-only collector can produce the same JSON. A monitor failure requires action; absence of a run
-is not a healthy reading. Notification transport is GitHub's failure notifications, not
-an added paid alerting service. Its live delivery remains an activation gate.
+`static-monitor.yml` evaluates schema v2 evidence hourly even if weather failed. It
+prints validation failures and successful evaluations into the job summary. This is
+continuous **evaluation**, not automatic collection. Missing, malformed, non-finite,
+wrong-target, future or stale (>36 hours) evidence fails. Refresh observations after
+each provider reset as well as daily; a recently fetched previous-month report is not
+current-month evidence. An API permission error, unavailable dashboard or missing row
+is unknown, never zero. Do not enable billing to collect evidence.
 
-Inventory / exact counter source:
+Plan/billing observations must be refreshed daily. Publication uses `quota --publication`
+and checks current, target-bound Free/Spark/public-standard and **boolean false**
+`automatic_billing`, plus `limits_checked_at` (at release and at least every 31 days).
+Usage failure does not stop MSM publication: Direct Upload uses no Pages builds and the
+feed workflow adds no artifact uploads/cache writes. This preserves the independence of
+Local calculation, TAF, Sync and weather. A passing publication gate is not healthy usage.
 
-| Dependency | Scope and window to record | Read-only source / exhaustion behavior |
+### Schema v2
+
+Start from [the deliberately incomplete example](static_quota.example.json). The Python
+validator in `scripts/static_ops/operations.py` is the executable schema; it requires
+exact metric names and variant fields. The example contains null readings and placeholder
+evidence, and **must fail** until actual current observations replace them. Its free limits
+are a 2026-10-01 documentation snapshot; recheck provider specifications at each release.
+
+Report fields are `schema_version: 2`, `plans`, `plans_observed_at`, `limits_checked_at`,
+`scopes`, and `metrics`. Scopes must match `CLOUDFLARE_ACCOUNT_ID`,
+`VITE_FIREBASE_PROJECT_ID`, `GITHUB_REPOSITORY_OWNER` and `GITHUB_REPOSITORY`
+(`owner/repository`). Publication also accepts the previous three-scope plan-only report.
+
+Every metric has `observation`, `unit`, timezone-qualified `observed_at`, target `scope`,
+`window`, and nonblank `source`. Sources identify a retained dashboard export/screenshot
+or API response with its query/filter and observation time; an official limits URL alone
+is not actual account usage evidence. No credentials or Project data belong in this JSON.
+Nested billing/configuration evidence shares the parent metric's scope and observation time;
+cache billing has its own explicit monthly window rather than the instant usage window.
+All of those sources must be audited together, not copied from an older observation.
+
+| Metric | Observation, unit and scope | Window / evidence |
 | --- | --- | --- |
-| Pages Free | All account Pages builds, calendar month | Cloudflare account Pages build usage. Direct Upload prebuilds locally; deployment count and Workers Builds minutes are **not** Pages build usage. Warn at 80%; Direct Upload does not consume this build counter. |
-| Workers Free / optional TAF | All Workers, provider daily quota window | Cloudflare Workers Analytics/account GraphQL; include rejected and cached requests. TAF becomes unavailable, Local survives. |
-| Firebase Spark / Firestore | Entire project/default free database: reads/writes/deletes in provider day, stored bytes now, outbound calendar month | Firebase Usage / Cloud Monitoring / plan console. Include Rules reads, listeners and retries. Sync can stop; preserve Local outbox and NAV LOG. |
-| GitHub Actions | Owner-shared artifact/cache storage, current billing window | GitHub Billing/Actions storage; public standard-runner eligibility. No scheduled artifact uploads/cache writes are added. |
-| Pyodide/jsDelivr, PyPI, JMA/RISH, OSM/GSI | Availability and acceptable-use policies | No billed account assumed; do not claim unlimited service/SLA. Existing fetch/cache failures remain explicit. |
+| `pages_builds` | `counter`, `count`, Cloudflare account | UTC calendar month; all account Pages builds |
+| `workers_requests` | `counter`, `count`, Cloudflare account | UTC day; all Workers requests, including cached/rejected requests |
+| `firestore_reads`, `firestore_writes`, `firestore_deletes` | `counter`, `count`, Firebase project | America/Los_Angeles day; whole free database |
+| `firestore_storage_bytes` | `counter`, `bytes`, Firebase project | `instant`; actual stored data including indexes/metadata |
+| `firestore_outbound_bytes` | `counter` or `provider_unobservable`, `bytes`, Firebase project | America/Los_Angeles calendar month; see bounded exception below |
+| `actions_storage_gb_hours` | `accrued_billing`, `GB-hours`, GitHub owner | UTC calendar month; Actions accumulated storage and separate shared allowance evidence |
+| `actions_cache_storage_bytes` | `counter`, `bytes`, GitHub repository | `instant`; current repository cache usage and configured capacity |
 
-Workers request CPU ceiling and Pages per-file/count limits must also be rechecked at
-release. Static artifact checks enforce the existing Pages snapshot. No durable rule
-asserts that provider limits never change.
+Period windows are `{ "start": "ISO", "end": "ISO" }`, with exact current-period
+boundaries and `start <= observed_at < end`. Pacific boundaries follow daylight saving
+changes. Numeric `counter` variants require finite, non-boolean `used >= 0` and `limit > 0`.
+At >=80% the monitor fails. Unknown usage cannot be supplied as a numeric estimate.
 
-Create JSON following `docs/static_quota.example.json`. Every metric needs `used`,
-`limit`, `observed_at` (timezone), `scope` (actual account/project identifier), `window`
-(`{ "start": "ISO", "end": "ISO" }` or `"instant"` for storage), and `source` (dashboard/API evidence).
-Daily windows are UTC for Workers and America/Los_Angeles for Firestore; monthly
-windows use UTC for Pages and America/Los_Angeles for Firestore outbound. Start/end
-must match the current period. Metric scopes and report `scopes` must match
-`CLOUDFLARE_ACCOUNT_ID`, `VITE_FIREBASE_PROJECT_ID`, and `GITHUB_REPOSITORY_OWNER`.
-`plans_observed_at` records a separate, daily plan/billing audit.
-The example deliberately contains null usage and is **not a passing audit**. Do not use
-#121's September snapshot as current usage, nor relabel conservative estimates as counters.
-If stored bytes or outbound cannot be obtained, record unknown and keep the gate open.
+### Collecting provider evidence
+
+**Cloudflare:** read account Pages build usage. If reconstructing from the
+[Deployments API](https://developers.cloudflare.com/api/resources/pages/subresources/projects/subresources/deployments/methods/list/),
+retain all pages of results for all account projects and inspect actual build stages,
+triggers and timestamps for the current month. Deployment totals, `ad_hoc` Direct Upload,
+skipped Git builds and Workers Builds minutes are not interchangeable with Pages builds.
+Only a complete audit proving no build started supports zero; ambiguous/deleted history
+requires another authoritative source. Use Workers account Analytics/GraphQL for the UTC
+daily total; do not report only this application's Worker. Recheck the
+[Pages limits](https://developers.cloudflare.com/pages/platform/limits/),
+[Direct Upload contract](https://developers.cloudflare.com/pages/get-started/direct-upload/)
+and [Workers daily reset](https://developers.cloudflare.com/workers/platform/limits/#daily-requests).
+TAF may become unavailable on exhaustion; Local calculation survives.
+
+**Firestore:** read Firebase Usage / Cloud Monitoring for the entire project's free
+database, including stored data. Retain the actual provider observation and its scope;
+do not reconstruct reads from application activity. The
+[usage dashboard](https://firebase.google.com/docs/firestore/monitor-usage) is approximate
+and can differ from billed operations (including Rules/index reads); it is not an exact
+billing ledger. Preserve this limitation in source evidence. The
+[free quotas](https://firebase.google.com/docs/firestore/quotas) include 10 GiB/month outbound.
+The [pricing documentation](https://firebase.google.com/docs/firestore/pricing#network)
+points to billing export for bandwidth. That does not establish that a Spark project
+without billing exposes a monthly counter.
+
+Only `firestore_outbound_bytes` may use `observation: "provider_unobservable"`. It requires
+`used: null`, `limit: 10737418240` (10 GiB), `unit: "bytes"`, and
+`reason: "spark_no_usage_counter"`, alongside current monthly window, project, timestamp
+and source evidence. Audit and retain which Firebase Usage, Cloud Monitoring and Quotas
+surfaces were checked and why none provides this counter for the current Spark/billing-off
+configuration. This is the bounded configuration finding in #230, **not** a claim that
+Firestore can never expose the metric. An expired token, denied permission, failed fetch,
+or ordinary missing data does not qualify. Spark / disabled billing evidence still expires
+after 36 hours. Missing stored bytes or any other numeric counter still fails.
+
+A successful result lists `unobservable: ["firestore_outbound_bytes"]`: the zero-cost
+policy passes with an explicit visibility gap, not proof of outbound headroom or service
+availability. Do not compute a percentage or substitute zero. If a read-only counter
+becomes available without billing, change the observation to `counter`, remove `reason`,
+and supply actual `used` / current `limit`; normal >=80% monitoring resumes.
+
+**GitHub artifact/Packages storage:** use owner Billing & licensing → Usage, filtered to
+the current month and Actions storage, or an authorized read-only
+[billing usage API](https://docs.github.com/en/rest/billing/usage). Preserve quantity,
+unit/SKU, period and billed amount. `actions_storage_gb_hours.used` is the provider's
+**accrued Actions storage** quantity; `billed_amount_usd` must be numeric zero. There is
+no synthetic `limit` and no bytes conversion or invented 80% ratio for this variant.
+
+Additionally, `shared_allowance` must contain `coverage: "actions_artifacts_and_packages"`,
+`status: "within_included"`, numeric-zero `billed_amount_usd` for the whole shared pool,
+and a `source` proving both the current owner-wide included allowance status and bill.
+Include other repositories/private Packages consumers; an Actions-only row does not prove
+shared allowance headroom. Net zero from credits/discounts is insufficient without evidence
+that storage remains inside the included allowance. If this evidence cannot be obtained,
+keep the gate failed. No paid plan or billing activation is required by this contract.
+Historical September `104.9 GB-hr / $0` in #230 is not an October reading.
+[Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+distinguishes accrued usage from current storage and identifies the shared pool;
+[Packages billing](https://docs.github.com/en/billing/concepts/product-billing/github-packages)
+confirms that pool. Deleting current artifacts does not erase accrued usage. Provider
+reporting can lag; daily evidence is not a real-time no-charge guarantee.
+
+**GitHub cache:** this repository's normal CI uses dependency caches, so v2 requires a
+separate observation. Read `GET /repos/{owner}/{repo}/actions/cache/usage`
+(`active_caches_size_in_bytes`) or the repository Actions → Caches display. See the
+[cache API](https://docs.github.com/en/rest/actions/cache#get-github-actions-cache-usage-for-a-repository).
+Record the repository's cache settings in `configuration_source`, and the configured
+capacity in `configured_limit` (bytes); it must be positive and no larger than the
+free `limit`, which must equal the current 10 binary GB (10737418240 bytes) per repository.
+A provider change to this ceiling or the outbound exception quota requires a reviewed
+validator/example update, not relabeling paid capacity as free. Cache is not part of the
+artifact/Packages pool; its billing rows can show only excess usage and cannot be used as
+current cache size. The nested `billing` requires an explicit current UTC month `window`,
+`source` for this repository's Actions Cache Storage bill, and numeric-zero
+`billed_amount_usd`. Current size/configuration alone cannot rule out charges already
+accrued before a deletion or limit reduction. An isolated missing row or failed query does not prove zero. A complete provider export
+covering this repository and current month with no cache-overage SKU can support zero
+billed amount; retain that coverage audit in `source`. This is no excess charge, not a
+claim that cache usage was zero.
+Audit owner-wide billing settings separately with the plan evidence;
+this metric checks the target repository, not all owner repositories' caches.
+
+Workers CPU ceilings and Pages per-file/count budgets also need release-time checks.
+Pyodide/jsDelivr, PyPI, JMA/RISH and OSM/GSI availability and acceptable-use policies remain
+external dependencies, with no paid account, unlimited-service or SLA assumption.
+
+### Migration
+
+Do not automatically rewrite the live `STATIC_QUOTA_REPORT`. Prepare a private replacement:
+
+1. Set `schema_version: 2`; keep current plan/billing evidence and add `github_repository`
+   to `scopes`. Add `observation: "counter"` and `unit` to the six existing numeric metrics.
+2. Choose actual numeric or the narrowly justified unobservable variant for outbound.
+   Do not relabel an old/permission-denied reading as provider-unobservable.
+3. Remove `actions_storage_bytes`. Obtain current `actions_storage_gb_hours` billing and
+   shared allowance evidence, plus separate `actions_cache_storage_bytes` evidence.
+   Do not convert instant bytes or previous-period GB-hours into current counters.
+4. Validate locally with the intended targets. Old/unversioned monitor reports fail with
+   an explicit schema-v2 migration error; there is no silent compatibility conversion.
+   Plan-only `quota --publication` remains compatible with the old three-scope format.
 
 ```sh
 CLOUDFLARE_ACCOUNT_ID=your-account VITE_FIREBASE_PROJECT_ID=your-project \
-  GITHUB_REPOSITORY_OWNER=your-owner STATIC_QUOTA_REPORT="$(cat /private/path/quota.json)" \
+  GITHUB_REPOSITORY_OWNER=your-owner GITHUB_REPOSITORY=your-owner/your-repo \
+  STATIC_QUOTA_REPORT="$(cat /private/path/quota.json)" \
   python3 scripts/static_ops/operations.py quota
+# Same environment/report, independent publication plan gate:
+# python3 scripts/static_ops/operations.py quota --publication
 python3 scripts/static_ops/operations.py monitor --origin https://navmate.yuto24.com
 ```
 
-At >=80% of a recorded current limit, the check warns/fails; at 100% the provider's
-Free/Spark behavior may already reject requests. Pause relevant workloads, investigate
-all account consumers, reduce traffic or wait for reset. Do not upgrade automatically.
-A failing **plan/billing** preflight prevents publication. Usage warnings remain
-independent: Direct Upload consumes no Pages builds and this job stores no Actions
-artifacts; TAF/Sync exhaustion must not cause an unrelated weather outage. The monitor
-fails on any unknown/stale/near-limit usage; the publisher uses `quota --publication`
-to check current, target-bound Free plan evidence. It never treats this as proof of
-healthy TAF/Sync usage.
-`limits_checked_at` must be refreshed against official documentation at every release
-(and at least monthly). The report records Free/Spark/public-standard and disabled
-billing; recheck these declarations daily with usage. An API permission error is unknown.
-
-Official limits checked 2026-09-24: [Pages](https://developers.cloudflare.com/pages/platform/limits/),
-[Direct Upload](https://developers.cloudflare.com/pages/get-started/direct-upload/),
-[Workers](https://developers.cloudflare.com/workers/platform/pricing/),
-[Firestore](https://firebase.google.com/docs/firestore/quotas),
-[Firebase plans](https://firebase.google.com/pricing/), and Actions billing above.
-Do not conflate Direct Upload deployments with billed Pages builds. Three-hour renewal
-means at most 248 planned renewals in a 31-day month, plus explicitly dispatched app builds.
-Validate actual producer/browser duration and retained payload volume during activation.
+After #230 is reviewed/merged and separately authorized, the operator can install the
+validated report and resume #123 acceptance. A clean quota check alone does not authorize
+scheduler activation or deployment. Refresh all period evidence at reset, exercise live
+failure notifications, then complete the scheduled-renewal and rollback gates below.
+The monitor evaluates evidence even when catalog checks fail; absent/skipped runs are not
+healthy readings. At warning/exhaustion, reduce workloads or wait for reset; never upgrade
+automatically. GitHub failure notifications remain the transport, with live receipt still
+an acceptance requirement. Application / calculation / Project schemas are unchanged.
 
 ## App release and rollback checklist
 

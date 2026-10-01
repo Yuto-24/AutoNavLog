@@ -50,8 +50,104 @@ def instant(value: str) -> datetime:
     return result
 
 
+def evidence_text(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip() or value.startswith("REPLACE_"):
+        raise ValueError(f"Missing/invalid evidence: {label}")
+    return value
+
+
+def evidence_number(value: object, label: str) -> float | int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (float, int))
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise ValueError(f"Unknown/non-finite/negative value: {label}")
+    return value
+
+
+def quota_window(name: str, metric: dict, now: datetime, observed: datetime) -> None:
+    if name.endswith("storage_bytes"):
+        if metric["window"] != "instant":
+            raise ValueError(f"Storage requires an instant observation: {name}")
+        return
+    zone = ZoneInfo("America/Los_Angeles") if name.startswith("firestore_") else UTC
+    start = now.astimezone(zone).replace(hour=0, minute=0, second=0, microsecond=0)
+    if name in {
+        "pages_builds",
+        "firestore_outbound_bytes",
+        "actions_storage_gb_hours",
+        "actions_cache_billing",
+    }:
+        start = start.replace(day=1)
+        end = (start + timedelta(days=32)).replace(day=1)
+    else:
+        end = start + timedelta(days=1)
+    window = metric["window"]
+    if not isinstance(window, dict) or (
+        instant(window["start"]) != start or instant(window["end"]) != end
+    ):
+        raise ValueError(f"Quota window does not match current provider period: {name}")
+    if not start <= observed < end:
+        raise ValueError(f"Observation belongs to another quota period: {name}")
+
+
 def quota(report: dict, now: datetime, scopes: dict, *, publication: bool = False) -> dict:
-    """Unknown, stale, partial and near-limit observations fail closed, never become zero."""
+    """Validate provider evidence; only Spark outbound has an unobservable variant."""
+    try:
+        return validate_quota(report, now, scopes, publication=publication)
+    except (KeyError, TypeError, AttributeError, OverflowError) as error:
+        raise ValueError(
+            "Malformed quota evidence; see docs/static_operations.md (schema v2)"
+        ) from error
+
+
+def validate_quota(report: dict, now: datetime, scopes: dict, *, publication: bool) -> dict:
+    if (
+        report["plans"]
+        != {
+            "cloudflare": "Free",
+            "workers": "Free",
+            "firebase": "Spark",
+            "github_runner": "public-standard",
+            "automatic_billing": False,
+        }
+        or report["plans"]["automatic_billing"] is not False
+    ):
+        raise ValueError("Free-only plan / disabled billing evidence required")
+    checked = instant(report["limits_checked_at"])
+    if not now - timedelta(days=31) <= checked <= now:
+        raise ValueError("Recheck current official limits at least monthly and at release")
+    # Publication still accepts the original three-scope plan-only report. The new
+    # repository scope belongs to cache monitoring, not the Direct Upload gate.
+    plan_scopes = {"cloudflare_account", "firebase_project", "github_owner"}
+    reported_scopes = report["scopes"]
+    if not isinstance(reported_scopes, dict) or set(reported_scopes) not in (
+        plan_scopes,
+        plan_scopes | {"github_repository"},
+    ):
+        raise ValueError("Plan evidence differs from deployment target scopes")
+    for key in reported_scopes:
+        evidence_text(scopes.get(key), key)
+        if reported_scopes[key] != scopes[key]:
+            raise ValueError("Plan evidence differs from deployment target scopes")
+    if not now - timedelta(hours=36) <= instant(report["plans_observed_at"]) <= now:
+        raise ValueError("Plan/billing evidence is stale or future")
+    if publication:
+        # Optional TAF/Sync exhaustion must not cause an unrelated MSM feed outage.
+        return {"status": "OK", "gate": "free-plans-only", "checked_at": now.isoformat()}
+    if type(report.get("schema_version")) is not int or report["schema_version"] != 2:
+        raise ValueError(
+            "Quota schema_version 2 required: replace actions_storage_bytes with provider-native "
+            "billing and separate cache evidence; see docs/static_operations.md#migration"
+        )
+    if set(reported_scopes) != plan_scopes | {"github_repository"}:
+        raise ValueError("Quota v2 requires github_repository scope for separate cache evidence")
+    if not re.fullmatch(
+        re.escape(scopes["github_owner"]) + r"/[^/\s]+", scopes["github_repository"]
+    ):
+        raise ValueError("GitHub repository scope must belong to the target owner")
     required = {
         "pages_builds",
         "workers_requests",
@@ -60,78 +156,107 @@ def quota(report: dict, now: datetime, scopes: dict, *, publication: bool = Fals
         "firestore_deletes",
         "firestore_storage_bytes",
         "firestore_outbound_bytes",
-        "actions_storage_bytes",
+        "actions_storage_gb_hours",
+        "actions_cache_storage_bytes",
     }
-    if report["plans"] != {
-        "cloudflare": "Free",
-        "workers": "Free",
-        "firebase": "Spark",
-        "github_runner": "public-standard",
-        "automatic_billing": False,
-    }:
-        raise ValueError("Free-only plan / disabled billing evidence required")
-    checked = instant(report["limits_checked_at"])
-    if not now - timedelta(days=31) <= checked <= now:
-        raise ValueError("Recheck current official limits at least monthly and at release")
-    if report["scopes"] != scopes or not all(scopes.values()):
-        raise ValueError("Plan evidence differs from deployment target scopes")
-    if not now - timedelta(hours=36) <= instant(report["plans_observed_at"]) <= now:
-        raise ValueError("Plan/billing evidence is stale or future")
-    if publication:
-        # Direct Upload consumes no Pages builds; this job stores no Actions artifacts.
-        # Optional TAF/Sync exhaustion must not cause an unrelated MSM feed outage.
-        return {"status": "OK", "gate": "free-plans-only", "checked_at": now.isoformat()}
     metrics = report["metrics"]
-    if set(metrics) != required:
-        raise ValueError("Incomplete account-shared quota metrics")
+    if not isinstance(metrics, dict) or set(metrics) != required:
+        raise ValueError("Incomplete/unexpected quota metrics; migrate to quota schema v2")
+    unobservable = []
     for name, metric in metrics.items():
         observed = instant(metric["observed_at"])
         if not now - timedelta(hours=36) <= observed <= now:
             raise ValueError(f"Stale/future quota observation: {name}")
-        for key in ("used", "limit"):
-            value = metric[key]
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, (float, int))
-                or not math.isfinite(value)
-            ):
-                raise ValueError(f"Unknown/non-finite {key}: {name}")
-        if metric["used"] < 0 or metric["limit"] <= 0:
-            raise ValueError(f"Invalid quota value: {name}")
-        if not all(metric.get(key) for key in ("scope", "window", "source")):
-            raise ValueError(f"Missing quota provenance: {name}")
+        evidence_text(metric["source"], f"{name}.source")
         provider = (
             "cloudflare_account"
             if name.startswith(("pages_", "workers_"))
             else "firebase_project"
             if name.startswith("firestore_")
+            else "github_repository"
+            if name == "actions_cache_storage_bytes"
             else "github_owner"
         )
-        if not scopes.get(provider) or metric["scope"] != scopes[provider]:
+        if metric["scope"] != scopes[provider]:
             raise ValueError(f"Quota scope differs from deployment target: {name}")
-        if name.endswith("storage_bytes"):
-            if metric["window"] != "instant":
-                raise ValueError(f"Storage requires an instant observation: {name}")
-        else:
-            zone = ZoneInfo("America/Los_Angeles") if provider == "firebase_project" else UTC
-            local = now.astimezone(zone)
-            start = local.replace(hour=0, minute=0, second=0, microsecond=0)
-            monthly = name in {"pages_builds", "firestore_outbound_bytes"}
-            if monthly:
-                start = start.replace(day=1)
-                end = (start + timedelta(days=32)).replace(day=1)
-            else:
-                end = start + timedelta(days=1)
-            window = metric["window"]
-            if not isinstance(window, dict) or (
-                instant(window["start"]) != start or instant(window["end"]) != end
+        quota_window(name, metric, now, observed)
+        observation = metric["observation"]
+        common = {"observation", "observed_at", "scope", "window", "source", "unit"}
+        if name == "actions_storage_gb_hours":
+            if set(metric) != common | {"used", "billed_amount_usd", "shared_allowance"}:
+                raise ValueError(
+                    "Actions accrued billing fields required; instant bytes are invalid"
+                )
+            if observation != "accrued_billing" or metric["unit"] != "GB-hours":
+                raise ValueError(
+                    "Actions storage requires provider accrued GB-hours billing evidence"
+                )
+            evidence_number(metric["used"], name)
+            if evidence_number(metric["billed_amount_usd"], name) != 0:
+                raise ValueError("Actions storage has a nonzero billed amount")
+            allowance = metric["shared_allowance"]
+            if (
+                not isinstance(allowance, dict)
+                or set(allowance) != {"coverage", "status", "billed_amount_usd", "source"}
+                or allowance["coverage"] != "actions_artifacts_and_packages"
+                or allowance["status"] != "within_included"
+                or evidence_number(allowance["billed_amount_usd"], name) != 0
             ):
-                raise ValueError(f"Quota window does not match current provider period: {name}")
-            if not start <= observed < end:
-                raise ValueError(f"Observation belongs to another quota period: {name}")
-        if metric["used"] / metric["limit"] >= 0.8:
-            raise ValueError(f"Quota warning >=80%, publication paused: {name}")
-    return {"status": "OK", "observations": len(metrics), "checked_at": now.isoformat()}
+                raise ValueError(
+                    "Current artifact/Packages shared free allowance evidence required"
+                )
+            evidence_text(allowance["source"], f"{name}.shared_allowance.source")
+            continue
+        unit = "bytes" if name.endswith("_bytes") else "count"
+        if metric["unit"] != unit:
+            raise ValueError(f"Wrong quota unit: {name}")
+        limit = evidence_number(metric["limit"], f"{name}.limit")
+        if limit <= 0:
+            raise ValueError(f"Invalid quota limit: {name}")
+        if name == "firestore_outbound_bytes" and observation == "provider_unobservable":
+            if (
+                set(metric) != common | {"used", "limit", "reason"}
+                or metric["used"] is not None
+                or metric["reason"] != "spark_no_usage_counter"
+                or limit != 10 * 1024**3
+            ):
+                raise ValueError("Spark outbound requires null usage, 10 GiB free quota and reason")
+            unobservable.append(name)
+            continue
+        extra = (
+            {"configured_limit", "configuration_source", "billing"}
+            if provider == "github_repository"
+            else set()
+        )
+        if observation != "counter" or set(metric) != common | {"used", "limit"} | extra:
+            raise ValueError(f"Numeric counter evidence required: {name}")
+        used = evidence_number(metric["used"], f"{name}.used")
+        if extra:
+            configured = evidence_number(metric["configured_limit"], f"{name}.configured_limit")
+            evidence_text(metric["configuration_source"], f"{name}.configuration_source")
+            # Provider free capacity, not an operator-selected paid cache limit.
+            if limit != 10 * 1024**3 or not 0 < configured <= limit:
+                raise ValueError("Cache storage configuration must not exceed its free allowance")
+            billing = metric["billing"]
+            if not isinstance(billing, dict) or set(billing) != {
+                "window",
+                "source",
+                "billed_amount_usd",
+            }:
+                raise ValueError("Separate current-month cache billing evidence required")
+            evidence_text(billing["source"], f"{name}.billing.source")
+            quota_window("actions_cache_billing", billing, now, observed)
+            if evidence_number(billing["billed_amount_usd"], f"{name}.billing") != 0:
+                raise ValueError("Cache storage has a nonzero billed amount")
+        if used / limit >= 0.8:
+            raise ValueError(f"Quota warning >=80%: {name}")
+    return {
+        "status": "OK",
+        "observations": len(metrics),
+        "checked_at": now.isoformat(),
+        "unobservable": unobservable,
+        "actions_storage_evaluation": "accrued_billing_and_shared_allowance",
+    }
 
 
 def release(origin: str, sha: str) -> dict:
@@ -199,6 +324,7 @@ def main() -> None:
                 "cloudflare_account": os.environ["CLOUDFLARE_ACCOUNT_ID"],
                 "firebase_project": os.environ["VITE_FIREBASE_PROJECT_ID"],
                 "github_owner": os.environ["GITHUB_REPOSITORY_OWNER"],
+                "github_repository": os.environ.get("GITHUB_REPOSITORY", ""),
             },
             publication=args.publication,
         )
@@ -213,4 +339,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (ValueError, KeyError) as error:
+        raise SystemExit(f"Static operations failed: {error}") from None
