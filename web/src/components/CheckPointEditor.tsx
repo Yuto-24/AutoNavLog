@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { emptyCheckPointDraft as initialDraft } from "../applicationSession";
 import type { CheckPointDraft as Draft } from "../applicationSession";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Crosshair, Pencil, Plus, Trash2, X } from "lucide-react";
 import type {
   CheckPointInput,
@@ -50,6 +50,8 @@ export function CheckPointEditor({
 }: CheckPointEditorProps) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const composingRef = useRef(false);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const sectionById = useMemo(
     () => new Map(sections.map((section) => [section.id, section])),
@@ -133,7 +135,9 @@ export function CheckPointEditor({
     : saving ? "追加中…" : "追加";
 
   const save = async () => {
-    if (!draftValid) return;
+    if (!draftValid || busy || savingRef.current) return;
+    // Lock synchronously: another key/click can arrive before React renders saving.
+    savingRef.current = true;
     const updated: CheckPointInput = {
       ...(draft.id ? { id: draft.id } : {}),
       name: draft.name.trim(),
@@ -150,6 +154,7 @@ export function CheckPointEditor({
       );
       if (succeeded) reset();
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -197,6 +202,16 @@ export function CheckPointEditor({
               aria-invalid={nameIsBlocking || undefined}
               aria-describedby={nameIsBlocking ? "checkpoint-name-warning" : undefined}
               onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+              onCompositionStart={() => { composingRef.current = true; }}
+              onCompositionEnd={() => { composingRef.current = false; }}
+              onBlur={() => { composingRef.current = false; }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                // Some IMEs end composition before the confirming keydown (keyCode 229).
+                if (composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+                event.preventDefault();
+                if (!event.repeat) void save();
+              }}
               placeholder="例: 岩瀬ダム"
             />
             {nameIsBlocking && (
