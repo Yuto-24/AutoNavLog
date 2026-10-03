@@ -138,7 +138,8 @@ test("download and Clipboard export the displayed result, survive denial, and re
   }
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
   await expect(page.locator(".nav-log-table")).toBeVisible();
-  for (const width of [1100, 1440]) {
+  await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
+  for (const width of [390, 1100, 1440, 1600]) {
     await page.setViewportSize({ width, height: 1000 });
     const regions = await page.evaluate(() => [".input-rail", ".route-workspace", ".status-rail", ".nav-log-scroll", ".nav-log-disclaimer"].map(selector => {
       const rect = document.querySelector(selector)!.getBoundingClientRect();
@@ -153,6 +154,31 @@ test("download and Clipboard export the displayed result, survive denial, and re
     }
     expect(regions[3].y).toBeGreaterThanOrEqual(Math.max(...regions.slice(0, 3).map(region => region.bottom)));
     expect(regions[4].y).toBeGreaterThanOrEqual(regions[3].bottom);
+    const content = page.locator(".nav-log-focus-target");
+    const selectors = [".nav-log-summary", ".nav-log-scroll", ".fuel-plan-section", ".nav-log-disclaimer", ".navlog-export-actions"];
+    const boxes = await Promise.all(selectors.map(selector => content.locator(selector).boundingBox()));
+    for (let i = 1; i < boxes.length; i++) {
+      expect(boxes[i]!.y).toBeGreaterThanOrEqual(boxes[i - 1]!.y + boxes[i - 1]!.height);
+    }
+    const section = (await page.locator(".nav-log-section").boundingBox())!;
+    expect(boxes[4]!.y - section.y - section.height).toBeGreaterThanOrEqual(16);
+    const actions = content.locator(".navlog-export-actions");
+    await expect(actions.locator("button")).toHaveCount(2);
+    expect(await actions.evaluate(element => getComputedStyle(element).gap)).toBe("8px");
+    expect(await actions.evaluate(element => element.closest(".nav-log-scroll"))).toBeNull();
+    const buttons = await Promise.all([0, 1].map(index => actions.locator("button").nth(index).boundingBox()));
+    expect(buttons[0]!.x).toBe(boxes[3]!.x);
+    expect(boxes[4]!.width - 32).toBe(boxes[3]!.width);
+    if (width === 390) expect(buttons[1]!.y).toBeGreaterThanOrEqual(buttons[0]!.y + buttons[0]!.height + 8);
+    else expect(buttons[1]!.y).toBe(buttons[0]!.y);
+    const scroll = content.locator(".nav-log-scroll");
+    await scroll.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+    if (width <= 1440) expect(await scroll.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
+    expect((await actions.boundingBox())!.x).toBe(boxes[4]!.x);
+    expect((await actions.boundingBox())!.width).toBe(boxes[4]!.width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await actions.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: test.info().outputPath(`navlog-export-${width}.png`) });
   }
   const original = (await snapshot(page)).working;
   // Uncalculated planning edits must not relabel or recalculate the exported result.
@@ -170,6 +196,37 @@ test("download and Clipboard export the displayed result, survive denial, and re
   await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new DOMException("Denied", "NotAllowedError"); } } }));
   await page.getByRole("button", { name: "NAV LOG JSONをコピー" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "コピーできませんでした" })).toBeVisible();
+
+  // Interrupt a pending Clipboard write, then retry using keyboard activation.
+  const copy = page.getByRole("button", { name: "NAV LOG JSONをコピー" });
+  const save = page.getByRole("button", { name: "NAV LOG JSONをダウンロード" });
+  await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+    writeText: () => new Promise<void>((_resolve, reject) => {
+      (window as any).interruptExport = () => reject(new DOMException("Denied", "NotAllowedError"));
+    }),
+  } }));
+  await copy.click();
+  await expect(copy).toBeDisabled();
+  await expect(save).toBeDisabled();
+  await page.evaluate(() => (window as any).interruptExport());
+  await expect(page.getByRole("alert").filter({ hasText: "コピーできませんでした" })).toBeVisible();
+  await expect(copy).toBeEnabled();
+  await expect(save).toBeEnabled();
+  await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+    writeText: async (value: string) => { (window as any).retriedExport = value; },
+  } }));
+  const retrySnapshot = (await snapshot(page)).working;
+  await save.focus();
+  await page.keyboard.press("Tab");
+  await expect(copy).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("status").filter({ hasText: "NAV LOG JSONをコピーしました。" })).toBeVisible();
+  const retriedExport = JSON.parse(await page.evaluate(() => (window as any).retriedExport));
+  // Autosave can update readiness status while the keyboard moves between buttons.
+  expect({ ...retriedExport, outcome: { ...retriedExport.outcome, status: null } }).toEqual({
+    format: "autonavlog.navlog", version: 1,
+    outcome: { ...retrySnapshot.outcome, status: null }, destinationWind: retrySnapshot.destination_wind,
+  });
   await page.evaluate(() => { URL.createObjectURL = undefined as any; });
   await page.getByRole("button", { name: "NAV LOG JSONをダウンロード" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "この環境ではファイルを保存できません" })).toBeVisible();

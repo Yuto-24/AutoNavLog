@@ -1711,16 +1711,6 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           tabIndex={-1}
           aria-label="計算済みNAV LOG"
         >
-          <div className="navlog-export-actions">
-            <button className="secondary-button" disabled={busy} onClick={() => void runTask(
-              () => platform.files.save(exportNavLog(state)),
-              { success: "NAV LOG JSONのダウンロードを開始しました。" },
-            )}>NAV LOG JSONをダウンロード</button>
-            <button className="secondary-button" disabled={busy} onClick={() => void runTask(
-              () => platform.clipboard.writeText(new TextDecoder().decode(exportNavLog(state).content)),
-              { success: "NAV LOG JSONをコピーしました。" },
-            )}>NAV LOG JSONをコピー</button>
-          </div>
           <NavLogTable
             vorColumns={vorColumns}
             setVorColumns={setVorColumns}
@@ -1734,6 +1724,16 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
             editStatus={navLogEditStatus}
             onEdit={handleNavLogEdit}
           />
+          <div className="navlog-export-actions">
+            <button className="secondary-button" disabled={busy} onClick={() => void runTask(
+              () => platform.files.save(exportNavLog(state)),
+              { success: "NAV LOG JSONのダウンロードを開始しました。" },
+            )}>NAV LOG JSONをダウンロード</button>
+            <button className="secondary-button" disabled={busy} onClick={() => void runTask(
+              () => platform.clipboard.writeText(new TextDecoder().decode(exportNavLog(state).content)),
+              { success: "NAV LOG JSONをコピーしました。" },
+            )}>NAV LOG JSONをコピー</button>
+          </div>
         </div>
       )}
       {currentRjfmInboundGuidance && (

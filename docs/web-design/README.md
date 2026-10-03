@@ -115,6 +115,9 @@ Summary, horizontally scrollable main table, TIME / FUEL PLAN, then guidance.
 The 2026-08-13 fidelity ledger below remains historical evidence for the
 earlier calculated view; current Playwright coverage verifies this revised
 layout at 390 px, 1,100 px, and 1,440 px.
+JSON download/copy actions follow the NAV LOG guidance/disclaimer, outside the
+horizontal scroll region, with a 1rem top margin and the same content inset and
+maximum width as NAV LOG. Buttons retain their 0.5rem gap and wrap on narrow screens.
 
 ## Implementation fidelity ledger (verified 2026-08-13 JST)
 
