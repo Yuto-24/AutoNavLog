@@ -1,11 +1,14 @@
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
+
 from autonavlog.application.navlog_display import (
     NavLogPhysicalLeg,
     _allocate_raw_largest_remainder_ticks,
     _display_distance_cells,
     _display_fuel_combined,
+    build_navlog_display_rows,
     build_navlog_summary,
 )
 from autonavlog.domain.calculation import SectionResult
@@ -133,6 +136,58 @@ def _automatic_value(value: float | None) -> AdoptedValue[float]:
         automatic_status=ValueState.AUTO if value is not None else ValueState.UNAVAILABLE,
         adopted_source=AdoptedSource.AUTOMATIC if value is not None else None,
     )
+
+
+@pytest.mark.parametrize("temperature", [15.0, -5.0, None], ids=["equal", "different", "missing"])
+def test_eoc_toat_boundary_resumes_inheritance_within_the_same_leg(airports, temperature):
+    source = _summary_zone()
+    # Missing values on both sides must also establish a visible boundary.
+    cruise_temperature = None if temperature is None else 15.0
+    zones = [
+        source.model_copy(update={
+            "sequence": index,
+            "phase": phase,
+            "from_name": start,
+            "to_name": end,
+            "temperature_c": _automatic_value(value),
+            "zone_distance_nm": _automatic(1.0),
+        })
+        for index, (phase, start, end, value) in enumerate([
+            (FlightPhase.CRUISE, "WP1", "CP: BEFORE", cruise_temperature),
+            (FlightPhase.CRUISE, "CP: BEFORE", "EOC", cruise_temperature),
+            (FlightPhase.DESCENT, "EOC", "CP: AFTER", temperature),
+            (FlightPhase.DESCENT, "CP: AFTER", "WP2", temperature),
+        ])
+    ]
+    rows = build_navlog_display_rows(
+        [NavLogPhysicalLeg(
+            section_ids=(source.section_id,),
+            phase=FlightPhase.CRUISE,
+            start_name="WP1",
+            end_name="WP2",
+            adopted_distance_nm=4.0,
+        )],
+        zones,
+        airports.get("RJFM"),
+        airports.get("RJFO"),
+        None, None, None,
+        total_usable_fuel_gal=90.0,
+        run_up_included=False,
+    )
+    before, eoc, first_descent, later_descent = [
+        row for row in rows if row.row_type == "CALCULATION_ZONE"
+    ]
+    for row in (before, eoc, later_descent):
+        assert row.toat.state == DisplayCellState.INHERIT
+        assert row.toat.text is None
+    assert later_descent.toat.effective_value == temperature
+    assert first_descent.toat.effective_value == temperature
+    if temperature is None:
+        assert first_descent.toat.state == DisplayCellState.UNAVAILABLE
+        assert first_descent.toat.reason_code == "TEMPERATURE_UNAVAILABLE"
+    else:
+        assert first_descent.toat.state == DisplayCellState.DISPLAY_VALUE
+        assert first_descent.toat.text == f"{temperature:.1f}"
 
 
 def test_navlog_summary_uses_canonical_split_zones_and_hhmm_rounding() -> None:
