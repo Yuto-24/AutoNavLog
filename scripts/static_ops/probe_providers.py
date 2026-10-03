@@ -217,6 +217,7 @@ def check_series(client, project, metric, now):
         f"/v3/projects/{project}/timeSeries",
         {
             "filter": f'metric.type = "firestore.googleapis.com/{metric}" '
+            'AND resource.type = "firestore.googleapis.com/Database" '
             f'AND resource.labels.project_id = "{project}"',
             "interval.startTime": start.isoformat(),
             "interval.endTime": now.isoformat(),
@@ -293,10 +294,15 @@ def probe(env, now, client=None):
     for operation in ("read", "write", "delete"):
         run(
             f"firestore_{operation}s",
-            lambda op=operation: check_series(client, project(), f"document/{op}_count", now),
+            lambda op=operation: check_series(client, project(), f"document/{op}_ops_count", now),
         )
 
-    # Discover actual descriptor availability; do not invent a storage/outbound mapping.
+    run(
+        "firestore_storage",
+        lambda: check_series(client, project(), "storage/data_and_index_storage_bytes", now),
+    )
+
+    # Descriptor discovery does not prove outbound counter availability or absence.
     def descriptors():
         response = client.get(
             "monitoring",

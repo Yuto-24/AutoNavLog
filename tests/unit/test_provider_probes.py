@@ -145,20 +145,24 @@ def test_graphql_error_and_mutation_rejected():
 def test_firestore_missing_or_partial_is_not_spark_exception(response, expected):
     with pytest.raises(p.ProbeError, match=expected):
         p.check_series(
-            client(json.dumps(response).encode()), "firebase-project", "document/read_count", NOW
+            client(json.dumps(response).encode()),
+            "firebase-project",
+            "document/read_ops_count",
+            NOW,
         )
 
 
 def test_firestore_query_uses_current_pacific_day_and_project_filter():
     requests = []
     c = client(b'{"timeSeries":[{}]}', requests)
-    p.check_series(c, "firebase-project", "document/read_count", NOW)
+    p.check_series(c, "firebase-project", "document/read_ops_count", NOW)
     from urllib.parse import parse_qs, urlsplit
 
     query = parse_qs(urlsplit(requests[0].full_url).query)
     assert query["interval.startTime"] == ["2026-10-03T00:00:00-07:00"]
     assert 'resource.labels.project_id = "firebase-project"' in query["filter"][0]
     assert query["interval.endTime"] == [NOW.isoformat()]
+    assert 'resource.type = "firestore.googleapis.com/Database"' in query["filter"][0]
 
 
 @pytest.mark.parametrize("enabled", [None, 0, "false", True])
@@ -202,7 +206,7 @@ def test_probe_continues_independent_providers_and_never_returns_report():
             return {"active_caches_size_in_bytes": 0, "max_cache_size_gb": 10, "usageItems": [{}]}
 
     result = p.probe(ENV, NOW, Fake())
-    assert len(result["checks"]) == 11
+    assert len(result["checks"]) == 12
     assert result["checks"][-1]["status"] == "reachable_not_evidence"
     assert result["status"] == "BLOCKED"
     assert "metrics" not in result and "plans_observed_at" not in result
@@ -224,4 +228,27 @@ def test_cli_always_nonzero_even_with_old_report_available():
 
 def test_deep_json_does_not_abort_remaining_probes():
     with pytest.raises(p.ProbeError, match="invalid_json"):
-        p.strict_json(b'{"nested":' + b'[' * 10000 + b'0' + b']' * 10000 + b'}')
+        p.strict_json(b'{"nested":' + b"[" * 10000 + b"0" + b"]" * 10000 + b"}")
+
+
+def test_probe_queries_documented_database_metrics_without_guessing_outbound():
+    queries = []
+
+    class Fake:
+        def get(self, service, path, query=None, **kwargs):
+            if service == "monitoring" and path.endswith("/timeSeries"):
+                queries.append(query["filter"])
+                return {"timeSeries": [{}]}
+            raise p.ProbeError("missing_credential")
+
+    result = p.probe(ENV, NOW, Fake())
+    assert len(queries) == 4
+    for metric in (
+        "document/read_ops_count",
+        "document/write_ops_count",
+        "document/delete_ops_count",
+        "storage/data_and_index_storage_bytes",
+    ):
+        assert any(f'"firestore.googleapis.com/{metric}"' in query for query in queries)
+    assert all('resource.type = "firestore.googleapis.com/Database"' in query for query in queries)
+    assert result["status"] == "BLOCKED"

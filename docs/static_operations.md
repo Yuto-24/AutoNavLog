@@ -349,8 +349,8 @@ Run it only with already authorized read credentials supplied through the enviro
   project billing state and Cloud Monitoring. The probe neither creates nor renews tokens,
   enables APIs/billing, changes IAM, nor configures OIDC. Token automation still needs
   separate approval and verification; a short-lived token secret is not unattended auth.
-- `STATIC_GITHUB_READ_TOKEN`: target repository Actions read and the personal owner's
-  supported billing read access. `GITHUB_TOKEN` must not be assumed to read owner billing.
+- `STATIC_GITHUB_READ_TOKEN`: target repository Actions read and personal-owner Plan read
+  for the billing usage API (subject to actual account eligibility). `GITHUB_TOKEN` must not be assumed to read owner billing.
   The current probe uses the documented **personal user** endpoint for Yuto-24; an
   organization owner needs an independently verified adapter and permissions.
 - The existing four scope variables: `CLOUDFLARE_ACCOUNT_ID`,
@@ -363,28 +363,65 @@ and the collection time budget to 180 seconds (an in-flight socket read can take
 implementation. Offline fixtures verify transport failure/redaction and negative cases;
 they are not recordings of actual account responses.
 
-### Evidence gaps that must be resolved before workflow integration
+### Ownership of remaining decisions and evidence work
 
-| Required evidence | Current finding / precise remaining question |
+API selection, parsing, aggregation, pagination, clock handling and evidence semantics
+are engineering responsibilities, not questions for the operator to answer. The previous
+list of open API questions describes technical investigation; it is not a request that
+the user select an API. No new product decision is currently needed: unattended operation,
+zero cost, strict failure on unknown evidence, the outbound exception and publication
+warning behavior are already defined by #123/#230.
+
+**Operator decisions/approval, when a concrete setup is ready:** authorize the exact
+least-privilege credential/IAM/OIDC/secret changes; later approve live monitor acceptance
+and recurring publication activation. No setup changes or activation have been performed.
+If research establishes that a requirement cannot be met with supported, zero-cost,
+unattended access, report that conflict with evidence. Do not invent a weaker policy,
+paid dependency, periodically renewed manual report or extra unobservable exception.
+There is no request now to choose an API or reinterpret evidence semantics.
+
+**Actual account access needed to verify facts (no credential setup in this task):**
+
+| Scope | Read capabilities to verify | Facts that public documentation cannot prove |
+| --- | --- | --- |
+| Target Cloudflare account | Pages Read, Account Analytics Read, and the subscriptions endpoint's billing-read capability (`#billing:read` in the official schema); verify token support and precise grants before proposing setup | Current subscriptions/Free status, account-wide build coverage, Workers data/coverage and no-data meaning for this account |
+| Target Firebase/Google project | `resourcemanager.projects.get`, `monitoring.timeSeries.list`, `monitoring.metricDescriptors.list`; database metadata read and Firebase project read for future identity/free-database checks | Current billing state, active Firebase identity, free database identity, real operation/storage series and whether outbound counters/audit surfaces are available on Spark |
+| GitHub personal owner Yuto-24 and target repository | Personal-user `Plan: read` for `/users/{username}/settings/billing/usage`; repository `Actions: read` for cache usage and storage limit | Actual product/SKU/unit/gross/discount/net rows; owner-wide artifact/Packages pool coverage; personal spending/payment controls; accrued repository cache charges |
+
+Tokens need only be made available through an approved secure mechanism, never chat or
+tracked files. Account-wide billing responses must remain private and in memory; the
+existing probe intentionally returns only fixed statuses. Owner-wide read visibility is
+needed to evaluate the shared allowance, not permission to disclose its constituent rows.
+The Google token also needs appropriate read OAuth scopes; project billing supports
+`cloud-billing.readonly`, Monitoring supports `monitoring.read`. An existing short-lived
+token is useful for investigation but does not establish unattended renewal.
+
+**Technical findings and remaining engineering work:**
+
+| Evidence | Finding from authoritative documentation / engineering action |
 | --- | --- |
-| Cloudflare Free plans, monthly account Pages builds | Subscriptions and project-list reachability do not prove Free-only billing or a complete account build count. Which authorized API response provides current plan/billing state and complete build coverage, including deleted projects/deployments? Do not count all Direct Upload deployments as builds. |
-| Workers daily account requests | The documented invocation query can be probed without a script filter; cached/rejected request coverage must be established before mapping it to quota. An empty result is `no_data`, never zero. Which counter provides the full required coverage for this account? |
-| Firebase Spark and Firestore counters/storage | Cloud Billing `billingEnabled: false` is checked as a boolean, without labeling it Spark. Verify the actual free database, complete daily operation series and stored bytes including indexes/metadata. Which available metric/dashboard API provides each field under billing-off access? Sampled/partial/empty time series do not establish zero. |
-| Firestore outbound | Confirm a usable monthly counter, or a current automatic audit of Firebase Usage, Monitoring and Quotas supporting `spark_no_usage_counter`. Missing descriptors, empty series or denied permission alone do not qualify. The probe never emits this exception. |
-| GitHub Actions storage and shared allowance | Confirm the exact product/SKU/unit and period mapping from the personal billing API. Identify a machine-readable source for the **Actions artifacts + Packages** included-allowance status across the owner; net zero from unspecified discounts is insufficient. |
-| GitHub cache billing and automatic billing | Cache usage/configuration endpoints are probed separately. Identify complete monthly cache billing coverage and the owner billing/spending control evidence. A small cache or missing SKU cannot independently prove no accrued bill or disabled billing. |
-| Current official limits | Define and verify machine-readable provider limits or reviewed assertions against official source content. A successful HTTP fetch, unchanged usage, or current clock alone must never renew `limits_checked_at`. A provider limit change needs review. |
+| Cloudflare plans and Pages builds | Inspect subscriptions and all account Pages projects/deployments with complete pagination. Establish retention/deletion coverage before treating deployment-history enumeration as an authoritative monthly build total. Direct Upload and skipped Git deployments are not builds. The documented subscription schema exposes billing-read access; actual least-privilege token eligibility needs account verification. |
+| Workers requests | Cloudflare's metrics documentation excludes WAF/security-blocked requests from invocation totals and distinguishes cached subrequests. Therefore invocation analytics alone does not prove the existing all-account cached/rejected quota contract. Resolve which rejections count against provider quota and compare the account's quota surface; do not silently change scope or interpret an empty response as zero. |
+| Firebase plan and Firestore operations/storage | Public documentation now identifies `document/read_ops_count`, `write_ops_count`, `delete_ops_count` and `storage/data_and_index_storage_bytes`, on `firestore.googleapis.com/Database`. The probe now queries these with a project filter. Implement complete pagination, database binding, DELTA aggregation and latest GAUGE observation from native timestamps after actual response verification. The Usage dashboard is an estimate, not an exact billing ledger; #230 already preserves that limitation. No new user policy decision is needed for this documented limitation. |
+| Firebase billing/plan interpretation | Google defines `billingEnabled=false` as no open billable account; Firebase documents downgrade to Spark when its billing account is unlinked or closed. These establish a technical inference after active Firebase project identity is verified, rather than asking the operator to define Spark semantics. Current probe reports only the billing flag and does not yet perform the identity check or emit a plan report. |
+| Firestore outbound | The inspected Firestore metric reference does not list a monthly outbound-byte counter. That alone is not proof of provider-unobservable status for this project. Check current Firebase Usage, Monitoring and Quotas using approved read access; only their combined, current configuration finding can support the existing exception. Errors/missing series never qualify. |
+| GitHub storage/shared allowance/cache | Use documented billing Usage/Usage Summary and separate cache usage/configuration endpoints; resolve actual SKU/unit/period and complete coverage privately. Net zero does not prove that discounts came from included allowance. The published Budget REST API inspected is organization-scoped, not a verified personal-account spending-control endpoint. No supported personal allowance/control source has been verified yet; this is an unresolved technical/access limitation, not a request for the user to invent one. |
+| Official limits | Implement reviewed assertions against relevant current official limit clauses or provider limit metadata, recording source, retrieval time and content digest. Only successful semantic checks may renew `limits_checked_at`; HTTP success or a digest alone is insufficient. Unexpected clauses/values fail closed for review. Parser/source selection is delegated engineering work, not an outstanding user decision. Release-time review and the existing 31-day bound remain. |
 
-Reference contracts inspected for these probes:
+Sources inspected:
 [Cloudflare OpenAPI](https://github.com/cloudflare/api-schemas/blob/main/openapi.json),
-[Workers analytics](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/),
-[Cloud Billing project state](https://docs.cloud.google.com/billing/docs/reference/rest/v1/projects/getBillingInfo),
-[Monitoring time series](https://docs.cloud.google.com/monitoring/api/ref_v3/rest/v3/projects.timeSeries/list),
-[GitHub usage](https://docs.github.com/en/rest/billing/usage), and
+[Workers metrics](https://developers.cloudflare.com/workers/observability/metrics-and-analytics/),
+[Cloud Billing project state](https://docs.cloud.google.com/billing/docs/reference/rest/v1/ProjectBillingInfo),
+[project billing permission](https://docs.cloud.google.com/billing/docs/reference/rest/v1/projects/getBillingInfo),
+[Firebase plan transitions](https://firebase.google.com/docs/projects/billing/firebase-pricing-plans),
+[Firestore metrics](https://docs.cloud.google.com/monitoring/api/metrics_gcp_d_h#firestore),
+[Firestore usage limitations](https://firebase.google.com/docs/firestore/monitor-usage),
+[Monitoring permissions](https://docs.cloud.google.com/monitoring/access-control),
+[GitHub usage](https://docs.github.com/en/rest/billing/usage),
+[GitHub budgets](https://docs.github.com/en/rest/billing/budgets), and
 [GitHub cache configuration/usage](https://docs.github.com/en/rest/actions/cache).
-API availability, permissions and semantics for the actual accounts remain unverified.
-The observed GitHub UI `$0.02` is **not a confirmed charge**: resolve product, SKU,
-gross, discount, net and included-allowance semantics privately before mapping it.
+The observed GitHub UI `$0.02` remains **not a confirmed charge** until the actual
+product/SKU/gross/discount/net and shared-allowance evidence is resolved.
 
 ### Prepared validation boundary
 
