@@ -104,5 +104,6 @@ def select_forecast(
     if fixed_coverage is not None and gsm is None:
         raise ForecastUnavailable((*msm_reasons, *gsm_reasons))
     return ForecastSelection(model, selected_run_id,
-                             update_available=gsm is not None and gsm != selected_run_id,
+                             update_available=gsm is not None and (
+                                 fixed_coverage is not None or gsm > selected_run_id),
                              update_required=fixed_coverage is not None)

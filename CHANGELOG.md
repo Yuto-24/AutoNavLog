@@ -18,6 +18,18 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 - coverageのみを理由とするモデル選択と、反復計算後の要求に基づく全体再計算をLocal / Legacyの共通計算境界で処理します。
 - GSMのportable preparationは`jma-gpv-weather`の公開APIを使用し、モデル仕様・GRIB・HGT判定をアプリ側へ複製しません。
 
+## 1.22.2
+
+### 利用者向け
+
+#### 修正
+
+- 本番公開時の検証処理を CI 上で確実に実行できるよう修正しました（アプリケーションの操作や計算ロジックへの影響はありません）。
+
+### 開発者向け
+
+- Docker のテストステージへ `.github/workflows/static-production.yml` を追加し、既存のワークフロー順序検証テストを Docker CI 環境でも実行可能にしました。
+
 ## 1.22.1
 
 ### 利用者向け

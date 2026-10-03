@@ -89,6 +89,8 @@ jobs:
           npm --prefix web run check:static
       - name: Production Browser E2E
         working-directory: app
+        env:
+          AUTONAVLOG_REFERENCE_PYTHON: python3
         run: |
           python -m http.server 4121 --bind 127.0.0.1 --directory web/dist-static > "$RUNNER_TEMP/static-server.log" 2>&1 &
           server_pid=$!
@@ -125,5 +127,6 @@ jobs:
         env:
           EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
         run: |
-          python3 tooling/scripts/static_ops/check_candidate.py app/web/dist-static/release.json --remote >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          python3 tooling/scripts/static_ops/wait_for_candidate.py app/web/dist-static/release.json --timeout-seconds 300 --interval-seconds 10 --attempt-timeout-seconds 30 >> "$GITHUB_STEP_SUMMARY"
           python3 tooling/scripts/static_ops/operations.py monitor --origin "$STATIC_ORIGIN" >> "$GITHUB_STEP_SUMMARY"

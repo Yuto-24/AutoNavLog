@@ -107,6 +107,17 @@ Project route, or the Legacy UI. The link POST requires signed Access and the Le
 HTTPS Origin/Host match. Keep `AUTONAVLOG_TRUSTED_LOCAL_IDENTITY` unset on exposed services.
 CORS preflight is credential-free; bearer tokens never appear in URLs.
 
+For the #123 cutover, the operator-owned Legacy environment sets
+`AUTONAVLOG_NAVMATE_URL=https://navmate.yuto24.com/`; the NavMate build keeps
+`VITE_LEGACY_MIGRATION_URL=https://navlog.yuto24.com`. This is **one** NavMate URL:
+the middleware derives its exact CORS origin and completed-account 303 redirect from
+the same value. It is not a comma-separated allowlist. After changing it, pages.dev
+activation requests are rejected even if TAF temporarily allows both origins.
+Keep `navlog.yuto24.com` and its Access/link routes until #146; do not redirect the
+whole Legacy host. See [cutover](custom_domain_cutover.md) for recreation, preflight,
+old-origin rejection and recovery checks. No tracked Compose default is substituted
+for the operator environment, and existing registry/Project data must be preserved.
+
 If migration is not configured, Legacy retains normal storage behavior and the Account
 dialog explains that linking is unavailable. During rollout, enable both sides together;
 do not advertise a NavMate build without its activation gate to linked users. Keep registry

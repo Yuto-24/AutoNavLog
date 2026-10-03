@@ -280,10 +280,13 @@ def test_final_verification_detects_update_to_an_earlier_batch(migration):
     assert migration.status(KEY)["state"] == "LINKED"
 
 
-def test_signed_owner_link_google_boundary_cors_and_redirect(migration, monkeypatch):
+@pytest.mark.parametrize("navmate_origin", ["https://navmate.example", "https://custom.example"])
+def test_signed_owner_link_google_boundary_cors_and_redirect(
+    migration, monkeypatch, navmate_origin
+):
     monkeypatch.setenv("AUTONAVLOG_FIREBASE_PROJECT_ID", "test-project")
     monkeypatch.setenv("AUTONAVLOG_FIREBASE_API_KEY", "test-key")
-    monkeypatch.setenv("AUTONAVLOG_NAVMATE_URL", "https://navmate.example/")
+    monkeypatch.setenv("AUTONAVLOG_NAVMATE_URL", navmate_origin + "/")
 
     class Access:
         def verify_email(self, token):
@@ -335,17 +338,37 @@ def test_signed_owner_link_google_boundary_cors_and_redirect(migration, monkeypa
         )
         assert client.post("/api/account-link", headers=signed).json()["state"] == "LINKED"
         assert client.post("/api/session", headers=signed).status_code == 200
-        google = {"Authorization": "Bearer valid-google", "Origin": "https://navmate.example"}
+        google = {"Authorization": "Bearer valid-google", "Origin": navmate_origin}
         response = client.get("/api/navmate-migration/status", headers=google)
-        assert response.headers["Access-Control-Allow-Origin"] == "https://navmate.example"
+        assert response.headers["Access-Control-Allow-Origin"] == navmate_origin
         assert response.json()["state"] == "LINKED"
-        assert (
-            client.get(
-                "/api/navmate-migration/status",
-                headers={**google, "Origin": "https://evil.example"},
-            ).status_code
-            == 403
+        preflight = client.options(
+            "/api/navmate-migration/status",
+            headers={
+                "Origin": navmate_origin,
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization",
+            },
         )
+        assert preflight.status_code == 200
+        assert preflight.headers["Access-Control-Allow-Origin"] == navmate_origin
+        assert preflight.headers["Access-Control-Allow-Headers"] == "Authorization, Content-Type"
+        assert preflight.headers["Vary"] == "Origin"
+        assert "Access-Control-Allow-Credentials" not in preflight.headers
+        other_origin = (
+            "https://navmate.example"
+            if navmate_origin == "https://custom.example"
+            else "https://custom.example"
+        )
+        for denied_origin in (other_origin, "https://evil.example", navmate_origin + "/"):
+            for method in ("GET", "OPTIONS"):
+                denied = client.request(
+                    method,
+                    "/api/navmate-migration/status",
+                    headers={**google, "Origin": denied_origin},
+                )
+                assert denied.status_code == 403
+                assert "Access-Control-Allow-Origin" not in denied.headers
         assert client.get("/api/navmate-migration/status").status_code == 401
         service.begin(KEY)
         assert client.post("/api/session", headers=signed).status_code == 423
@@ -354,7 +377,7 @@ def test_signed_owner_link_google_boundary_cors_and_redirect(migration, monkeypa
             "/", headers={**signed, "Accept": "text/html"}, follow_redirects=False
         )
         assert response.status_code == 303
-        assert response.headers["location"] == "https://navmate.example/"
+        assert response.headers["location"] == navmate_origin + "/"
         assert (
             client.get(
                 "/",

@@ -115,6 +115,6 @@ The implementation and final verification record are tracked in
 [AutoNavLog PR #217](https://github.com/Yuto-24/AutoNavLog/pull/217). Parent roadmap
 [#116](https://github.com/Yuto-24/AutoNavLog/issues/116) records this follow-up as
 awaiting the AutoNavLog merge; it remains non-blocking for Local-first and #146.
-The isolated worktree Compose runtime uses release 1.21.0 with library 0.6.0 and
+The isolated worktree Compose runtime uses the root `VERSION` release with library 0.6.0 and
 retains its existing named volume. Remote production publication and scheduled
 GSM generation are outside this delivery.

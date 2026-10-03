@@ -120,3 +120,26 @@ def test_fixed_gsm_never_returns_to_msm_without_explicit_refresh(fixed_excluded)
     second = select_forecast(data, REQUIREMENT, selected_model="GSM", selected_run_id=OLD,
                              refresh=True)
     assert (second.model, second.run_id) == ("MSM", NEW)
+
+
+@pytest.mark.parametrize("candidate,fixed_excluded,available,required", [
+    (OLD, False, False, False),
+    (NEW, False, False, False),
+    ("20260916000000", False, True, False),
+    (OLD, True, True, True),
+])
+def test_fixed_gsm_updates_only_for_newer_run_or_required_replacement(
+    candidate, fixed_excluded, available, required,
+):
+    data = providers(
+        msm=CandidateProvider(excluded=(NEW, OLD)),
+        gsm=CandidateProvider(runs=(candidate,), excluded=(NEW,) if fixed_excluded else ()),
+    )
+    first = select_forecast(data, REQUIREMENT, selected_model="GSM", selected_run_id=NEW)
+    assert (first.model, first.run_id) == ("GSM", NEW)
+    assert first.update_available is available
+    assert first.update_required is required
+    if available:
+        second = select_forecast(data, REQUIREMENT, selected_model="GSM",
+                                 selected_run_id=NEW, refresh=True)
+        assert (second.model, second.run_id) == ("GSM", candidate)
