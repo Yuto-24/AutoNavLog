@@ -40,7 +40,9 @@ def client(raw, requests=None):
     return p.Client(ENV, opener=SimpleNamespace(open=open_request))
 
 
-@pytest.mark.parametrize("raw", [b"null", b"[]", b"invalid", b'{"a":NaN}', b'{"a":1,"a":2}'])
+@pytest.mark.parametrize(
+    "raw", [b"null", b"[]", b"invalid", b'{"a":NaN}', b'{"a":1e999}', b'{"a":1,"a":2}']
+)
 def test_invalid_json_never_becomes_usage(raw):
     with pytest.raises(p.ProbeError):
         client(raw).get("github", "/repos/owner/repo/actions/cache/usage")
@@ -160,7 +162,7 @@ def test_firestore_query_uses_current_pacific_day_and_project_filter():
 
     query = parse_qs(urlsplit(requests[0].full_url).query)
     assert query["interval.startTime"] == ["2026-10-03T00:00:00-07:00"]
-    assert 'resource.labels.project_id = "firebase-project"' in query["filter"][0]
+    assert 'resource.labels.resource_container = "firebase-project"' in query["filter"][0]
     assert query["interval.endTime"] == [NOW.isoformat()]
     assert 'resource.type = "firestore.googleapis.com/Database"' in query["filter"][0]
 

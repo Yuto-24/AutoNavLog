@@ -385,7 +385,7 @@ There is no request now to choose an API or reinterpret evidence semantics.
 | Scope | Read capabilities to verify | Facts that public documentation cannot prove |
 | --- | --- | --- |
 | Target Cloudflare account | Pages Read, Account Analytics Read, and the subscriptions endpoint's billing-read capability (`#billing:read` in the official schema); verify token support and precise grants before proposing setup | Current subscriptions/Free status, account-wide build coverage, Workers data/coverage and no-data meaning for this account |
-| Target Firebase/Google project | `resourcemanager.projects.get`, `monitoring.timeSeries.list`, `monitoring.metricDescriptors.list`; database metadata read and Firebase project read for future identity/free-database checks | Current billing state, active Firebase identity, free database identity, real operation/storage series and whether outbound counters/audit surfaces are available on Spark |
+| Target Firebase/Google project | `resourcemanager.projects.get`, `monitoring.timeSeries.list`, `monitoring.metricDescriptors.list`; `datastore.databases.list` and `firebase.projects.get` for identity/free-database checks | Current billing state, active Firebase identity, free database identity, real operation/storage series and whether outbound counters/audit surfaces are available on Spark |
 | GitHub personal owner Yuto-24 and target repository | Personal-user `Plan: read` for `/users/{username}/settings/billing/usage`; repository `Actions: read` for cache usage and storage limit | Actual product/SKU/unit/gross/discount/net rows; owner-wide artifact/Packages pool coverage; personal spending/payment controls; accrued repository cache charges |
 
 Tokens need only be made available through an approved secure mechanism, never chat or
@@ -402,8 +402,8 @@ token is useful for investigation but does not establish unattended renewal.
 | --- | --- |
 | Cloudflare plans and Pages builds | Inspect subscriptions and all account Pages projects/deployments with complete pagination. Establish retention/deletion coverage before treating deployment-history enumeration as an authoritative monthly build total. Direct Upload and skipped Git deployments are not builds. The documented subscription schema exposes billing-read access; actual least-privilege token eligibility needs account verification. |
 | Workers requests | Cloudflare's metrics documentation excludes WAF/security-blocked requests from invocation totals and distinguishes cached subrequests. Therefore invocation analytics alone does not prove the existing all-account cached/rejected quota contract. Resolve which rejections count against provider quota and compare the account's quota surface; do not silently change scope or interpret an empty response as zero. |
-| Firebase plan and Firestore operations/storage | Public documentation now identifies `document/read_ops_count`, `write_ops_count`, `delete_ops_count` and `storage/data_and_index_storage_bytes`, on `firestore.googleapis.com/Database`. The probe now queries these with a project filter. Implement complete pagination, database binding, DELTA aggregation and latest GAUGE observation from native timestamps after actual response verification. The Usage dashboard is an estimate, not an exact billing ledger; #230 already preserves that limitation. No new user policy decision is needed for this documented limitation. |
-| Firebase billing/plan interpretation | Google defines `billingEnabled=false` as no open billable account; Firebase documents downgrade to Spark when its billing account is unlinked or closed. These establish a technical inference after active Firebase project identity is verified, rather than asking the operator to define Spark semantics. Current probe reports only the billing flag and does not yet perform the identity check or emit a plan report. |
+| Firebase plan and Firestore operations/storage | Public documentation now identifies `document/read_ops_count`, `write_ops_count`, `delete_ops_count` and `storage/data_and_index_storage_bytes`, on `firestore.googleapis.com/Database`. The probe uses the documented `resource_container` label (not `project_id`). The native collector now implements complete pagination, free-database binding, DELTA aggregation and latest GAUGE selection from native timestamps; actual account access and series coverage remain unverified. The Usage dashboard is an estimate, not an exact billing ledger; #230 already preserves that limitation. No new user policy decision is needed for this documented limitation. |
+| Firebase billing/plan interpretation | Google defines `billingEnabled=false` as no open billable account; Firebase documents downgrade to Spark when its billing account is unlinked or closed. These establish a technical inference after active Firebase project identity is verified, rather than asking the operator to define Spark semantics. The diagnostic probe reports only the billing flag. The native collector combines that flag with an ACTIVE Firebase project and the explicit free-tier database identity; the resulting Spark fragment is not an all-provider plan report. |
 | Firestore outbound | The inspected Firestore metric reference does not list a monthly outbound-byte counter. That alone is not proof of provider-unobservable status for this project. Check current Firebase Usage, Monitoring and Quotas using approved read access; only their combined, current configuration finding can support the existing exception. Errors/missing series never qualify. |
 | GitHub storage/shared allowance/cache | Use documented billing Usage/Usage Summary and separate cache usage/configuration endpoints; resolve actual SKU/unit/period and complete coverage privately. Net zero does not prove that discounts came from included allowance. The published Budget REST API inspected is organization-scoped, not a verified personal-account spending-control endpoint. No supported personal allowance/control source has been verified yet; this is an unresolved technical/access limitation, not a request for the user to invent one. |
 | Official limits | Implement reviewed assertions against relevant current official limit clauses or provider limit metadata, recording source, retrieval time and content digest. Only successful semantic checks may renew `limits_checked_at`; HTTP success or a digest alone is insufficient. Unexpected clauses/values fail closed for review. Parser/source selection is delegated engineering work, not an outstanding user decision. Release-time review and the existing 31-day bound remain. |
@@ -444,3 +444,72 @@ reports. Until then the remaining work is blocked, not satisfied by periodic man
 entry. Keep recurring production disabled. Live failure-notification delivery and
 same-origin rollback/Local retention have already been accepted in #123 and need not
 be repeated for this implementation.
+
+### Native collection implemented so far
+
+`python scripts/static_ops/collect_providers.py` now performs actual read-only collection
+for the verified mappings below, using the same scoped environment variables and bounded
+HTTP client as the probe. It always exits nonzero while the other required evidence is
+unsupported. Its output is a fixed-status diagnostic summary, **not** a schema-v2 report.
+No fragments, billing rows, project metadata or tokens are exported. It neither reads
+`STATIC_QUOTA_REPORT` nor persists partial results for later reuse.
+
+- Firebase identity: GET `firebase.googleapis.com/v1beta1/projects/{project}` requires
+  an ACTIVE project and matching project ID/number; project billing must explicitly be
+  disabled. Database listing must be complete, with one native database explicitly
+  marked `freeTier=true`. An assumed default database, missing flags, unreachable
+  locations, extra databases, or mismatched identity do not pass. These reads support
+  the documented Spark inference, not a claim about every provider's billing controls.
+- Firestore reads/writes/deletes: paginate the current Pacific day's native DELTA
+  series, bind project/database/location, validate kind/type/unit and documented
+  operation labels, then sum intervals from midnight **through native `observed_at`**.
+  Gaps, overlaps, duplicates, absent operation classes, partial errors and no data fail;
+  none are interpreted as zero. Explicit zero-valued points are valid. The current
+  36-hour freshness and current-period rules remain; fetching never relabels old points
+  with a fresh timestamp. Sampling and visibility delays do not create synthetic data.
+- Firestore storage: select the latest native GAUGE value, including data and indexes,
+  for the verified database. Do not sum observations over time. Preserve the native
+  timestamp and require the same 36-hour bound. A missing gauge is not an outbound
+  exception.
+- GitHub repository cache: read current active cache bytes and configured storage limit,
+  validate native integers and the existing 10 GiB free ceiling. This fragment deliberately
+  lacks monthly billing evidence. Schema-v2 validation rejects it until separate current
+  cache billing evidence is implemented; instantaneous usage cannot establish accrued
+  charges or the Actions/Packages shared allowance.
+
+The Firestore quota numbers are reviewed constants, **not** a fresh limits review.
+Neither this collector nor its tests renew `limits_checked_at`. Automatic official-limit
+semantic verification remains implementation work; a successful fetch, digest, fixture,
+account query or test run must never renew that timestamp by itself. The four Firestore
+fragments have offline integration coverage against the existing schema-v2 validator;
+fixtures do not prove API availability or explicit zero-series coverage on this account.
+
+The full #123 implementation is still incomplete: Cloudflare plan/account-total adapters,
+Firestore outbound's current three-surface finding, GitHub accrued SKU/shared allowance
+and billing controls, official-limit verification, complete report assembly, audit summary
+and workflow replacement have not been completed. `static-monitor` and
+`static-production` remain unchanged; their current manual-report implementation must
+not be described as unattended acceptance. Keep recurring publication disabled.
+
+The smallest next **read-only access verification**, distinct from permission to create
+credentials, is to run the probe and native collector using existing approved credentials
+for only the target scopes. Their redacted status output is safe to return; never copy
+raw responses or tokens into chat. If an adapter is blocked, inspect the native response
+privately in that approved environment to resolve:
+
+| Provider | Minimum next native facts |
+| --- | --- |
+| Cloudflare | Subscription result shape and actual permission support; complete account project/deployment coverage; request-series shape and whether an explicit zero/quota counter is provided when invocation analytics has no data. |
+| Firebase/Firestore | ACTIVE project and free database metadata; explicit billing-disabled flag; current read/write/delete/storage series including point intervals and operation classes. Inspect current Usage/Monitoring/Quotas privately for outbound availability; no data or API denial cannot substitute for that finding. |
+| GitHub | Current owner billing product/SKU/unit/quantity/gross/discount/net semantics, shared Actions/Packages included-allowance attribution, personal billing-prevention control, and distinct current-month cache charges. Repository cache API success alone is insufficient. |
+
+If no supported zero-cost API can provide a required fact, document that concrete
+provider limitation and bring the resulting requirements conflict to the operator.
+Do not ask the operator to design an adapter or silently weaken the evidence contract.
+No credential/IAM/OIDC/secret changes are included in this work.
+
+Additional mapping references:
+[Firebase project resource](https://firebase.google.com/docs/reference/firebase-management/rest/v1beta1/projects),
+[Firestore database freeTier](https://docs.cloud.google.com/firestore/docs/reference/rest/v1/projects.databases),
+[Monitoring database resource labels](https://docs.cloud.google.com/monitoring/api/resources#tag_firestore.googleapis.com/Database),
+[Firestore free quota](https://firebase.google.com/docs/firestore/quotas).

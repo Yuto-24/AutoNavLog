@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import time
@@ -27,6 +28,7 @@ HOSTS = {
     "billing": "cloudbilling.googleapis.com",
     "firestore": "firestore.googleapis.com",
     "monitoring": "monitoring.googleapis.com",
+    "firebase": "firebase.googleapis.com",
 }
 TOKEN_ENV = {
     "cloudflare": "STATIC_CLOUDFLARE_READ_TOKEN",
@@ -34,6 +36,7 @@ TOKEN_ENV = {
     "billing": "STATIC_GOOGLE_ACCESS_TOKEN",
     "firestore": "STATIC_GOOGLE_ACCESS_TOKEN",
     "monitoring": "STATIC_GOOGLE_ACCESS_TOKEN",
+    "firebase": "STATIC_GOOGLE_ACCESS_TOKEN",
 }
 # These are unresolved evidence contracts, not exceptions that permit publication.
 BLOCKERS = [
@@ -68,8 +71,16 @@ def strict_json(raw: bytes) -> dict:
     def constant(_):
         raise ProbeError("nonfinite_json")
 
+    def decimal(value):
+        result = float(value)
+        if not math.isfinite(result):
+            raise ProbeError("nonfinite_json")
+        return result
+
     try:
-        value = json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+        value = json.loads(
+            raw, object_pairs_hook=pairs, parse_constant=constant, parse_float=decimal
+        )
     except (ValueError, UnicodeError, RecursionError):
         raise ProbeError("invalid_json") from None
     if not isinstance(value, dict):
@@ -218,7 +229,7 @@ def check_series(client, project, metric, now):
         {
             "filter": f'metric.type = "firestore.googleapis.com/{metric}" '
             'AND resource.type = "firestore.googleapis.com/Database" '
-            f'AND resource.labels.project_id = "{project}"',
+            f'AND resource.labels.resource_container = "{project}"',
             "interval.startTime": start.isoformat(),
             "interval.endTime": now.isoformat(),
             "view": "FULL",
