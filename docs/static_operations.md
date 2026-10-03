@@ -321,3 +321,89 @@ usage, notification delivery, at least two successful scheduled renewals across 
 catalog expiry, canonical catalog/payload continuity, and controlled same-origin rollback
 with scheduler paused and saved Local data retained. Update #123 and parent #116 only
 with those results; do not mark the production automation gate complete from local tests.
+
+## Unattended collection investigation (#123, 2026-10-03)
+
+The [latest #123 decision](https://github.com/Yuto-24/AutoNavLog/issues/123#issuecomment-5972103619)
+supersedes periodic manual `STATIC_QUOTA_REPORT` renewal as the operating model.
+**Unattended collection is not implemented or accepted yet.** The workflows above
+still evaluate operator reports; they must not be activated on the strength of the
+new probe. The schema example and migration commands remain diagnostic tools, not
+an unattended collection solution. September evidence is historical only.
+
+`python3 scripts/static_ops/probe_providers.py` performs bounded, read-only API
+capability probes for Cloudflare, Google and GitHub. It does not read an old report,
+construct a schema-v2 report, refresh any observation/limits timestamp, or authorize
+publication. It always exits 1 with `status: BLOCKED`, including when every endpoint
+is reachable. It continues independent probes after failures. JSON output contains
+fixed check names/status codes and unresolved evidence requirements only; no response
+body, token, account identifier, private repository name, usage quantity, SKU, amount,
+or owner-wide billing row is logged or saved. The request window uses UTC for Workers
+and GitHub, and Pacific local midnight for Firestore (including DST).
+
+Run it only with already authorized read credentials supplied through the environment:
+
+- `STATIC_CLOUDFLARE_READ_TOKEN`: scoped to the target account; read access to Pages,
+  subscriptions and Analytics. This is separate from the Pages deployment token.
+- `STATIC_GOOGLE_ACCESS_TOKEN`: an existing short-lived access token authorized to read
+  project billing state and Cloud Monitoring. The probe neither creates nor renews tokens,
+  enables APIs/billing, changes IAM, nor configures OIDC. Token automation still needs
+  separate approval and verification; a short-lived token secret is not unattended auth.
+- `STATIC_GITHUB_READ_TOKEN`: target repository Actions read and the personal owner's
+  supported billing read access. `GITHUB_TOKEN` must not be assumed to read owner billing.
+  The current probe uses the documented **personal user** endpoint for Yuto-24; an
+  organization owner needs an independently verified adapter and permissions.
+- The existing four scope variables: `CLOUDFLARE_ACCOUNT_ID`,
+  `VITE_FIREBASE_PROJECT_ID`, `GITHUB_REPOSITORY_OWNER`, `GITHUB_REPOSITORY`.
+
+The tool has no write endpoints, configurable hosts, raw export option, or credential
+CLI arguments. Redirects are rejected, responses are bounded to 8 MiB, requests to 40,
+and the collection time budget to 180 seconds (an in-flight socket read can take up to
+15 additional seconds). No credentials were configured or account APIs probed during
+implementation. Offline fixtures verify transport failure/redaction and negative cases;
+they are not recordings of actual account responses.
+
+### Evidence gaps that must be resolved before workflow integration
+
+| Required evidence | Current finding / precise remaining question |
+| --- | --- |
+| Cloudflare Free plans, monthly account Pages builds | Subscriptions and project-list reachability do not prove Free-only billing or a complete account build count. Which authorized API response provides current plan/billing state and complete build coverage, including deleted projects/deployments? Do not count all Direct Upload deployments as builds. |
+| Workers daily account requests | The documented invocation query can be probed without a script filter; cached/rejected request coverage must be established before mapping it to quota. An empty result is `no_data`, never zero. Which counter provides the full required coverage for this account? |
+| Firebase Spark and Firestore counters/storage | Cloud Billing `billingEnabled: false` is checked as a boolean, without labeling it Spark. Verify the actual free database, complete daily operation series and stored bytes including indexes/metadata. Which available metric/dashboard API provides each field under billing-off access? Sampled/partial/empty time series do not establish zero. |
+| Firestore outbound | Confirm a usable monthly counter, or a current automatic audit of Firebase Usage, Monitoring and Quotas supporting `spark_no_usage_counter`. Missing descriptors, empty series or denied permission alone do not qualify. The probe never emits this exception. |
+| GitHub Actions storage and shared allowance | Confirm the exact product/SKU/unit and period mapping from the personal billing API. Identify a machine-readable source for the **Actions artifacts + Packages** included-allowance status across the owner; net zero from unspecified discounts is insufficient. |
+| GitHub cache billing and automatic billing | Cache usage/configuration endpoints are probed separately. Identify complete monthly cache billing coverage and the owner billing/spending control evidence. A small cache or missing SKU cannot independently prove no accrued bill or disabled billing. |
+| Current official limits | Define and verify machine-readable provider limits or reviewed assertions against official source content. A successful HTTP fetch, unchanged usage, or current clock alone must never renew `limits_checked_at`. A provider limit change needs review. |
+
+Reference contracts inspected for these probes:
+[Cloudflare OpenAPI](https://github.com/cloudflare/api-schemas/blob/main/openapi.json),
+[Workers analytics](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/),
+[Cloud Billing project state](https://docs.cloud.google.com/billing/docs/reference/rest/v1/projects/getBillingInfo),
+[Monitoring time series](https://docs.cloud.google.com/monitoring/api/ref_v3/rest/v3/projects.timeSeries/list),
+[GitHub usage](https://docs.github.com/en/rest/billing/usage), and
+[GitHub cache configuration/usage](https://docs.github.com/en/rest/actions/cache).
+API availability, permissions and semantics for the actual accounts remain unverified.
+The observed GitHub UI `$0.02` is **not a confirmed charge**: resolve product, SKU,
+gross, discount, net and included-allowance semantics privately before mapping it.
+
+### Prepared validation boundary
+
+`quota(..., publication=True, collected=True)` validates all nine schema-v2 metric
+structures, scopes, periods, freshness and billing constraints before returning the
+existing `free-plans-only` publication result. It ignores numeric usage warning
+thresholds, so valid TAF/Sync exhaustion does not interrupt MSM publication. Unknown,
+incomplete, stale or malformed collection and nonzero billing still fail. This flag is
+an internal validator mode, **not proof that collection occurred**. The legacy CLI and
+existing plan-only migration interface are unchanged until a complete native collector
+can supply trustworthy evidence. No workflow integration is claimed by this preparatory
+change.
+
+When those sources are verified, the collector must build a new report entirely from
+current responses, call this boundary, and expose only a reviewed non-secret audit
+summary. Both monitor and repeated pre-upload publication checks must invoke it directly,
+with read credentials scoped to those steps (never build/job-wide or `VITE_*`). A
+collection failure must stop the gate without consulting `STATIC_QUOTA_REPORT` or cached
+reports. Until then the remaining work is blocked, not satisfied by periodic manual data
+entry. Keep recurring production disabled. Live failure-notification delivery and
+same-origin rollback/Local retention have already been accepted in #123 and need not
+be repeated for this implementation.
