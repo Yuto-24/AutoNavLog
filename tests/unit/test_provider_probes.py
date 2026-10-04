@@ -35,7 +35,9 @@ def client(raw, requests=None):
     def open_request(request, **kwargs):
         if requests is not None:
             requests.append(request)
-        return io.BytesIO(raw)
+        response = io.BytesIO(raw)
+        response.status = 200
+        return response
 
     return p.Client(ENV, opener=SimpleNamespace(open=open_request))
 
@@ -46,6 +48,15 @@ def client(raw, requests=None):
 def test_invalid_json_never_becomes_usage(raw):
     with pytest.raises(p.ProbeError):
         client(raw).get("github", "/repos/owner/repo/actions/cache/usage")
+
+
+@pytest.mark.parametrize("status", [201, 204, 206, 304])
+def test_non_200_response_cannot_become_complete_provider_evidence(status):
+    response = io.BytesIO(b'{"active_caches_size_in_bytes":0}')
+    response.status = status
+    c = p.Client(ENV, opener=SimpleNamespace(open=lambda *a, **kw: response))
+    with pytest.raises(p.ProbeError, match="unexpected_http_status"):
+        c.get("github", "/repos/owner/repo/actions/cache/usage")
 
 
 @pytest.mark.parametrize("code", [301, 302, 303, 307, 308])

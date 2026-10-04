@@ -365,6 +365,48 @@ and the collection time budget to 180 seconds (an in-flight socket read can take
 implementation. Offline fixtures verify transport failure/redaction and negative cases;
 they are not recordings of actual account responses.
 
+### Initial Cloudflare credential handoff and capability run
+
+The operator reports creating an account-scoped `AutoNavLog Quota Monitor ReadOnly`
+token with Pages Read, Account Analytics Read and Billing Read, without an expiry.
+This is a reported configuration, not API-verified access or quota evidence.
+The exact application environment variable is `STATIC_CLOUDFLARE_READ_TOKEN`.
+The operator can store its value themselves at repository **Settings > Secrets and
+variables > Actions > New repository secret**, with that exact name. Use the Secrets
+tab, not Variables; keep `CLOUDFLARE_PAGES_TOKEN` unchanged. Do not send the value in
+chat, commit it, or include it in a workflow input. Repository secrets are not
+automatically available to a local/cloud Codex checkout.
+
+The prepared `.github/workflows/static-provider-probe.yml` is manual-only and performs
+one Cloudflare capability read. It uses the repository `CLOUDFLARE_ACCOUNT_ID` variable
+and supplies the read token only to the probe step. It has no environment binding,
+so an environment-only secret will not be available there. Existing production jobs
+do use environments; before eventual collector integration, check for environment
+secrets shadowing the repository name without reading their values.
+
+**Not executable from this unpublished local branch yet.** GitHub requires a
+`workflow_dispatch` workflow to exist on the default branch. After separately approved
+publication/merge of the workflow and scripts, an authorized initial run can use the
+Actions `static-provider-probe` page: select the reviewed branch, enter its full
+40-character commit as `reviewed_sha`, and select `cloudflare_pages_projects` first.
+The runner checks that SHA against its immutable `github.sha` before checkout or
+the secret-bearing step; a branch advance causes a failure. Checkout is pinned to
+that SHA. Merely pushing a new workflow on a feature branch does not make this initial
+dispatch available. Publication, merge and workflow execution are not authorized by
+credential storage and have not been performed by this preparation.
+
+The initial execution location is the GitHub-hosted Ubuntu runner, not the current
+Codex environment. No secret retrieval or network workaround is needed. After each
+separately authorized diagnosis, inspect only the fixed status output; further choices
+are `cloudflare_subscriptions` and `cloudflare_worker_invocations`. Even reachable
+endpoints produce `BLOCKED` and exit 1, so the job remains failed: this is capability
+diagnosis, never healthy-monitor/Free-plan/quota acceptance. Missing data stays unknown;
+raw responses, quantities and billing rows are neither printed nor uploaded. No
+production schedule, deployment or existing monitor workflow is changed.
+
+References: [GitHub repository secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets),
+[manual workflow/default-branch requirement](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
+
 ### Ownership of remaining decisions and evidence work
 
 API selection, parsing, aggregation, pagination, clock handling and evidence semantics

@@ -151,6 +151,8 @@ class Client:
                 Request(url, data=body, headers=headers),
                 timeout=min(15, self.deadline - self.clock()),
             ) as response:
+                if response.status != 200:
+                    raise ProbeError("unexpected_http_status")
                 raw = bytearray()
                 while True:
                     if self.clock() >= self.deadline:
