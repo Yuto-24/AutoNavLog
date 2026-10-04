@@ -214,7 +214,7 @@ def test_cache_fragment_does_not_invent_billing_or_shared_allowance():
     result = c.github_cache(
         Client(
             [
-                {"active_caches_size_in_bytes": 123},
+                {"full_name": "owner/repo", "active_caches_size_in_bytes": 123},
                 {"max_cache_size_gb": 10},
             ]
         ),
@@ -227,7 +227,7 @@ def test_cache_fragment_does_not_invent_billing_or_shared_allowance():
         c.github_cache(
             Client(
                 [
-                    {"active_caches_size_in_bytes": 0},
+                    {"full_name": "owner/repo", "active_caches_size_in_bytes": 0},
                     {"max_cache_size_gb": 11},
                 ]
             ),
@@ -263,7 +263,7 @@ def test_native_fragments_fit_schema_v2_but_cache_without_billing_fails():
     report["metrics"]["actions_cache_storage_bytes"] = c.github_cache(
         Client(
             [
-                {"active_caches_size_in_bytes": 0},
+                {"full_name": "owner/repo", "active_caches_size_in_bytes": 0},
                 {"max_cache_size_gb": 10},
             ]
         ),
@@ -292,7 +292,7 @@ def test_collection_summary_does_not_export_native_usage_or_project_identity():
         identity_responses()
         + [series(name) for name in c.METRICS]
         + [
-            {"active_caches_size_in_bytes": 123456789},
+            {"full_name": "owner/repo", "active_caches_size_in_bytes": 123456789},
             {"max_cache_size_gb": 10},
         ]
     )
@@ -303,3 +303,21 @@ def test_collection_summary_does_not_export_native_usage_or_project_identity():
     assert result["status"] == "BLOCKED"
     assert "123456789" not in json.dumps(result) and "firebase-project" not in json.dumps(result)
     assert "metrics" not in result and "limits_checked_at" not in result
+
+
+@pytest.mark.parametrize("native_repository", [None, True, "another/repo", "owner/another"])
+def test_cache_response_repository_must_match_before_reading_configuration(native_repository):
+    client = Client([{"full_name": native_repository, "active_caches_size_in_bytes": 0}])
+    with pytest.raises(c.api.ProbeError, match="invalid_cache_repository"):
+        c.github_cache(client, "owner/repo", NOW)
+    assert len(client.calls) == 1
+
+
+def test_cache_response_repository_comparison_matches_github_case_insensitive_names():
+    client = Client(
+        [
+            {"full_name": "Owner/Repo", "active_caches_size_in_bytes": 0},
+            {"max_cache_size_gb": 10},
+        ]
+    )
+    assert c.github_cache(client, "owner/repo", NOW)["scope"] == "owner/repo"

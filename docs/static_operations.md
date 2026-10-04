@@ -473,8 +473,9 @@ No fragments, billing rows, project metadata or tokens are exported. It neither 
   for the verified database. Do not sum observations over time. Preserve the native
   timestamp and require the same 36-hour bound. A missing gauge is not an outbound
   exception.
-- GitHub repository cache: read current active cache bytes and configured storage limit,
-  validate native integers and the existing 10 GiB free ceiling. This fragment deliberately
+- GitHub repository cache: read current active cache bytes, require the native `full_name`
+  to match the configured repository (GitHub names are case-insensitive), then read the
+  configured storage limit. Validate native integers and the existing 10 GiB free ceiling. This fragment deliberately
   lacks monthly billing evidence. Schema-v2 validation rejects it until separate current
   cache billing evidence is implemented; instantaneous usage cannot establish accrued
   charges or the Actions/Packages shared allowance.
@@ -526,8 +527,8 @@ access. The connector explicitly excludes user/billing endpoint families and doe
 expose cache/variable reads. Environment `gh api` failed even for repository metadata
 with `Forbidden` at the request boundary. This is an access-path failure, not evidence
 of a provider 403 response or a diagnosis of the token's actual grants. Do not bypass
-that boundary or retry with broader credentials. Cloudflare and Google read credentials
-are absent. No credentials were printed or installed.
+that boundary or retry with broader credentials. The required Cloudflare and Google
+read-token environment variables were not set. No credentials were printed or installed.
 
 The production targets below come from the checked-in
 [#121 account audit](evidence/issue-121/remote-production-2026-09-24.md), not a new

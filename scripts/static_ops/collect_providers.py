@@ -218,6 +218,12 @@ def firestore_metric(client, identity, name, now):
 
 def github_cache(client, repository, now):
     usage = client.get("github", f"/repos/{repository}/actions/cache/usage")
+    native_repository = usage.get("full_name")
+    if (
+        not isinstance(native_repository, str)
+        or native_repository.casefold() != repository.casefold()
+    ):
+        fail("invalid_cache_repository")
     configuration = client.get("github", f"/repos/{repository}/actions/cache/storage-limit")
     used = integer(usage["active_caches_size_in_bytes"])
     configured = integer(configuration["max_cache_size_gb"]) * 1024**3
