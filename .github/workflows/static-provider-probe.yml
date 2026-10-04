@@ -44,7 +44,7 @@ jobs:
             cloudflare_pages_projects|cloudflare_subscriptions|cloudflare_worker_invocations) ;;
             *) exit 1 ;;
           esac
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
