@@ -48,6 +48,20 @@ BLOCKERS = [
     "github_automatic_billing_disabled",
     "official_limits_verified_renewal",
 ]
+CHECKS = (
+    "cloudflare_subscriptions",
+    "cloudflare_pages_projects",
+    "cloudflare_worker_invocations",
+    "firebase_billing",
+    "firestore_reads",
+    "firestore_writes",
+    "firestore_deletes",
+    "firestore_storage",
+    "firestore_metric_descriptors",
+    "github_cache_usage",
+    "github_cache_configuration",
+    "github_billing_usage",
+)
 
 
 class ProbeError(Exception):
@@ -270,11 +284,15 @@ def check_github_billing(client, owner, now):
     return "reachable_not_evidence"
 
 
-def probe(env, now, client=None):
+def probe(env, now, client=None, *, only=None):
+    if only is not None and only not in CHECKS:
+        raise ProbeError("unknown_check")
     client = client or Client(env)
     checks = []
 
     def run(name, action):
+        if only is not None and name != only:
+            return
         try:
             status = action()
         except ProbeError as error:
@@ -353,8 +371,9 @@ def probe(env, now, client=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args()
-    print(json.dumps(probe(os.environ, datetime.now(UTC)), indent=2))
+    parser.add_argument("--check", choices=CHECKS, help="Run only one fixed read-only check")
+    args = parser.parse_args()
+    print(json.dumps(probe(os.environ, datetime.now(UTC), only=args.check), indent=2))
     # Probe reachability never authorizes publishing or refreshes evidence timestamps.
     raise SystemExit(1)
 

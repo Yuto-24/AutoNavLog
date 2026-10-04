@@ -254,3 +254,25 @@ def test_probe_queries_documented_database_metrics_without_guessing_outbound():
         assert any(f'"firestore.googleapis.com/{metric}"' in query for query in queries)
     assert all('resource.type = "firestore.googleapis.com/Database"' in query for query in queries)
     assert result["status"] == "BLOCKED"
+
+
+@pytest.mark.parametrize("name", p.CHECKS)
+def test_selected_probe_cannot_read_another_provider_or_billing(name):
+    calls = []
+
+    class Fake:
+        def get(self, service, path, *args, **kwargs):
+            calls.append((service, path))
+            raise p.ProbeError("http_403")
+
+    result = p.probe(ENV, NOW, Fake(), only=name)
+    assert len(calls) == 1
+    assert result["checks"] == [{"check": name, "status": "http_403"}]
+    assert result["status"] == "BLOCKED"
+    if name != "github_billing_usage":
+        assert "settings/billing" not in calls[0][1]
+
+
+def test_unknown_probe_is_rejected_before_network():
+    with pytest.raises(p.ProbeError, match="unknown_check"):
+        p.probe(ENV, NOW, only="https://arbitrary.test")
