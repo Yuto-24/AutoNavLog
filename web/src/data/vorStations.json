@@ -1,5 +1,5 @@
 {
-  "dataset_id": "JCAB_AIP_AD2_VOR_DME_20260806_RJFM_540KM",
+  "dataset_id": "JCAB_AIP_VOR_DME_20260806_RJFM_540KM_SUC_ENR_20261001",
   "effective_cycle": "2026-08-06",
   "origin": {
     "identifier": "RJFM ARP",
@@ -247,6 +247,22 @@
       "variation_source": "AD 2.19 VOR declination",
       "source_file": "RJFS__20260611.pdf",
       "source_page": 9
+    },
+    {
+      "identifier": "SUC",
+      "name": "SHIMIZU",
+      "type": "VORTAC",
+      "frequency_mhz": 115.2,
+      "latitude_deg": 32.755969444444446,
+      "longitude_deg": 132.9966472222222,
+      "variation_west_deg": 7.0,
+      "variation_source": "ENR 4.1 VOR declination (7°W/2020)",
+      "source_file": "ENR_20261001.pdf",
+      "source_page": 541,
+      "effective_cycle": "2026-10-01",
+      "source_effective_date": "2026-10-01",
+      "source_section": "ENR 4.1-21",
+      "source_sha256": "5f30504f557ab31bbac5a1d0369da6e71b58cd6abc1af938f70a0100df87331a"
     },
     {
       "identifier": "SWE",
