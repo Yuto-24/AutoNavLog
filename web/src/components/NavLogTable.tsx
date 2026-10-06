@@ -762,7 +762,7 @@ export function NavLogTable({
                   <select
                     id={`nav-log-vor-station-${column.id}`}
                     aria-label={index === 0 ? "VOR基準局" : `VOR基準局 ${index + 1}`}
-                    title={`AIP ${VOR_DATASET_EFFECTIVE_CYCLE} / 局からTOへのradial・距離`}
+                    title={`AIP ${selectedVorStations[index]?.effective_cycle ?? VOR_DATASET_EFFECTIVE_CYCLE} / 局からTOへのradial・距離`}
                     value={column.stationIdentifier ?? VOR_AUTO_SELECTION}
                     onChange={(event) => selectVorStation(column.id, event.target.value)}
                   >

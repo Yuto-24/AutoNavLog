@@ -95,8 +95,14 @@ for (const width of [1100, 1440]) {
     // AKE -> 米ノ津 TO point: GeographicLib WGS84 157.5778915705 deg true,
     // 23.6085683845 NM, plus the AIP station declination of 7 deg west.
     await expect(page.locator(".nav-leg-heading-row .vor-reference-cell").first()).toHaveText("165 / 23.6");
+    await vorSelect.selectOption("SUC");
+    await expect(vorSelect.locator("option:checked")).toHaveText("SUC — SHIMIZU (VORTAC)");
+    await expect(vorSelect).toHaveAttribute("title", "AIP 2026-10-01 / 局からTOへのradial・距離");
+    // Independent GeographicLib: 254.8629333750 deg true / 140.3544999448 NM.
+    await expect(page.locator(".nav-leg-heading-row .vor-reference-cell").first()).toHaveText("262 / 140.4");
     await vorSelect.selectOption("__AUTO__");
     await expect(vorSelect.locator("option:checked")).toHaveText("自動 MZE");
+    await expect(vorSelect).toHaveAttribute("title", "AIP 2026-08-06 / 局からTOへのradial・距離");
     const boxes = await Promise.all(
       [".input-rail", ".route-workspace", ".status-rail", ".nav-log-scroll"]
         .map(selector => page.locator(selector).boundingBox()),

@@ -3271,7 +3271,7 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   await expect(altitudeInput).toHaveValue("5500");
   const firstParent = page.locator(".nav-log-table .nav-leg-heading-row").first();
   const vorSelect = page.getByLabel("VOR基準局");
-  await expect(vorSelect.locator("option")).toHaveCount(34);
+  await expect(vorSelect.locator("option")).toHaveCount(35);
   const orderedVorIdentifiers = await vorSelect.locator("option").evaluateAll((options) => (
     options.slice(2).map((option) => (option as HTMLOptionElement).value)
   ));
@@ -3324,6 +3324,14 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
     "title", "AKEからTOへのradial / 距離（表示専用セル）",
   );
   await expect(page.locator(".nav-destination-info-row .vor-reference-cell")).toHaveText("060 / 99.5");
+  await vorSelect.selectOption("SUC");
+  await expect(vorSelect.locator("option:checked")).toHaveText("SUC — SHIMIZU (VORTAC)");
+  await expect(vorSelect).toHaveAttribute("title", "AIP 2026-10-01 / 局からTOへのradial・距離");
+  await expect(firstParent.locator(".vor-reference-cell")).toHaveText("262 / 78.8");
+  await expect(page.locator(".nav-destination-info-row .vor-reference-cell")).toHaveText("312 / 76.8");
+  await vorSelect.selectOption("AKE");
+  await expect(vorSelect).toHaveAttribute("title", "AIP 2026-08-06 / 局からTOへのradial・距離");
+  await expect(firstParent.locator(".vor-reference-cell")).toHaveText("101 / 68.2");
   await expect(firstParent.locator("td").nth(7)).toHaveText(/^\d{3}$/);
   await expect(firstParent.locator("td").nth(8)).toHaveText("+7");
   await expect(firstParent.locator("td").nth(9)).toHaveText(/^\d{3}$/);
