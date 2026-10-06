@@ -3726,6 +3726,97 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   await expect(page.locator(".derived-readonly-cell").first()).toHaveAttribute("title", /表示専用セル/);
 });
 
+for (const width of [1100, 1440]) {
+  test(`EOC TOAT stays visible for equal and different phase values at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    page.on("console", message => {
+      // A Compose runtime without NAVMATE_URL has no optional migration endpoint.
+      const disabledMigration = message.location().url.endsWith("/api/account-link")
+        && message.text().includes("404 (Not Found)");
+      if (message.type() === "error" && !disabledMigration) errors.push(message.text());
+    });
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/");
+    await expect(page).toHaveTitle(/AutoNavLog/);
+    await calculateNavLog(page, false, true, true);
+    let state = await page.evaluate(async () => (await fetch("/api/state")).json()) as WebState;
+    const firstDescent = () => state.outcome!.sections.find(section => section.phase === "DESCENT")!;
+    const descentRow = () => state.outcome!.display_rows.find(row => (
+      row.row_type === "CALCULATION_ZONE" && row.source_result_sequence === firstDescent().sequence
+    ))!;
+    const findCruiseRow = () => state.outcome!.display_rows.find(row => (
+      row.row_type === "PHYSICAL_LEG_SUMMARY"
+      && row.section_id === firstDescent().section_id && row.phase === "CRUISE"
+    ))!;
+    expect(findCruiseRow()).toBeDefined();
+    expect(firstDescent().from_name).toBe("EOC");
+    // Use an exact, readable manual value on both sides of the boundary.
+    const cruiseRecalculation = page.waitForResponse(response => (
+      response.url().endsWith("/api/project/recalculate") && response.ok()
+    ));
+    await page.locator(`.nav-log-table tr[data-row-sequence="${findCruiseRow().sequence}"]`)
+      .getByLabel(/手動気温$/).fill("10");
+    state = await (await cruiseRecalculation).json() as WebState;
+    const cruiseRow = findCruiseRow();
+    const cruiseTemperature = Number(cruiseRow.toat.effective_value);
+    expect(cruiseTemperature).toBe(10);
+    const sourceSectionId = firstDescent().section_id;
+    const rowLocator = () => page.locator(`.nav-log-table tr[data-row-sequence="${descentRow().sequence}"]`);
+    await expect(rowLocator().getByLabel(/手動気温$/)).toBeVisible();
+    await expect(rowLocator().getByLabel(/手動気温$/)).toHaveAttribute("placeholder", descentRow().toat.text!);
+
+    for (const temperature of [cruiseTemperature, cruiseTemperature - 5]) {
+      const recalculation = page.waitForResponse(response => (
+        response.url().endsWith("/api/project/recalculate") && response.ok()
+      ));
+      await rowLocator().getByLabel(/手動気温$/).fill(String(temperature));
+      const response = await recalculation;
+      state = await response.json() as WebState;
+      expect(firstDescent().section_id).toBe(sourceSectionId);
+      expect(firstDescent().from_name).toBe("EOC");
+      expect(firstDescent().temperature_c.manual_override).toBe(temperature);
+      expect(descentRow().toat).toMatchObject({
+        state: "DISPLAY_VALUE", effective_value: temperature, text: temperature.toFixed(1), manual: true,
+      });
+      expect(state.outcome!.display_rows.find(row => row.sequence === cruiseRow.sequence)?.toat)
+        .toEqual(cruiseRow.toat);
+      await expect(rowLocator().getByLabel(/手動気温$/)).toHaveValue(String(temperature));
+      for (const field of ["wind", "wca", "mh", "gs"] as const) {
+        expect(descentRow()[field].state).toBe("DISPLAY_VALUE");
+      }
+      const inherited = state.outcome!.display_rows.filter(row => (
+        row.row_type === "CALCULATION_ZONE" && row.toat.state === "INHERIT"
+      ));
+      expect(inherited.length).toBeGreaterThan(0);
+      for (const row of inherited) {
+        const element = page.locator(`.nav-log-table tr[data-row-sequence="${row.sequence}"]`);
+        await expect(element.getByLabel(/手動気温$/)).toHaveCount(0);
+      }
+      await expectDisplayProjectionToMatchWebTable(page);
+      await page.locator(".nav-log-section").scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: `/tmp/autonavlog-issue225-${width}-${temperature === cruiseTemperature ? "equal" : "different"}.png`,
+      });
+    }
+    const boxes = await Promise.all([".input-rail", ".route-workspace", ".status-rail", ".nav-log-section"]
+      .map(selector => page.locator(selector).boundingBox()));
+    expect(boxes.every(Boolean)).toBe(true);
+    if (width <= 1240) {
+      for (let index = 1; index < boxes.length; index++) {
+        expect(boxes[index]!.y).toBeGreaterThanOrEqual(boxes[index - 1]!.y + boxes[index - 1]!.height - 1);
+      }
+    } else {
+      expect(boxes[0]!.x + boxes[0]!.width).toBeLessThanOrEqual(boxes[1]!.x + 1);
+      expect(boxes[1]!.x + boxes[1]!.width).toBeLessThanOrEqual(boxes[2]!.x + 1);
+      expect(boxes[3]!.y).toBeGreaterThanOrEqual(Math.max(...boxes.slice(0, 3).map(box => box!.y + box!.height)) - 1);
+    }
+    await expect(page.locator("body")).not.toBeEmpty();
+    await expect(page.locator("vite-error-overlay, .vite-error-overlay")).toHaveCount(0);
+    expect(errors.filter(message => !message.includes("401 (Unauthorized)"))).toEqual([]);
+  });
+}
+
 test("EOC wind edit updates the DESCENT basis Leg common wind", async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
