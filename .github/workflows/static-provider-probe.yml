@@ -1,0 +1,59 @@
+name: static-provider-probe
+
+# Initial capability diagnosis only; no schedule or production gates.
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_sha:
+        description: 'Reviewed full commit SHA; must equal the selected branch commit'
+        required: true
+        type: string
+      check:
+        description: 'Single Cloudflare read-only capability check (not quota acceptance)'
+        required: true
+        type: choice
+        default: cloudflare_pages_projects
+        options:
+          - cloudflare_pages_projects
+          - cloudflare_subscriptions
+          - cloudflare_worker_invocations
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-provider-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: github.repository == 'Yuto-24/AutoNavLog' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the reviewed execution identity
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          PROBE_CHECK: ${{ inputs.check }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$REVIEWED_SHA" == "$GITHUB_SHA" ]]
+          case "$PROBE_CHECK" in
+            cloudflare_pages_projects|cloudflare_subscriptions|cloudflare_worker_invocations) ;;
+            *) exit 1 ;;
+          esac
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Probe one Cloudflare capability without publishing evidence
+        env:
+          STATIC_CLOUDFLARE_READ_TOKEN: ${{ secrets.STATIC_CLOUDFLARE_READ_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          PROBE_CHECK: ${{ inputs.check }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/static_ops/probe_providers.py --check "$PROBE_CHECK" | tee -a "$GITHUB_STEP_SUMMARY"
