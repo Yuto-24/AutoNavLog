@@ -23,7 +23,14 @@ def test_backend_ci_runs_only_python_312() -> None:
     workflow = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
 
     assert "docker build --target test --tag autonavlog:test ." in workflow
-    assert "docker run --rm autonavlog:test" in workflow
+    # YAML folds the read-only contract mount and image onto one command line.
+    command = (
+        "docker run --rm --mount type=bind,"
+        'source="$PWD/.github/workflows/static-provider-probe.yml",'
+        "target=/opt/autonavlog/.github/workflows/static-provider-probe.yml,readonly "
+        "autonavlog:test"
+    )
+    assert command in " ".join(workflow.split())
     assert "docker build --target runtime --tag autonavlog:runtime ." in workflow
     assert "Read expected version from the production image source" in workflow
     assert "set -eu" in workflow
