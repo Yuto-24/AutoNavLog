@@ -180,7 +180,7 @@ for (const width of [1100, 1440]) {
     page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
     await expect(page.locator(".nav-log-table")).toBeVisible();
-    expect(await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(savedView);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(savedView);
     // A synced/older Project without a device preference must not open at another route.
     await page.evaluate(id => {
       localStorage.removeItem(`autonavlog.map-viewport.v1.anonymous.project.${id}`);

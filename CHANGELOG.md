@@ -14,6 +14,7 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 
 - MAP経路確定後の単発rAFがPlanningのmount前に実行されるとfocus要求を失うraceを修正。確定Projectに紐付けた要求を保持し、DOM commit後またはrAFで一度だけ消費します。
 - 既存の1100/1440px MAP経路テストでReact描画とanimation frameの順序を制御し、DATEのviewport・focusと既存の保存・再開・計算を検証します。固定sleep、assertionの削除、テスト件数の追加は行いません。
+- 保存済みProjectの地図表示の検証は、viewport復元effectがlocalStorageへ反映されるまで同じ一致条件を待ちます。
 
 ## 1.22.3
 
