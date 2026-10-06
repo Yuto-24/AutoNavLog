@@ -401,20 +401,23 @@ so an environment-only secret will not be available there. Existing production j
 do use environments; before eventual collector integration, check for environment
 secrets shadowing the repository name without reading their values.
 
-**Not executable from this unpublished local branch yet.** GitHub requires a
-`workflow_dispatch` workflow to exist on the default branch. After separately approved
-publication/merge of the workflow and scripts, an authorized initial run can use the
-Actions `static-provider-probe` page: select the reviewed branch, enter its full
+The workflow and probe were merged to `main` in #232. GitHub requires a
+`workflow_dispatch` workflow to exist on the default branch. An authorized initial
+run can use the Actions `static-provider-probe` page: select the reviewed branch, enter its full
 40-character commit as `reviewed_sha`, and select `cloudflare_pages_projects` first.
 The runner checks that SHA against its immutable `github.sha` before checkout or
 the secret-bearing step; a branch advance causes a failure. Checkout is pinned to
 that SHA. Merely pushing a new workflow on a feature branch does not make this initial
-dispatch available. Publication, merge and workflow execution are not authorized by
-credential storage and have not been performed by this preparation.
+dispatch available. Credential storage by itself does not authorize execution. Initial Cloudflare read-only
+diagnosis has since been authorized; no live result is inferred from that authorization.
+If Codex cannot read the account variable or dispatch the workflow through its permitted
+connection, an operator can perform these same steps in GitHub UI and share only run URLs.
+Confirm the repository account variable against the intended account first; never display
+or copy the secret. Do not bypass an access or network restriction.
 
 The initial execution location is the GitHub-hosted Ubuntu runner, not the current
 Codex environment. No secret retrieval or network workaround is needed. After each
-separately authorized diagnosis, inspect only the fixed status output; further choices
+authorized diagnosis, inspect only the fixed status output; further choices
 are `cloudflare_subscriptions` and `cloudflare_worker_invocations`. Even reachable
 endpoints produce `BLOCKED` and exit 1, so the job remains failed: this is capability
 diagnosis, never healthy-monitor/Free-plan/quota acceptance. Missing data stays unknown;
