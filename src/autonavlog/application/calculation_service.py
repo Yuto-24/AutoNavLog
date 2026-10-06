@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
 from math import isfinite
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from autonavlog.domain.calculation import (
@@ -39,7 +39,13 @@ from autonavlog.domain.planning import (
 )
 from autonavlog.domain.project import Airport, NavSection, Project, RouteNode
 from autonavlog.domain.values import AdoptedValue
-from autonavlog.domain.weather import ForecastRequirement, WeatherRequest, WeatherResult
+from autonavlog.domain.weather import (
+    AdoptedWeatherSample,
+    CalculationWeatherSnapshot,
+    ForecastRequirement,
+    WeatherRequest,
+    WeatherResult,
+)
 from autonavlog.nav.airspeed import (
     cas_from_tas,
     isa_temperature_c,
@@ -250,6 +256,23 @@ class CalculationService:
         self.last_weather_requests: list[WeatherRequest] = []
         self.last_weather_results: list[WeatherResult] = []
         self.last_forecast_metadata: dict[str, Any] = {}
+        self.last_adopted_weather_samples: tuple[AdoptedWeatherSample, ...] = ()
+
+    def adopted_weather_snapshot(
+        self,
+        *,
+        weather_mode: Literal["FORECAST", "FTD"],
+        forecast_run_id: str | None,
+        calculation_fingerprint: str,
+    ) -> CalculationWeatherSnapshot | None:
+        if forecast_run_id is None or not self.last_adopted_weather_samples:
+            return None
+        return CalculationWeatherSnapshot.capture(
+            weather_mode=weather_mode,
+            forecast_run_id=forecast_run_id,
+            calculation_fingerprint=calculation_fingerprint,
+            samples=self.last_adopted_weather_samples,
+        )
 
     @staticmethod
     def _airport_from_selection(selection: AirportSelection) -> Airport:
@@ -317,6 +340,9 @@ class CalculationService:
         destination_wind: DestinationWindForecast | None = None,
         progress: Callable[[int, str], None] | None = None,
     ) -> CalculationOutcome:
+        # Clear before any early validation return; a blocked calculation must
+        # never acquire samples belonging to the preceding successful result.
+        self.last_adopted_weather_samples = ()
         report = progress or (lambda _percent, _message: None)
         report(15, "経路データを準備しています。")
         working = project.model_copy(deep=True)
@@ -646,6 +672,15 @@ class CalculationService:
                     total_usable_fuel_gal=working.total_usable_fuel_gal,
                     run_up_included=working.run_up_included,
                 )
+                final_weather_requests = [
+                    exact_destination_request if request.request_id == "destination:surface"
+                    else request
+                    for request in final_weather_requests
+                ]
+                final_weather_results = [
+                    result for result in final_weather_results
+                    if result.request_id != "destination:surface"
+                ] + exact_destination_results
         report(80, "計算結果を検証しています。")
         issues.extend(final.issues)
         if not converged:
@@ -699,6 +734,21 @@ class CalculationService:
             )
         issues = self._deduplicate_issues(issues)
         project_status = self._status(working, issues)
+        if not any(issue.severity == IssueSeverity.BLOCKER for issue in issues):
+            results_by_id = {result.request_id: result for result in final_weather_results}
+            request_ids = {request.request_id for request in final_weather_requests}
+            if (
+                len(request_ids) == len(final_weather_requests)
+                and len(results_by_id) == len(final_weather_results)
+                and request_ids == set(results_by_id)
+            ):
+                self.last_adopted_weather_samples = tuple(
+                    AdoptedWeatherSample(
+                        request=request.model_copy(deep=True),
+                        result=results_by_id[request.request_id].model_copy(deep=True),
+                    )
+                    for request in final_weather_requests
+                )
         report(88, "燃料計画とNAV LOGを仕上げています。")
         inbound_shortfall = next(
             (issue for issue in issues if issue.code == "RJFM_INBOUND_DIRECT_DISTANCE_SHORTFALL"),

@@ -11,6 +11,7 @@ from autonavlog.domain.calculation import CalculationOutcome
 from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.planning import ArrivalAltitudeMode
 from autonavlog.domain.project import FtdWeatherSettings, ManualWind, Project
+from autonavlog.domain.weather import saved_weather_snapshot
 from autonavlog.importers.kml import KmlImportResult
 from autonavlog.weather.destination_taf import DestinationWindForecast
 
@@ -221,6 +222,12 @@ class WorkingCalculation(BaseModel):
             raise ValueError("calculation fingerprint must match its Project")
         if self.project.selected_forecast_run_id != self.outcome.selected_forecast_run_id:
             raise ValueError("calculation forecast run must match its Project")
+        saved_weather_snapshot(
+            self.forecast_metadata,
+            weather_mode=self.project.weather_mode,
+            forecast_run_id=self.outcome.selected_forecast_run_id,
+            calculation_fingerprint=self.calculation_fingerprint,
+        )
         return self
 
 

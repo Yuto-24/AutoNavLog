@@ -1171,11 +1171,19 @@ class AutoNavLogWebApplication:
         )
         if has_effective_blocker or materialized.outcome is None:
             return
+        forecast_metadata = dict(session.calculation_service.last_forecast_metadata)
+        weather_snapshot = session.calculation_service.adopted_weather_snapshot(
+            weather_mode=materialized.project.weather_mode,
+            forecast_run_id=materialized.outcome.selected_forecast_run_id,
+            calculation_fingerprint=materialized.fingerprints.calculation_input,
+        )
+        if weather_snapshot is not None:
+            forecast_metadata["weather_snapshot"] = weather_snapshot.model_dump(mode="json")
         session.last_calculation = WorkingCalculation(
             project=materialized.project.model_copy(deep=True),
             outcome=materialized.outcome.model_copy(deep=True),
             destination_wind=destination_wind,
-            forecast_metadata=dict(session.calculation_service.last_forecast_metadata),
+            forecast_metadata=forecast_metadata,
             calculation_fingerprint=materialized.fingerprints.calculation_input,
         )
         if not session.persist_working:
@@ -1186,7 +1194,7 @@ class AutoNavLogWebApplication:
                 project=materialized.project,
                 outcome=materialized.outcome,
                 destination_wind=destination_wind,
-                forecast_metadata=session.calculation_service.last_forecast_metadata,
+                forecast_metadata=forecast_metadata,
                 calculation_fingerprint=materialized.fingerprints.calculation_input,
             )
         except Exception as error:

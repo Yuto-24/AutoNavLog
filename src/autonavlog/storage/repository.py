@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from autonavlog.domain.calculation import CalculationOutcome
 from autonavlog.domain.enums import ProjectStatus
 from autonavlog.domain.project import Project
+from autonavlog.domain.weather import saved_weather_snapshot
 from autonavlog.weather.destination_taf import DestinationWindForecast
 
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
@@ -103,6 +104,12 @@ class LastCalculationRecord(BaseModel):
             and inbound.generated_against_fingerprint != self.calculation_fingerprint
         ):
             raise ValueError("inbound guidance fingerprint does not match the calculation")
+        saved_weather_snapshot(
+            self.forecast_metadata,
+            weather_mode=self.project.weather_mode,
+            forecast_run_id=self.selected_forecast_run_id,
+            calculation_fingerprint=self.calculation_fingerprint,
+        )
         return self
 
 

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .enums import Availability, WeatherRequestKind
 
@@ -73,3 +75,99 @@ class WeatherResult(WeatherModel):
     reason_code: str | None = None
     warnings: tuple[str, ...] = ()
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdoptedWeatherSample(WeatherModel):
+    """One original query and its final normalized response, before user overrides."""
+
+    request: WeatherRequest
+    result: WeatherResult
+
+    @model_validator(mode="after")
+    def validate_pair(self) -> AdoptedWeatherSample:
+        if self.request.request_id != self.result.request_id:
+            raise ValueError("weather snapshot request/result identity mismatch")
+        if self.request.kind != self.result.kind:
+            raise ValueError("weather snapshot request/result kind mismatch")
+        return self
+
+
+class CalculationWeatherSnapshot(WeatherModel):
+    """Fixed sampled conditions for one calculation, independent of Weather caches.
+
+    These are scalar phase samples, not a forecast field that can be queried at
+    new locations or times. Unavailable responses retain their original status.
+    """
+
+    schema_version: Literal[1] = 1
+    sampling_policy: Literal["FINAL_PHASE_SAMPLES_V1"] = "FINAL_PHASE_SAMPLES_V1"
+    weather_mode: Literal["FORECAST", "FTD"]
+    forecast_run_id: str = Field(min_length=1)
+    calculation_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    samples: tuple[AdoptedWeatherSample, ...] = Field(min_length=1)
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    def _content_digest(self) -> str:
+        # Keep full float precision; input fingerprints intentionally round
+        # floats and therefore are unsuitable as a checksum of sampled values.
+        payload = json.dumps(
+            self.model_dump(mode="json", exclude={"content_sha256"}),
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    @model_validator(mode="after")
+    def validate_content(self) -> CalculationWeatherSnapshot:
+        identities = [sample.request.request_id for sample in self.samples]
+        if len(set(identities)) != len(identities):
+            raise ValueError("weather snapshot contains duplicate request identities")
+        if self.content_sha256 != self._content_digest():
+            raise ValueError("weather snapshot content checksum mismatch")
+        return self
+
+    @classmethod
+    def capture(
+        cls,
+        *,
+        weather_mode: Literal["FORECAST", "FTD"],
+        forecast_run_id: str,
+        calculation_fingerprint: str,
+        samples: tuple[AdoptedWeatherSample, ...],
+    ) -> CalculationWeatherSnapshot:
+        candidate = cls.model_construct(
+            schema_version=1,
+            sampling_policy="FINAL_PHASE_SAMPLES_V1",
+            weather_mode=weather_mode,
+            forecast_run_id=forecast_run_id,
+            calculation_fingerprint=calculation_fingerprint,
+            samples=tuple(sample.model_copy(deep=True) for sample in samples),
+            content_sha256="",
+        )
+        candidate.content_sha256 = candidate._content_digest()
+        return cls.model_validate_json(candidate.model_dump_json())
+
+
+def saved_weather_snapshot(
+    forecast_metadata: dict[str, Any],
+    *,
+    weather_mode: Literal["FORECAST", "FTD"],
+    forecast_run_id: str | None,
+    calculation_fingerprint: str,
+) -> CalculationWeatherSnapshot | None:
+    """Read optional v1 evidence without inventing samples for historical results."""
+
+    if "weather_snapshot" not in forecast_metadata:
+        return None
+    snapshot = CalculationWeatherSnapshot.model_validate_json(
+        json.dumps(forecast_metadata["weather_snapshot"], allow_nan=False)
+    )
+    if (
+        snapshot.weather_mode != weather_mode
+        or snapshot.forecast_run_id != forecast_run_id
+        or snapshot.calculation_fingerprint != calculation_fingerprint
+    ):
+        raise ValueError("weather snapshot calculation binding mismatch")
+    return snapshot

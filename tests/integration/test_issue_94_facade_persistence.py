@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import copy
 from datetime import UTC, date, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 from autonavlog.domain.calculation import Issue, RjfmInboundGuidance
 from autonavlog.domain.enums import IssueSeverity
-from autonavlog.domain.weather import ForecastRequirement, ForecastRun, RunSelectionStatus
+from autonavlog.domain.weather import (
+    ForecastRequirement,
+    ForecastRun,
+    RunSelectionStatus,
+    saved_weather_snapshot,
+)
 from autonavlog.importers.kml import import_kml_text
+from autonavlog.local_persistence import migrate_record
 from autonavlog.weather.fake_provider import FakeWeatherProvider
 from autonavlog.web.facade import AutoNavLogWebApplication, WebApplicationError
 from autonavlog.web.models import ConfirmRouteRequest, SaveProjectRequest, UpdateProjectRequest
@@ -27,6 +35,42 @@ KML = """<?xml version="1.0" encoding="UTF-8"?>
 131.7372222222,33.4794444444,0
 </coordinates></LineString></Placemark></Document></kml>
 """
+
+
+@pytest.mark.parametrize("weather_mode", ["FORECAST", "FTD"])
+def test_weather_snapshot_survives_local_record_and_historical_record_load(tmp_path, weather_mode):
+    application = _application(tmp_path / "storage")
+    application.development_weather = False
+    session, _ = _new_project(application, weather_mode=weather_mode)
+    application.calculate(session)
+    last = session.last_calculation.model_copy(deep=True)
+    snapshot = last.forecast_metadata["weather_snapshot"]
+    assert snapshot["weather_mode"] == weather_mode
+    # Local/Sync records strip Legacy owner identity but preserve calculation
+    # inputs and fingerprints. Normalized samples belong to that same result.
+    last.project.metadata.pop("web_owner_id", None)
+    payload = {
+        "schemaVersion": 2,
+        "id": str(last.project.id),
+        "token": str(uuid4()),
+        "checkpoint": last.project.model_dump(mode="json"),
+        "draft": last.project.model_dump(mode="json"),
+        "lastCalculation": last.model_dump(mode="json"),
+        "updatedAt": datetime.now(UTC).isoformat(),
+    }
+    restored = migrate_record(payload)
+    assert restored.lastCalculation.forecast_metadata["weather_snapshot"] == snapshot
+    before = copy.deepcopy(payload)
+    damaged = copy.deepcopy(payload)
+    damaged["lastCalculation"]["forecast_metadata"]["weather_snapshot"]["samples"].pop()
+    with pytest.raises(ValueError):
+        migrate_record(damaged)
+    assert payload == before
+    historical = copy.deepcopy(payload)
+    historical["lastCalculation"]["forecast_metadata"].pop("weather_snapshot")
+    old = migrate_record(historical)
+    assert old.lastCalculation.outcome == restored.lastCalculation.outcome
+    assert "weather_snapshot" not in old.lastCalculation.forecast_metadata
 
 
 class BoundedForecastWeatherProvider(FakeWeatherProvider):
@@ -504,12 +548,23 @@ def test_forecast_identity_metadata_and_warning_outcome_are_persisted(
     assert len(forecast_run_id) == 14
     assert record.forecast_metadata["provider"] == "fake"
     assert record.forecast_metadata["forecast_run_id"] == forecast_run_id
+    snapshot = saved_weather_snapshot(
+        record.forecast_metadata,
+        weather_mode=record.project.weather_mode,
+        forecast_run_id=record.selected_forecast_run_id,
+        calculation_fingerprint=record.calculation_fingerprint,
+    )
+    assert snapshot is not None
+    assert any(sample.request.request_id == "destination:surface" for sample in snapshot.samples)
 
     restarted = _application(storage_root)
     restarted.development_weather = False
     restored_state = restarted.present(restarted.create_session(OWNER))
     assert restored_state["project"]["selected_forecast_run_id"] == forecast_run_id
     assert restored_state["outcome"]["selected_forecast_run_id"] == forecast_run_id
+    assert restored_state["workingRecovery"]["last_calculation"]["forecast_metadata"] == (
+        record.forecast_metadata
+    )
 
     assert session.project is not None
     assert session.outcome is not None

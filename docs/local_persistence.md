@@ -18,6 +18,25 @@ Each JSON-compatible record contains:
   CalculationOutcome, destination wind, forecast metadata/selected Run, and calculation
   input fingerprint. This reuses `WorkingCalculation`'s domain validation, not the UI snapshot.
 
+New successful calculations additionally retain an optional
+`forecast_metadata.weather_snapshot` (nested schema 1). It contains the final
+normalized request/result pair for every requested Physical Leg/Phase, including
+unused candidate phases and unavailable responses, plus both airport surface
+samples. The destination sample is replaced with the final calculated-arrival
+query when that query is used. Original wind/temperature values, sampling times,
+coordinates, heights, warnings and provenance are retained; user overrides stay
+in the calculation-time Project. This is scalar sampled evidence, not a raw MSM
+grid or a forecast field that can be queried at a new time.
+
+The snapshot is bound to weather mode, Forecast Run and calculation fingerprint,
+with a SHA-256 checksum over full-precision JSON. Both Local recovery and Legacy
+last-good validation reject inconsistent snapshots. The optional extension uses
+the existing metadata container and does not change the envelope, Project or
+result schema. Historical calculations without the key remain viewable; missing
+samples are never reconstructed from displayed cells or disposable caches.
+This preparatory change does not add a rounding button, replay operation, mode
+preference, or a rule choosing which comparison result to save/export.
+
 There are no UI drafts, importer bytes, owner identity, runtime handles, or raw Weather
 arrays in this record. Export/backup or later Account Sync can consume these ordinary
 records; this issue adds no user-facing backup or authentication UI.
@@ -100,7 +119,10 @@ decode, raw/normalized storage choice, TTL, and invalidation; if it uses another
 backend it must supply an equivalent disposable-cache eviction callback. This issue does
 not create Weather data or duplicate Pyodide's bundled fixed fixture. Weather cache loss
 never removes calculation provenance or prevents saved NAV LOG display. Full historical
-Weather replay is not guaranteed.
+Weather replay for historical records without the optional scalar snapshot is
+not guaranteed. Snapshot retention prepares fixed-sample recomputation after
+cache eviction; it does not implement that operation or supply a missing forecast
+field for different sampling times/locations.
 
 [Platform persistence access](platform_capabilities.md) supplies the existing IndexedDB
 Repository factory, the disposable-cache eviction callback, and best-effort
