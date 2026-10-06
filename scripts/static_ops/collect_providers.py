@@ -244,7 +244,8 @@ def github_cache(client, repository, now):
     }
 
 
-def collect(env, now, client=None):
+def collect_fragments(env, now, client=None):
+    """Return native fragments in memory for the collection gate, never for export."""
     client = client or api.Client(env)
     fragments = {}
     checks = []
@@ -283,6 +284,11 @@ def collect(env, now, client=None):
         return github_cache(client, repository, now)
 
     run("github_cache_usage_and_configuration", cache)
+    return fragments, checks
+
+
+def collect(env, now, client=None):
+    _, checks = collect_fragments(env, now, client)
     return {
         "status": "BLOCKED",
         "kind": "native_collection_incomplete",
