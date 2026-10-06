@@ -12,22 +12,27 @@ jobs:
   monitor:
     if: vars.STATIC_MONITOR_ENABLED == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
       - name: Check public catalog freshness (read only)
         env:
           STATIC_ORIGIN: ${{ vars.STATIC_ORIGIN }}
         run: python3 scripts/static_ops/operations.py monitor --origin "$STATIC_ORIGIN" >> "$GITHUB_STEP_SUMMARY"
-      - name: Evaluate provider quota evidence (v2) even if weather failed
+      - name: Collect and validate current provider evidence even if weather failed
         if: always()
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          STATIC_QUOTA_REPORT: ${{ vars.STATIC_QUOTA_REPORT }}
+          STATIC_CLOUDFLARE_READ_TOKEN: ${{ secrets.STATIC_CLOUDFLARE_READ_TOKEN }}
+          STATIC_GITHUB_READ_TOKEN: ${{ secrets.STATIC_GITHUB_READ_TOKEN }}
+          # Google unattended authentication is not configured yet. A missing
+          # short-lived token keeps collection BLOCKED; no static-token fallback.
         shell: bash
-        run: python3 scripts/static_ops/operations.py quota 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          set -euo pipefail
+          python3 scripts/static_ops/collection_gate.py | tee -a "$GITHUB_STEP_SUMMARY"

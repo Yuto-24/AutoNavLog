@@ -74,7 +74,7 @@ def assemble(plans, plan_observations, metrics, scopes, limits, now, *, publicat
     return operations.quota(report, now, scopes, publication=publication, collected=True)
 
 
-def evaluate(env, now, *, client=None, limits_client=None, publication=False):
+def evaluate(env, now, *, client=None, limits_client=None, publication=False, clock=None):
     """Attempt independent sources and expose fixed statuses only, even on failure."""
     fragments, checks = native.collect_fragments(env, now, client)
     limits = verify_limits.audit(now, limits_client)
@@ -104,8 +104,16 @@ def evaluate(env, now, *, client=None, limits_client=None, publication=False):
         "github_owner_shared_allowance_and_billing_control",
         "github_cache_accrued_billing",
     ]
+    # Requests can cross a provider reset or freshness boundary. Validate at the
+    # end of collection without relabeling earlier observations as fresh evidence.
+    evaluated_at = (clock or (lambda: datetime.now(UTC)))()
     try:
-        assemble(plans, plan_observations, metrics, scopes, limits, now, publication=publication)
+        if evaluated_at < now:
+            raise ValueError("evaluation_clock_moved_backwards")
+        assemble(
+            plans, plan_observations, metrics, scopes, limits, evaluated_at,
+            publication=publication,
+        )
         status = "OK"
     except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
         status = "BLOCKED"
@@ -113,6 +121,7 @@ def evaluate(env, now, *, client=None, limits_client=None, publication=False):
         "status": status,
         "gate": "publication" if publication else "monitor",
         "attempted_at": now.isoformat(),
+        "evaluated_at": evaluated_at.isoformat(),
         "collection": checks,
         "official_limits": [
             {"source": check["source"], "status": check["status"]}

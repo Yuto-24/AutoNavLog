@@ -31,24 +31,33 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
       STATIC_ORIGIN: ${{ vars.STATIC_ORIGIN }}
-      STATIC_QUOTA_REPORT: ${{ vars.STATIC_QUOTA_REPORT }}
       APPROVED_SHA: ${{ vars.STATIC_APPROVED_SHA }}
       REQUESTED_SHA: ${{ inputs.source_sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           path: tooling
           persist-credentials: false
-      - name: Validate approved source and free-tier evidence
+      - name: Collect current provider evidence before building
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          STATIC_CLOUDFLARE_READ_TOKEN: ${{ secrets.STATIC_CLOUDFLARE_READ_TOKEN }}
+          STATIC_GITHUB_READ_TOKEN: ${{ secrets.STATIC_GITHUB_READ_TOKEN }}
+          # Google unattended authentication remains pending; collection fails closed.
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tooling/scripts/static_ops/collection_gate.py --publication | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Validate approved source and current deployment
         id: source
         run: |
           set -euo pipefail
           source_sha="${REQUESTED_SHA:-$APPROVED_SHA}"
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
-          python3 tooling/scripts/static_ops/operations.py quota --publication
           python3 tooling/scripts/static_ops/operations.py preflight --origin "$STATIC_ORIGIN" --sha "$APPROVED_SHA"
           echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ steps.source.outputs.sha }}
           path: app
@@ -102,18 +111,28 @@ jobs:
         run: |
           sha256sum web/dist-static/release.json >> "$GITHUB_STEP_SUMMARY"
           npm --prefix web run check:static >> "$GITHUB_STEP_SUMMARY"
+      - name: Install independent upload CLI
+        if: github.event_name == 'schedule' || inputs.publish
+        run: npm --prefix tooling/services/taf-proxy ci
       - name: Repeat publication gates
         if: github.event_name == 'schedule' || inputs.publish
         env:
           EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
         run: |
-          python3 tooling/scripts/static_ops/operations.py quota --publication
           python3 tooling/scripts/static_ops/operations.py preflight --origin "$STATIC_ORIGIN" --sha "$APPROVED_SHA"
           npm --prefix app/web run check:static
           python3 tooling/scripts/static_ops/check_candidate.py app/web/dist-static/release.json
-      - name: Install independent upload CLI
+      - name: Collect fresh provider evidence before upload
         if: github.event_name == 'schedule' || inputs.publish
-        run: npm --prefix tooling/services/taf-proxy ci
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          STATIC_CLOUDFLARE_READ_TOKEN: ${{ secrets.STATIC_CLOUDFLARE_READ_TOKEN }}
+          STATIC_GITHUB_READ_TOKEN: ${{ secrets.STATIC_GITHUB_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tooling/scripts/static_ops/collection_gate.py --publication | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload static files only (TAF Worker is independent)
         if: github.event_name == 'schedule' || inputs.publish
         working-directory: app/web

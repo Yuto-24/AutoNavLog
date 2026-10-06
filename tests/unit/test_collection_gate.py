@@ -28,14 +28,14 @@ fixtures = load("gate_schema_fixtures", ROOT / "tests/unit/test_static_operation
 NOW = fixtures.NOW
 
 
-def evidence():
-    report = fixtures.report(NOW)
+def evidence(now=NOW):
+    report = fixtures.report(now)
     for name, limit in gate.verify_limits.LIMITS.items():
         report["metrics"][name]["limit"] = limit
     limits = {
         "status": "OK",
         "limits": dict(gate.verify_limits.LIMITS),
-        "limits_checked_at": NOW.isoformat(),
+        "limits_checked_at": now.isoformat(),
         "checks": [
             {"source": source, "url": url, "status": "verified", "sha256": "a" * 64}
             for source, url in gate.verify_limits.SOURCES.items()
@@ -43,11 +43,11 @@ def evidence():
     }
     return {
         "plans": report["plans"],
-        "plan_observations": {name: NOW.isoformat() for name in report["plans"]},
+        "plan_observations": {name: now.isoformat() for name in report["plans"]},
         "metrics": report["metrics"],
         "scopes": report["scopes"],
         "limits": limits,
-        "now": NOW,
+        "now": now,
     }
 
 
@@ -156,8 +156,43 @@ def test_no_report_fallback_or_native_data_export(monkeypatch, publication):
         ),
     )
     monkeypatch.setattr(gate.verify_limits, "audit", lambda *args: evidence()["limits"])
-    result = gate.evaluate(NoReportEnv(STATIC_QUOTA_REPORT="SECRET"), NOW, publication=publication)
+    result = gate.evaluate(
+        NoReportEnv(STATIC_QUOTA_REPORT="SECRET"), NOW,
+        publication=publication, clock=lambda: NOW,
+    )
     assert result["status"] == "BLOCKED"
     output = json.dumps(result)
     assert "SECRET" not in output and "PRIVATE" not in output
     assert "metrics" not in result and "plans" not in result and "limits_checked_at" not in result
+
+
+@pytest.mark.parametrize("publication", [False, True])
+def test_collection_revalidates_after_provider_period_rollover(monkeypatch, publication):
+    # A valid report at collection start must not authorize publication next month.
+    started = NOW.replace(day=30, hour=23, minute=59, second=59)
+    data = evidence(started)
+    original = gate.assemble
+    assert original(**data, publication=publication)["status"] == "OK"
+    finished = started + timedelta(seconds=2)
+    seen = []
+
+    def complete_collection(*args, **kwargs):
+        seen.append(args[-1])
+        return original(**{**data, "now": args[-1]}, **kwargs)
+
+    monkeypatch.setattr(gate.native, "collect_fragments", lambda *args: ({}, []))
+    monkeypatch.setattr(gate.verify_limits, "audit", lambda *args: data["limits"])
+    monkeypatch.setattr(gate, "assemble", complete_collection)
+    result = gate.evaluate({}, started, clock=lambda: finished, publication=publication)
+    assert seen == [finished]
+    assert result["status"] == "BLOCKED"
+    assert result["attempted_at"] == started.isoformat()
+    assert result["evaluated_at"] == finished.isoformat()
+    assert data["limits"]["limits_checked_at"] == started.isoformat()
+
+
+def test_collection_blocks_backwards_evaluation_clock(monkeypatch):
+    monkeypatch.setattr(gate.native, "collect_fragments", lambda *args: ({}, []))
+    monkeypatch.setattr(gate.verify_limits, "audit", lambda *args: evidence()["limits"])
+    monkeypatch.setattr(gate, "assemble", lambda *args, **kwargs: pytest.fail("clock invalid"))
+    assert gate.evaluate({}, NOW, clock=lambda: NOW - timedelta(seconds=1))["status"] == "BLOCKED"

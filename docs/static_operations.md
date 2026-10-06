@@ -52,9 +52,9 @@ After explicit authorization, the operator configures:
    the intended account. Keep #145 Worker credentials and configuration outside
    this workflow. Never expose the Pages token to the application build.
 4. Complete and accept unattended provider collection before enabling monitoring.
-   The existing `STATIC_QUOTA_REPORT` workflow is the legacy implementation, not the
-   accepted steady-state model. Do not periodically replace that variable to unblock
-   activation. Failure-notification receipt was already accepted on 2026-10-03; the
+   The workflows call the native collection gate directly. Its missing adapters and
+   unattended Google authentication still block activation, including build-only
+   dispatches. Do not periodically replace `STATIC_QUOTA_REPORT` to unblock them. Failure-notification receipt was already accepted on 2026-10-03; the
    remaining gate is healthy current-evidence collection. See the read-only checklist below.
 5. Run build-only dispatch, inspect checks, then an approved publication. Confirm real
    origin/cache/ETag/404 and browser behavior per #121. Only then enable recurring updates.
@@ -119,20 +119,37 @@ opt-outs, synthetic forecasts, a different application branch or Legacy fallback
 
 ## Quota evidence and monitoring
 
-`static-monitor.yml` evaluates schema v2 evidence hourly even if weather failed. It
-prints validation failures and successful evaluations into the job summary. This is
-continuous **evaluation**, not automatic collection. Missing, malformed, non-finite,
-wrong-target, future or stale (>36 hours) evidence fails. Refresh observations after
-each provider reset as well as daily; a recently fetched previous-month report is not
-current-month evidence. An API permission error, unavailable dashboard or missing row
-is unknown, never zero. Do not enable billing to collect evidence.
+`static-monitor.yml` calls `collection_gate.py` on each enabled run, even if weather
+failed. Production calls it with `--publication` before building and again before
+uploading. Each call collects fresh native fragments and checks the current official
+limit clauses; it never reads `STATIC_QUOTA_REPORT`, a report file, an artifact, or a
+previous collection result. The summary contains fixed diagnostic statuses, not raw
+provider responses or billing rows. Shell pipelines preserve collector failure.
 
-Plan/billing observations must be refreshed daily. Publication uses `quota --publication`
-and checks current, target-bound Free/Spark/public-standard and **boolean false**
-`automatic_billing`, plus `limits_checked_at` (at release and at least every 31 days).
-Usage failure does not stop MSM publication: Direct Upload uses no Pages builds and the
-feed workflow adds no artifact uploads/cache writes. This preserves the independence of
-Local calculation, TAF, Sync and weather. A passing publication gate is not healthy usage.
+**Collection is incomplete and fails closed today, including build-only dispatches.**
+Connecting the workflow does not establish real-account API coverage or unattended
+operation. Keep both activation variables disabled until the remaining evidence and
+authentication gates are accepted. The monitor timeout allows the existing bounded
+provider/public-limit requests plus the independent public-catalog check.
+
+Missing, malformed, non-finite, wrong-target, future or stale (>36 hours) evidence fails.
+Each observation must also belong to the current provider period. An API permission
+error, unavailable dashboard or missing row is unknown, never zero. No timestamp is
+renewed merely because a workflow ran. `limits_checked_at` comes only from successful
+semantic verification of all official limit sources (at release and at least monthly).
+
+Publication requires all nine valid current metrics, target-bound Free/Spark/public-standard
+plans, disabled billing and verified limits. Only valid optional-feature numeric usage
+warnings are ignored in publication mode; missing collection and nonzero billing still
+stop publication. A passing publication gate is not healthy usage.
+
+Read tokens are exposed only to collection steps, never to the build or `VITE_*`.
+The workflows reference the existing Cloudflare read-token name and the proposed GitHub
+read-token name; this change does not create either credential. Google unattended
+authentication has not been configured or established as compatible with Spark/billing-off.
+The workflows intentionally supply no stored short-lived Google access token or service
+account key. Missing Google credentials remain a collection failure until an approved,
+verified unattended handoff is implemented; a periodically replaced token is not a solution.
 
 ### Schema v2
 
@@ -328,9 +345,9 @@ with those results; do not mark the production automation gate complete from loc
 
 The [latest #123 decision](https://github.com/Yuto-24/AutoNavLog/issues/123#issuecomment-5972103619)
 supersedes periodic manual `STATIC_QUOTA_REPORT` renewal as the operating model.
-**Unattended collection is not implemented or accepted yet.** The workflows above
-still evaluate operator reports; they must not be activated on the strength of the
-new probe. The schema example and migration commands remain diagnostic tools, not
+**Complete unattended collection is not implemented or accepted yet.** The workflows
+now call the collection gate directly, but required native mappings and Google unattended
+authentication remain incomplete. They must not be activated on the strength of the probe. The schema example and migration commands remain diagnostic tools, not
 an unattended collection solution. September evidence is historical only.
 
 `python3 scripts/static_ops/probe_providers.py` performs bounded, read-only API
@@ -475,17 +492,16 @@ existing `free-plans-only` publication result. It ignores numeric usage warning
 thresholds, so valid TAF/Sync exhaustion does not interrupt MSM publication. Unknown,
 incomplete, stale or malformed collection and nonzero billing still fail. This flag is
 an internal validator mode, **not proof that collection occurred**. The legacy CLI and
-existing plan-only migration interface are unchanged until a complete native collector
-can supply trustworthy evidence. No workflow integration is claimed by this preparatory
-change.
+plan-only migration interface remain diagnostic tools. Live workflows now use
+`collection_gate.py`, which always uses `collected=True`; they cannot fall back to that
+legacy interface when collection fails.
 
-When those sources are verified, the collector must build a new report entirely from
-current responses, call this boundary, and expose only a reviewed non-secret audit
-summary. Both monitor and repeated pre-upload publication checks must invoke it directly,
-with read credentials scoped to those steps (never build/job-wide or `VITE_*`). A
-collection failure must stop the gate without consulting `STATIC_QUOTA_REPORT` or cached
-reports. Until then the remaining work is blocked, not satisfied by periodic manual data
-entry. Keep recurring production disabled. Live failure-notification delivery and
+The gate assembles an in-memory report only when all required plans, per-plan
+observations, nine metrics and official-limit attestations are available. It preserves
+native observation timestamps and uses the oldest plan observation. Monitor and both
+publication checks invoke it directly with step-scoped credentials. Collection failure
+stops the gate without consulting `STATIC_QUOTA_REPORT` or cached reports. Missing native
+mappings still block acceptance; periodic manual data entry cannot satisfy that gate. Keep recurring production disabled. Live failure-notification delivery and
 same-origin rollback/Local retention have already been accepted in #123 and need not
 be repeated for this implementation.
 
@@ -524,17 +540,19 @@ No fragments, billing rows, project metadata or tokens are exported. It neither 
 
 The Firestore quota numbers are reviewed constants, **not** a fresh limits review.
 Neither this collector nor its tests renew `limits_checked_at`. The separate `verify_limits.py` implements official-limit semantic checks, but its
-live HTML acceptance and integration remain unverified; a successful fetch, digest, fixture,
+live HTML acceptance remains unverified; a successful fetch, digest, fixture,
 account query or test run must never renew that timestamp by itself. The four Firestore
 fragments have offline integration coverage against the existing schema-v2 validator;
 fixtures do not prove API availability or explicit zero-series coverage on this account.
 
 The full #123 implementation is still incomplete: Cloudflare plan/account-total adapters,
 Firestore outbound's current three-surface finding, GitHub accrued SKU/shared allowance
-and billing controls, live limit-verifier acceptance, complete report assembly, audit summary
-and workflow replacement have not been completed. `static-monitor` and
-`static-production` remain unchanged; their current manual-report implementation must
-not be described as unattended acceptance. Keep recurring publication disabled.
+and billing controls, live limit-verifier acceptance and unattended Google authentication
+remain unverified or unsupported. In-memory report assembly, fixed-status audit output,
+and direct monitor/publication workflow routing are implemented. Final validation uses
+the collection completion time, so a provider reset during collection cannot keep an old
+period valid; original evidence timestamps are preserved. These changes are not
+unattended acceptance. Keep recurring publication disabled.
 
 The smallest next **read-only access verification**, distinct from permission to create
 credentials, is to run the probe and native collector using existing approved credentials
