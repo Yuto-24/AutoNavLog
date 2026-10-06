@@ -138,7 +138,10 @@ for (const width of [1100, 1440]) {
     await page.getByRole("button", { name: "経路を確定", exact: true }).click();
     await expect(page.getByLabel("DATE", { exact: true })).toBeInViewport();
     await expect(page.getByLabel("DATE", { exact: true })).toBeFocused();
-    if (local) expect(await page.evaluate(() => (window as any).planningRenderDelay.delayed)).toBeGreaterThan(0);
+    if (local) {
+      expect(await page.evaluate(() => (window as any).planningRenderDelay.delayed)).toBeGreaterThan(0);
+      expect(await page.evaluate(() => (window as any).planningRenderDelay.focusFrameBeforeCommit)).toBe(true);
+    }
     await expect(page.locator(".route-workspace.is-route-building")).toHaveCount(0);
     const input = (await page.locator(".input-rail").boundingBox())!;
     const route = (await page.locator(".route-workspace").boundingBox())!;
