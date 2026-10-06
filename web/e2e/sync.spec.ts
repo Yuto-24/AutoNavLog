@@ -21,11 +21,19 @@ async function create(page: Page, name: string) {
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   await expect(page.getByLabel("RJFM出発Legの計画高度", { exact: true })).toBeVisible();
   for (const [node, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
-    await page.getByLabel(`${node}出発Legの計画高度`, { exact: true }).fill(altitude!);
+    const input = page.getByLabel(`${node}出発Legの計画高度`, { exact: true });
+    // Unlike fill(), click scrolls into view and waits for a stable target.
+    await input.click();
+    await input.fill(altitude!);
+    await expect(input).toHaveValue(altitude!);
   }
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
   await expect(page.locator(".nav-log-table")).toBeVisible();
-  await page.getByLabel("プロジェクト", { exact: true }).fill(name);
+  await expect(page.getByLabel("計算済みNAV LOG", { exact: true })).toBeFocused();
+  const projectName = page.getByLabel("プロジェクト", { exact: true });
+  await projectName.click();
+  await projectName.fill(name);
+  await expect(projectName).toHaveValue(name);
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.locator("#saved-project option").filter({ hasText: name })).toHaveCount(1);
 }

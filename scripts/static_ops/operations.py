@@ -93,17 +93,26 @@ def quota_window(name: str, metric: dict, now: datetime, observed: datetime) -> 
         raise ValueError(f"Observation belongs to another quota period: {name}")
 
 
-def quota(report: dict, now: datetime, scopes: dict, *, publication: bool = False) -> dict:
+def quota(
+    report: dict,
+    now: datetime,
+    scopes: dict,
+    *,
+    publication: bool = False,
+    collected: bool = False,
+) -> dict:
     """Validate provider evidence; only Spark outbound has an unobservable variant."""
     try:
-        return validate_quota(report, now, scopes, publication=publication)
+        return validate_quota(report, now, scopes, publication=publication, collected=collected)
     except (KeyError, TypeError, AttributeError, OverflowError) as error:
         raise ValueError(
             "Malformed quota evidence; see docs/static_operations.md (schema v2)"
         ) from error
 
 
-def validate_quota(report: dict, now: datetime, scopes: dict, *, publication: bool) -> dict:
+def validate_quota(
+    report: dict, now: datetime, scopes: dict, *, publication: bool, collected: bool = False
+) -> dict:
     if (
         report["plans"]
         != {
@@ -134,7 +143,7 @@ def validate_quota(report: dict, now: datetime, scopes: dict, *, publication: bo
             raise ValueError("Plan evidence differs from deployment target scopes")
     if not now - timedelta(hours=36) <= instant(report["plans_observed_at"]) <= now:
         raise ValueError("Plan/billing evidence is stale or future")
-    if publication:
+    if publication and not collected:
         # Optional TAF/Sync exhaustion must not cause an unrelated MSM feed outage.
         return {"status": "OK", "gate": "free-plans-only", "checked_at": now.isoformat()}
     if type(report.get("schema_version")) is not int or report["schema_version"] != 2:
@@ -248,8 +257,10 @@ def validate_quota(report: dict, now: datetime, scopes: dict, *, publication: bo
             quota_window("actions_cache_billing", billing, now, observed)
             if evidence_number(billing["billed_amount_usd"], f"{name}.billing") != 0:
                 raise ValueError("Cache storage has a nonzero billed amount")
-        if used / limit >= 0.8:
+        if not publication and used / limit >= 0.8:
             raise ValueError(f"Quota warning >=80%: {name}")
+    if publication:
+        return {"status": "OK", "gate": "free-plans-only", "checked_at": now.isoformat()}
     return {
         "status": "OK",
         "observations": len(metrics),
