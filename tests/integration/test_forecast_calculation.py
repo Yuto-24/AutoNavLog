@@ -1,5 +1,8 @@
 """Whole NAV LOG restarts use one model and preserve forecast failure semantics."""
+import pytest
+
 from autonavlog.application.calculation_service import CalculationService
+from autonavlog.domain.project import FtdWeatherSettings, ManualWind
 from autonavlog.domain.weather import ForecastCoverageError
 from autonavlog.weather.fake_provider import FakeWeatherProvider
 from autonavlog.weather.forecast_provider import ForecastWeatherProvider
@@ -41,6 +44,24 @@ def test_whole_calculation_uses_fallback_model(airports, performance_repository,
     assert not msm.query_history
     assert all(r.metadata["model"] == "GSM" for r in service.last_weather_results)
     assert not any("FALLBACK" in i.code for i in result.issues)
+
+
+@pytest.mark.parametrize("weather_mode", ["FORECAST", "FTD"])
+@pytest.mark.parametrize("provider_model", [None, "MSM", "GSM"])
+def test_direct_provider_model_is_not_invented_or_inherited(
+    airports, performance_repository, project, weather_mode, provider_model,
+):
+    if weather_mode == "FTD":
+        project.ftd_weather = FtdWeatherSettings(
+            surface_wind=ManualWind(direction_deg_from=360, speed_kt=0),
+            wind_at_5000_ft=ManualWind(direction_deg_from=360, speed_kt=0),
+        )
+    project.weather_mode = weather_mode
+    project.selected_forecast_model, project.selected_forecast_run_id = "GSM", OLD
+    provider = FakeWeatherProvider() if provider_model is None else Candidates(provider_model)
+    result = CalculationService(airports, performance_repository).calculate(project, provider)
+    assert result.sections and result.converged
+    assert result.selected_forecast_model == (None if weather_mode == "FTD" else provider_model)
 
 
 def test_processing_blocks_before_gsm(airports, performance_repository, project):

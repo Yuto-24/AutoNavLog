@@ -808,7 +808,7 @@ class CalculationService:
             selected_forecast_run_id=selected_run_id,
             selected_forecast_model=(
                 provider.selected_model if isinstance(provider, ForecastWeatherProvider)
-                else (None if working.weather_mode == "FTD" else "MSM")
+                else (None if working.weather_mode == "FTD" else getattr(provider, "model", None))
             ),
             forecast_provenance=dict(self.last_forecast_metadata),
             sections=final.sections,
