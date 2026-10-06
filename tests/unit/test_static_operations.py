@@ -576,3 +576,54 @@ def test_small_current_cache_cannot_hide_accrued_charges(field, value):
     evidence["metrics"]["actions_cache_storage_bytes"]["billing"][field] = value
     with pytest.raises(ValueError):
         ops.quota(evidence, NOW, SCOPES)
+
+
+def test_collected_publication_requires_complete_current_evidence_but_ignores_warnings():
+    evidence = unobservable_report()
+    for metric in evidence["metrics"].values():
+        if metric["observation"] == "counter":
+            metric["used"] = metric["limit"]
+    assert ops.quota(evidence, NOW, SCOPES, publication=True, collected=True)["gate"] == (
+        "free-plans-only"
+    )
+    with pytest.raises(ValueError, match="80%"):
+        ops.quota(evidence, NOW, SCOPES, collected=True)
+    for name in evidence["metrics"]:
+        incomplete = copy.deepcopy(evidence)
+        del incomplete["metrics"][name]
+        with pytest.raises(ValueError, match="Incomplete"):
+            ops.quota(incomplete, NOW, SCOPES, publication=True, collected=True)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda r: r.pop("metrics"),
+        lambda r: r.pop("schema_version"),
+        lambda r: r["metrics"]["workers_requests"].update(used=None),
+        lambda r: r["metrics"]["firestore_reads"].update(observed_at="2026-09-22T12:00:00Z"),
+        lambda r: r["metrics"]["actions_storage_gb_hours"].update(billed_amount_usd=0.02),
+        lambda r: r["metrics"]["actions_cache_storage_bytes"]["billing"].update(
+            billed_amount_usd=1
+        ),
+        lambda r: r["metrics"]["actions_storage_gb_hours"]["shared_allowance"].update(
+            status="credits"
+        ),
+        lambda r: r["metrics"]["firestore_outbound_bytes"].update(reason="permission_denied"),
+        lambda r: r.update(limits_checked_at="2026-08-01T12:00:00Z"),
+        lambda r: r["plans"].update(firebase="Blaze"),
+    ],
+)
+def test_collected_publication_rejects_invalid_usage_and_billing(mutate):
+    evidence = unobservable_report()
+    mutate(evidence)
+    with pytest.raises(ValueError):
+        ops.quota(evidence, NOW, SCOPES, publication=True, collected=True)
+
+
+def test_validation_never_renews_any_evidence_timestamp():
+    evidence = unobservable_report()
+    before = copy.deepcopy(evidence)
+    ops.quota(evidence, NOW, SCOPES, collected=True)
+    ops.quota(evidence, NOW, SCOPES, publication=True, collected=True)
+    assert evidence == before

@@ -38,7 +38,11 @@ jobs:
         with:
           persist-credentials: false
       - run: docker build --target test --tag autonavlog:test .
-      - run: docker run --rm autonavlog:test
+      - name: Run tests with the capability workflow contract
+        run: >-
+          docker run --rm
+          --mount type=bind,source="$PWD/.github/workflows/static-provider-probe.yml",target=/opt/autonavlog/.github/workflows/static-provider-probe.yml,readonly
+          autonavlog:test
 
   runtime:
     runs-on: ubuntu-latest
