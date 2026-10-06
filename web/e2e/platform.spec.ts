@@ -155,18 +155,26 @@ test("download and Clipboard export the displayed result, survive denial, and re
     expect(regions[3].y).toBeGreaterThanOrEqual(Math.max(...regions.slice(0, 3).map(region => region.bottom)));
     expect(regions[4].y).toBeGreaterThanOrEqual(regions[3].bottom);
     const content = page.locator(".nav-log-focus-target");
-    const selectors = [".nav-log-summary", ".nav-log-scroll", ".fuel-plan-section", ".nav-log-disclaimer", ".navlog-export-actions"];
-    const boxes = await Promise.all(selectors.map(selector => content.locator(selector).boundingBox()));
+    // Read one layout snapshot so smooth scrolling cannot mix viewport coordinates.
+    const { boxes, section, buttons } = await content.evaluate(element => {
+      const rect = (selector: string) => {
+        const box = element.querySelector(selector)!.getBoundingClientRect();
+        return { x: box.x, y: box.y, width: box.width, height: box.height };
+      };
+      return {
+        boxes: [".nav-log-summary", ".nav-log-scroll", ".fuel-plan-section", ".nav-log-disclaimer", ".navlog-export-actions"].map(rect),
+        section: rect(".nav-log-section"),
+        buttons: [1, 2].map(index => rect(`.navlog-export-actions button:nth-child(${index})`)),
+      };
+    });
     for (let i = 1; i < boxes.length; i++) {
       expect(boxes[i]!.y).toBeGreaterThanOrEqual(boxes[i - 1]!.y + boxes[i - 1]!.height);
     }
-    const section = (await page.locator(".nav-log-section").boundingBox())!;
     expect(boxes[4]!.y - section.y - section.height).toBeGreaterThanOrEqual(16);
     const actions = content.locator(".navlog-export-actions");
     await expect(actions.locator("button")).toHaveCount(2);
     expect(await actions.evaluate(element => getComputedStyle(element).gap)).toBe("8px");
     expect(await actions.evaluate(element => element.closest(".nav-log-scroll"))).toBeNull();
-    const buttons = await Promise.all([0, 1].map(index => actions.locator("button").nth(index).boundingBox()));
     expect(buttons[0]!.x).toBe(boxes[3]!.x);
     expect(boxes[4]!.width - 32).toBe(boxes[3]!.width);
     if (width === 390) expect(buttons[1]!.y).toBeGreaterThanOrEqual(buttons[0]!.y + buttons[0]!.height + 8);
