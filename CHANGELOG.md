@@ -2,6 +2,18 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.22.5
+
+### 利用者向け
+
+#### 改善
+
+- NAV LOG JSONのダウンロード・コピー操作をNAV LOG下部へ移動する
+
+### 開発者向け
+
+- #220: JSON export操作をNavLogTableの後ろへ移し、上余白を追加。既存のハンドラー、通知、disabled状態、計算後のscroll / focusを維持。
+
 ## 1.22.4
 
 ### 利用者向け
