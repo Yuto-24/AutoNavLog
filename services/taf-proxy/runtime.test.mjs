@@ -37,11 +37,18 @@ test("workerd: real module, CORS/cache/rate bindings and no redirect forwarding"
     }
     assert.equal((await get("RJFM")).status, 200);
     assert.equal(calls.length, 1);
+    const warm = await Promise.all(Array.from({ length: 100 }, () => get("RJFM")));
+    assert.ok(warm.every(response => response.status === 200));
+    assert.equal(calls.length, 1); // Warm readers do not consume the school-IP miss limit.
+    const cold = await Promise.all(Array.from({ length: 100 }, () => get("RJFO")));
+    assert.ok(cold.every(response => response.status === 200));
+    for (const response of cold) assert.deepEqual(await response.json(), [{ icaoId: "RJFO" }]);
+    assert.equal(calls.length, 2); // Native workerd bindings still allow only one station miss.
     assert.equal((await get("RJFM", "https://evil.example")).status, 403);
     assert.equal((await get("RJFK")).status, 502);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 3);
     // The failed fetch consumed the station's native rate token, and was not cached.
     assert.equal((await get("RJFK")).status, 429);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 3);
   } finally { await mf.dispose(); }
 });

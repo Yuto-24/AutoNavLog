@@ -3,8 +3,9 @@ const MAX_BYTES = 64 * 1024;
 const TTL_SECONDS = 300;
 
 // Slots are per isolate, not a global concurrency/quota accounting system.
-export function createTafProxy({ fetchUpstream = fetch, cache = () => caches.default, timeoutMs = 5000 } = {}) {
+export function createTafProxy({ fetchUpstream = fetch, cache = () => caches.default, timeoutMs = 5000, now = Date.now } = {}) {
   let active = 0;
+  const inflight = new Map();
   return {
     async fetch(request, env, ctx) {
       const origin = request.headers.get("Origin");
@@ -22,20 +23,32 @@ export function createTafProxy({ fetchUpstream = fetch, cache = () => caches.def
       const ip = request.headers.get("CF-Connecting-IP");
       if (!ip) return error(403);
       try {
-        if (!(await env.CLIENT_RATE.limit({ key: ip })).success) return error(429);
         const key = new Request(`${url.origin}/taf?icao=${icao}`);
         const cached = await cache().match(key);
         if (cached) {
-          const remaining = Math.floor((Number(cached.headers.get("X-TAF-Expires")) - Date.now()) / 1000);
+          const remaining = Math.floor((Number(cached.headers.get("X-TAF-Expires")) - now()) / 1000);
           if (remaining > 0) return new Response(cached.body, {
             headers: { ...headers, "Cache-Control": `public, max-age=${remaining}` },
           });
         }
+        const respond = result => {
+          if (result.status !== 200) return error(result.status);
+          const remaining = Math.floor((result.expires - now()) / 1000);
+          if (remaining <= 0) return error(503);
+          return new Response(result.payload, { headers: {
+            ...headers, "Cache-Control": `public, max-age=${remaining}`,
+          } });
+        };
+        // Join before consuming miss tokens: one school IP may have many readers.
+        // The promise is installed synchronously before any rate-binding await.
+        if (inflight.has(icao)) return respond(await inflight.get(icao));
         if (active >= 4) return error(503);
         active++;
-        try {
-          if (!(await env.UPSTREAM_RATE.limit({ key: "taf" })).success ||
-              !(await env.STATION_RATE.limit({ key: icao })).success) return error(429);
+        let writing;
+        const acquire = async () => {
+          if (!(await env.CLIENT_RATE.limit({ key: ip })).success ||
+              !(await env.UPSTREAM_RATE.limit({ key: "taf" })).success ||
+              !(await env.STATION_RATE.limit({ key: icao })).success) return { status: 429 };
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), timeoutMs);
           try {
@@ -45,14 +58,14 @@ export function createTafProxy({ fetchUpstream = fetch, cache = () => caches.def
             });
             if (response.status !== 200 && response.status !== 204) {
               await response.body?.cancel();
-              return error(502);
+              return { status: 502 };
             }
             let payload = "[]";
             if (response.status === 200) {
               if (!/^application\/json(?:;|$)/i.test(response.headers.get("Content-Type") ?? "") ||
                   Number(response.headers.get("Content-Length")) > MAX_BYTES || !response.body) {
                 await response.body?.cancel();
-                return error(502);
+                return { status: 502 };
               }
               const reader = response.body.getReader();
               const chunks = [];
@@ -62,7 +75,7 @@ export function createTafProxy({ fetchUpstream = fetch, cache = () => caches.def
                   const { done, value } = await reader.read();
                   if (done) break;
                   size += value.byteLength;
-                  if (size > MAX_BYTES) { await reader.cancel(); return error(502); }
+                  if (size > MAX_BYTES) { await reader.cancel(); return { status: 502 }; }
                   chunks.push(value);
                 }
               } finally { reader.releaseLock(); }
@@ -72,18 +85,29 @@ export function createTafProxy({ fetchUpstream = fetch, cache = () => caches.def
               payload = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
               const records = JSON.parse(payload);
               if (!Array.isArray(records) || records.some(record => !record || typeof record !== "object" ||
-                  Array.isArray(record) || record.icaoId !== icao)) return error(502);
+                  Array.isArray(record) || record.icaoId !== icao)) return { status: 502 };
             }
-            const ttl = response.status === 204 ? 60 : TTL_SECONDS;
+            const ttl = JSON.parse(payload).length === 0 ? 60 : TTL_SECONDS;
+            const expires = now() + ttl * 1000;
             const stored = new Response(payload, { headers: {
               "Content-Type": "application/json", "Cache-Control": `public, max-age=${ttl}`,
-              "X-TAF-Expires": String(Date.now() + ttl * 1000),
+              "X-TAF-Expires": String(expires),
             } });
-            ctx.waitUntil(cache().put(key, stored).catch(() => undefined));
-            return new Response(payload, { headers: { ...headers, "Cache-Control": `public, max-age=${ttl}` } });
-          } catch { return error(controller.signal.aborted ? 504 : 502); }
+            writing = cache().put(key, stored).catch(() => undefined);
+            return { status: 200, payload, expires };
+          } catch { return { status: controller.signal.aborted ? 504 : 502 }; }
           finally { clearTimeout(timer); }
-        } finally { active--; }
+        };
+        const pending = acquire().catch(() => ({ status: 503 }));
+        inflight.set(icao, pending);
+        const cleanup = pending.then(async () => {
+          // Keep the result available while Cache API publication completes.
+          await writing;
+          inflight.delete(icao);
+          active--;
+        });
+        ctx.waitUntil(cleanup);
+        return respond(await pending);
       } catch { return error(503); }
     },
   };
