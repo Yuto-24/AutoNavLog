@@ -298,7 +298,7 @@ def test_collection_summary_does_not_export_native_usage_or_project_identity():
     )
     result = c.collect(env, NOW, Client(responses))
     assert {check["status"] for check in result["checks"]} == {
-        "fragment_collected_not_complete_report"
+        "fragment_collected_not_complete_report", "missing_or_invalid_scope",
     }
     assert result["status"] == "BLOCKED"
     assert "123456789" not in json.dumps(result) and "firebase-project" not in json.dumps(result)

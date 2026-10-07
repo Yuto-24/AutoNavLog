@@ -489,6 +489,46 @@ product/SKU/gross/discount/net and shared-allowance evidence is resolved.
 
 ### Prepared validation boundary
 
+`cloudflare_inventory.py` validates private supporting inventory before any future
+plan/quota mapping. The collector attempts it within the existing shared 40-request /
+180-second budget, after the Firebase/GitHub fragments. It uses only fixed account
+endpoints. No raw response, contract row, quantity, build configuration or environment
+variable is emitted in the summary. Successful checks say
+`inventory_validated_not_evidence`; they do not fill any schema-v2 plan/metric or
+renew `observed_at` / `limits_checked_at`.
+
+- [Pages projects](https://developers.cloudflare.com/api/resources/pages/subresources/projects/methods/list/)
+  and [deployments](https://developers.cloudflare.com/api/resources/pages/subresources/projects/subresources/deployments/methods/list/)
+  have documented `page` / `per_page` inputs. The adapter requires explicit integer
+  page/count/size/total-count/total-pages metadata, consumes every declared page,
+  rejects duplicate IDs/names and observed count drift, and checks the final number
+  of unique records against the declared total. Optional metadata being absent is
+  an incomplete-evidence failure. Deployment project bindings and native timestamps
+  are checked. Preview and skipped deployments are retained without converting them
+  into build counts. Empty inventories stay unknown, including explicit total zero.
+- [Subscriptions](https://developers.cloudflare.com/api/resources/accounts/subresources/subscriptions/methods/get/)
+  documents response counts but no page-selection query parameters. Only an explicit,
+  nonempty, complete first page is accepted; larger lists fail with
+  `unsupported_subscription_pagination` without guessed follow-up queries. Consumed
+  contract fields must be present and correctly typed, even where the provider schema
+  marks them optional. Native price, period, state, scope and rate-plan fields are
+  preserved privately, not interpreted as a Pages/Workers plan or billing control.
+
+These are conservative acceptance rules, not evidence that a live account returns
+all required metadata. Even consistent pagination does not establish an atomic
+snapshot or retention of deleted projects/deployments. The official
+[Pages API guide](https://developers.cloudflare.com/pages/configuration/api/#deleting-old-deployments-after-a-week)
+explicitly supports deleting old deployments, and the
+[limits table](https://developers.cloudflare.com/pages/platform/limits/#builds)
+specifies the monthly allowance without a deployment-to-quota accounting mapping.
+The inspected contracts do not
+define which retained deployment records equal monthly quota-charged builds, provide
+a verified Pages/Workers product mapping for every subscription, or attest automatic
+billing is disabled. `free`, zero price, `is_contract=false`, an empty subscription
+list, or a reachable endpoint cannot substitute for those missing facts. The gate
+therefore remains BLOCKED. This adapter has offline fixture coverage; additional live
+API calls and operational acceptance have not been performed.
+
 `quota(..., publication=True, collected=True)` validates all nine schema-v2 metric
 structures, scopes, periods, freshness and billing constraints before returning the
 existing `free-plans-only` publication result. It ignores numeric usage warning
