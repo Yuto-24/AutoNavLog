@@ -489,6 +489,39 @@ product/SKU/gross/discount/net and shared-allowance evidence is resolved.
 
 ### Prepared validation boundary
 
+The [2026-10-07 Workers diagnosis](https://github.com/Yuto-24/AutoNavLog/actions/runs/37619943920)
+ran reviewed SHA `1b97d419566e7aa000a375092af829c9bdbff05d`, passed the identity
+guard, and returned `invocations_empty` with BLOCKED / exit 1. This means exactly
+one account result and an empty `workersInvocationsAdaptive` list, not zero requests.
+The fixed query covered `2026-10-07T00:00:00+00:00` through
+`2026-10-07T12:17:37.572613+00:00`, with only the account and time filters, `limit: 1`,
+and `sum { requests }`; no script/status/dimension filter was requested. No September
+or October 1–3 observations were queried. Missing/error/malformed responses and an
+explicit numeric zero remain distinct; even a valid nonempty response never produces
+quota evidence. Probe input times are normalized to UTC before the day boundary.
+
+[Workers metrics](https://developers.cloudflare.com/workers/observability/metrics-and-analytics/)
+exclude requests blocked by security features and distinguish cached subrequests.
+The [GraphQL sampling contract](https://developers.cloudflare.com/analytics/graphql-api/sampling/)
+permits estimated results for Adaptive datasets. Neither the empty result nor a
+nonempty estimate proves complete quota accounting, plan, disabled billing, or a
+particular cause for the empty list. The
+[Workers query example](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/)
+describes general history ranges, but
+[account-specific node limits](https://developers.cloudflare.com/analytics/graphql-api/limits/)
+must be checked before relying on a range; the probe did not establish those limits.
+
+If another live diagnosis is approved, the smallest proposed next check is one fixed
+read-only GraphQL query for this account's
+[`settings.workersInvocationsAdaptive`](https://developers.cloudflare.com/analytics/graphql-api/features/discovery/settings/):
+`enabled`, `availableFields`, `maxDuration`, `notOlderThan`, `maxPageSize`, and
+`maxNumberOfFields`. Evaluate these privately for `sum_requests` and the requested
+UTC-day window; emit only fixed outcomes such as `dataset_disabled`,
+`required_field_unavailable`, `window_not_supported`, `settings_invalid`, or
+`settings_compatible_not_quota_evidence`. This is a proposal, not a newly enabled
+workflow check or authorization to query. Do not widen credentials, upgrade a plan,
+generate traffic, or repeatedly query wider history to turn no-data into zero.
+
 `cloudflare_inventory.py` validates private supporting inventory before any future
 plan/quota mapping. The collector attempts it within the existing shared 40-request /
 180-second budget, after the Firebase/GitHub fragments. It uses only fixed account

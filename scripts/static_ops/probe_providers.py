@@ -199,6 +199,12 @@ def check_cf_list(client, account, suffix):
 
 
 def check_workers(client, account, now):
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        raise ProbeError("invalid_observation_time")
+    try:
+        now = now.astimezone(UTC)
+    except (ValueError, OverflowError):
+        raise ProbeError("invalid_observation_time") from None
     query = """query ProbeWorkers($account: string, $start: string, $end: string) {
       viewer { accounts(filter: {accountTag: $account}) {
         workersInvocationsAdaptive(limit: 1,
@@ -229,6 +235,17 @@ def check_workers(client, account, now):
         raise ProbeError("invalid_shape")
     if not invocations:
         raise ProbeError("invocations_empty")
+    if len(invocations) != 1 or not isinstance(invocations[0], dict):
+        raise ProbeError("invalid_shape")
+    summary = invocations[0].get("sum")
+    if not isinstance(summary, dict):
+        raise ProbeError("invalid_shape")
+    requests = summary.get("requests")
+    if (
+        type(requests) not in (int, float) or requests < 0
+        or (type(requests) is float and not math.isfinite(requests))
+    ):
+        raise ProbeError("invalid_shape")
     # Invocation analytics does not by itself establish cached/rejected coverage.
     return "reachable_not_evidence"
 

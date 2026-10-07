@@ -5,7 +5,7 @@ import io
 import json
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from http.client import BadStatusLine, IncompleteRead
 from pathlib import Path
 from types import SimpleNamespace
@@ -146,6 +146,53 @@ def test_no_cloudflare_data_is_not_zero(accounts, expected):
     raw = {"data": {"viewer": {"accounts": accounts}}, "errors": None}
     with pytest.raises(p.ProbeError, match=expected):
         p.check_workers(client(json.dumps(raw).encode()), "a" * 32, NOW)
+
+
+@pytest.mark.parametrize("rows", [
+    [None], [{}], [{"sum": None}], [{"sum": {}}],
+    [{"sum": {"requests": True}}], [{"sum": {"requests": -1}}],
+    [{"sum": {"requests": "0"}}], [{"sum": {"requests": 0}}] * 2,
+])
+def test_workers_malformed_nonempty_data_is_not_reachability(rows):
+    raw = {"data": {"viewer": {"accounts": [{"workersInvocationsAdaptive": rows}]}}}
+    result = p.probe(
+        ENV, NOW, client(json.dumps(raw).encode()), only="cloudflare_worker_invocations",
+    )
+    assert result["checks"] == [
+        {"check": "cloudflare_worker_invocations", "status": "invalid_shape"},
+    ]
+    assert result["status"] == "BLOCKED"
+
+
+@pytest.mark.parametrize("value", [0, 1, 1.5])
+def test_workers_valid_analytics_is_not_quota_and_query_remains_one_utc_day_read(value):
+    calls = []
+    raw = {"data": {"viewer": {"accounts": [{"workersInvocationsAdaptive": [
+        {"sum": {"requests": value}, "private": "SECRET"},
+    ]}]}}}
+    local_now = NOW.astimezone(timezone(timedelta(hours=9)))
+    result = p.probe(ENV, local_now, client(json.dumps(raw).encode(), calls),
+                     only="cloudflare_worker_invocations")
+    assert len(calls) == 1
+    query = json.loads(calls[0].data)
+    assert query["variables"] == {
+        "account": ENV["CLOUDFLARE_ACCOUNT_ID"],
+        "start": NOW.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
+        "end": NOW.isoformat(),
+    }
+    assert "workersInvocationsAdaptive(limit: 1" in query["query"]
+    assert "scriptName" not in query["query"] and "dimensions" not in query["query"]
+    assert result["checks"][0]["status"] == "reachable_not_evidence"
+    assert result["status"] == "BLOCKED"
+    assert "metrics" not in result and "plans" not in result and "limits_checked_at" not in result
+    assert "SECRET" not in json.dumps(result)
+
+
+def test_workers_naive_time_fails_before_request():
+    calls = []
+    with pytest.raises(p.ProbeError, match="invalid_observation_time"):
+        p.check_workers(client(b"{}", calls), "a" * 32, NOW.replace(tzinfo=None))
+    assert calls == []
 
 
 def test_graphql_error_and_mutation_rejected():
