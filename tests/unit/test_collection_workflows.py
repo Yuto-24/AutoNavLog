@@ -21,7 +21,7 @@ COLLECTION = [step for workflow in (MONITOR, PRODUCTION) for step in steps(workf
 
 
 def test_all_live_gates_collect_without_operator_report_or_reusable_output():
-    assert len(COLLECTION) == 3
+    assert len(COLLECTION) == 1
     for workflow in (MONITOR, PRODUCTION):
         assert "STATIC_QUOTA_REPORT" not in workflow
         assert "operations.py quota" not in workflow
@@ -51,22 +51,43 @@ def test_monitor_still_runs_evidence_after_weather_failure_without_enabling_sche
     assert "--publication" not in COLLECTION[0]
 
 
-def test_publication_collects_before_build_and_again_before_upload():
-    assert PRODUCTION.count("collection_gate.py --publication") == 2
-    assert PRODUCTION.index("collection_gate.py") < PRODUCTION.index("path: app")
+def test_publication_is_independent_and_uses_trusted_gates_and_isolated_upload():
+    assert "collection_gate.py" not in PRODUCTION
+    assert "STATIC_CLOUDFLARE_READ_TOKEN" not in PRODUCTION
+    assert "STATIC_GITHUB_READ_TOKEN" not in PRODUCTION
+    assert "STATIC_RUNNER_CLASS: ubuntu-latest" in PRODUCTION
+    assert "runs-on: ubuntu-latest" in PRODUCTION
+    assert PRODUCTION.index("publication_gate.py") < PRODUCTION.index("path: app")
     assert (
         PRODUCTION.index("Production Browser E2E")
         < PRODUCTION.index("Install independent upload CLI")
         < PRODUCTION.index("Repeat publication gates")
-        < PRODUCTION.index("Collect fresh provider evidence before upload")
-        < PRODUCTION.index("wrangler pages deploy")
+        < PRODUCTION.index("pages deploy dist-static")
     )
-    assert "if: github.event_name == 'schedule' || inputs.publish" in COLLECTION[2]
+    assert "working-directory: ${{ runner.temp }}/static-upload" in PRODUCTION
+    assert '--config "$PWD/wrangler.json" --project-name navmate --branch main' in PRODUCTION
+    assert "node tooling/web/scripts/check-static.mjs app/web/dist-static" in PRODUCTION
+    candidate_step = next(
+        step for step in steps(PRODUCTION) if "Build and test candidate in isolation" in step
+    )
+    assert "docker run --rm" in candidate_step
+    assert 'source="$GITHUB_WORKSPACE/app",target=/app' in candidate_step
+    assert 'source="$RUNNER_TEMP/feed",target=/feed,readonly' in candidate_step
+    assert "--env AUTONAVLOG_MSM_FEED=/feed" in candidate_step
+    assert "--env GITHUB" not in candidate_step
+    assert "target=/tooling" not in candidate_step
+    assert "docker.sock" not in candidate_step
+    assert "--privileged" not in candidate_step
+    assert "--producer tooling/scripts/prepare_msm_feed.py" in PRODUCTION
+    assert 'validate_feed.py "$RUNNER_TEMP/static-upload/dist-static/weather/msm"' in PRODUCTION
+    assert "cache: npm" not in PRODUCTION
+    assert "save-cache" not in PRODUCTION
+    assert "upload-artifact" not in PRODUCTION
     assert "vars.STATIC_AUTOMATION_ENABLED == 'true'" in PRODUCTION
     assert "default: false" in PRODUCTION
 
 
-@pytest.mark.parametrize("step", COLLECTION, ids=["monitor", "pre-build", "pre-upload"])
+@pytest.mark.parametrize("step", COLLECTION, ids=["monitor"])
 @pytest.mark.parametrize("exit_code", [0, 1])
 def test_collection_shell_preserves_exit_and_redacted_summary(tmp_path, step, exit_code):
     python = tmp_path / "python3"

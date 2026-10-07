@@ -33,30 +33,23 @@ jobs:
       STATIC_ORIGIN: ${{ vars.STATIC_ORIGIN }}
       APPROVED_SHA: ${{ vars.STATIC_APPROVED_SHA }}
       REQUESTED_SHA: ${{ inputs.source_sha }}
+      STATIC_RUNNER_CLASS: ubuntu-latest
+      VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+      VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+      VITE_TAF_PROXY_URL: ${{ vars.VITE_TAF_PROXY_URL }}
+      VITE_LEGACY_MIGRATION_URL: ${{ vars.VITE_LEGACY_MIGRATION_URL }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           path: tooling
           persist-credentials: false
-      - name: Collect current provider evidence before building
-        env:
-          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          STATIC_CLOUDFLARE_READ_TOKEN: ${{ secrets.STATIC_CLOUDFLARE_READ_TOKEN }}
-          STATIC_GITHUB_READ_TOKEN: ${{ secrets.STATIC_GITHUB_READ_TOKEN }}
-          # Google unattended authentication remains pending; collection fails closed.
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tooling/scripts/static_ops/collection_gate.py --publication | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Validate approved source and current deployment
+      - name: Validate static publication identity independently of optional usage
         id: source
         run: |
           set -euo pipefail
-          source_sha="${REQUESTED_SHA:-$APPROVED_SHA}"
-          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
-          python3 tooling/scripts/static_ops/operations.py preflight --origin "$STATIC_ORIGIN" --sha "$APPROVED_SHA"
-          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+          python3 tooling/scripts/static_ops/publication_gate.py | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "sha=$APPROVED_SHA" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ steps.source.outputs.sha }}
@@ -65,87 +58,78 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Reject candidate Functions and runtime configuration before build
+        run: python3 tooling/scripts/static_ops/publication_gate.py --source app
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Install locked Web and existing Python build dependencies
-        working-directory: app
+      - name: Install trusted producer dependencies and build candidate sandbox
         run: |
-          python -m pip install 'setuptools>=69' wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl '.[test]'
-          npm --prefix web ci
-          npm --prefix web exec -- playwright install --with-deps chromium
+          python -m pip install 'setuptools>=69' wheel tooling/vendor/jma_gpv_weather-0.5.0-py3-none-any.whl 'tooling[test]'
+          docker build -f tooling/scripts/static_ops/Dockerfile.build --tag autonavlog-static-build tooling
       - name: Restore rolling feed and generate fresh catalog
         run: |
           python3 tooling/scripts/static_ops/operations.py restore --origin "$STATIC_ORIGIN" --output "$RUNNER_TEMP/feed"
-          python3 tooling/scripts/static_ops/refresh_feed.py --producer app/scripts/prepare_msm_feed.py --output "$RUNNER_TEMP/feed" --cache "$RUNNER_TEMP/msm-cache"
-      - name: Build and validate production artifact without application server
-        working-directory: app
-        env:
-          AUTONAVLOG_MSM_FEED: ${{ runner.temp }}/feed
-          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
-          VITE_TAF_PROXY_URL: ${{ vars.VITE_TAF_PROXY_URL }}
-          VITE_LEGACY_MIGRATION_URL: ${{ vars.VITE_LEGACY_MIGRATION_URL }}
+          PYTHONPATH=tooling/src python3 tooling/scripts/static_ops/refresh_feed.py --producer tooling/scripts/prepare_msm_feed.py --output "$RUNNER_TEMP/feed" --cache "$RUNNER_TEMP/msm-cache" > "$RUNNER_TEMP/feed-report.json"
+          python3 tooling/scripts/static_ops/validate_feed.py "$RUNNER_TEMP/feed" "$RUNNER_TEMP/feed-report.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Build and test candidate in isolation without provider credentials
         run: |
-          python scripts/validate_release.py
-          python scripts/validate_performance_data.py data/performance
-          python scripts/validate_runtime_data.py data
-          python scripts/export_schemas.py --check
-          npm --prefix web run build:static
-          npm --prefix web run test:static-artifact
-          npm --prefix web run check:static
-      - name: Production Browser E2E
-        working-directory: app
-        env:
-          AUTONAVLOG_REFERENCE_PYTHON: python3
+          docker run --rm \
+            --mount type=bind,source="$GITHUB_WORKSPACE/app",target=/app \
+            --mount type=bind,source="$RUNNER_TEMP/feed",target=/feed,readonly \
+            --env VITE_FIREBASE_API_KEY --env VITE_FIREBASE_AUTH_DOMAIN \
+            --env VITE_FIREBASE_PROJECT_ID --env VITE_FIREBASE_APP_ID \
+            --env VITE_TAF_PROXY_URL --env VITE_LEGACY_MIGRATION_URL \
+            --env AUTONAVLOG_MSM_FEED=/feed \
+            --env AUTONAVLOG_REFERENCE_PYTHON=python3 \
+            autonavlog-static-build sh -eu -c '
+              git config --global --add safe.directory /app
+              python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
+              npm --prefix web ci
+              npm --prefix web exec -- playwright install --with-deps chromium
+              python scripts/validate_release.py
+              python scripts/validate_performance_data.py data/performance
+              python scripts/validate_runtime_data.py data
+              python scripts/export_schemas.py --check
+              npm --prefix web run build:static
+              npm --prefix web run test:static-artifact
+              python -m http.server 4121 --bind 127.0.0.1 --directory web/dist-static > /tmp/static-server.log 2>&1 &
+              server_pid=$!
+              trap "kill $server_pid" EXIT
+              curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4121/ >/dev/null
+              npm --prefix web run test:static
+            '
+      - name: Validate candidate using independent tooling after Production Browser E2E
         run: |
-          python -m http.server 4121 --bind 127.0.0.1 --directory web/dist-static > "$RUNNER_TEMP/static-server.log" 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid"' EXIT
-          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4121/ >/dev/null
-          npm --prefix web run test:static
+          python3 tooling/scripts/static_ops/publication_gate.py --app app
+          python3 tooling/scripts/static_ops/validate_feed.py app/web/dist-static/weather/msm "$RUNNER_TEMP/feed-report.json" >> "$GITHUB_STEP_SUMMARY"
       - name: Record build identity
-        working-directory: app
         run: |
-          sha256sum web/dist-static/release.json >> "$GITHUB_STEP_SUMMARY"
-          npm --prefix web run check:static >> "$GITHUB_STEP_SUMMARY"
+          sha256sum app/web/dist-static/release.json >> "$GITHUB_STEP_SUMMARY"
+          node tooling/web/scripts/check-static.mjs app/web/dist-static >> "$GITHUB_STEP_SUMMARY"
       - name: Install independent upload CLI
         if: github.event_name == 'schedule' || inputs.publish
         run: npm --prefix tooling/services/taf-proxy ci
-      - name: Repeat publication gates
+      - name: Repeat publication gates and stage isolated static upload
         if: github.event_name == 'schedule' || inputs.publish
-        env:
-          EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
         run: |
-          python3 tooling/scripts/static_ops/operations.py preflight --origin "$STATIC_ORIGIN" --sha "$APPROVED_SHA"
-          npm --prefix app/web run check:static
-          python3 tooling/scripts/static_ops/check_candidate.py app/web/dist-static/release.json
-      - name: Collect fresh provider evidence before upload
-        if: github.event_name == 'schedule' || inputs.publish
-        env:
-          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          STATIC_CLOUDFLARE_READ_TOKEN: ${{ secrets.STATIC_CLOUDFLARE_READ_TOKEN }}
-          STATIC_GITHUB_READ_TOKEN: ${{ secrets.STATIC_GITHUB_READ_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tooling/scripts/static_ops/collection_gate.py --publication | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 tooling/scripts/static_ops/publication_gate.py --app app --stage "$RUNNER_TEMP/static-upload"
+          python3 tooling/scripts/static_ops/validate_feed.py "$RUNNER_TEMP/static-upload/dist-static/weather/msm" "$RUNNER_TEMP/feed-report.json" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload static files only (TAF Worker is independent)
         if: github.event_name == 'schedule' || inputs.publish
-        working-directory: app/web
+        working-directory: ${{ runner.temp }}/static-upload
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
-        run: ../../tooling/services/taf-proxy/node_modules/.bin/wrangler pages deploy dist-static --project-name navmate --branch main --commit-hash "$EXPECTED_SOURCE"
+        run: |
+          python3 "$GITHUB_WORKSPACE/tooling/scripts/static_ops/publication_gate.py" --verify-context "$PWD" --project
+          "$GITHUB_WORKSPACE/tooling/services/taf-proxy/node_modules/.bin/wrangler" pages deploy dist-static --config "$PWD/wrangler.json" --project-name navmate --branch main --commit-hash "$EXPECTED_SOURCE"
       - name: Verify canonical deployment and fresh catalog
         if: github.event_name == 'schedule' || inputs.publish
         env:
           EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
-          python3 tooling/scripts/static_ops/wait_for_candidate.py app/web/dist-static/release.json --timeout-seconds 300 --interval-seconds 10 --attempt-timeout-seconds 30 >> "$GITHUB_STEP_SUMMARY"
+          python3 tooling/scripts/static_ops/wait_for_candidate.py "$RUNNER_TEMP/static-upload/dist-static/release.json" --timeout-seconds 300 --interval-seconds 10 --attempt-timeout-seconds 30 >> "$GITHUB_STEP_SUMMARY"
           python3 tooling/scripts/static_ops/operations.py monitor --origin "$STATIC_ORIGIN" >> "$GITHUB_STEP_SUMMARY"

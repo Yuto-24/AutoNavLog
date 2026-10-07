@@ -24,7 +24,8 @@ all target this origin. The historical #121 pages.dev evidence is not new-origin
   without FastAPI. A dispatch with `publish=false` only builds/tests. No remote preview.
 - The three-hour schedule is disabled unless `STATIC_AUTOMATION_ENABLED=true`.
   That variable is explicit authorization for recurring feed publication, not app upgrades.
-  A manual app publication supplies a reviewed `source_sha` and `publish=true`.
+  This MSM-only workflow rejects `source_sha` unless it equals `STATIC_APPROVED_SHA`.
+  App upgrades use the separately approved #121 publication procedure.
 - TAF deploy/rollback remains the independent [#145 manual contract](taf_proxy.md),
   with its existing CI tests/dry-run. Its ignored production configuration supplies
   the origin allowlist; never deploy the checked-in empty default allowlist as production.
@@ -52,9 +53,11 @@ After explicit authorization, the operator configures:
    the intended account. Keep #145 Worker credentials and configuration outside
    this workflow. Never expose the Pages token to the application build.
 4. Complete and accept unattended provider collection before enabling monitoring.
-   The workflows call the native collection gate directly. Its missing adapters and
-   unattended Google authentication still block activation, including build-only
-   dispatches. Do not periodically replace `STATIC_QUOTA_REPORT` to unblock them. Failure-notification receipt was already accepted on 2026-10-03; the
+   The monitor calls the native collection gate directly. Missing adapters and
+   unattended Google authentication block healthy usage monitoring, independently
+   of static-only build/publication. Missing usage remains **UNKNOWN**; it is never
+   zero, healthy, or proof of account-wide zero billing. Do not periodically replace
+   `STATIC_QUOTA_REPORT`. Failure-notification receipt was already accepted on 2026-10-03; the
    remaining gate is healthy current-evidence collection. See the read-only checklist below.
 5. Run build-only dispatch, inspect checks, then an approved publication. Confirm real
    origin/cache/ETag/404 and browser behavior per #121. Only then enable recurring updates.
@@ -73,7 +76,7 @@ any mismatch with `STATIC_APPROVED_SHA`. It restores recent immutable NPZ files 
 production, verifies byte lengths/hashes, and seeds the existing producer. Seven-day
 Run retention survives runner replacement and cache eviction. No Project data is sent.
 A failed read/hash check/producer/build/test stops before upload. A retained-only
-producer result with no newly prepared Run is also rejected; renewing only the timestamp
+producer result with no newly prepared Run newer than the retained latest Run is rejected; renewing only the timestamp
 is not a successful refresh. The previous deployment
 is retained, and expired weather still fails closed in the browser.
 
@@ -86,7 +89,7 @@ Neither this workflow nor GitHub cron promises weather availability during outag
 The workflow rebuilds the pinned source/configuration automatically, so the operator no
 longer manually rebuilds/redeploys merely because the MSM catalog expires. Same-source
 feed publication rejects configuration drift. All app/feed jobs share a non-cancelling
-concurrency group. Quota/source/artifact checks repeat immediately before upload.
+concurrency group. Static identity/source/artifact checks repeat immediately before upload.
 Atomic Pages upload switches payload and catalog together. Post-upload checks compare
 canonical **whole release inventory**, not just the version, and check freshness.
 The post-upload verifier immediately checks canonical `release.json`, then retries failed
@@ -120,36 +123,40 @@ opt-outs, synthetic forecasts, a different application branch or Legacy fallback
 ## Quota evidence and monitoring
 
 `static-monitor.yml` calls `collection_gate.py` on each enabled run, even if weather
-failed. Production calls it with `--publication` before building and again before
-uploading. Each call collects fresh native fragments and checks the current official
-limit clauses; it never reads `STATIC_QUOTA_REPORT`, a report file, an artifact, or a
-previous collection result. The summary contains fixed diagnostic statuses, not raw
-provider responses or billing rows. Shell pipelines preserve collector failure.
+failed. It collects current native fragments and checks official limits without an
+operator-report fallback. Incomplete collection remains BLOCKED/UNKNOWN and does not
+establish healthy monitoring, optional-service availability, or account-wide zero billing.
 
-**Collection is incomplete and fails closed today, including build-only dispatches.**
-Connecting the workflow does not establish real-account API coverage or unattended
-operation. Keep both activation variables disabled until the remaining evidence and
-authentication gates are accepted. The monitor timeout allows the existing bounded
-provider/public-limit requests plus the independent public-catalog check.
+`static-production.yml` instead calls the independent `publication_gate.py`.
+Google authentication and Workers/Firestore/shared-allowance missing counters do not
+block a safe build-only run or unrelated static MSM renewal. The workflow records
+`optional_usage: UNKNOWN` and `account_billing: UNKNOWN`; it does not disable TAF/Sync.
+The strict schema-v2 monitor and its provider-period/freshness semantics remain intact.
+The collector's diagnostic `--publication` option is no longer a live upload gate.
 
-Missing, malformed, non-finite, wrong-target, future or stale (>36 hours) evidence fails.
-Each observation must also belong to the current provider period. An API permission
-error, unavailable dashboard or missing row is unknown, never zero. No timestamp is
-renewed merely because a workflow ran. `limits_checked_at` comes only from successful
-semantic verification of all official limit sources (at release and at least monthly).
+The static gate requires the public AutoNavLog repository, standard `ubuntu-latest`
+GitHub-hosted runner metadata, exact canonical origin, full approved SHA and unchanged
+six public connection settings. The producer and all validators come from the workflow
+checkout. Every payload is decoded with the pinned real-MSM library, matched by Run/hash,
+and new Runs must cover the current hour through the next 24 hours with all three variables.
+Catalog lifetime stays six hours; publication requires at least two hours remaining.
 
-Publication requires all nine valid current metrics, target-bound Free/Spark/public-standard
-plans, disabled billing and verified limits. Only valid optional-feature numeric usage
-warnings are ignored in publication mode; missing collection and nonzero billing still
-stop publication. A passing publication gate is not healthy usage.
+Candidate pip/npm/build/production Browser E2E run in a dedicated Docker container with
+only the application checkout (RW) and feed (RO) mounted. The container receives public
+VITE settings, never provider tokens, runner output/metadata files, the tooling checkout
+or Docker socket. Candidate code cannot replace host validators or the upload CLI.
+The host checks bytes/hashes, all inventory entries, Local package hashes/version,
+Functions/Worker/private files, private key material and Pages file/size limits.
+Candidate root/web Functions and unapproved Wrangler configs/redirects are rejected.
 
-Read tokens are exposed only to collection steps, never to the build or `VITE_*`.
-The workflows reference the existing Cloudflare read-token name and the proposed GitHub
-read-token name; this change does not create either credential. Google unattended
-authentication has not been configured or established as compatible with Spark/billing-off.
-The workflows intentionally supply no stored short-lived Google access token or service
-account key. Missing Google credentials remain a collection failure until an approved,
-verified unattended handoff is implemented; a periodically replaced token is not a solution.
+Immediately before upload a new runner-temporary directory contains only checked dist
+and a trusted minimal Wrangler JSON config. Wrangler runs there with explicit config,
+project `navmate`, production branch `main`, and independent locked CLI. An authenticated
+GET using the existing Pages credential requires the existing project, canonical domain,
+production branch and absence of production runtime bindings. Missing/incorrect target
+information blocks upload; no project is implicitly created. This target read is not usage
+or plan/billing evidence. Direct Upload is atomic; bounded canonical inventory polling and
+freshness checks remain after upload. No Actions cache/artifact/Packages persistence is added.
 
 ### Schema v2
 
@@ -162,7 +169,8 @@ are a 2026-10-01 documentation snapshot; recheck provider specifications at each
 Report fields are `schema_version: 2`, `plans`, `plans_observed_at`, `limits_checked_at`,
 `scopes`, and `metrics`. Scopes must match `CLOUDFLARE_ACCOUNT_ID`,
 `VITE_FIREBASE_PROJECT_ID`, `GITHUB_REPOSITORY_OWNER` and `GITHUB_REPOSITORY`
-(`owner/repository`). Publication also accepts the previous three-scope plan-only report.
+(`owner/repository`). The diagnostic legacy publication validator also accepts the previous three-scope plan-only report;
+this interface is not used by the static upload workflow.
 
 Every metric has `observation`, `unit`, timezone-qualified `observed_at`, target `scope`,
 `window`, and nonblank `source`. Sources identify a retained dashboard export/screenshot
@@ -294,7 +302,7 @@ CLOUDFLARE_ACCOUNT_ID=your-account VITE_FIREBASE_PROJECT_ID=your-project \
   GITHUB_REPOSITORY_OWNER=your-owner GITHUB_REPOSITORY=your-owner/your-repo \
   STATIC_QUOTA_REPORT="$(cat /private/path/quota.json)" \
   python3 scripts/static_ops/operations.py quota
-# Same environment/report, independent publication plan gate:
+# Diagnostic legacy validator only; not a live publication gate:
 # python3 scripts/static_ops/operations.py quota --publication
 python3 scripts/static_ops/operations.py monitor --origin https://navmate.yuto24.com
 ```
@@ -317,8 +325,8 @@ an acceptance requirement. Application / calculation / Project schemas are uncha
 - Before app publication, pause `STATIC_AUTOMATION_ENABLED`, wait for the shared workflow
   group to become idle, and record current successful production deployment ID, full SHA,
   config, artifact and schema compatibility. `publish=false` first; no preview required.
-- After approval, dispatch reviewed full SHA with `publish=true`. Complete #121 real-origin
-  acceptance; update `STATIC_APPROVED_SHA` only after success, then resume recurring policy.
+- After approval, publish app upgrades through the separate #121 procedure. Complete real-origin
+  acceptance; update `STATIC_APPROVED_SHA` only after success, then resume the pinned MSM policy.
   Until updated, the scheduler stops on mismatch rather than reverting the new app.
 - For rollback, pause the schedule and wait for in-flight upload completion **before**
   the separately authorized Pages rollback. Restore a successful production deployment
@@ -335,19 +343,21 @@ an acceptance requirement. Application / calculation / Project schemas are uncha
 ## Acceptance still requiring production authorization
 
 Repository verification proves build/gate logic, not remote operation. Activation must
-record: environment protection and least-privilege credentials, current Free/Spark/shared
-usage, notification delivery, at least two successful scheduled renewals across the old
+record: environment protection and existing Pages credentials, static-only target/identity
+checks, notification delivery, at least two successful scheduled renewals across the old
 catalog expiry, canonical catalog/payload continuity, and controlled same-origin rollback
 with scheduler paused and saved Local data retained. Update #123 and parent #116 only
 with those results; do not mark the production automation gate complete from local tests.
+Optional Free/Spark/shared-usage acceptance remains a separate UNKNOWN gate until observable.
+It does not authorize paid processing, automatic upgrades or billing activation.
 
 ## Unattended collection investigation (#123, 2026-10-03)
 
 The [latest #123 decision](https://github.com/Yuto-24/AutoNavLog/issues/123#issuecomment-5972103619)
 supersedes periodic manual `STATIC_QUOTA_REPORT` renewal as the operating model.
-**Complete unattended collection is not implemented or accepted yet.** The workflows
-now call the collection gate directly, but required native mappings and Google unattended
-authentication remain incomplete. They must not be activated on the strength of the probe. The schema example and migration commands remain diagnostic tools, not
+**Complete unattended collection is not implemented or accepted yet.** The monitor
+calls the collection gate directly, but required native mappings and Google unattended
+authentication remain incomplete. Static-only renewal is now independently gated as above. They must not be activated on the strength of the probe. The schema example and migration commands remain diagnostic tools, not
 an unattended collection solution. September evidence is historical only.
 
 `python3 scripts/static_ops/probe_providers.py` performs bounded, read-only API
@@ -579,16 +589,17 @@ existing `free-plans-only` publication result. It ignores numeric usage warning
 thresholds, so valid TAF/Sync exhaustion does not interrupt MSM publication. Unknown,
 incomplete, stale or malformed collection and nonzero billing still fail. This flag is
 an internal validator mode, **not proof that collection occurred**. The legacy CLI and
-plan-only migration interface remain diagnostic tools. Live workflows now use
-`collection_gate.py`, which always uses `collected=True`; they cannot fall back to that
-legacy interface when collection fails.
+plan-only migration interface remain diagnostic tools. The usage monitor uses
+`collection_gate.py`, which always uses `collected=True`; it cannot fall back to that
+legacy interface when collection fails. Static-only publication uses the separate gate above.
 
 The gate assembles an in-memory report only when all required plans, per-plan
 observations, nine metrics and official-limit attestations are available. It preserves
-native observation timestamps and uses the oldest plan observation. Monitor and both
-publication checks invoke it directly with step-scoped credentials. Collection failure
+native observation timestamps and uses the oldest plan observation. Only the monitor
+invokes it with step-scoped read credentials. Collection failure
 stops the gate without consulting `STATIC_QUOTA_REPORT` or cached reports. Missing native
-mappings still block acceptance; periodic manual data entry cannot satisfy that gate. Keep recurring production disabled. Live failure-notification delivery and
+mappings still block healthy usage-monitor acceptance; periodic manual data entry cannot
+satisfy that gate. Recurring publication still needs separate policy approval and live acceptance. Live failure-notification delivery and
 same-origin rollback/Local retention have already been accepted in #123 and need not
 be repeated for this implementation.
 
