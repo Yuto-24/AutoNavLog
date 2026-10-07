@@ -84,3 +84,20 @@ test("a missing dirty flag is not proof of a clean source even with a developmen
   assert.throws(() => checkArtifact(root), /Missing or invalid/);
   assert.throws(() => checkArtifact(root, { allowDirty: true }), /Missing or invalid/);
 });
+
+test("optional GSM publication validates integrity and expiry without making it a scheduled feed", t => {
+  const { root, put, seal } = fixture(t);
+  assert.equal(checkArtifact(root).gsmWeatherExpiresAt, null);
+  mkdirSync(join(root, "weather/gsm"));
+  put("weather/gsm/run.npz", "gsm"); seal();
+  assert.throws(() => checkArtifact(root), /GSM payloads require a catalog/);
+  const catalog = { expires_at: new Date(Date.now() + 60000).toISOString(),
+    assets: [{ file: "run.npz", bytes: 3, sha256: sha256("gsm") }] };
+  put("weather/gsm/catalog.json", catalog); seal();
+  assert.equal(checkArtifact(root).gsmWeatherExpiresAt, catalog.expires_at);
+  put("weather/gsm/run.npz", "bad"); seal();
+  assert.throws(() => checkArtifact(root), /GSM asset mismatch/);
+  put("weather/gsm/run.npz", "gsm");
+  put("weather/gsm/catalog.json", { ...catalog, expires_at: "2000-01-01T00:00:00Z" }); seal();
+  assert.throws(() => checkArtifact(root), /GSM catalog expired/);
+});

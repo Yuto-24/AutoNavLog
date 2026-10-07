@@ -129,6 +129,8 @@ export interface Project {
   nose_fairing_enabled: boolean;
   air_conditioning_enabled: boolean;
   descent_rate_fpm: 500 | 1000;
+  selected_forecast_model: "MSM" | "GSM" | null;
+  selected_forecast_run_id: string | null;
   weather_mode: "FORECAST" | "FTD";
   ftd_weather: FtdWeatherSettings | null;
   tgl_count: number;
@@ -465,6 +467,8 @@ export interface NavLogSummary {
 }
 
 export interface CalculationOutcome {
+  selected_forecast_model: "MSM" | "GSM" | null;
+  forecast_provenance: Record<string, unknown>;
   selected_forecast_run_id: string | null;
   sections: SectionResult[];
   display_rows: NavLogDisplayRow[];

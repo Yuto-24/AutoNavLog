@@ -47,7 +47,7 @@ COPY .github/workflows/test.yml ./.github/workflows/test.yml
 COPY .github/workflows/static-production.yml ./.github/workflows/static-production.yml
 
 RUN chmod 755 scripts/run_ci_checks.sh \
-    && python -m pip install vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]" \
+    && python -m pip install vendor/jma_gpv_weather-0.6.0-py3-none-any.whl ".[test]" \
     && rm -rf build dist src/autonavlog.egg-info
 
 CMD ["/opt/autonavlog/scripts/run_ci_checks.sh"]
@@ -55,7 +55,7 @@ CMD ["/opt/autonavlog/scripts/run_ci_checks.sh"]
 
 # Batch-only producer for static Weather files; no application endpoint or Project input.
 FROM python-base AS weather-feed
-RUN python -m pip install vendor/jma_gpv_weather-0.5.0-py3-none-any.whl .
+RUN python -m pip install vendor/jma_gpv_weather-0.6.0-py3-none-any.whl .
 COPY scripts/prepare_msm_feed.py ./scripts/prepare_msm_feed.py
 ENTRYPOINT ["python", "/opt/autonavlog/scripts/prepare_msm_feed.py"]
 CMD ["--help"]
@@ -63,7 +63,7 @@ CMD ["--help"]
 FROM python-base AS runtime
 
 RUN chmod -R a=rX /opt/autonavlog \
-    && python -m pip install vendor/jma_gpv_weather-0.5.0-py3-none-any.whl . \
+    && python -m pip install vendor/jma_gpv_weather-0.6.0-py3-none-any.whl . \
     && rm -rf build dist src/autonavlog.egg-info
 
 USER autonavlog

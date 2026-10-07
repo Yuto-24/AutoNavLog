@@ -312,6 +312,7 @@ class ReadinessService:
             deep=True,
             update={
                 "selected_forecast_run_id": outcome.selected_forecast_run_id,
+                "selected_forecast_model": outcome.selected_forecast_model,
             },
         )
         fingerprints = self.fingerprints(prepared, outcome, state)

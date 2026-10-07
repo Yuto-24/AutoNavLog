@@ -62,7 +62,7 @@ jobs:
       - name: Install locked Web and existing Python build dependencies
         working-directory: app
         run: |
-          python -m pip install 'setuptools>=69' wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl '.[test]'
+          python -m pip install 'setuptools>=69' wheel vendor/jma_gpv_weather-0.6.0-py3-none-any.whl '.[test]'
           npm --prefix web ci
           npm --prefix web exec -- playwright install --with-deps chromium
       - name: Restore rolling feed and generate fresh catalog
