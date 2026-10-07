@@ -18,13 +18,19 @@ export async function installPlanningRenderDelay(page: Page) {
       }
       return nativeFrame(timestamp => {
         state.focusFrameBeforeCommit = !document.querySelector('[aria-label="経路と飛行計画"]');
-        callback(timestamp);
+        try { callback(timestamp); }
+        finally {
+          // A scheduler task can precede the async route's focus request.
+          // Resume only after the requested focus frame has been observed.
+          for (const id of pending.keys()) resume.port2.postMessage(id);
+        }
       });
     };
     const pending = new Map<number, () => void>();
     let next = 0;
     const resume = new NativeChannel();
     resume.port1.onmessage = event => {
+      if (state.active && state.focusFrameBeforeCommit === null) return;
       const work = pending.get(event.data);
       pending.delete(event.data);
       work?.();
