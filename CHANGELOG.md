@@ -18,6 +18,18 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 - coverageのみを理由とするモデル選択と、反復計算後の要求に基づく全体再計算をLocal / Legacyの共通計算境界で処理します。
 - GSMのportable preparationは`jma-gpv-weather`の公開APIを使用し、モデル仕様・GRIB・HGT判定をアプリ側へ複製しません。
 
+## 1.22.5
+
+### 利用者向け
+
+#### 改善
+
+- NAV LOG JSONのダウンロード・コピー操作をNAV LOG下部へ移動する
+
+### 開発者向け
+
+- #220: JSON export操作をNavLogTableの後ろへ移し、上余白を追加。既存のハンドラー、通知、disabled状態、計算後のscroll / focusを維持。
+
 ## 1.22.4
 
 ### 利用者向け

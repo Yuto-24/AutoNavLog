@@ -115,6 +115,9 @@ Summary, horizontally scrollable main table, TIME / FUEL PLAN, then guidance.
 The 2026-08-13 fidelity ledger below remains historical evidence for the
 earlier calculated view; current Playwright coverage verifies this revised
 layout at 390 px, 1,100 px, and 1,440 px.
+JSON download/copy actions follow the NAV LOG guidance/disclaimer, outside the
+horizontal scroll region, with a 1rem top margin and the same content inset and
+maximum width as NAV LOG. Buttons retain their 0.5rem gap and wrap on narrow screens.
 
 ## Implementation fidelity ledger (verified 2026-08-13 JST)
 
@@ -181,3 +184,7 @@ before React mounts that panel, so the focus request is retained until the panel
 exists and consumed once. A committed route with a storage error keeps the error
 message in view while focusing the Planning input. Existing MAP regressions cover
 the frame-before-commit order without replacing the Local Worker or calculation.
+The Local test helper holds renderer host tasks until it observes the requested
+focus frame, including when asynchronous confirmation schedules that frame after
+an earlier renderer task. Deferring a task by one frame alone does not establish
+this order.
