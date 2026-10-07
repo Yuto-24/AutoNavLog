@@ -217,10 +217,18 @@ def check_workers(client, account, now):
             },
         },
     )
-    accounts = require_list(response["data"]["viewer"]["accounts"])
+    accounts = response["data"]["viewer"]["accounts"]
+    if not isinstance(accounts, list):
+        raise ProbeError("invalid_shape")
+    if not accounts:
+        raise ProbeError("accounts_empty")
     if len(accounts) != 1:
         raise ProbeError("ambiguous_scope")
-    require_list(accounts[0]["workersInvocationsAdaptive"])
+    invocations = accounts[0]["workersInvocationsAdaptive"]
+    if not isinstance(invocations, list):
+        raise ProbeError("invalid_shape")
+    if not invocations:
+        raise ProbeError("invocations_empty")
     # Invocation analytics does not by itself establish cached/rejected coverage.
     return "reachable_not_evidence"
 

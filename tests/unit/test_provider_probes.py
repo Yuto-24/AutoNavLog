@@ -130,9 +130,21 @@ def test_missing_credentials_does_not_attempt_network():
     assert result["status"] == "BLOCKED"
 
 
-def test_no_cloudflare_data_is_not_zero():
-    raw = {"data": {"viewer": {"accounts": [{"workersInvocationsAdaptive": []}]}}, "errors": None}
-    with pytest.raises(p.ProbeError, match="no_data"):
+@pytest.mark.parametrize(
+    "accounts,expected",
+    [
+        ([], "accounts_empty"),
+        ([{"workersInvocationsAdaptive": []}], "invocations_empty"),
+        (None, "invalid_shape"),
+        ({}, "invalid_shape"),
+        ([{"workersInvocationsAdaptive": None}], "invalid_shape"),
+        ([{"workersInvocationsAdaptive": {}}], "invalid_shape"),
+        ([{}, {}], "ambiguous_scope"),
+    ],
+)
+def test_no_cloudflare_data_is_not_zero(accounts, expected):
+    raw = {"data": {"viewer": {"accounts": accounts}}, "errors": None}
+    with pytest.raises(p.ProbeError, match=expected):
         p.check_workers(client(json.dumps(raw).encode()), "a" * 32, NOW)
 
 
