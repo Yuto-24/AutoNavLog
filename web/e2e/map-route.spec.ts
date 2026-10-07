@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { deferPlanningRender, installPlanningRenderDelay } from "./helpers/planningRender";
 
 test.beforeEach(async ({ page }) => {
   page.on("console", message => { if (message.type() === "error") console.log(message.text()); });
@@ -101,6 +102,7 @@ for (const width of [1100, 1440]) {
   test(`MAP to Planning and NAV LOG, reload, save and reopen at ${width}px`, async ({ page }, info) => {
     test.setTimeout(360_000);
     const local = info.config.metadata.applicationMode === "local";
+    if (local) await installPlanningRenderDelay(page);
     const api: string[] = [];
     if (local) await page.context().route("**/api/**", route => { api.push(route.request().url()); return route.abort(); });
     await page.setViewportSize({ width, height: 1100 });
@@ -132,8 +134,14 @@ for (const width of [1100, 1440]) {
     await expect(strip(page).locator("li")).toHaveCount(4, { timeout: 90_000 });
     await airport(page, "RJFS").click();
     await expect(strip(page).locator("li")).toHaveCount(5);
+    if (local) await deferPlanningRender(page);
     await page.getByRole("button", { name: "経路を確定", exact: true }).click();
     await expect(page.getByLabel("DATE", { exact: true })).toBeInViewport();
+    await expect(page.getByLabel("DATE", { exact: true })).toBeFocused();
+    if (local) {
+      expect(await page.evaluate(() => (window as any).planningRenderDelay.delayed)).toBeGreaterThan(0);
+      expect(await page.evaluate(() => (window as any).planningRenderDelay.focusFrameBeforeCommit)).toBe(true);
+    }
     await expect(page.locator(".route-workspace.is-route-building")).toHaveCount(0);
     const input = (await page.locator(".input-rail").boundingBox())!;
     const route = (await page.locator(".route-workspace").boundingBox())!;
@@ -175,7 +183,7 @@ for (const width of [1100, 1440]) {
     page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
     await expect(page.locator(".nav-log-table")).toBeVisible();
-    expect(await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(savedView);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(savedView);
     // A synced/older Project without a device preference must not open at another route.
     await page.evaluate(id => {
       localStorage.removeItem(`autonavlog.map-viewport.v1.anonymous.project.${id}`);

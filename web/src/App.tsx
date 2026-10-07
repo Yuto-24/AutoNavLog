@@ -144,10 +144,29 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [preserveRouteViewport, setPreserveRouteViewport] = useState(false);
   const planningPanelRef = useRef<HTMLElement>(null);
   const messageBarRef = useRef<HTMLDivElement>(null);
-  const focusPlanning = (showError = false) => window.requestAnimationFrame(() => {
-    (showError ? messageBarRef.current : planningPanelRef.current)?.scrollIntoView({ block: "start" });
-    planningPanelRef.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
-  });
+  const committedPlanningProjectRef = useRef<string | null>(null);
+  const planningFocusRequestRef = useRef<{ projectId: string; showError: boolean } | null>(null);
+  const applyPlanningFocus = () => {
+    const request = planningFocusRequestRef.current;
+    if (!request) return;
+    if (request.projectId !== projectIdRef.current) {
+      planningFocusRequestRef.current = null;
+      return;
+    }
+    const panel = planningPanelRef.current;
+    if (request.projectId !== committedPlanningProjectRef.current || !panel) return;
+    const target = request.showError ? messageBarRef.current : panel;
+    if (!target || (request.showError && target.getAttribute("role") !== "alert")) return;
+    planningFocusRequestRef.current = null;
+    target.scrollIntoView({ block: "start" });
+    panel.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+  };
+  const focusPlanning = (showError = false) => {
+    const projectId = projectIdRef.current;
+    if (!projectId) return;
+    planningFocusRequestRef.current = { projectId, showError };
+    window.requestAnimationFrame(applyPlanningFocus);
+  };
 
   const scrollToCalculatedNavLogRef = useRef<NonNullable<WebState["outcome"]> | null>(null);
   const kmzDialogRef = useModalFocusTrap<HTMLElement>(kmzOpen && Boolean(pendingKmz));
@@ -401,6 +420,11 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     });
     return () => { active = false; lifecycle.current += 1; };
   }, [application, bootstrapAttempt]);
+
+  useLayoutEffect(() => {
+    committedPlanningProjectRef.current = state?.project?.id ?? null;
+    applyPlanningFocus();
+  }, [state?.project?.id, error]);
 
   useLayoutEffect(() => {
     if (!state?.outcome || state.outcome !== scrollToCalculatedNavLogRef.current) return;
