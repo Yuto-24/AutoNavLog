@@ -181,3 +181,7 @@ before React mounts that panel, so the focus request is retained until the panel
 exists and consumed once. A committed route with a storage error keeps the error
 message in view while focusing the Planning input. Existing MAP regressions cover
 the frame-before-commit order without replacing the Local Worker or calculation.
+The Local test helper holds renderer host tasks until it observes the requested
+focus frame, including when asynchronous confirmation schedules that frame after
+an earlier renderer task. Deferring a task by one frame alone does not establish
+this order.
