@@ -174,3 +174,10 @@ confirmation restores the existing input / route / readiness three-column worksp
 At 1240 px and below both stages preserve the downward input → map → readiness
 flow. Draft edits do not auto-fit or recenter the MAP. Existing KML input remains an
 explicit compatibility entry; it is not a Map Draft import in this issue.
+
+Confirmation moves the viewport and keyboard focus to the flight-plan DATE input
+after the confirmed Project's Planning DOM is committed. A frame callback may run
+before React mounts that panel, so the focus request is retained until the panel
+exists and consumed once. A committed route with a storage error keeps the error
+message in view while focusing the Planning input. Existing MAP regressions cover
+the frame-before-commit order without replacing the Local Worker or calculation.
