@@ -511,15 +511,26 @@ describes general history ranges, but
 [account-specific node limits](https://developers.cloudflare.com/analytics/graphql-api/limits/)
 must be checked before relying on a range; the probe did not establish those limits.
 
-If another live diagnosis is approved, the smallest proposed next check is one fixed
-read-only GraphQL query for this account's
+The read-only `cloudflare_worker_settings` check performs one fixed GraphQL query for this account's
 [`settings.workersInvocationsAdaptive`](https://developers.cloudflare.com/analytics/graphql-api/features/discovery/settings/):
 `enabled`, `availableFields`, `maxDuration`, `notOlderThan`, `maxPageSize`, and
 `maxNumberOfFields`. Evaluate these privately for `sum_requests` and the requested
-UTC-day window; emit only fixed outcomes such as `dataset_disabled`,
-`required_field_unavailable`, `window_not_supported`, `settings_invalid`, or
-`settings_compatible_not_quota_evidence`. This is a proposal, not a newly enabled
-workflow check or authorization to query. Do not widen credentials, upgrade a plan,
+UTC-day window using the same UTC normalization as the invocation check. It emits only
+the first blocking fixed outcome: `dataset_disabled`, `required_field_unavailable`,
+`query_limits_not_supported`, `window_not_supported`, or `settings_invalid`.
+`settings_compatible_not_quota_evidence` means all inspected capabilities support that
+query, never zero usage, Free plan, billing controls, sampling accuracy or complete
+quota coverage. Account/HTTP errors remain separate fixed statuses. Native limits and
+field names stay private. The outer result stays BLOCKED / exit 1.
+
+The existing manual workflow accepts this check with the same reviewed-SHA guard and
+step-scoped token. This single read consolidates dataset, required field, query-size,
+retention and UTC-day-window checks; it does not rerun Pages, subscriptions or invocation
+analytics. Read-only diagnosis using existing credentials is authorized; new credentials,
+permissions and billing changes are not. If the permitted Codex connection cannot
+dispatch, use the normal authenticated GitHub environment with the reviewed branch/SHA
+and `check=cloudflare_worker_settings`, then share only run URL/SHA and fixed statuses.
+Do not widen credentials, upgrade a plan,
 generate traffic, or repeatedly query wider history to turn no-data into zero.
 
 `cloudflare_inventory.py` validates private supporting inventory before any future
