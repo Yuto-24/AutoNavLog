@@ -28,6 +28,8 @@ def test_backend_ci_runs_only_python_312() -> None:
         "docker run --rm --mount type=bind,"
         'source="$PWD/.github/workflows/static-provider-probe.yml",'
         "target=/opt/autonavlog/.github/workflows/static-provider-probe.yml,readonly "
+        '--mount type=bind,source="$PWD/.github/workflows/static-monitor.yml",'
+        "target=/opt/autonavlog/.github/workflows/static-monitor.yml,readonly "
         "autonavlog:test"
     )
     assert command in " ".join(workflow.split())

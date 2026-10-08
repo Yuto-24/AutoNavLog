@@ -19,6 +19,7 @@ SHA = "a" * 40
         (SHA, SHA, "cloudflare_pages_projects", True),
         (SHA, SHA, "cloudflare_subscriptions", True),
         (SHA, SHA, "cloudflare_worker_invocations", True),
+        (SHA, SHA, "cloudflare_worker_settings", True),
         ("", SHA, "cloudflare_pages_projects", False),
         (SHA, "b" * 40, "cloudflare_pages_projects", False),
         ("main", "main", "cloudflare_pages_projects", False),
