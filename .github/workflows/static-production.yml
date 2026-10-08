@@ -124,7 +124,7 @@ jobs:
           EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
         run: |
           python3 "$GITHUB_WORKSPACE/tooling/scripts/static_ops/publication_gate.py" --verify-context "$PWD" --project
-          "$GITHUB_WORKSPACE/tooling/services/taf-proxy/node_modules/.bin/wrangler" pages deploy dist-static --config "$PWD/wrangler.json" --project-name navmate --branch main --commit-hash "$EXPECTED_SOURCE"
+          "$GITHUB_WORKSPACE/tooling/services/taf-proxy/node_modules/.bin/wrangler" pages deploy dist-static --project-name navmate --branch main --commit-hash "$EXPECTED_SOURCE"
       - name: Verify canonical deployment and fresh catalog
         if: github.event_name == 'schedule' || inputs.publish
         env:

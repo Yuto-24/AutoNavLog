@@ -65,7 +65,8 @@ def test_publication_is_independent_and_uses_trusted_gates_and_isolated_upload()
         < PRODUCTION.index("pages deploy dist-static")
     )
     assert "working-directory: ${{ runner.temp }}/static-upload" in PRODUCTION
-    assert '--config "$PWD/wrangler.json" --project-name navmate --branch main' in PRODUCTION
+    assert 'pages deploy dist-static --project-name navmate --branch main' in PRODUCTION
+    assert '--config' not in PRODUCTION
     assert "node tooling/web/scripts/check-static.mjs app/web/dist-static" in PRODUCTION
     candidate_step = next(
         step for step in steps(PRODUCTION) if "Build and test candidate in isolation" in step
