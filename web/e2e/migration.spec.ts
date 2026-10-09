@@ -23,7 +23,7 @@ test("first login migrates 200 Legacy Projects through Firestore and fresh devic
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
   await expect(page.getByRole("status", { name: "NavMateへ引継ぎ中" })).toBeVisible();
-  await expect(page.getByText("Projectを引継ぎ・検証中 0 / 200 件")).toBeVisible();
+  await expect(page.getByText("プロジェクトを引継ぎ・検証中 0 / 200 件")).toBeVisible();
   await expect(page.getByRole("progressbar", { name: "NavMateへ引継ぎ中 0%" })).toBeVisible();
   await expect(page.getByLabel("DATE", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).authTest.contexts.length)).toBe(1);

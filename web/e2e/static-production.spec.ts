@@ -60,7 +60,7 @@ test("production artifact calculates with its served real MSM feed and retains N
   expect(downloads.some(url => url.endsWith(".npz"))).toBe(true);
   const navlog = await page.locator(".nav-log-table").innerText();
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Projectをローカルへ保存しました" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
   await page.reload();
   await expect(page.locator(".nav-log-table")).toHaveText(navlog, { useInnerText: true });
   await page.evaluate(async () => {

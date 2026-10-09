@@ -47,7 +47,7 @@ test("Static Local workflow saves and restores a calculated Project across lifec
 
   await page.getByLabel("プロジェクト", { exact: true }).fill("Browser acceptance");
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Projectをローカルへ保存しました" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
   const savedId = await page.getByLabel("保存済み", { exact: true }).inputValue();
   expect(savedId).not.toBe("");
   await page.reload();
