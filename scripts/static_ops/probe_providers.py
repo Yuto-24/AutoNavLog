@@ -1,6 +1,7 @@
 """Read-only API capability probes, NOT a quota report or publication authorization.
 
-Only fixed check names and status codes leave this process. Raw provider responses,
+Only fixed check names/statuses and the selected Pages target's safe identity leave this process.
+Raw provider responses,
 including owner-wide billing, stay in memory. Successful transport does not prove
 quota completeness, included allowance, zero billing, or a Free/Spark plan.
 """
@@ -53,6 +54,7 @@ CHECKS = (
     "cloudflare_pages_projects",
     "cloudflare_worker_invocations",
     "cloudflare_worker_settings",
+    "cloudflare_pages_target",
     "firebase_billing",
     "firestore_reads",
     "firestore_writes",
@@ -371,6 +373,23 @@ def probe(env, now, client=None, *, only=None):
     if only is not None and only not in CHECKS:
         raise ProbeError("unknown_check")
     client = client or Client(env)
+    if only == "cloudflare_pages_target":
+        try:
+            from . import pages_target
+        except ImportError:
+            import pages_target
+        try:
+            account = identifier(env, "CLOUDFLARE_ACCOUNT_ID", r"[a-f0-9]{32}")
+            observation = pages_target.inspect(client, account)
+        except (ProbeError, pages_target.inventory.api.ProbeError) as error:
+            observation = {"status": str(error)}
+        except (KeyError, TypeError, IndexError, AttributeError):
+            observation = {"status": "invalid_shape"}
+        return {
+            "status": "BLOCKED", "kind": "pages_target_observation_not_publication",
+            "reviewed_sha": pages_target.identifier(env.get("GITHUB_SHA"), r"[a-f0-9]{40}"),
+            "attempted_at": now.isoformat(), "checks": [{"check": only, **observation}],
+        }
     checks = []
 
     def run(name, action):

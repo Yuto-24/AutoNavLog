@@ -1,6 +1,5 @@
 """Offline native-API fixtures; successful probes cannot authorize publication."""
 
-import importlib.util
 import io
 import json
 import subprocess
@@ -13,12 +12,9 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
+from scripts.static_ops import probe_providers as p
+
 ROOT = Path(__file__).parents[2]
-SPEC = importlib.util.spec_from_file_location(
-    "provider_probes", ROOT / "scripts/static_ops/probe_providers.py"
-)
-p = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(p)
 NOW = datetime(2026, 10, 3, 12, tzinfo=UTC)
 ENV = {
     "CLOUDFLARE_ACCOUNT_ID": "a" * 32,

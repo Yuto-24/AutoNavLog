@@ -773,3 +773,44 @@ investigation after existing read access is established, not implemented quota m
 Actual account eligibility, token support, metric identifiers, zero-record semantics and
 complete current-day/month coverage remain unverified. Do not enable a paid product or
 assume a missing cost field means zero to obtain or use this source.
+
+### GET-only Pages target observation (#250)
+
+Select `cloudflare_pages_target` in `static-provider-probe` with the reviewed branch
+and its full `reviewed_sha`. This opt-in check uses the existing diagnostic step's
+`STATIC_CLOUDFLARE_READ_TOKEN`; it adds no credential or permission. It reads the
+fixed `navmate` project, every retained deployment page (production and preview),
+then the project again. Existing request/time limits apply. Missing pagination
+metadata, empty results, duplicate IDs, scope mismatches and incomplete inventories
+fail closed. Missing optional fields remain `UNKNOWN` (a missing canonical
+deployment is `null`), never an inferred zero or absence.
+
+Output contains the reviewed SHA, observation time, validated project/deployment
+IDs and commits, fixed states and presence/match booleans. Domain, branch and
+project comparisons target `navmate.yuto24.com`, `main` and `navmate`.
+`account_scope_from_configured_path` means the configured account was used in the
+request path; it does not independently establish account ownership. Raw settings,
+binding values, environment values and commit messages are not emitted.
+
+The production identity comes from `canonical_deployment`, not the latest preview.
+A complete retained inventory and unchanged project reread are observations, not
+an atomic snapshot or assurance against a deployment starting afterward. Functions
+and binding presence do not prove which code is deployed. The command still exits
+1 with `BLOCKED`: it cannot authorize publication, renew evidence timestamps or
+change quota/plan gates. See Cloudflare's
+[project API](https://developers.cloudflare.com/api/resources/pages/subresources/projects/methods/get/)
+and [deployments API](https://developers.cloudflare.com/api/resources/pages/subresources/projects/subresources/deployments/methods/list/).
+
+Before a separately approved publication, record the current successful production
+deployment ID and full commit, resolve unknown/mismatched target facts, and check
+again for in-flight work. Preserve the approved app/configuration when regenerating
+fresh MSM data; a Pages rollback to expired data alone does not restore freshness.
+The existing rollback procedure above remains applicable.
+
+This Pages permission does not establish Workers access. TAF's current deployment
+version, traffic allocation and settings require the operator's existing authorized
+Workers dashboard/API read. Compare those settings with `services/taf-proxy` and
+`docs/taf_proxy.md`, without exporting secret values. Do not create credentials or
+reuse the Pages token to discover Workers privileges. A separately approved TAF
+rollback uses a recorded eligible Worker version; it does not roll back connected
+resources. See [Workers rollback limitations](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/).
