@@ -243,7 +243,7 @@ async def test_invalid_group_falls_back_to_lines_and_points_only_remain_a_fallba
         assert invalid.status_code == 200, invalid.text
         invalid_import = invalid.json()["import"]
         assert [item["kind"] for item in invalid_import["candidates"]] == ["line", "line"]
-        assert "kept as individual candidates" in invalid_import["warnings"][0]
+        assert "結合せず個別の候補として保持しました" in invalid_import["warnings"][0]
 
         points_only = await client.post(
             "/api/import",

@@ -1,3 +1,4 @@
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { observeLegacySession } from "./helpers/legacySession";
 import { disableClipboardRead } from "./helpers/clipboard";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
@@ -993,7 +994,7 @@ async function calculateNavLog(
   await expect(arrivalRow.getByLabel("今回採用する場周経路高度")).toBeVisible();
   await expect(arrivalRow.getByText("飛行場標高", { exact: true })).toBeVisible();
   await expect(arrivalRow.getByText("17 ft MSL", { exact: true })).toBeVisible();
-  await expect(arrivalRow).toContainText("master 1,000 ft MSL（標高差 983 ft）");
+  await expect(arrivalRow).toContainText("参照値 1,000 ft MSL（標高差 983 ft）");
   await expect(patternAltitude).toHaveValue("1000");
   await expect(page.getByRole("button", { name: "目的空港・場周高度を確定" })).toHaveCount(0);
   await patternAltitude.fill("");
@@ -1296,9 +1297,10 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await expect(page.locator("body")).not.toBeEmpty();
-  const savedProjectButton = page.getByRole("button", { name: "保存済みProjectを開く" });
+  const savedProjectButton = page.getByRole("button", { name: "保存済みプロジェクトを開く" });
   const savedProjectButtonLayout = await savedProjectButton.evaluate((button) => {
     const icon = button.querySelector("svg");
     const buttonRect = button.getBoundingClientRect();
@@ -1395,6 +1397,7 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   const initiallyHasProject = await page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -1406,6 +1409,7 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
     page.waitForNavigation(),
     page.getByRole("button", { name: "新規" }).click(),
   ]);
+  await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await expect.poll(() => page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -1468,8 +1472,8 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
   });
 
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "保存済みProjectを削除" }).click();
-  await expect(page.getByText("保存済みProjectを削除しました。", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "保存済みプロジェクトを削除" }).click();
+  await expect(page.getByText("保存済みプロジェクトを削除しました。", { exact: true })).toBeVisible();
   await context.clearCookies();
   await page.reload();
   await expect(page.getByLabel("計算済みNAV LOG")).toHaveCount(0);
@@ -1637,7 +1641,7 @@ test("draft autosave failure keeps the local value and a manual save flushes its
   }, { times: 1 });
   const fuel = page.getByLabel("FUEL gal");
   await fuel.fill("76");
-  await expect(page.getByRole("alert")).toContainText("Projectを自動保存できませんでした");
+  await expect(page.getByRole("alert")).toContainText("プロジェクトを自動保存できませんでした");
   await expect(fuel).toHaveValue("76");
 
   const requestOrder: string[] = [];
@@ -1738,7 +1742,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
   if (!latest) throw new Error("tab Project is missing");
   expect(latest.revision).toBe(0);
   expect(latestState.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(0);
-  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: "自動保存", exact: true })).toHaveCount(0);
   expect(latestState.savedProjects.some(project => project.id === latest.id)).toBe(false);
 
   const routeAltitudes = page.locator(
@@ -1764,7 +1768,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
   await altitudeSaved;
 
   const projectName = `タブから保存-${latest.id.slice(0, 8)}`;
-  await page.getByLabel("プロジェクト").fill(projectName);
+  await page.getByLabel("プロジェクト", { exact: true }).fill(projectName);
   const saveResponse = page.waitForResponse(
     (response) => response.url().endsWith("/api/projects/save") && response.ok(),
   );
@@ -1781,7 +1785,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
   expect(savedState.savedProjects.find((project) => project.id === latest.id)?.revision).toBe(1);
   expect(savedState.savedProjects.some((project) => project.kind === "LATEST")).toBe(false);
   await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(1);
-  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: "自動保存", exact: true })).toHaveCount(0);
 
   const postSaveAutosave = page.waitForResponse((response) => {
     if (!response.url().endsWith("/api/project") || !response.ok()) return false;
@@ -1810,14 +1814,14 @@ test("tab-only drafts become shared projects only after explicit save", async ({
     (project) => project.id === latest.id && project.kind === "SAVED" && project.name === projectName,
   )).toBe(true);
   expect(afterNew.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(0);
-  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: "自動保存", exact: true })).toHaveCount(0);
   await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(1);
 
   // Keep the persistent Compose volume clean while exercising explicit deletion.
   await page.getByLabel("保存済み", { exact: true }).selectOption(latest.id);
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "保存済みProjectを削除" }).click();
-  await expect(page.getByText("保存済みProjectを削除しました。", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "保存済みプロジェクトを削除" }).click();
+  await expect(page.getByText("保存済みプロジェクトを削除しました。", { exact: true })).toBeVisible();
   await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(0);
 });
 
@@ -2055,7 +2059,7 @@ test("phase-specific TAS drafts on one RCA-split Physical Leg persist independen
   const saved = page.waitForResponse(
     (response) => response.url().endsWith("/api/projects/save") && response.ok(),
   );
-  await page.getByLabel("プロジェクト").fill("phase TAS");
+  await page.getByLabel("プロジェクト", { exact: true }).fill("phase TAS");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await saved;
   await page.reload();
@@ -2201,7 +2205,7 @@ test("stale destination pattern response cannot overwrite a loaded project or du
     });
   }, { times: 1 });
   await page.getByLabel("保存済み", { exact: true }).selectOption(replacementProjectId);
-  await page.getByRole("button", { name: "保存済みProjectを開く" }).click();
+  await page.getByRole("button", { name: "保存済みプロジェクトを開く" }).click();
   await expect(patternAltitude).toHaveValue("1900");
   await expect(page.getByLabel("TO")).toHaveValue(/RJFK/);
 
@@ -2528,15 +2532,15 @@ test("cruise boundary cards separate calculation conditions from interpolation c
     const card = cards.nth(zoneOrdinal - 1);
     await expect(card).toContainText(`TP1 → RJFO · 巡航 Zone ${zoneOrdinal}/3`);
     await expect(card).toContainText(`ZONE-${zoneOrdinal}-FROM → ZONE-${zoneOrdinal}-TO`);
-    await expect(card).toContainText("Calculation condition");
-    await expect(card).toContainText("Selected table condition");
-    await expect(card).toContainText("Pressure altitude boundary");
-    await expect(card).toContainText("Boundary used at interpolation corner");
-    await expect(card).toContainText("Requested");
-    await expect(card).toContainText("Available");
-    await expect(card).toContainText("Supporting PWR");
-    await expect(card).toContainText("Linear extrapolation");
-    await expect(card).toContainText("Resolved");
+    await expect(card).toContainText("計算条件");
+    await expect(card).toContainText("採用した表の条件");
+    await expect(card).toContainText("気圧高度（PA）の境界値");
+    await expect(card).toContainText("補間に使用した境界値");
+    await expect(card).toContainText("要求値");
+    await expect(card).toContainText("収録範囲");
+    await expect(card).toContainText("外挿根拠のPWR");
+    await expect(card).toContainText("線形外挿");
+    await expect(card).toContainText("採用値");
   }
 
   await cards.first().getByRole("checkbox").click();
@@ -3065,7 +3069,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   ] as const) {
     await reloadWithGsiFixtureMode(page, rejectedMode, guidanceState);
     await expect(rejectedAirspaceLegend).toContainText(
-      "GSI空域は取得できず非表示",
+      "空域情報を取得できず非表示",
     );
     await expect(page.locator(".rjfm-training-airspace")).toHaveCount(0);
     await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(0);
@@ -3079,7 +3083,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     guidanceState,
   );
   await expect(rejectedAirspaceLegend).toContainText(
-    "GSI空域は取得できず非表示",
+    "空域情報を取得できず非表示",
   );
   await expect.poll(() => didGsiPendingPeerAbort(page), {
     message: "the pending peer GSI request should be aborted after the first tile fails",
@@ -3681,11 +3685,11 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   const saveResponse = page.waitForResponse(
     (response) => response.url().endsWith("/api/projects/save") && response.ok(),
   );
-  await page.getByLabel("プロジェクト").fill("訓練航法 8月");
+  await page.getByLabel("プロジェクト", { exact: true }).fill("訓練航法 8月");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   const savedResponse = await saveResponse;
   expect((await savedResponse.request().postDataJSON()).name).toBe("訓練航法 8月");
-  await expect(page.getByLabel("プロジェクト")).toHaveValue("訓練航法 8月");
+  await expect(page.getByLabel("プロジェクト", { exact: true })).toHaveValue("訓練航法 8月");
   await expect(page.locator("#saved-project")).toContainText("訓練航法 8月");
   await expect(windDirection).toHaveValue("270");
   await expect(windDirection).toHaveAttribute("aria-invalid", "true");
@@ -3869,6 +3873,7 @@ test("stale automatic recalculation cannot overwrite newer planning inputs", asy
 test("calculated mobile layout has no body overflow", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
   await calculateNavLog(page);
@@ -3887,6 +3892,7 @@ test("calculated mobile layout has no body overflow", async ({ page }, testInfo)
 
 test("KMZ document selection modal moves and traps focus", async ({ page }) => {
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await page.locator("#route-file").setInputFiles({
     name: "multiple.kmz",
@@ -3910,6 +3916,7 @@ test("KMZ document selection modal moves and traps focus", async ({ page }) => {
 test("grouped LineStrings require an explicit route candidate selection", async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
   await importKmlCandidate(page);
@@ -4024,6 +4031,7 @@ test("grouped LineStrings require an explicit route candidate selection", async 
 
 test("same-named grouped routes remain distinguishable in the selector", async ({ page }) => {
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
   await page.getByRole("button", { name: "KMLを貼り付け" }).click();
@@ -4046,6 +4054,7 @@ test("same-named grouped routes remain distinguishable in the selector", async (
 
 test("file picker, drop, and KMZ use the same grouped-route candidate flow", async ({ page }) => {
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
   const candidateSelect = page.getByLabel("飛行経路候補");
@@ -4093,6 +4102,7 @@ test("file picker, drop, and KMZ use the same grouped-route candidate flow", asy
 
 test("KML endpoints automatically determine read-only FROM and TO", async ({ page }) => {
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
   await page.getByRole("button", { name: "KMLを貼り付け" }).click();
@@ -4171,7 +4181,7 @@ test("RUN UP, nose fairing, and A/C choices persist after save and reload", asyn
   await altitudeSaved;
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
+  await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
   await page.reload();
   await expect(runUp).not.toBeChecked();
   await expect(noseFairing).toBeChecked();
@@ -4258,7 +4268,7 @@ test("500 and 1000 fpm descent rates recalculate, render, and persist", async ({
   expect(navLogBox.y).toBeGreaterThanOrEqual(statusBox.y + statusBox.height - 1);
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
+  await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
   await page.reload();
   await expect(fastRate).toBeChecked();
   await expect(page.getByText("計算結果 1000 fpm", { exact: true })).toBeVisible();
@@ -4296,11 +4306,81 @@ test("Issue 129 preserves one imported 小丸 route node after browser confirmat
   });
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
+  await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
   await page.reload();
   const restored = await page.evaluate(async () => {
     const response = await fetch("/api/state");
     return await response.json() as WebState;
   });
   expect(restored.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "小丸", "RJFO"]);
+});
+
+test("Japanese TAF states distinguish missing data from failed acquisition without changing navigation", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto("/");
+  await calculateNavLog(page, false, false, true);
+  const state: WebState = await page.evaluate(async () => (await fetch("/api/state")).json());
+  expect(state.outcome).not.toBeNull();
+  expect(state.destinationWind).not.toBeNull();
+  const navigationCells = page.locator(".nav-log-table [data-display-text]");
+  const navigation = await navigationCells.evaluateAll(cells => cells.map(cell => cell.getAttribute("data-display-text")));
+  const cases = [
+    ["TAF_FETCH_FAILED", "取得失敗（通信・応答エラー）"],
+    ["TAF_FETCH_TIMEOUT", "取得失敗（タイムアウト）"],
+    ["TAF_FETCH_CAPACITY_UNAVAILABLE", "取得できません（混雑中）"],
+    ["TAF_PROXY_NOT_CONFIGURED", "取得先が未設定です"],
+    ["TAF_UNAVAILABLE", "対象空港のTAFがありません"],
+    ["TAF_TIME_OUT_OF_RANGE", "到着予定時刻の予報を確認できません"],
+    ["TAF_WIND_UNAVAILABLE", "風の予報を確認できません"],
+    ["DESTINATION_ICAO_INVALID", "空港識別符号を確認してください"],
+    ["UNKNOWN_FUTURE_REASON", "風の予報を利用できません"],
+    [null, "風の予報を利用できません"],
+  ] as const;
+  for (const [reason, label] of cases) {
+    await page.route("**/api/application-session", async route => {
+      const bootstrap = await (await route.fetch()).json();
+      await route.fulfill({ json: { ...bootstrap, state: { ...state,
+        destinationWind: { ...state.destinationWind, availability: "UNAVAILABLE",
+          wind_speed_kt: null, wind_direction_deg_from: null, reason_code: reason },
+      } } });
+    }, { times: 1 });
+    await page.reload();
+    const summary = page.getByRole("region", { name: "目的地空港の風予報" });
+    await expect(summary.locator("strong")).toHaveText(`目的地風: ${label}`);
+    await expect(summary).toContainText("到着区間の計算はCALMです。");
+    await expect.poll(() => navigationCells.evaluateAll(cells => cells.map(cell => cell.getAttribute("data-display-text")))).toEqual(navigation);
+    if (reason === "TAF_TIME_OUT_OF_RANGE") {
+      for (const width of [390, 1100, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await summary.scrollIntoViewIfNeeded();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+        await page.screenshot({ path: `/tmp/issue246-taf-${width}.png` });
+      }
+    }
+  }
+});
+
+test("Japanese startup and import errors preserve retry and editable input", async ({ page }) => {
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/application-session", async route => {
+    await waiting;
+    await route.abort();
+  }, { times: 1 });
+  await page.goto("/");
+  await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toBeVisible();
+  release();
+  await expect(page.getByRole("alert")).toContainText("サーバーに接続できませんでした。再試行してください。");
+  await page.getByRole("button", { name: "起動を再試行" }).click();
+  await expect(page.getByRole("button", { name: "新規", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "KMLを貼り付け", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await dialog.getByRole("textbox").fill("not a KML document");
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toContainText("貼り付けたテキストはKMLドキュメントではありません。");
+  await expect(dialog.getByRole("textbox")).toHaveValue("not a KML document");
+  await dialog.getByRole("textbox").fill(kml);
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
 });

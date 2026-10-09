@@ -139,7 +139,7 @@ _RJFM_INBOUND_NUMERIC_FIELDS = (
 ISSUE_ACTIONS: dict[str, str] = {
     "AIRPORT_DATA_UNAVAILABLE": "参照データとFROM/TOを確認してください。",
     "PATTERN_ALTITUDE_REQUIRED": (
-        "目的空港のmaster値と今回採用する場周経路高度を確認してください。"
+        "目的空港の参照データ上の場周経路高度と、今回採用する高度を確認してください。"
     ),
     "PERFORMANCE_DATA_UNAVAILABLE": "検証済み性能データを読み込んでください。",
     "PERFORMANCE_DATA_UNVERIFIED": "性能データの版とSHA-256を確認してください。",
@@ -150,17 +150,17 @@ ISSUE_ACTIONS: dict[str, str] = {
     "ARRIVAL_ALTITUDE_OVERRIDE_REASON_REQUIRED": "変則Entryの高度と理由を入力してください。",
     "FORECAST_PREPARE_FAILED": "通信とForecast Runを確認して再計算してください。",
     "FORECAST_RUN_OUT_OF_COVERAGE": "互換Forecast Runへ切り替えてください。",
-    "WEATHER_QUERY_FAILED": "通信と気象providerを確認して再計算してください。",
-    "WIND_UNAVAILABLE": "風を取得するか、風向・風速を手入力してください。",
-    "TEMPERATURE_UNAVAILABLE": "気温を取得するか手入力してください。",
+    "WEATHER_QUERY_FAILED": "通信状態と気象データ取得先を確認して再計算してください。",
+    "WIND_UNAVAILABLE": "風向・風速を取得するか、手入力してください。",
+    "TEMPERATURE_UNAVAILABLE": "気温を取得するか、手入力してください。",
     "CRUISE_POWER_TABLE_BOUNDARY_USED": (
         "65% PWRの線形外挿値とPOH原表を確認してください。"
     ),
     "PILOT_REQUIRED": "PILOTを入力してください。",
     "SHIP_REQUIRED": "SHIPを入力してください。",
-    "DEVELOPMENT_WEATHER_PROVIDER": "実気象providerで再計算してください。",
-    "CP_LINK_REQUIRED": "Check Pointの関連Legを選択してください。",
-    "CP_NOT_ABEAM_LINKED_SECTION": "Check Pointの座標または関連Legを修正してください。",
+    "DEVELOPMENT_WEATHER_PROVIDER": "実際の気象データで再計算してください。",
+    "CP_LINK_REQUIRED": "チェックポイントの関連Legを選択してください。",
+    "CP_NOT_ABEAM_LINKED_SECTION": "チェックポイントの座標か関連Legを修正してください。",
 }
 
 
@@ -362,7 +362,7 @@ class AutoNavLogWebApplication:
             LOGGER.exception("Failed to clear last-opened Project marker")
             raise WebApplicationError(
                 "PROJECT_PERSISTENCE_FAILED",
-                "Projectの復元情報を更新できませんでした。再試行してください。",
+                "プロジェクトの復元情報を更新できませんでした。再試行してください。",
                 status_code=500,
             ) from error
 
@@ -578,7 +578,7 @@ class AutoNavLogWebApplication:
             if len(supplied_ids) != len(set(supplied_ids)):
                 raise WebApplicationError(
                     "CHECK_POINT_ID_DUPLICATED",
-                    "同じCheck Point IDが複数回指定されています。",
+                    "同じチェックポイントIDが複数回指定されています。",
                 )
             replacements: list[VisualReference] = []
             for item in request.check_points:
@@ -586,7 +586,7 @@ class AutoNavLogWebApplication:
                 if item.id is not None and previous is None:
                     raise WebApplicationError(
                         "CHECK_POINT_NOT_FOUND",
-                        "更新対象のCheck Pointが現在のProjectにありません。",
+                        "更新対象のチェックポイントが現在のプロジェクトにありません。",
                         status_code=404,
                     )
                 replacements.append(
@@ -873,7 +873,7 @@ class AutoNavLogWebApplication:
         ):
             raise WebApplicationError(
                 "PATTERN_ALTITUDE_REQUIRED",
-                "目的空港のmaster値と今回採用する場周経路高度を確認してください。",
+                "目的空港の参照データ上の場周経路高度と、今回採用する高度を確認してください。",
                 status_code=409,
             )
         if project.weather_mode == "FTD":
@@ -1027,7 +1027,7 @@ class AutoNavLogWebApplication:
     def acknowledge(self, session: WebSession, ack_key: str, checked: bool) -> dict[str, Any]:
         with self.owner_operation(session.owner_id), session.lock:
             if session.project is None:
-                raise WebApplicationError("PROJECT_REQUIRED", "Projectがありません。")
+                raise WebApplicationError("PROJECT_REQUIRED", "プロジェクトがありません。")
             evaluation = self._evaluate(session)
             allowed = {
                 item.ctx.ack_key
@@ -1037,7 +1037,7 @@ class AutoNavLogWebApplication:
             if ack_key not in allowed:
                 raise WebApplicationError(
                     "ACKNOWLEDGEMENT_NOT_FOUND",
-                    "確認対象の確認事項が現在の計算状態にありません。",
+                    "確認対象が現在の計算状態にありません。",
                     status_code=404,
                 )
             working = session.project.model_copy(deep=True)
@@ -1055,7 +1055,7 @@ class AutoNavLogWebApplication:
     def save(self, session: WebSession, request: SaveProjectRequest) -> dict[str, Any]:
         with self.owner_operation(session.owner_id), session.lock, self._save_lock:
             if session.project is None:
-                raise WebApplicationError("PROJECT_REQUIRED", "保存するProjectがありません。")
+                raise WebApplicationError("PROJECT_REQUIRED", "保存するプロジェクトがありません。")
             self._assert_project_owner(session.project, session.owner_id)
             project_to_save = session.project.model_copy(deep=True)
             if request.name is not None:
@@ -1104,7 +1104,7 @@ class AutoNavLogWebApplication:
             except (FileNotFoundError, ValueError) as error:
                 raise WebApplicationError(
                     "PROJECT_NOT_FOUND",
-                    "指定されたProjectは見つかりません。",
+                    "指定されたプロジェクトが見つかりません。",
                     status_code=404,
                 ) from error
             self._assert_project_owner(project, session.owner_id)
@@ -1114,7 +1114,7 @@ class AutoNavLogWebApplication:
                 LOGGER.exception("Failed to delete Project and update last-opened marker")
                 raise WebApplicationError(
                     "PROJECT_PERSISTENCE_FAILED",
-                    "Projectを削除できませんでした。再試行してください。",
+                    "プロジェクトを削除できませんでした。再試行してください。",
                     status_code=500,
                 ) from error
             if session.project is not None and session.project.id == project_id:
@@ -1140,7 +1140,7 @@ class AutoNavLogWebApplication:
             LOGGER.exception("Failed to persist Project draft: project_id=%s", project.id)
             raise WebApplicationError(
                 "PROJECT_PERSISTENCE_FAILED",
-                "Projectを自動保存できませんでした。入力を確認して再試行してください。",
+                "プロジェクトを自動保存できませんでした。入力を確認して再試行してください。",
                 status_code=500,
             ) from error
         self._projects_changed(session)
@@ -1154,7 +1154,7 @@ class AutoNavLogWebApplication:
             LOGGER.exception("Failed to persist last-opened Project marker")
             raise WebApplicationError(
                 "PROJECT_PERSISTENCE_FAILED",
-                "Projectの復元情報を保存できませんでした。再試行してください。",
+                "プロジェクトの復元情報を保存できませんでした。再試行してください。",
                 status_code=500,
             ) from error
 
@@ -1205,7 +1205,7 @@ class AutoNavLogWebApplication:
             project_id = self.project_service.last_opened_project(session.owner_id)
         except (JsonStorageError, OSError, ValueError):
             LOGGER.exception("Ignoring invalid last-opened Project marker")
-            session.restore_warning = "保存済みProjectの復元情報を読み込めませんでした。"
+            session.restore_warning = "保存済みプロジェクトの復元情報を読み込めませんでした。"
             return
         if project_id is None:
             return
@@ -1233,7 +1233,7 @@ class AutoNavLogWebApplication:
         except (FileNotFoundError, JsonStorageError, ValueError) as error:
             raise WebApplicationError(
                 "PROJECT_NOT_FOUND",
-                "指定されたProjectは見つかりません。",
+                "指定されたプロジェクトが見つかりません。",
                 status_code=404,
             ) from error
         project = loaded.project
@@ -1244,7 +1244,7 @@ class AutoNavLogWebApplication:
             self._persist_draft(session, project)
         record = None
         restore_warning = (
-            "最新の自動保存を読み込めなかったため、直前の保存内容を復元しました。"
+            "最新の自動保存を読み込めず、直前の保存内容を復元しました。"
             if loaded.recovered_from_fallback
             else None
         )
@@ -1359,7 +1359,7 @@ class AutoNavLogWebApplication:
                     "acknowledgementRequired": False,
                     "ackKey": "persisted-state-recovery-failed",
                     "acknowledged": False,
-                    "action": "保存済みProjectを選び直すか、NAV LOGを再計算してください。",
+                    "action": "保存済みプロジェクトを選び直すか、NAV LOGを再計算してください。",
                 }
             )
         project_payload = (
@@ -1685,7 +1685,7 @@ class AutoNavLogWebApplication:
 
     def _evaluate(self, session: WebSession) -> ReadinessEvaluation:
         if session.project is None:
-            raise WebApplicationError("PROJECT_REQUIRED", "Projectがありません。")
+            raise WebApplicationError("PROJECT_REQUIRED", "プロジェクトがありません。")
         materialized = session.readiness_service.evaluate(
             session.project,
             session.outcome,
@@ -1701,7 +1701,7 @@ class AutoNavLogWebApplication:
         if not isinstance(stored_owner, str) or not _owner_ids_match(stored_owner, owner_id):
             raise WebApplicationError(
                 "PROJECT_NOT_FOUND",
-                "指定されたProjectは見つかりません。",
+                "指定されたプロジェクトが見つかりません。",
                 status_code=404,
             )
 
@@ -2671,7 +2671,7 @@ class AutoNavLogWebApplication:
     @staticmethod
     def _next_action(session: WebSession, issues: list[dict[str, Any]]) -> str:
         if session.import_result is None and session.project is None:
-            return "KML/KMZを読み込んでください"
+            return "地図で経路を作るか、KML/KMZを読み込んでください"
         if session.project is None:
             return "経路と飛行計画を確認してください"
         blockers = [item for item in issues if item["severity"] == "BLOCKER"]

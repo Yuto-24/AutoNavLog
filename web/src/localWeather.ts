@@ -68,7 +68,7 @@ export class LocalWeatherTransport {
       throw new WeatherError("WEATHER_DOWNLOAD_FAILED", "MSM配信データがサイズ上限を超えています。");
     }
     const reader = response.body?.getReader();
-    if (!reader) throw new WeatherError("WEATHER_DOWNLOAD_FAILED", "MSM応答本文がありません。");
+    if (!reader) throw new WeatherError("WEATHER_DOWNLOAD_FAILED", "MSMの応答を読み取れませんでした。");
     const chunks: Uint8Array[] = [];
     let size = 0;
     try {
@@ -84,7 +84,7 @@ export class LocalWeatherTransport {
       }
     } catch (error) {
       if (error instanceof WeatherError) throw error;
-      throw new WeatherError("WEATHER_DOWNLOAD_FAILED", "MSMデータのdownloadを完了できません。");
+      throw new WeatherError("WEATHER_DOWNLOAD_FAILED", "MSMデータのダウンロードに失敗しました。");
     } finally { reader.releaseLock(); }
     const bytes = new Uint8Array(size);
     let offset = 0;
@@ -139,7 +139,7 @@ export class LocalWeatherTransport {
   async prepared(asset: PreparedAsset, accept: (bytes: Uint8Array) => void): Promise<void> {
     if (!/^[a-f0-9]{64}$/.test(asset.sha256) || asset.file !== `${asset.sha256}.npz`
       || !Number.isSafeInteger(asset.bytes) || asset.bytes <= 0 || asset.bytes > MAX_PAYLOAD) {
-      throw new WeatherError("WEATHER_CATALOG_INVALID", "MSM配信file情報が不正です。");
+      throw new WeatherError("WEATHER_CATALOG_INVALID", "MSM配信ファイルの情報が不正です。");
     }
     const url = new URL(asset.file, this.base);
     const validate = (bytes: Uint8Array) => {
@@ -157,7 +157,7 @@ export class LocalWeatherTransport {
     try { bytes = await this.download(url, MAX_PAYLOAD, false); }
     catch (error) {
       if (corrupt) throw new WeatherError("WEATHER_CACHE_CORRUPT",
-        `MSM cacheが破損し、再取得できません。${error instanceof Error ? error.message : ""}`);
+        `MSMのキャッシュが破損しており、再取得にも失敗しました。${error instanceof Error ? error.message : ""}`);
       throw error;
     }
     validate(bytes);

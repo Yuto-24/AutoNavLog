@@ -528,7 +528,7 @@ export function RouteWorkspace({
           <p>
             {project
               ? `${project.departure_airport_id} → ${project.destination_airport_id}`
-              : mapBuilder ? "MAPで経路を作成" : candidate?.name ?? "飛行経路候補を選択すると地図へ表示します"}
+              : mapBuilder ? "地図で経路を作成" : candidate?.name ?? "飛行経路候補を選択すると地図へ表示します"}
           </p>
         </div>
         {project && <span className="route-count">{nodes.length}点 / {sections.length} Leg</span>}
@@ -852,11 +852,11 @@ export function RouteWorkspace({
             {rjfmMapReference && (
               <span className="rjfm-airspace-status" aria-live="polite">
                 {trainingAirspace.status === "loading"
-                  ? "GSI空域を取得中…"
+                  ? "空域情報を取得中…"
                   : trainingAirspace.status === "unavailable"
-                    ? "GSI空域は取得できず非表示"
+                    ? "空域情報を取得できず非表示"
                     : trainingAirspace.status === "ready"
-                      ? `GSI: ${trainingAirspace.polygons.length}区画を表示`
+                      ? `空域: ${trainingAirspace.polygons.length}区画を表示`
                       : ""}
               </span>
             )}
@@ -1171,8 +1171,8 @@ export function RouteWorkspace({
                           className={`arrival-altitude-help ${validPatternAltitude === null ? "field-error" : ""}`}
                         >
                           {destinationAirport
-                            ? `master ${destinationAirport.patternAltitudeFtMsl.toLocaleString("ja-JP")} ft MSL（標高差 ${(destinationAirport.patternAltitudeFtMsl - destinationAirport.elevationFtMsl).toLocaleString("ja-JP")} ft）`
-                            : "目的地空港のmaster値を確認してください。"}
+                            ? `参照値 ${destinationAirport.patternAltitudeFtMsl.toLocaleString("ja-JP")} ft MSL（標高差 ${(destinationAirport.patternAltitudeFtMsl - destinationAirport.elevationFtMsl).toLocaleString("ja-JP")} ft）`
+                            : "目的地空港の参照データ値を確認してください。"}
                           <br />
                           {validPatternAltitude === null
                             ? patternAltitudeBelowAirport

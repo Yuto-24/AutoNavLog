@@ -218,7 +218,7 @@ def project_check_points(project: Project) -> CheckPointProjectionComputation:
             issues.append(
                 _blocker(
                     "CP_NOT_ABEAM_LINKED_SECTION",
-                    "同じLeg上に1 m以内で重複するCheck Pointがあります。",
+                    "同じLeg上に1 m以内で重複するチェックポイントがあります。",
                     section_id=section.id,
                     checkpoint_id=check_point.id,
                 )

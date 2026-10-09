@@ -8,7 +8,7 @@ test("production artifact shows storage limits and uses no Service Worker", asyn
   await context.route("**/api/**", route => route.abort());
   await page.goto("/");
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: /^Information/ }).click();
+  await page.getByRole("button", { name: /^お知らせ/ }).click();
   await expect(page.getByText(/容量不足による自動削除/)).toBeVisible();
   expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)).toBe(0);
   expect(api).toEqual([]);

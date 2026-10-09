@@ -61,7 +61,7 @@ async function save(page: Page, name: string) {
 }
 async function load(page: Page, id: string) {
   await page.getByLabel("保存済み", { exact: true }).selectOption(id);
-  await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
+  await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
   await expect.poll(async () => (await working(page)).project?.id).toBe(id);
 }
 function blockApi(context: BrowserContext) {
@@ -149,7 +149,7 @@ test("Latest replacement, promotion, opening another Project and explicit delete
   expect(replaced.some(row => row.id === oldLatest)).toBe(false);
   await load(page, first.id);
   expect((await records(page)).map(row => row.id)).toEqual([first.id]);
-  await page.getByRole("button", { name: "保存済みProjectを削除", exact: true }).click();
+  await page.getByRole("button", { name: "保存済みプロジェクトを削除", exact: true }).click();
   await expect.poll(async () => (await records(page)).length).toBe(0);
   await expect.poll(async () => (await working(page)).project).toBeNull();
 });
@@ -197,7 +197,7 @@ test("migration and corruption are isolated per Project, originals survive faile
     IDBObjectStore.prototype.put = function () { throw new DOMException("quota", "QuotaExceededError"); };
   });
   await page.getByLabel("保存済み", { exact: true }).selectOption(old.id);
-  await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
+  await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "端末への保存に失敗" })).toBeVisible();
   expect((await records(page)).find(row => row.id === old.id)).toEqual(old);
   expect((await working(page)).project).toBeNull();
@@ -252,13 +252,13 @@ test("a stale selector cannot delete a Project updated by another tab", async ({
   await expect.poll(async () => (await records(page))[0].draft.total_usable_fuel_gal).toBe(74);
   other.on("dialog", dialog => dialog.accept());
   await other.getByLabel("保存済み", { exact: true }).selectOption(saved.id);
-  await other.getByRole("button", { name: "保存済みProjectを削除", exact: true }).click();
-  await expect(other.getByRole("alert")).toContainText("別のタブでProject");
+  await other.getByRole("button", { name: "保存済みプロジェクトを削除", exact: true }).click();
+  await expect(other.getByRole("alert")).toContainText("別のタブでプロジェクト");
   expect((await records(page))[0].draft.total_usable_fuel_gal).toBe(74);
   await other.reload();
   await expect(other.getByLabel("保存済み", { exact: true }).locator("option")).toHaveCount(2);
   await other.getByLabel("保存済み", { exact: true }).selectOption(saved.id);
-  await other.getByRole("button", { name: "保存済みProjectを削除", exact: true }).click();
+  await other.getByRole("button", { name: "保存済みプロジェクトを削除", exact: true }).click();
   await expect.poll(async () => (await records(other)).length).toBe(0);
 });
 

@@ -44,7 +44,7 @@ test("first login migrates 200 Legacy Projects through Firestore and fresh devic
     await fresh.evaluate(subject => (window as any).authTest.signIn(subject), subject);
     await expect(fresh.locator(`#saved-project option[value="${projectId}"]`)).toHaveCount(1);
     await fresh.locator("#saved-project").selectOption(projectId);
-    await fresh.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
+    await fresh.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
     await expect(fresh.locator(".nav-log-table")).toBeVisible();
     const records = await fresh.evaluate(async () => {
       const id = (window as any).authTest.state().account.account_id;
