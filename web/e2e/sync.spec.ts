@@ -1,17 +1,40 @@
 import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { test, expect, type Page } from "@playwright/test";
 import { resolve } from "node:path";
-import { backend } from "./helpers/sync-auth";
+import { backend, waitForSyncAccount } from "./helpers/sync-auth";
 async function start(page: Page, subject: string) {
   await page.goto("/e2e/auth-harness/index.html?sync");
   await expect.poll(() => page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
   // Vite may reload the first page while generated Local assets settle in CI.
-  await expect.poll(() => page.evaluate(() => (window as any).authTest?.state().account?.displayName)).toBe(subject);
+  await waitForSyncAccount(page, subject);
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 
 }
+
+test("sync account readiness survives a reload while the account is pending", async ({ page }) => {
+  let restored = false;
+  await page.route("https://readiness.example/", route => route.fulfill({
+    contentType: "text/html",
+    body: `<script>window.authTest = { state() {
+      window.readinessPolled = true;
+      return { account: { displayName: ${JSON.stringify(restored ? "expected" : "other")} } };
+    } };</script>`,
+  }));
+  await page.goto("https://readiness.example/");
+  const ready = waitForSyncAccount(page, "expected");
+  await page.waitForFunction(() => (window as any).readinessPolled);
+  restored = true;
+  await page.reload();
+  await ready;
+  expect(await page.evaluate(() => (window as any).authTest.state().account.displayName)).toBe("expected");
+});
+
+test("sync account readiness rejects a different account", async ({ page }) => {
+  await page.setContent("<script>window.authTest = { state: () => ({ account: { displayName: 'other' } }) };</script>");
+  await expect(waitForSyncAccount(page, "expected", 250)).rejects.toThrow(/Timeout/);
+});
 async function state(page: Page) { return page.evaluate(() => (window as any).authTest.contexts.at(-1).sync.getState()); }
 async function create(page: Page, name: string) {
   await enterImportWorkflow(page);

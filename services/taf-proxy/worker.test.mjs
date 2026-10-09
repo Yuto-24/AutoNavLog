@@ -130,9 +130,9 @@ test("deadline covers headers and streamed body and releases concurrency", async
       } }), { headers: { "Content-Type": "application/json" } });
       return new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
     }, { timeoutMs: 20 });
-    const inflight = Array.from({ length: 4 }, () => h.run());
+    const inflight = ["RJFM", "RJFK", "RJFO", "RJFF"].map(icao => h.run(`/taf?icao=${icao}`));
     await new Promise(resolve => setTimeout(resolve, 1));
-    assert.equal((await h.run()).status, 503);
+    assert.equal((await h.run("/taf?icao=RJFT")).status, 503);
     for (const response of await Promise.all(inflight)) assert.equal(response.status, 504);
     assert.equal((await h.run()).status, 504);
     assert.equal(h.calls(), 5);

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test worker.test.mjs runtime.test.mjs",
+    "test": "node --test worker.test.mjs crowd.test.mjs runtime.test.mjs pages-upload.test.mjs",
     "dev": "wrangler dev",
     "check": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy"

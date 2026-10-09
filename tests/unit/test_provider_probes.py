@@ -5,7 +5,7 @@ import io
 import json
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from http.client import BadStatusLine, IncompleteRead
 from pathlib import Path
 from types import SimpleNamespace
@@ -130,10 +130,146 @@ def test_missing_credentials_does_not_attempt_network():
     assert result["status"] == "BLOCKED"
 
 
-def test_no_cloudflare_data_is_not_zero():
-    raw = {"data": {"viewer": {"accounts": [{"workersInvocationsAdaptive": []}]}}, "errors": None}
-    with pytest.raises(p.ProbeError, match="no_data"):
+@pytest.mark.parametrize(
+    "accounts,expected",
+    [
+        ([], "accounts_empty"),
+        ([{"workersInvocationsAdaptive": []}], "invocations_empty"),
+        (None, "invalid_shape"),
+        ({}, "invalid_shape"),
+        ([{"workersInvocationsAdaptive": None}], "invalid_shape"),
+        ([{"workersInvocationsAdaptive": {}}], "invalid_shape"),
+        ([{}, {}], "ambiguous_scope"),
+    ],
+)
+def test_no_cloudflare_data_is_not_zero(accounts, expected):
+    raw = {"data": {"viewer": {"accounts": accounts}}, "errors": None}
+    with pytest.raises(p.ProbeError, match=expected):
         p.check_workers(client(json.dumps(raw).encode()), "a" * 32, NOW)
+
+
+@pytest.mark.parametrize("rows", [
+    [None], [{}], [{"sum": None}], [{"sum": {}}],
+    [{"sum": {"requests": True}}], [{"sum": {"requests": -1}}],
+    [{"sum": {"requests": "0"}}], [{"sum": {"requests": 0}}] * 2,
+])
+def test_workers_malformed_nonempty_data_is_not_reachability(rows):
+    raw = {"data": {"viewer": {"accounts": [{"workersInvocationsAdaptive": rows}]}}}
+    result = p.probe(
+        ENV, NOW, client(json.dumps(raw).encode()), only="cloudflare_worker_invocations",
+    )
+    assert result["checks"] == [
+        {"check": "cloudflare_worker_invocations", "status": "invalid_shape"},
+    ]
+    assert result["status"] == "BLOCKED"
+
+
+@pytest.mark.parametrize("value", [0, 1, 1.5])
+def test_workers_valid_analytics_is_not_quota_and_query_remains_one_utc_day_read(value):
+    calls = []
+    raw = {"data": {"viewer": {"accounts": [{"workersInvocationsAdaptive": [
+        {"sum": {"requests": value}, "private": "SECRET"},
+    ]}]}}}
+    local_now = NOW.astimezone(timezone(timedelta(hours=9)))
+    result = p.probe(ENV, local_now, client(json.dumps(raw).encode(), calls),
+                     only="cloudflare_worker_invocations")
+    assert len(calls) == 1
+    query = json.loads(calls[0].data)
+    assert query["variables"] == {
+        "account": ENV["CLOUDFLARE_ACCOUNT_ID"],
+        "start": NOW.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
+        "end": NOW.isoformat(),
+    }
+    assert "workersInvocationsAdaptive(limit: 1" in query["query"]
+    assert "scriptName" not in query["query"] and "dimensions" not in query["query"]
+    assert result["checks"][0]["status"] == "reachable_not_evidence"
+    assert result["status"] == "BLOCKED"
+    assert "metrics" not in result and "plans" not in result and "limits_checked_at" not in result
+    assert "SECRET" not in json.dumps(result)
+
+
+def test_workers_naive_time_fails_before_request():
+    calls = []
+    with pytest.raises(p.ProbeError, match="invalid_observation_time"):
+        p.check_workers(client(b"{}", calls), "a" * 32, NOW.replace(tzinfo=None))
+    assert calls == []
+
+
+def worker_settings_response(**changes):
+    settings = {
+        "enabled": True, "availableFields": ["sum_requests", "PRIVATE_FIELD"],
+        "maxDuration": 86400, "notOlderThan": 86400,
+        "maxPageSize": 100, "maxNumberOfFields": 30,
+        "private": "SECRET",
+    }
+    settings.update(changes)
+    return {"data": {"viewer": {"accounts": [{"settings": {
+        "workersInvocationsAdaptive": settings,
+    }}]}}}
+
+
+@pytest.mark.parametrize("changes,expected", [
+    ({}, "settings_compatible_not_quota_evidence"),
+    ({"enabled": False}, "dataset_disabled"),
+    ({"availableFields": []}, "required_field_unavailable"),
+    ({"availableFields": ["requests"]}, "required_field_unavailable"),
+    ({"maxDuration": 43199}, "window_not_supported"),
+    ({"notOlderThan": 43199}, "window_not_supported"),
+    ({"maxDuration": 43200, "notOlderThan": 43200}, "settings_compatible_not_quota_evidence"),
+    ({"maxPageSize": 0}, "query_limits_not_supported"),
+    ({"maxNumberOfFields": 0}, "query_limits_not_supported"),
+    ({"enabled": 1}, "settings_invalid"),
+    ({"availableFields": None}, "settings_invalid"),
+    ({"availableFields": [None]}, "settings_invalid"),
+])
+def test_worker_settings_one_read_has_only_fixed_statuses(changes, expected):
+    calls = []
+    raw = worker_settings_response(**changes)
+    result = p.probe(ENV, NOW, client(json.dumps(raw).encode(), calls),
+                     only="cloudflare_worker_settings")
+    assert len(calls) == 1
+    payload = json.loads(calls[0].data)
+    assert payload["variables"] == {"account": ENV["CLOUDFLARE_ACCOUNT_ID"]}
+    assert "settings { workersInvocationsAdaptive" in payload["query"]
+    assert "sum {" not in payload["query"] and "mutation" not in payload["query"]
+    assert result["checks"] == [{"check": "cloudflare_worker_settings", "status": expected}]
+    assert result["status"] == "BLOCKED"
+    output = json.dumps(result)
+    assert all(value not in output for value in ("SECRET", "PRIVATE_FIELD", "86400", "maxPageSize"))
+    assert all(key not in result for key in ("metrics", "plans", "limits_checked_at"))
+
+
+@pytest.mark.parametrize(
+    "field", ["maxDuration", "notOlderThan", "maxPageSize", "maxNumberOfFields"]
+)
+@pytest.mark.parametrize("value", [None, True, -1, "86400", 86400.0])
+def test_worker_settings_invalid_limits_are_not_defaults(field, value):
+    raw = worker_settings_response(**{field: value})
+    with pytest.raises(p.ProbeError, match="settings_invalid"):
+        p.check_worker_settings(client(json.dumps(raw).encode()), "a" * 32, NOW)
+
+
+@pytest.mark.parametrize("accounts,expected", [
+    ([], "accounts_empty"), ([{}, {}], "ambiguous_scope"),
+    (None, "settings_invalid"), ([{}], "settings_invalid"),
+    ([{"settings": {"workersInvocationsAdaptive": None}}], "settings_invalid"),
+])
+def test_worker_settings_missing_account_or_metadata_never_implies_availability(accounts, expected):
+    raw = {"data": {"viewer": {"accounts": accounts}}}
+    with pytest.raises(p.ProbeError, match=expected):
+        p.check_worker_settings(client(json.dumps(raw).encode()), "a" * 32, NOW)
+
+
+def test_worker_settings_utc_window_keeps_fractional_seconds_and_rejects_naive_time():
+    raw = worker_settings_response(maxDuration=43200)
+    local_now = NOW.replace(microsecond=1).astimezone(timezone(timedelta(hours=14)))
+    assert p.check_worker_settings(client(json.dumps(raw).encode()), "a" * 32, local_now) == (
+        "window_not_supported"
+    )
+    calls = []
+    with pytest.raises(p.ProbeError, match="invalid_observation_time"):
+        p.check_worker_settings(client(b"{}", calls), "a" * 32, NOW.replace(tzinfo=None))
+    assert calls == []
 
 
 def test_graphql_error_and_mutation_rejected():
@@ -219,7 +355,7 @@ def test_probe_continues_independent_providers_and_never_returns_report():
             return {"active_caches_size_in_bytes": 0, "max_cache_size_gb": 10, "usageItems": [{}]}
 
     result = p.probe(ENV, NOW, Fake())
-    assert len(result["checks"]) == 12
+    assert len(result["checks"]) == 13
     assert result["checks"][-1]["status"] == "reachable_not_evidence"
     assert result["status"] == "BLOCKED"
     assert "metrics" not in result and "plans_observed_at" not in result

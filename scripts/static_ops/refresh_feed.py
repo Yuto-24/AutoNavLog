@@ -8,6 +8,10 @@ from pathlib import Path
 
 
 def refresh(producer: Path, output: Path, cache: Path) -> dict:
+    previous = output / "catalog.json"
+    retained_runs = {asset["run"] for asset in json.loads(previous.read_text())["assets"]} if (
+        previous.exists()
+    ) else set()
     result = subprocess.run(
         [sys.executable, str(producer), "--output", str(output), "--cache", str(cache)],
         check=False,
@@ -22,6 +26,8 @@ def refresh(producer: Path, output: Path, cache: Path) -> dict:
         raise ValueError(
             "No newly prepared MSM Run; do not publish a renewed retained-only catalog"
         )
+    if retained_runs and not any(item["run"] > max(retained_runs) for item in report["runs"]):
+        raise ValueError("No newer real MSM Run; timestamps alone cannot renew weather")
     return report
 
 

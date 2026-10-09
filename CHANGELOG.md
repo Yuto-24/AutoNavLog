@@ -2,7 +2,7 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
-## 1.22.6
+## 1.22.7
 
 ### 利用者向け
 
@@ -13,6 +13,19 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 ### 開発者向け
 
 - #246: Geminiで検討したUI文言を反映し、状態別表示と操作・レイアウトの回帰テストを更新。
+
+## 1.22.6
+
+### 利用者向け
+
+#### 修正
+
+- 共有IPからの目的地TAF同時取得時に発生していた制限による拒否を防ぐため、有効なキャッシュを先に返し、同一空港へのリクエストをまとめるよう変更しました。
+
+### 開発者向け
+
+- TAF Proxyのmiss開始時に既存client / upstream / station制限を適用し、同一ICAOの取得とcache保存待ちをisolate内で集約。正常300秒・空結果60秒の絶対期限、同時数4件、fail closed、retryなしを維持。
+- 学校IPの100人warm / cold、8空港、複数isolate、TTL / AMD / 空結果 / 429 / timeout / 不正payloadをfixtureで検証。Worker設定・本番公開は変更しない。
 
 ## 1.22.5
 
