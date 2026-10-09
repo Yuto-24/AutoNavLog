@@ -4315,7 +4315,7 @@ test("Issue 129 preserves one imported 小丸 route node after browser confirmat
   expect(restored.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "小丸", "RJFO"]);
 });
 
-test("Japanese TAF states distinguish missing data from failed acquisition without changing navigation", async ({ page }) => {
+test("Japanese TAF states distinguish missing data from failed acquisition without changing navigation", async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto("/");
   await calculateNavLog(page, false, false, true);
@@ -4354,7 +4354,7 @@ test("Japanese TAF states distinguish missing data from failed acquisition witho
         await page.setViewportSize({ width, height: 900 });
         await summary.scrollIntoViewIfNeeded();
         expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
-        await page.screenshot({ path: `/tmp/issue246-taf-${width}.png` });
+        await page.screenshot({ path: testInfo.outputPath(`taf-${width}.png`) });
       }
     }
   }
