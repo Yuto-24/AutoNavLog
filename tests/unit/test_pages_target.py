@@ -179,3 +179,16 @@ def test_cli_missing_credentials_fails_without_traceback_or_auth_fallback():
                             capture_output=True, text=True, check=False)
     assert result.returncode == 1 and result.stderr == ""
     assert json.loads(result.stdout)["checks"][0]["status"] == "missing_credential"
+
+
+def test_inventory_membership_uses_identity_not_optional_fields():
+    row = deployment()
+    del row["uses_functions"]
+    result, _ = observe(pages=[page([row])])
+    assert result["production_in_inventory"] is True
+    assert result["production"]["uses_functions"] is False
+
+
+def test_different_deployment_identity_is_not_production_membership():
+    result, _ = observe(pages=[page([deployment(2)])])
+    assert result["production_in_inventory"] is False

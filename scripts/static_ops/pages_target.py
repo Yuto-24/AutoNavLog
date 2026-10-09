@@ -117,7 +117,7 @@ def inspect(client, account):
     )
     canonical = result["production"]
     if canonical is not None:
-        result["production_in_inventory"] = canonical in rows
+        result["production_in_inventory"] = any(row["id"] == canonical["id"] for row in rows)
     else:
         result["production_in_inventory"] = UNKNOWN
     result["project_unchanged"] = project == read_project(client, path)
