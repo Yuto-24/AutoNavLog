@@ -192,3 +192,125 @@ def test_inventory_membership_uses_identity_not_optional_fields():
 def test_different_deployment_identity_is_not_production_membership():
     result, _ = observe(pages=[page([deployment(2)])])
     assert result["production_in_inventory"] is False
+
+
+@pytest.mark.parametrize("skipped,state,expected", [
+    (True, "idle", "SKIPPED"), (False, "idle", "PENDING"),
+    (None, "idle", "PENDING"), ("true", "idle", "PENDING"),
+    (False, "active", "ACTIVE"), (None, "active", "ACTIVE"),
+    (True, "active", "UNKNOWN"), (False, "skipped", "UNKNOWN"),
+    (None, "skipped", "SKIPPED"),
+])
+def test_explicit_skip_pending_active_and_conflicts(skipped, state, expected):
+    row = deployment(stage="queued", state=state)
+    row.update(is_skipped=skipped, skip_reason="production_deployments_disabled",
+               created_on="2020-01-01T00:00:00Z", modified_on="2020-01-01T00:00:00Z")
+    result, calls = observe(pages=[page([row])])
+    assert len(calls) == 3
+    assert result["activity_counts"][expected] == 1
+    records = result["skipped"] if expected == "SKIPPED" else result["in_flight"]
+    assert records[0]["activity"] == expected
+    assert records[0]["created_on"] == "2020-01-01T00:00:00+00:00"
+    assert result["in_flight_present"] == (
+        False if expected == "SKIPPED" else "UNKNOWN" if expected == "UNKNOWN" else True
+    )
+
+
+def test_skipped_inventory_is_preserved_across_pages_without_active_inference():
+    rows = [deployment(i, "queued", "idle") for i in range(1, 22)]
+    for row in rows:
+        row.update(is_skipped=True, skip_reason="superseded_queued_build")
+    result, calls = observe(pages=[page(rows[:20], total=21), page(rows[20:], 2, 21)])
+    assert len(calls) == 4
+    assert result["activity_counts"] == {
+        "ACTIVE": 0, "PENDING": 0, "SKIPPED": 21, "FINISHED": 0, "UNKNOWN": 0,
+    }
+    assert len(result["skipped"]) == 21 and result["in_flight"] == []
+    assert all(row["skip_reason"] == "superseded_queued_build" for row in result["skipped"])
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("2026-10-09T09:15:00.123456+09:00", "2026-10-09T00:15:00.123456+00:00"),
+    (None, None), ("PRIVATE_TIME", "UNKNOWN"), (123, "UNKNOWN"),
+    ("2026-02-30T00:00:00Z", "UNKNOWN"), ("2026-10-09T00:00:00", "UNKNOWN"),
+    ("2026-10-09T00:00:00Z PRIVATE", "UNKNOWN"),
+    ("0001-01-01T00:00:00+01:00", "UNKNOWN"),
+    ("2026-10-09T00:00:00+00:99", "UNKNOWN"),
+])
+def test_native_timestamp_sanitization_without_clock_substitution(raw, expected):
+    row = deployment(stage="queued", state="idle")
+    row.update(created_on=raw, modified_on=raw, skip_reason="PRIVATE_REASON")
+    row["latest_stage"].update(started_on=raw, ended_on=raw)
+    result, _ = observe(pages=[page([row])])
+    observed = result["in_flight"][0]
+    assert all(observed[k] == expected for k in (
+        "created_on", "modified_on", "stage_started_on", "stage_ended_on",
+    ))
+    assert observed["skip_reason"] == "UNKNOWN"
+    assert result["in_flight_present"] is True
+
+
+def test_missing_timestamps_remain_unknown_and_never_clear_pending():
+    result, _ = observe(pages=[page([deployment(stage="queued", state="idle")])])
+    assert result["in_flight"][0]["created_on"] == "UNKNOWN"
+    assert result["in_flight"][0]["stage_ended_on"] == "UNKNOWN"
+    assert result["in_flight_present"] is True
+
+
+@pytest.mark.parametrize("value,state,present", [
+    (None, "null", "UNKNOWN"), ({}, "empty", False),
+    ({"PRIVATE_BINDING": {}}, "nonempty", True),
+    ([], "invalid", "UNKNOWN"), ("PRIVATE_SHAPE", "invalid", "UNKNOWN"),
+    ({"PRIVATE_BINDING": None}, "invalid", "UNKNOWN"),
+])
+def test_binding_shapes_do_not_expose_values_or_infer_absence(value, state, present):
+    p = project()
+    for name in target.BINDINGS:
+        p["deployment_configs"]["production"][name] = value
+    result, _ = observe(p)
+    assert set(result["production_binding_state"].values()) == {state}
+    assert all(v == present for v in result["production_binding_present"].values())
+
+
+def test_missing_binding_is_distinct_from_unavailable_parent_configuration():
+    p = project()
+    p["deployment_configs"]["production"] = {}
+    result, _ = observe(p)
+    assert result["production_configuration_state"] == "empty"
+    assert set(result["production_binding_state"].values()) == {"missing"}
+    for value, expected in ((None, "null"), ([], "invalid")):
+        p["deployment_configs"]["production"] = value
+        result, _ = observe(p)
+        assert result["production_configuration_state"] == expected
+        assert set(result["production_binding_state"].values()) == {"UNKNOWN"}
+        assert result["production_env_metadata"]["other_variable_count"] == "UNKNOWN"
+
+
+def test_env_metadata_only_known_names_types_and_other_count():
+    p = project()
+    p["deployment_configs"]["production"]["env_vars"] = {
+        "VITE_FIREBASE_PROJECT_ID": {"type": "plain_text", "value": "PRIVATE_PROJECT"},
+        "VITE_FIREBASE_API_KEY": {"type": "secret_text", "value": "PRIVATE_SECRET"},
+        "VITE_TAF_PROXY_URL": {"type": "PRIVATE_TYPE", "value": "PRIVATE_URL"},
+        "VITE_FIREBASE_AUTH_DOMAIN": None,
+        "VITE_FIREBASE_APP_ID": {"type": "plain_text", "value": ["PRIVATE_INVALID"]},
+        "PRIVATE_OTHER_NAME": {"type": "secret_text", "value": "PRIVATE_VALUE"},
+    }
+    result, _ = observe(p)
+    metadata = result["production_env_metadata"]
+    assert metadata["other_variable_count"] == 1
+    assert metadata["known_build_variables"] == {
+        "VITE_FIREBASE_PROJECT_ID": "plain_text", "VITE_FIREBASE_API_KEY": "secret_text",
+        "VITE_TAF_PROXY_URL": "invalid", "VITE_FIREBASE_AUTH_DOMAIN": "invalid",
+        "VITE_FIREBASE_APP_ID": "invalid", "VITE_LEGACY_MIGRATION_URL": "missing",
+    }
+
+
+def test_skipped_observation_does_not_hide_project_drift():
+    row = deployment(stage="queued", state="idle")
+    row["is_skipped"] = True
+    after = project()
+    after["latest_deployment"] = deployment(2, "queued", "idle")
+    result, _ = observe(pages=[page([row])], after=after)
+    assert result["activity_counts"]["SKIPPED"] == 1
+    assert result["in_flight_present"] == "UNKNOWN"

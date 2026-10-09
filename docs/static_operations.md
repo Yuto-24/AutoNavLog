@@ -792,6 +792,30 @@ project comparisons target `navmate.yuto24.com`, `main` and `navmate`.
 request path; it does not independently establish account ownership. Raw settings,
 binding values, environment values and commit messages are not emitted.
 
+Deployment observations include the strict boolean `is_skipped`, an allowlisted
+`skip_reason`, and provider creation/modification and latest-stage start/end times
+normalized to UTC. Invalid/missing times remain `UNKNOWN`; explicit null stays null.
+They are never replaced by the observation clock or used to declare old work safe.
+`activity_counts` distinguishes `ACTIVE`, `PENDING`, `SKIPPED`, `FINISHED` and
+`UNKNOWN`. Explicitly skipped rows are retained in `skipped`; pending/active/unknown
+rows remain in `in_flight`. Conflicting skipped/active signals remain `UNKNOWN`.
+A known skip reason alone is not proof that a row was skipped. These are observations
+of the retained inventory, not a prediction of future queue activity.
+
+`production_binding_state` distinguishes `missing`, `null`, `empty`, `nonempty`
+and `invalid` map-of-objects shapes. An unavailable parent configuration leaves the
+child states `UNKNOWN`, with its shape in `production_configuration_state`. Shape
+checks do not validate resources or grant publication permission. The existing
+presence booleans stay unknown for missing, null or invalid shapes.
+`production_env_metadata` reports only the fixed build-variable names already in
+`publication_gate.CONFIGURATION`, their `plain_text`/`secret_text`/`missing`/`invalid`
+classification, and the count of other variable names. It never emits variable
+values or unknown names, and does not establish value equality with approved config.
+An empty map can establish zero other names; an unavailable map cannot.
+The publication gate is unchanged: a nonempty production `env_vars` still fails
+that gate even if all names are recognized build settings. Environment variables
+alone do not prove Functions code is deployed. No additional API calls are made.
+
 The production identity comes from `canonical_deployment`, not the latest preview.
 A complete retained inventory and unchanged project reread are observations, not
 an atomic snapshot or assurance against a deployment starting afterward. Functions
