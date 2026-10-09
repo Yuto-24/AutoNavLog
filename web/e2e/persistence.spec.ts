@@ -253,7 +253,7 @@ test("a stale selector cannot delete a Project updated by another tab", async ({
   other.on("dialog", dialog => dialog.accept());
   await other.getByLabel("保存済み", { exact: true }).selectOption(saved.id);
   await other.getByRole("button", { name: "保存済みプロジェクトを削除", exact: true }).click();
-  await expect(other.getByRole("alert")).toContainText("別のタブでプロジェクト");
+  await expect(other.getByRole("alert")).toContainText("別のタブでProjectが更新または削除されています。編集内容を確認してから開き直してください。");
   expect((await records(page))[0].draft.total_usable_fuel_gal).toBe(74);
   await other.reload();
   await expect(other.getByLabel("保存済み", { exact: true }).locator("option")).toHaveCount(2);
