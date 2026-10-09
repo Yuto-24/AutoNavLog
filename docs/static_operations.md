@@ -794,7 +794,8 @@ binding values, environment values and commit messages are not emitted.
 
 Deployment observations include the strict boolean `is_skipped`, an allowlisted
 `skip_reason`, and provider creation/modification and latest-stage start/end times
-normalized to UTC. Invalid/missing times remain `UNKNOWN`; explicit null stays null.
+normalized to UTC at Python microsecond precision (finer fractions are truncated).
+Invalid/missing times remain `UNKNOWN`; explicit null stays null.
 They are never replaced by the observation clock or used to declare old work safe.
 `activity_counts` distinguishes `ACTIVE`, `PENDING`, `SKIPPED`, `FINISHED` and
 `UNKNOWN`. Explicitly skipped rows are retained in `skipped`; pending/active/unknown

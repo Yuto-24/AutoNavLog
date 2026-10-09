@@ -231,6 +231,7 @@ def test_skipped_inventory_is_preserved_across_pages_without_active_inference():
 
 @pytest.mark.parametrize("raw,expected", [
     ("2026-10-09T09:15:00.123456+09:00", "2026-10-09T00:15:00.123456+00:00"),
+    ("2026-10-09T00:15:00.123456789Z", "2026-10-09T00:15:00.123456+00:00"),
     (None, None), ("PRIVATE_TIME", "UNKNOWN"), (123, "UNKNOWN"),
     ("2026-02-30T00:00:00Z", "UNKNOWN"), ("2026-10-09T00:00:00", "UNKNOWN"),
     ("2026-10-09T00:00:00Z PRIVATE", "UNKNOWN"),
