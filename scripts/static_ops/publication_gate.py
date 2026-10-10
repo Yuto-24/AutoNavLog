@@ -172,9 +172,11 @@ def verify_project(project: dict) -> None:
             or not isinstance(configurations.get("production"), dict)):
         raise ValueError("Pages production configuration unavailable")
     runtime = configurations["production"]
+    # Existing Pages env_vars are not consumed by our isolated build or static upload.
+    # Keep them untouched; verify_context separately forbids Functions and Worker code.
     for name in ("kv_namespaces", "durable_object_namespaces", "d1_databases", "r2_buckets",
                  "services", "queue_producers", "analytics_engine_datasets", "ai_bindings",
-                 "vectorize_bindings", "hyperdrive_bindings", "env_vars"):
+                 "vectorize_bindings", "hyperdrive_bindings"):
         if runtime.get(name):
             raise ValueError("Pages project runtime binding is forbidden")
 

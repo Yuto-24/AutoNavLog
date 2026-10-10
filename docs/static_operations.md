@@ -153,7 +153,11 @@ Immediately before upload a new runner-temporary directory contains only checked
 and a trusted minimal Wrangler JSON config. Wrangler runs there with explicit config,
 project `navmate`, production branch `main`, and independent locked CLI. An authenticated
 GET using the existing Pages credential requires the existing project, canonical domain,
-production branch and absence of production runtime bindings. Missing/incorrect target
+production branch and absence of the prohibited production runtime bindings. Existing
+Pages `env_vars` are allowed and left untouched: the isolated build uses the approved
+GitHub public configuration, and static Direct Upload does not inject Pages variables
+into prebuilt assets. The sealed upload context still forbids Functions/Worker code
+and additional Wrangler configuration. Missing/incorrect target
 information blocks upload; no project is implicitly created. This target read is not usage
 or plan/billing evidence. Direct Upload is atomic; bounded canonical inventory polling and
 freshness checks remain after upload. No Actions cache/artifact/Packages persistence is added.
@@ -813,9 +817,11 @@ presence booleans stay unknown for missing, null or invalid shapes.
 classification, and the count of other variable names. It never emits variable
 values or unknown names, and does not establish value equality with approved config.
 An empty map can establish zero other names; an unavailable map cannot.
-The publication gate is unchanged: a nonempty production `env_vars` still fails
-that gate even if all names are recognized build settings. Environment variables
-alone do not prove Functions code is deployed. No additional API calls are made.
+The publication gate allows existing nonempty production `env_vars`, including
+unknown names and secret types, without reading their values into the build or
+changing the Pages settings. They do not prove Functions code is deployed or
+replace the approved public build configuration. Other binding and static-artifact
+checks remain enforced. No additional API calls are made.
 
 The production identity comes from `canonical_deployment`, not the latest preview.
 A complete retained inventory and unchanged project reread are observations, not
