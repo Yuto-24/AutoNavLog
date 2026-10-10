@@ -234,7 +234,7 @@ class ReadinessService:
                 Issue(
                     code="PROJECT_STATE_INVALID",
                     severity=IssueSeverity.BLOCKER,
-                    message="旧ProjectのFROM/TO・VREP・参照行を再確認してください。",
+                    message="旧プロジェクトのFROM/TO・VREP・参照行を再確認してください。",
                 )
             )
         project_issues.extend(project_check_points(project).issues)

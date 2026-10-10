@@ -484,6 +484,17 @@ function formatJst(value: string): string {
   }).format(new Date(value));
 }
 
+const destinationWindUnavailableLabels: Record<string, string> = {
+  "TAF_FETCH_FAILED": "取得失敗（通信・応答エラー）",
+  "TAF_FETCH_TIMEOUT": "取得失敗（タイムアウト）",
+  "TAF_FETCH_CAPACITY_UNAVAILABLE": "取得できません（混雑中）",
+  "TAF_PROXY_NOT_CONFIGURED": "取得先が未設定です",
+  "TAF_UNAVAILABLE": "対象空港のTAFがありません",
+  "TAF_TIME_OUT_OF_RANGE": "到着予定時刻の予報を確認できません",
+  "TAF_WIND_UNAVAILABLE": "風の予報を確認できません",
+  "DESTINATION_ICAO_INVALID": "空港識別符号を確認してください"
+};
+
 function DestinationWindSummary({
   forecast,
 }: {
@@ -494,7 +505,7 @@ function DestinationWindSummary({
     forecast.availability === "AVAILABLE" && forecast.wind_speed_kt !== null;
   const wind =
     !available
-      ? "取得できませんでした"
+      ? (destinationWindUnavailableLabels[forecast.reason_code ?? ""] ?? "風の予報を利用できません")
       : forecast.wind_speed_kt === 0
         ? "CALM"
         : `${
@@ -676,14 +687,14 @@ export function NavLogTable({
       <div className="nav-log-heading">
         <div>
           <h2 id="nav-log-title">NAV LOG</h2>
-          <p>入力色の欄は直接編集でき、約0.7秒後に自動再計算します。</p>
+          <p>入力用の色の欄は直接編集でき、入力を止めてから約0.7秒後に自動再計算されます。</p>
         </div>
-        <span>Forecast Run: {outcome.selected_forecast_run_id ?? "未選択"}</span>
+        <span>予報実行ID: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
       <NavLogSummary outcome={outcome} destinationWind={destinationWind} />
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
         <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>
-        <span className="nav-log-readonly-key">読取専用: 航法・距離・時間・燃料などの派生値</span>
+        <span className="nav-log-readonly-key">読取専用: 航法、距離、時間、燃料などの計算値</span>
         <span className={`nav-log-edit-status nav-log-edit-status-${editStatus.kind}`} role="status" aria-live="polite">
           {editStatus.message}
         </span>

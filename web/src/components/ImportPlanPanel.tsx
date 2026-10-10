@@ -82,10 +82,10 @@ export function ImportPlanPanel({
   return (
     <aside ref={panelRef} className="input-rail" aria-label="経路と飛行計画">
       {onResumePaste && (
-        <button className="secondary-button" onClick={onResumePaste}>貼付KMLの編集を続ける</button>
+        <button className="secondary-button" onClick={onResumePaste}>貼り付けたKMLの編集を続ける</button>
       )}
       {onResumeKmz && (
-        <button className="secondary-button" onClick={onResumeKmz}>KMZ文書の選択を続ける</button>
+        <button className="secondary-button" onClick={onResumeKmz}>KMZからの選択を続ける</button>
       )}
       <section className="rail-section">
         <div className="section-heading-row">

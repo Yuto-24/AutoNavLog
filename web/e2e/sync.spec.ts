@@ -63,7 +63,7 @@ async function create(page: Page, name: string) {
 async function open(page: Page, name: string) {
   await expect(page.locator("#saved-project option").filter({ hasText: name })).toHaveCount(1);
   await page.getByLabel("保存済み", { exact: true }).selectOption({ label: name });
-  await page.getByRole("button", { name: "保存済みProjectを開く" }).click();
+  await page.getByRole("button", { name: "保存済みプロジェクトを開く" }).click();
   await expect(page.locator(".nav-log-table")).toBeVisible();
 }
 async function blockLocalDeletion(page: Page, accountId: string) {
@@ -108,7 +108,7 @@ test("real SDK: fresh device Last Calculation, offline edit, blocking conflict b
     await expect(ipad.getByLabel("FUEL gal", { exact: true })).toHaveValue("78");
     await expect(ipad.locator(".nav-log-table")).not.toBeVisible(); // edited fingerprint is stale
     ipad.once("dialog", dialog => dialog.accept());
-    await ipad.getByRole("button", { name: "保存済みProjectを削除" }).click();
+    await ipad.getByRole("button", { name: "保存済みプロジェクトを削除" }).click();
     await expect(ipad.getByRole("button", { name: "元に戻す", exact: true })).toBeVisible();
     await ipad.getByRole("button", { name: "元に戻す", exact: true }).click();
     await expect.poll(() => ipad.locator("#saved-project option").count()).toBe(3);
@@ -232,11 +232,11 @@ test("anonymous Latest collision is durable and blocks editing until named save"
   await expect(modal).toBeVisible();
   await page.reload(); await expect(modal).toBeVisible();
   await page.keyboard.press("Escape"); await expect(modal).toBeVisible();
-  await modal.getByLabel("Project名", { exact: true }).fill("Imported work");
+  await modal.getByLabel("プロジェクト名", { exact: true }).fill("Imported work");
   await modal.getByRole("button", { name: "名前を付けて保存", exact: true }).click();
   await expect(modal).not.toBeVisible();
   await expect(page.locator("#saved-project option").filter({ hasText: "Imported work" })).toHaveCount(1);
-  await expect(page.locator("#saved-project option").filter({ hasText: "Latest" })).toHaveCount(1);
+  await expect(page.locator("#saved-project option").filter({ hasText: "自動保存" })).toHaveCount(1);
 });
 
 for (const operation of ["resolve", "import"] as const) test("post-" + operation + " refresh failure remains visible without Undo", async ({ page }) => {

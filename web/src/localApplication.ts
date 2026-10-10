@@ -61,20 +61,20 @@ export class LocalApplication implements AutoNavLogApplication {
     this.listedTokens = new Map(Object.entries(listing.tokens ?? {}));
     state.savedProjects = listing.projects;
     state.storageWarning = listing.unavailable.length
-      ? "一部のProjectを読み込めません。元データは保持され、他のProjectは利用できます。" : undefined;
+      ? "一部のプロジェクトを読み込めません。元データは保持され、他のプロジェクトは利用できます。" : undefined;
     return state;
   }
   private async persist(state: WebState, name?: string): Promise<WebState> {
     const working = state.workingRecovery;
     if (!working?.project) {
-      if (name !== undefined) throw new ApplicationError("保存するProjectがありません。", "PROJECT_REQUIRED");
+      if (name !== undefined) throw new ApplicationError("保存するプロジェクトがありません。", "PROJECT_REQUIRED");
       return this.present(state);
     }
     const draft = structuredClone(working.project);
     const expected = this.tokens.get(draft.id) ?? null;
     const existing = expected ? await (this.repository.readWorking?.(draft.id, expected) ?? this.repository.read(draft.id)) : undefined;
     if (existing && existing.draft.revision !== draft.revision) throw new ApplicationError(
-      "別のタブでProjectが保存されています。開き直してください。", "PROJECT_REVISION_CONFLICT");
+      "別のタブでプロジェクトが保存されています。開き直してください。", "PROJECT_REVISION_CONFLICT");
     const updatedAt = new Date().toISOString();
     if (name !== undefined) {
       draft.updated_at = updatedAt;
@@ -99,7 +99,7 @@ export class LocalApplication implements AutoNavLogApplication {
   refreshProjects() { return this.serial(async () => this.present(await this.request<WebState>("state"))); }
   private assertResolved() {
     const status = this.sync?.getState();
-    if (status?.conflicts.length || status?.imports.length) throw new ApplicationError("表示中のProjectの選択を完了してください。", "PROJECT_REVISION_CONFLICT");
+    if (status?.conflicts.length || status?.imports.length) throw new ApplicationError("表示中のプロジェクトの選択を完了してください。", "PROJECT_REVISION_CONFLICT");
   }
   private execute(operation: string, input?: unknown): Promise<WebState> {
     return this.serial(async () => {
