@@ -18,6 +18,7 @@ on:
           - cloudflare_subscriptions
           - cloudflare_worker_invocations
           - cloudflare_worker_settings
+          - cloudflare_pages_target
 
 permissions:
   contents: read
@@ -42,7 +43,7 @@ jobs:
           [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$REVIEWED_SHA" == "$GITHUB_SHA" ]]
           case "$PROBE_CHECK" in
-            cloudflare_pages_projects|cloudflare_subscriptions|cloudflare_worker_invocations|cloudflare_worker_settings) ;;
+            cloudflare_pages_projects|cloudflare_subscriptions|cloudflare_worker_invocations|cloudflare_worker_settings|cloudflare_pages_target) ;;
             *) exit 1 ;;
           esac
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

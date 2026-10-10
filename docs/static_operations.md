@@ -153,7 +153,11 @@ Immediately before upload a new runner-temporary directory contains only checked
 and a trusted minimal Wrangler JSON config. Wrangler runs there with explicit config,
 project `navmate`, production branch `main`, and independent locked CLI. An authenticated
 GET using the existing Pages credential requires the existing project, canonical domain,
-production branch and absence of production runtime bindings. Missing/incorrect target
+production branch and absence of the prohibited production runtime bindings. Existing
+Pages `env_vars` are allowed and left untouched: the isolated build uses the approved
+GitHub public configuration, and static Direct Upload does not inject Pages variables
+into prebuilt assets. The sealed upload context still forbids Functions/Worker code
+and additional Wrangler configuration. Missing/incorrect target
 information blocks upload; no project is implicitly created. This target read is not usage
 or plan/billing evidence. Direct Upload is atomic; bounded canonical inventory polling and
 freshness checks remain after upload. No Actions cache/artifact/Packages persistence is added.
@@ -773,3 +777,71 @@ investigation after existing read access is established, not implemented quota m
 Actual account eligibility, token support, metric identifiers, zero-record semantics and
 complete current-day/month coverage remain unverified. Do not enable a paid product or
 assume a missing cost field means zero to obtain or use this source.
+
+### GET-only Pages target observation (#250)
+
+Select `cloudflare_pages_target` in `static-provider-probe` with the reviewed branch
+and its full `reviewed_sha`. This opt-in check uses the existing diagnostic step's
+`STATIC_CLOUDFLARE_READ_TOKEN`; it adds no credential or permission. It reads the
+fixed `navmate` project, every retained deployment page (production and preview),
+then the project again. Existing request/time limits apply. Missing pagination
+metadata, empty results, duplicate IDs, scope mismatches and incomplete inventories
+fail closed. Missing optional fields remain `UNKNOWN` (a missing canonical
+deployment is `null`), never an inferred zero or absence.
+
+Output contains the reviewed SHA, observation time, validated project/deployment
+IDs and commits, fixed states and presence/match booleans. Domain, branch and
+project comparisons target `navmate.yuto24.com`, `main` and `navmate`.
+`account_scope_from_configured_path` means the configured account was used in the
+request path; it does not independently establish account ownership. Raw settings,
+binding values, environment values and commit messages are not emitted.
+
+Deployment observations include the strict boolean `is_skipped`, an allowlisted
+`skip_reason`, and provider creation/modification and latest-stage start/end times
+normalized to UTC at Python microsecond precision (finer fractions are truncated).
+Invalid/missing times remain `UNKNOWN`; explicit null stays null.
+They are never replaced by the observation clock or used to declare old work safe.
+`activity_counts` distinguishes `ACTIVE`, `PENDING`, `SKIPPED`, `FINISHED` and
+`UNKNOWN`. Explicitly skipped rows are retained in `skipped`; pending/active/unknown
+rows remain in `in_flight`. Conflicting skipped/active signals remain `UNKNOWN`.
+A known skip reason alone is not proof that a row was skipped. These are observations
+of the retained inventory, not a prediction of future queue activity.
+
+`production_binding_state` distinguishes `missing`, `null`, `empty`, `nonempty`
+and `invalid` map-of-objects shapes. An unavailable parent configuration leaves the
+child states `UNKNOWN`, with its shape in `production_configuration_state`. Shape
+checks do not validate resources or grant publication permission. The existing
+presence booleans stay unknown for missing, null or invalid shapes.
+`production_env_metadata` reports only the fixed build-variable names already in
+`publication_gate.CONFIGURATION`, their `plain_text`/`secret_text`/`missing`/`invalid`
+classification, and the count of other variable names. It never emits variable
+values or unknown names, and does not establish value equality with approved config.
+An empty map can establish zero other names; an unavailable map cannot.
+The publication gate allows existing nonempty production `env_vars`, including
+unknown names and secret types, without reading their values into the build or
+changing the Pages settings. They do not prove Functions code is deployed or
+replace the approved public build configuration. Other binding and static-artifact
+checks remain enforced. No additional API calls are made.
+
+The production identity comes from `canonical_deployment`, not the latest preview.
+A complete retained inventory and unchanged project reread are observations, not
+an atomic snapshot or assurance against a deployment starting afterward. Functions
+and binding presence do not prove which code is deployed. The command still exits
+1 with `BLOCKED`: it cannot authorize publication, renew evidence timestamps or
+change quota/plan gates. See Cloudflare's
+[project API](https://developers.cloudflare.com/api/resources/pages/subresources/projects/methods/get/)
+and [deployments API](https://developers.cloudflare.com/api/resources/pages/subresources/projects/subresources/deployments/methods/list/).
+
+Before a separately approved publication, record the current successful production
+deployment ID and full commit, resolve unknown/mismatched target facts, and check
+again for in-flight work. Preserve the approved app/configuration when regenerating
+fresh MSM data; a Pages rollback to expired data alone does not restore freshness.
+The existing rollback procedure above remains applicable.
+
+This Pages permission does not establish Workers access. TAF's current deployment
+version, traffic allocation and settings require the operator's existing authorized
+Workers dashboard/API read. Compare those settings with `services/taf-proxy` and
+`docs/taf_proxy.md`, without exporting secret values. Do not create credentials or
+reuse the Pages token to discover Workers privileges. A separately approved TAF
+rollback uses a recorded eligible Worker version; it does not roll back connected
+resources. See [Workers rollback limitations](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/).

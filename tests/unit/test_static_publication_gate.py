@@ -219,3 +219,30 @@ def test_pages_upload_requires_existing_correct_static_project():
     project["deployment_configs"]["production"]["services"] = [{"service": "paid-worker"}]
     with pytest.raises(ValueError, match="binding"):
         gate.verify_project(project)
+
+
+@pytest.mark.parametrize("name, kind", [
+    ("VITE_TAF_PROXY_URL", "plain_text"), ("OTHER_SETTING", "plain_text"),
+    ("PRIVATE_SETTING", "secret_text"),
+])
+def test_existing_pages_env_is_allowed_without_disclosing_or_mutating_it(name, kind, capsys):
+    project = {"name": "navmate", "production_branch": "main",
+               "domains": ["navmate.yuto24.com"], "deployment_configs": {"production": {
+                   "env_vars": {name: {"type": kind, "value": "PRIVATE_CANARY"}},
+               }}}
+    before = json.dumps(project)
+    gate.verify_project(project)
+    assert json.dumps(project) == before
+    assert capsys.readouterr() == ("", "")
+    # The env exception must not bypass target or other runtime-binding checks.
+    for binding in ("kv_namespaces", "durable_object_namespaces", "d1_databases", "r2_buckets",
+                    "services", "queue_producers", "analytics_engine_datasets", "ai_bindings",
+                    "vectorize_bindings", "hyperdrive_bindings"):
+        runtime = {**project["deployment_configs"]["production"], binding: {"id": "resource"}}
+        with pytest.raises(ValueError, match="binding"):
+            gate.verify_project({**project, "deployment_configs": {"production": runtime}})
+    for key, value in [("name", "other"), ("production_branch", "preview"), ("domains", []),
+                       ("deployment_configs", {}), ("deployment_configs", {"production": None})]:
+        with pytest.raises(ValueError):
+            gate.verify_project({**project, key: value})
+    assert capsys.readouterr() == ("", "")

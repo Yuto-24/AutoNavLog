@@ -68,3 +68,85 @@ test("Pages upload discovers only the isolated cwd config without --config", () 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// Execute the installed, lockfile-pinned deploy implementation with injected I/O.
+// This covers request construction; the test above covers CLI/config discovery.
+test("locked static deploy leaves Pages env untouched and sends no Worker bundle", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const crypto = await import("node:crypto");
+  const { runInNewContext } = await import("node:vm");
+  const { File } = await import("node:buffer");
+  const source = readFileSync(new URL("node_modules/wrangler/wrangler-dist/cli.js",
+    import.meta.url), "utf8");
+  const start = source.indexOf("async function deploy2({");
+  const end = source.indexOf("\nvar import_undici26, MAX_COMMIT_MESSAGE_BYTES;", start);
+  assert.ok(start >= 0 && end > start, "review harness when the locked CLI changes");
+  const root = mkdtempSync(join(tmpdir(), "autonavlog-pages-payload-"));
+  try {
+    const directory = join(root, "dist-static");
+    mkdirSync(directory);
+    const content = "<html>approved static build</html>";
+    writeFileSync(join(directory, "index.html"), content);
+    const configPath = join(root, "wrangler.json");
+    const config = { name: "navmate", pages_build_output_dir: "./dist-static",
+      compatibility_date: "2026-09-19" };
+    writeFileSync(configPath, JSON.stringify(config));
+    const requests = [];
+    const forbidden = () => { throw new Error("unexpected runtime operation"); };
+    for (const env_vars of [{}, {
+      VITE_TAF_PROXY_URL: { type: "plain_text", value: "REMOTE_ENV_CANARY" },
+      UNKNOWN_SECRET: { type: "secret_text", value: "PRIVATE_ENV_CANARY" },
+    }]) {
+      const project = { production_branch: "main", deployment_configs: {
+        production: { env_vars, compatibility_date: "2026-09-19" },
+      } };
+      const before = JSON.stringify(project);
+      const calls = [];
+      const deploy = runInNewContext(source.slice(start, end) + "\ndeploy2", {
+        fs12: fs, fs$1: fs.promises, path25: path, path25__namespace: path,
+        crypto3: crypto, process18: { cwd: () => root }, process: { cwd: () => root },
+        import_undici26: { FormData }, File, COMPLIANCE_REGION_CONFIG_PUBLIC: {},
+        readPagesConfig: () => ({ ...config, configPath }),
+        validateNodeCompatMode: () => undefined, isNavigatorDefined: () => false,
+        shouldCheckFetch: () => false, getPagesTmpDir: () => root,
+        maxFileCountAllowedFromClaims: () => 20000,
+        validate: async ({ directory: actual }) => {
+          assert.equal(actual, directory);
+          return { "index.html": readFileSync(join(actual, "index.html")) };
+        },
+        upload: async ({ fileMap }) => {
+          assert.equal(fileMap["index.html"].toString(), content);
+          return { "/index.html": crypto.createHash("sha256").update(fileMap["index.html"]).digest("hex") };
+        },
+        fetchResult2: async (_region, url, options) => {
+          calls.push({ url, method: options?.method ?? "GET" });
+          const base = "/accounts/test-account/pages/projects/navmate";
+          if (url === base && !options) return project;
+          if (url === base + "/upload-token" && !options) return { jwt: "fixture" };
+          if (url === base + "/deployments" && options?.method === "POST") {
+            requests.push([...options.body.entries()]);
+            return { id: "fixture-deployment" };
+          }
+          throw new Error("unexpected API request");
+        },
+        buildFunctions: forbidden, buildRawWorker: forbidden,
+        produceWorkerBundleForWorkerJSDirectory: forbidden,
+        createUploadWorkerBundleContents: forbidden,
+        MAX_DEPLOYMENT_ATTEMPTS: 1,
+        logger2: { log: forbidden, warn: forbidden, debug: forbidden },
+      });
+      await deploy({ directory, accountId: "test-account", projectName: "navmate",
+        branch: "main", commitHash: "a".repeat(40), args: {} });
+      assert.equal(JSON.stringify(project), before);
+      assert.deepEqual(calls.map(call => call.method), ["GET", "GET", "POST"]);
+      assert.equal(readFileSync(join(directory, "index.html"), "utf8"), content);
+    }
+    assert.deepEqual(requests[0], requests[1]);
+    assert.deepEqual(requests[1].map(([key]) => key).sort(),
+      ["branch", "commit_hash", "manifest", "pages_build_output_dir", "wrangler_config_hash"]);
+    assert.doesNotMatch(JSON.stringify(requests), /REMOTE_ENV_CANARY|PRIVATE_ENV_CANARY|env_vars|_worker/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

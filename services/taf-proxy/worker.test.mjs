@@ -116,7 +116,7 @@ test("upstream HTTP/redirect/JSON/schema/size failures are not cached", async ()
 });
 
 test("204 is a short cached empty dataset", async () => {
-  const h = harness(async () => new Response(null, { status: 204 }));
+  const h = harness(async () => new Response(null, { status: 204 }), { now: () => 0 });
   const result = await h.run();
   assert.deepEqual(await result.json(), []);
   assert.equal(result.headers.get("Cache-Control"), "public, max-age=60");
