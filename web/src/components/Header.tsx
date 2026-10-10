@@ -73,14 +73,14 @@ export function Header({
           className={`header-button information-button${knownIssuesUnread ? " information-warning" : ""}`}
           type="button"
           onClick={onInformation}
-          aria-label={knownIssuesUnread ? "Information（既知の不具合に更新があります）" : informationUnread ? "Information（未読の更新があります）" : "Information"}
+          aria-label={knownIssuesUnread ? "お知らせ（既知の不具合に更新があります）" : informationUnread ? "お知らせ（未読の更新があります）" : "お知らせ"}
         >
           <span className="information-icon-wrap"><Info aria-hidden="true" size={18} />{informationUnread && <span className="information-unread-dot" />}</span>
-          <span className="information-label">Information</span>
+          <span className="information-label">お知らせ</span>
         </button>
-        <div className="storage-state" aria-label={localMode ? "保存先はこの端末のブラウザです" : "保存先はローカルです"}>
+        <div className="storage-state" aria-label={localMode ? "保存先はこの端末のブラウザです" : "保存先はサーバーです"}>
           <CheckCircle2 aria-hidden="true" size={17} />
-          <span>{localMode ? "端末内に保存" : "ローカル保存"}</span>
+          <span>{localMode ? "端末内に保存" : "サーバー保存"}</span>
         </div>
         <div className="saved-project-control">
           <label htmlFor="saved-project">保存済み</label>
@@ -92,7 +92,7 @@ export function Header({
             <option value="">選択</option>
             {savedProjects.map((project) => (
               <option key={project.id} value={project.id}>
-                {project.kind === "LATEST" ? "Latest" : project.name}
+                {project.kind === "LATEST" ? "自動保存" : project.name}
               </option>
             ))}
           </select>
@@ -101,8 +101,8 @@ export function Header({
             type="button"
             onClick={onLoad}
             disabled={!selectedProjectId || busy}
-            aria-label="保存済みProjectを開く"
-            title="保存済みProjectを開く"
+            aria-label="保存済みプロジェクトを開く"
+            title="保存済みプロジェクトを開く"
           >
             <FolderOpen aria-hidden="true" size={18} />
           </button>
@@ -111,8 +111,8 @@ export function Header({
             type="button"
             onClick={onDelete}
             disabled={!selectedProjectId || busy}
-            aria-label="保存済みProjectを削除"
-            title="保存済みProjectを削除"
+            aria-label="保存済みプロジェクトを削除"
+            title="保存済みプロジェクトを削除"
           >
             <Trash2 aria-hidden="true" size={18} />
           </button>

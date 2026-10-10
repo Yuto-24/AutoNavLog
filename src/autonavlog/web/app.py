@@ -442,7 +442,7 @@ def create_app(
         except CalculationJobAlreadyActiveError as error:
             raise WebApplicationError(
                 "CALCULATION_JOB_ALREADY_ACTIVE",
-                "このセッションの計算jobは実行中です。完了を待ってください。",
+                "このセッションの計算処理は実行中です。完了をお待ちください。",
                 status_code=409,
             ) from error
         except OverflowError as error:
@@ -479,7 +479,7 @@ def create_app(
         if job is None:
             raise WebApplicationError(
                 "CALCULATION_JOB_NOT_FOUND",
-                "このセッションの計算jobが見つかりません。",
+                "このセッションの計算処理が見つかりません。",
                 status_code=404,
             )
         return job_payload(job)

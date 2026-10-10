@@ -63,7 +63,7 @@ interface DraftSaveRequest {
 }
 
 const ROUTE_EDITOR_VREP_REASON = "経路画面で指定したVREP計画高度";
-const DRAFT_AUTOSAVE_FAILURE = "Projectを自動保存できませんでした。入力内容は画面に保持されています。";
+const DRAFT_AUTOSAVE_FAILURE = "プロジェクトを自動保存できませんでした。入力内容は画面に保持されています。";
 
 function inboundMetric(value: number | null, digits = 1): string {
   return value === null ? "—" : value.toFixed(digits);
@@ -104,7 +104,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [state, setState] = useState<WebState | null>(null);
   const [mapRouteDraft, setMapRouteDraft] = useState<MapRoutePoint[]>([]);
   const [legacyRouteInput, setLegacyRouteInput] = useState(false);
-  const confirmDiscardMapDraft = () => mapRouteDraft.length === 0 || window.confirm("作成中のRoute Draftを破棄しますか？");
+  const confirmDiscardMapDraft = () => mapRouteDraft.length === 0 || window.confirm("作成中の経路を破棄しますか？");
   const [form, setForm] = useState<PlanningForm>(() => initialPlanningForm());
   const [altitudeInputs, setAltitudeInputs] = useState<Record<string, string>>({});
   const [navLogDrafts, setNavLogDrafts] = useState<NavLogEditDrafts>({});
@@ -188,7 +188,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     sectionOverrides?: NavSection[],
     selectedPatternAltitudeFtMsl?: number,
     invalidFallbackProject?: Project,
-  ) => UpdateProjectInput>(() => { throw new Error("Projectがありません。"); });
+  ) => UpdateProjectInput>(() => { throw new Error("プロジェクトがありません。"); });
 
   const altitudeGuidanceBySection = useMemo(
     () => new Map(
@@ -841,7 +841,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     invalidFallbackProject?: Project,
   ): UpdateProjectInput => {
     const payloadSections = sectionOverrides ?? state?.project?.sections ?? [];
-    if (!state?.project) throw new Error("Projectがありません。");
+    if (!state?.project) throw new Error("プロジェクトがありません。");
     const fallbackProject = invalidFallbackProject?.id === state.project.id
       ? invalidFallbackProject
       : undefined;
@@ -1298,7 +1298,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     setNavLogEditStatus(
       hasNavLogEditErrors(errors)
         ? { kind: "error", message: "入力を確認してください。直前の正常な計算結果を表示中です。" }
-        : { kind: "pending", message: "入力待ち…自動再計算を予約しました。" },
+        : { kind: "pending", message: "入力待機中…自動再計算を行います。" },
     );
     navLogEditPendingRef.current = true;
     calculationInputGenerationRef.current += 1;
@@ -1378,7 +1378,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
         return application.saveProject(name);
       },
-      "Projectをローカルへ保存しました。",
+      "プロジェクトを保存しました。",
     );
     if (saved?.project) {
       setProjectName(saved.project.name);
@@ -1390,7 +1390,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     const updated = await run(
       () =>
         application.replaceCheckPoints(checkPoints),
-      "Check Pointを更新しました。NAV LOGを再計算してください。",
+      "チェックポイントを更新しました。NAV LOGを再計算してください。",
     );
     return updated !== undefined;
   };
@@ -1412,9 +1412,9 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     setNotice(
       loaded.outcome
         ? loaded.readiness.calculationIsCurrent
-          ? "保存済みProjectと最後の計算結果を開きました。"
-          : "保存済みProjectと直前の計算結果を開きました。入力が変更されているため再計算してください。"
-        : "保存済みProjectを開きました。NAV LOGを計算してください。",
+          ? "保存済みプロジェクトと最後の計算結果を開きました。"
+          : "保存済みプロジェクトと直前の計算結果を開きました。入力が変更されているため再計算してください。"
+        : "保存済みプロジェクトを開きました。NAV LOGを計算してください。",
     );
   };
 
@@ -1422,8 +1422,8 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     if (!selectedProjectId) return;
     const selected = state?.savedProjects.find((project) => project.id === selectedProjectId);
     const selectedName =
-      selected?.kind === "LATEST" ? "Latest" : (selected?.name ?? "選択中の経路");
-    if (!window.confirm(`保存済みProject「${selectedName}」を削除しますか？`)) {
+      selected?.kind === "LATEST" ? "自動保存" : (selected?.name ?? "選択中の経路");
+    if (!window.confirm(`保存済みプロジェクト「${selectedName}」を削除しますか？`)) {
       return;
     }
     cancelPendingRecalculation();
@@ -1439,7 +1439,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         }
         return application.deleteProject(selectedProjectId);
       },
-      { success: "保存済みProjectを削除しました。", fallbackError: "削除できませんでした。" },
+      { success: "保存済みプロジェクトを削除しました。", fallbackError: "削除できませんでした。" },
     );
     if (deleted) {
       setSelectedProjectId("");
@@ -1639,8 +1639,8 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       <main className={`app-workspace${buildingRoute ? " is-route-building" : ""}`}>
         {buildingRoute ? <aside className="input-rail map-input-rail" aria-label="経路作成">
           <h2>経路作成</h2>
-          {pastedKml && !pasteOpen && <button className="secondary-button" onClick={() => setPasteOpen(true)}>貼付KMLの編集を続ける</button>}
-          {pendingKmz && !kmzOpen && <button className="secondary-button" onClick={() => setKmzOpen(true)}>KMZ文書の選択を続ける</button>}
+          {pastedKml && !pasteOpen && <button className="secondary-button" onClick={() => setPasteOpen(true)}>貼り付けたKMLの編集を続ける</button>}
+          {pendingKmz && !kmzOpen && <button className="secondary-button" onClick={() => setKmzOpen(true)}>KMZからの選択を続ける</button>}
           <p>FROMの空港から飛行順に地点を選択します。</p>
           <button className="secondary-button" disabled={busy} onClick={() => {
             if (confirmDiscardMapDraft()) { setMapRouteDraft([]); setLegacyRouteInput(true); }
@@ -1786,7 +1786,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
             </dl>
           )}
           <p className="rjfm-inbound-guidance-note">
-            この案内はwarningのみです。NAV LOGの物理経路・距離・針路を変更しません。
+            この案内は警告のみです。NAV LOGの物理経路・距離・針路は変更されません。
           </p>
         </aside>
       )}
@@ -1888,7 +1888,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
                   );
                 }}
               >
-                選択KMLを読み込む
+                選択したKMLを読み込む
               </button>
             </div>
           </section>

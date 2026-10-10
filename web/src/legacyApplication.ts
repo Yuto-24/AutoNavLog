@@ -30,7 +30,7 @@ async function parseError(response: Response): Promise<ApplicationError> {
 export class LegacyApplication implements AutoNavLogApplication {
   private async fetch(path: string, options: RequestInit): Promise<Response> {
     try { return await fetch(path, options); }
-    catch { throw new ApplicationError("処理に接続できませんでした。再試行してください。", "APPLICATION_UNAVAILABLE"); }
+    catch { throw new ApplicationError("サーバーに接続できませんでした。再試行してください。", "APPLICATION_UNAVAILABLE"); }
   }
 
   private async readJson<T>(response: Response): Promise<T> {

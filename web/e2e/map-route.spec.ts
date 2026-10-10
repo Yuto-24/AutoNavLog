@@ -20,7 +20,7 @@ async function start(page: Page) {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible({ timeout: 90_000 });
 }
-const strip = (page: Page) => page.getByRole("list", { name: "Route Strip" });
+const strip = (page: Page) => page.getByRole("list", { name: "経路リスト" });
 const airport = (page: Page, icao: string) => page.locator(`.airport-draft-marker[title^="空港 ${icao} "]`);
 async function pick(page: Page, latitude: number, longitude: number) {
   const view = await page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!));
@@ -163,7 +163,7 @@ for (const width of [1100, 1440]) {
     await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
     await expect(page.locator(".nav-log-table")).toBeVisible();
     await page.getByRole("button", { name: "保存", exact: true }).click();
-    await expect(page.getByRole("status").filter({ hasText: "Projectをローカルへ保存しました" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
     await page.reload();
     await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
     await expect(page.locator(".nav-log-table")).toBeVisible();
@@ -178,10 +178,10 @@ for (const width of [1100, 1440]) {
     await page.getByRole("button", { name: "Zoom in" }).click();
     await page.getByLabel("保存済み", { exact: true }).selectOption(projectId);
     page.once("dialog", dialog => dialog.dismiss());
-    await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
+    await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
     await expect(strip(page).locator("li")).toHaveCount(1);
     page.once("dialog", dialog => dialog.accept());
-    await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
+    await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
     await expect(page.locator(".nav-log-table")).toBeVisible();
     await expect.poll(() => page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(savedView);
     // A synced/older Project without a device preference must not open at another route.
@@ -206,7 +206,7 @@ for (const width of [1100, 1440]) {
     await page.reload();
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible({ timeout: 120_000 });
     await page.getByLabel("保存済み", { exact: true }).selectOption(projectId);
-    await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
+    await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
     await expect(page.locator(".nav-log-table")).toBeVisible();
     await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).longitude)).toBeLessThan(132);
     expect(api).toEqual([]);
@@ -263,7 +263,7 @@ test("direct airport route survives failed local persistence and can be saved", 
   await expect(page.getByRole("alert")).toBeInViewport();
   await expect(page.locator(".route-table tbody tr")).toHaveCount(2);
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Projectをローカルへ保存しました" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
   await page.reload();
   await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
   await expect(page.locator(".route-table tbody tr")).toHaveCount(2);

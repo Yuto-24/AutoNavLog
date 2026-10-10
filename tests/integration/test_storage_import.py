@@ -72,7 +72,7 @@ def test_kmz_rejects_path_traversal() -> None:
     archive_bytes = BytesIO()
     with ZipFile(archive_bytes, "w") as archive:
         archive.writestr("../route.kml", KML)
-    with pytest.raises(KmlImportError, match="unsafe path"):
+    with pytest.raises(KmlImportError, match="安全でないパス"):
         import_kml_or_kmz(archive_bytes.getvalue(), filename="route.kmz")
 
 
@@ -91,7 +91,7 @@ def test_pasted_google_earth_multigeometry_keeps_only_horizontal_polygon() -> No
     assert polygon.outer_boundary[0] == polygon.outer_boundary[-1]
     assert len(polygon.outer_boundary) == 5
     assert imported.warnings == (
-        "KS4-6(SFC/4000): skipped 1 Polygon surface(s) without a usable horizontal boundary",
+        "KS4-6(SFC/4000): 有効な水平境界を持たないPolygon面を 1 件スキップしました",
     )
 
 
@@ -114,7 +114,7 @@ def test_polygon_inner_boundary_is_preserved_and_closed() -> None:
 
 
 def test_polygon_coordinates_count_toward_import_limit_even_when_surface_is_skipped() -> None:
-    with pytest.raises(KmlImportError, match="coordinate limit"):
+    with pytest.raises(KmlImportError, match="座標数上限"):
         import_kml_text(
             GOOGLE_EARTH_3D_POLYGON,
             limits=ImportLimits(max_coordinates=8),
