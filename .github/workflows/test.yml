@@ -11,6 +11,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  static-tooling-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          # Regression fixture: the production app can be older than the tooling.
+          ref: a4de2a226dfa205b8be42fb62a710a1b06271ed8
+          path: app
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install workflow dependencies from the tooling checkout and import the producer
+        run: python tooling/tests/integration/check_static_tooling_install.py
+
   release-sources:
     runs-on: ubuntu-latest
     steps:

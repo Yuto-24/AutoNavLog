@@ -141,6 +141,12 @@ checkout. Every payload is decoded with the pinned real-MSM library, matched by 
 and new Runs must cover the current hour through the next 24 hours with all three variables.
 Catalog lifetime stays six hours; publication requires at least two hours remaining.
 
+Install producer dependencies from `./tooling[test]` in the runner workspace root.
+The bare `tooling[test]` names an unrelated PyPI package, not the checkout. CI exercises
+the workflow's actual pip command in a clean virtual environment alongside the fixed
+older app checkout, verifies the installed package's local origin/version and imports
+the producer/validator with `--help`. This regression does not download MSM or publish.
+
 Candidate pip/npm/build/production Browser E2E run in a dedicated Docker container with
 only the application checkout (RW) and feed (RO) mounted. The container receives public
 VITE settings, never provider tokens, runner output/metadata files, the tooling checkout

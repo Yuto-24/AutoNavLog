@@ -65,7 +65,7 @@ jobs:
           node-version: '24'
       - name: Install trusted producer dependencies and build candidate sandbox
         run: |
-          python -m pip install 'setuptools>=69' wheel tooling/vendor/jma_gpv_weather-0.5.0-py3-none-any.whl 'tooling[test]'
+          python -m pip install 'setuptools>=69' wheel tooling/vendor/jma_gpv_weather-0.5.0-py3-none-any.whl './tooling[test]'
           docker build -f tooling/scripts/static_ops/Dockerfile.build --tag autonavlog-static-build tooling
       - name: Restore rolling feed and generate fresh catalog
         run: |
