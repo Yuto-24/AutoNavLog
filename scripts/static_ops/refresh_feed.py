@@ -6,6 +6,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+# The production job is bounded to 45 minutes, so it can cross one hour boundary.
+# Keep validation at 24 hours from its own clock; prepare one extra hour instead.
+PUBLICATION_GENERATION_HOURS = 25
+
 
 def refresh(producer: Path, output: Path, cache: Path) -> dict:
     previous = output / "catalog.json"
@@ -13,7 +17,8 @@ def refresh(producer: Path, output: Path, cache: Path) -> dict:
         previous.exists()
     ) else set()
     result = subprocess.run(
-        [sys.executable, str(producer), "--output", str(output), "--cache", str(cache)],
+        [sys.executable, str(producer), "--output", str(output), "--cache", str(cache),
+         "--hours", str(PUBLICATION_GENERATION_HOURS)],
         check=False,
         text=True,
         capture_output=True,
