@@ -1,6 +1,7 @@
 """Live gates call fresh collection; shell pipelines cannot hide a blocked verdict."""
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from textwrap import dedent
@@ -86,6 +87,13 @@ def test_publication_is_independent_and_uses_trusted_gates_and_isolated_upload()
     assert "upload-artifact" not in PRODUCTION
     assert "vars.STATIC_AUTOMATION_ENABLED == 'true'" in PRODUCTION
     assert "default: false" in PRODUCTION
+
+
+def test_publication_job_stays_within_generation_hour_margin():
+    # A longer job could cross two boundaries and exhaust the producer's extra hour.
+    timeout = re.search(r"^    timeout-minutes: (\d+)$", PRODUCTION, re.MULTILINE)
+    assert timeout is not None
+    assert 0 < int(timeout[1]) <= 60
 
 
 @pytest.mark.parametrize("step", COLLECTION, ids=["monitor"])

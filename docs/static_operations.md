@@ -139,6 +139,13 @@ GitHub-hosted runner metadata, exact canonical origin, full approved SHA and unc
 six public connection settings. The producer and all validators come from the workflow
 checkout. Every payload is decoded with the pinned real-MSM library, matched by Run/hash,
 and new Runs must cover the current hour through the next 24 hours with all three variables.
+The publication refresh requests 25 hours from the producer's current-hour start:
+the whole job's 45-minute timeout permits at most one hour-boundary crossing before
+the final check. The pinned MSM library includes the upper three-hour pressure
+bracket automatically (for example, a 13:00 endpoint needs 15:00 pressure fields).
+Do not add a separate three-hour horizon margin. Every validation still uses its
+own current clock and requires 24 hours; the 30-minute generation freshness check
+is unchanged. Revisit the generation margin if the job timeout exceeds one hour.
 Catalog lifetime stays six hours; publication requires at least two hours remaining.
 
 Install producer dependencies from `./tooling[test]` in the runner workspace root.
