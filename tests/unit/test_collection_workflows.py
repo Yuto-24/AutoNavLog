@@ -112,3 +112,43 @@ def test_collection_shell_preserves_exit_and_redacted_summary(tmp_path, step, ex
     assert result.returncode == exit_code
     assert summary.read_text() == result.stdout == '{"status":"BLOCKED"}\n'
     assert result.stderr == ""
+
+
+def test_hourly_preflight_precedes_all_heavy_work_and_preserves_serialization():
+    assert "cron: '23 * * * *'" in PRODUCTION
+    assert "group: static-production\n  cancel-in-progress: false" in PRODUCTION
+    preflight = next(step for step in steps(PRODUCTION) if "id: preflight" in step)
+    assert "if: github.event_name == 'schedule'" in preflight
+    assert "set -euo pipefail" in preflight
+    assert (PRODUCTION.index("Install trusted producer dependencies")
+            < PRODUCTION.index("id: preflight"))
+    assert PRODUCTION.index("id: preflight") < PRODUCTION.index("docker build")
+    assert PRODUCTION.index("id: preflight") < PRODUCTION.index("operations.py restore")
+
+
+@pytest.mark.parametrize("event,proceed,publish,build,upload", [
+    ("schedule", "true", False, True, True),
+    ("schedule", "false", False, False, False),
+    ("schedule", "", False, False, False),
+    ("schedule", "unknown", False, False, False),
+    ("workflow_dispatch", "", False, True, False),
+    ("workflow_dispatch", "", True, True, True),
+])
+def test_preflight_event_matrix(event, proceed, publish, build, upload):
+    workflow_steps = steps(PRODUCTION)
+    boundary = next(i for i, step in enumerate(workflow_steps) if "id: preflight" in step)
+    heavy = workflow_steps[boundary + 1:]
+    assert len(heavy) == 10
+    for step in heavy:
+        condition = re.search(r"^        if: (.+)$", step, re.MULTILINE)
+        assert condition is not None
+        expression = condition[1]
+        assert "always()" not in expression  # implicit success() must still stop on failure
+        expression = expression.replace("github.event_name", repr(event))
+        expression = expression.replace("steps.preflight.outputs.proceed", repr(proceed))
+        expression = expression.replace("inputs.publish", repr(publish))
+        expression = expression.replace("&&", "and").replace("||", "or")
+        is_upload = workflow_steps.index(step) >= next(
+            i for i, candidate in enumerate(workflow_steps)
+            if "Install independent upload CLI" in candidate)
+        assert bool(eval(expression, {"__builtins__": {}})) == (upload if is_upload else build)

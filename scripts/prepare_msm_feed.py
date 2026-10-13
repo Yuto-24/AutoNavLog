@@ -22,6 +22,34 @@ from jma_gpv_weather import WeatherVariable as Variable
 from autonavlog.weather.local_msm import PreparedAsset, WeatherCatalog
 
 
+def forecast_requirements(start: datetime, hours: int) -> ForecastRequirements:
+    return ForecastRequirements(
+        tuple(start + timedelta(hours=index) for index in range(hours + 1)),
+        frozenset({Variable.ALOFT_WIND, Variable.ALOFT_TEMPERATURE, Variable.SURFACE_TEMPERATURE}),
+    )
+
+
+def acquire_listings(
+    client: MsmClient, requirements: ForecastRequirements, *, require_content: bool = False,
+) -> dict[str, str]:
+    listings: dict[str, str] = {}
+    for url in client.listing_urls(requirements):
+        try:
+            with urlopen(url + "/", timeout=60) as response:
+                payload = response.read(8 * 1024 * 1024 + 1)
+                if len(payload) > 8 * 1024 * 1024:
+                    raise ValueError("MSM listing exceeds byte budget")
+                listings[url] = payload.decode("ascii")
+                if require_content and not listings[url].strip():
+                    raise ValueError("Empty upstream response is not confirmed absence")
+        except HTTPError as error:
+            if error.code != 404:
+                raise
+            # An observed absent directory is distinct from a failed listing.
+            listings[url] = ""
+    return listings
+
+
 def produce(
     output: Path,
     cache: Path,
@@ -34,21 +62,9 @@ def produce(
 ) -> dict[str, object]:
     started = perf_counter()
     generated = now or datetime.now(UTC)
-    requirements = ForecastRequirements(
-        tuple(start + timedelta(hours=index) for index in range(hours + 1)),
-        frozenset({Variable.ALOFT_WIND, Variable.ALOFT_TEMPERATURE, Variable.SURFACE_TEMPERATURE}),
-    )
+    requirements = forecast_requirements(start, hours)
     client = MsmClient(cache, bounds)
-    listings: dict[str, str] = {}
-    for url in client.listing_urls(requirements):
-        try:
-            with urlopen(url + "/", timeout=60) as response:
-                listings[url] = response.read().decode("ascii")
-        except HTTPError as error:
-            if error.code != 404:
-                raise
-            # An observed absent directory is distinct from a failed listing.
-            listings[url] = ""
+    listings = acquire_listings(client, requirements)
     runs = client.discover_runs(requirements, listings=listings)
     output.mkdir(parents=True, exist_ok=True)
     assets: dict[str, PreparedAsset] = {}

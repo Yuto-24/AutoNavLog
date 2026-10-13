@@ -2,7 +2,7 @@ name: static-production
 
 on:
   schedule:
-    - cron: '23 */3 * * *'
+    - cron: '23 * * * *'
   workflow_dispatch:
     inputs:
       source_sha:
@@ -60,19 +60,30 @@ jobs:
           python-version: '3.12'
       - name: Reject candidate Functions and runtime configuration before build
         run: python3 tooling/scripts/static_ops/publication_gate.py --source app
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Install trusted producer dependencies and build candidate sandbox
+      - name: Install trusted producer dependencies
         run: |
           python -m pip install 'setuptools>=69' wheel tooling/vendor/jma_gpv_weather-0.5.0-py3-none-any.whl './tooling[test]'
-          docker build -f tooling/scripts/static_ops/Dockerfile.build --tag autonavlog-static-build tooling
+      - name: Check for a newer complete MSM Run before scheduled heavy work
+        id: preflight
+        if: github.event_name == 'schedule'
+        run: |
+          set -euo pipefail
+          python3 tooling/scripts/static_ops/preflight_feed.py --origin "$STATIC_ORIGIN" --github-output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-node@v4
+        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
+        with:
+          node-version: '24'
+      - name: Build candidate sandbox
+        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
+        run: docker build -f tooling/scripts/static_ops/Dockerfile.build --tag autonavlog-static-build tooling
       - name: Restore rolling feed and generate fresh catalog
+        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
         run: |
           python3 tooling/scripts/static_ops/operations.py restore --origin "$STATIC_ORIGIN" --output "$RUNNER_TEMP/feed"
           PYTHONPATH=tooling/src python3 tooling/scripts/static_ops/refresh_feed.py --producer tooling/scripts/prepare_msm_feed.py --output "$RUNNER_TEMP/feed" --cache "$RUNNER_TEMP/msm-cache" > "$RUNNER_TEMP/feed-report.json"
           python3 tooling/scripts/static_ops/validate_feed.py "$RUNNER_TEMP/feed" "$RUNNER_TEMP/feed-report.json" >> "$GITHUB_STEP_SUMMARY"
       - name: Build and test candidate in isolation without provider credentials
+        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
         run: |
           docker run --rm \
             --mount type=bind,source="$GITHUB_WORKSPACE/app",target=/app \
@@ -100,23 +111,25 @@ jobs:
               npm --prefix web run test:static
             '
       - name: Validate candidate using independent tooling after Production Browser E2E
+        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
         run: |
           python3 tooling/scripts/static_ops/publication_gate.py --app app
           python3 tooling/scripts/static_ops/validate_feed.py app/web/dist-static/weather/msm "$RUNNER_TEMP/feed-report.json" >> "$GITHUB_STEP_SUMMARY"
       - name: Record build identity
+        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
         run: |
           sha256sum app/web/dist-static/release.json >> "$GITHUB_STEP_SUMMARY"
           node tooling/web/scripts/check-static.mjs app/web/dist-static >> "$GITHUB_STEP_SUMMARY"
       - name: Install independent upload CLI
-        if: github.event_name == 'schedule' || inputs.publish
+        if: (github.event_name == 'schedule' && steps.preflight.outputs.proceed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.publish)
         run: npm --prefix tooling/services/taf-proxy ci
       - name: Repeat publication gates and stage isolated static upload
-        if: github.event_name == 'schedule' || inputs.publish
+        if: (github.event_name == 'schedule' && steps.preflight.outputs.proceed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.publish)
         run: |
           python3 tooling/scripts/static_ops/publication_gate.py --app app --stage "$RUNNER_TEMP/static-upload"
           python3 tooling/scripts/static_ops/validate_feed.py "$RUNNER_TEMP/static-upload/dist-static/weather/msm" "$RUNNER_TEMP/feed-report.json" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload static files only (TAF Worker is independent)
-        if: github.event_name == 'schedule' || inputs.publish
+        if: (github.event_name == 'schedule' && steps.preflight.outputs.proceed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.publish)
         working-directory: ${{ runner.temp }}/static-upload
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
@@ -126,7 +139,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/tooling/scripts/static_ops/publication_gate.py" --verify-context "$PWD" --project
           "$GITHUB_WORKSPACE/tooling/services/taf-proxy/node_modules/.bin/wrangler" pages deploy dist-static --project-name navmate --branch main --commit-hash "$EXPECTED_SOURCE"
       - name: Verify canonical deployment and fresh catalog
-        if: github.event_name == 'schedule' || inputs.publish
+        if: (github.event_name == 'schedule' && steps.preflight.outputs.proceed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.publish)
         env:
           EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
         run: |
