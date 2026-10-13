@@ -383,6 +383,110 @@ an acceptance requirement. Application / calculation / Project schemas are uncha
   allowlist through artifact rollback. Returning users to pages.dev is an origin/data
   cutover, not a same-origin rollback; use the separate cutover recovery procedure.
 
+## WSL からのアプリ更新: prepare / publish
+
+`scripts/static_ops/app_release.sh` は、既存 Python gate を呼ぶ薄い入口。
+**prepare は provider を変更しない。publish は別途承認後だけ実行する。**
+GitHub の release 作成、main の最新版、MSM-only dispatch はアプリ更新の承認を代用しない。
+PR #259 の毎時 MSM 判定と共通 workflow は変更せず、既存の
+`STATIC_AUTOMATION_ENABLED` 停止 → idle 確認 → 公開 → `STATIC_APPROVED_SHA` 切替 → 再開を使う。
+
+実行場所は、既存認証のある **WSL/Linux の clean な tooling checkout**。
+Python 3.12 の既存 `.[test]` と vendored MSM library、Node 24、Docker、Git、`gh` が必要。
+認証は既存 `gh` session と、承認済みの `CLOUDFLARE_API_TOKEN`（対象 Pages の既存編集権限）、
+`STATIC_GOOGLE_ACCESS_TOKEN`（対象 Firebase Rules の既存読み取り権限）を安全な環境経由で渡す。
+値をコマンド、ログ、PR に貼らない。スクリプトは login、token 作成、権限追加をしない。
+読み取りが拒否された場合も新規認証で迂回せず停止する。候補の build は Docker 内で実行し、
+公開 VITE 設定と app/feed 以外に provider token、tooling、Docker socket を渡さない。
+
+```sh
+# WSL: review/merge 済み tooling commit の clean checkout で実行。
+# 既存 Python venv を activate 済み。保存先の親だけ事前に用意する。
+mkdir -p "$HOME/autonavlog-releases"
+release_store="$HOME/autonavlog-releases/v1.22.7-$(date -u +%Y%m%dT%H%M%SZ)"
+scripts/static_ops/app_release.sh prepare \
+  --sha e0ad634a8fab2ed48310f48b08c4ec3961cad14b \
+  --current-sha a4de2a226dfa205b8be42fb62a710a1b06271ed8 \
+  --store "$release_store"
+# plan.json / prepare-status.json / prepared/upload と検証結果を private に確認。
+sha256sum "$release_store/plan.json"
+```
+
+上記は **候補 v1.22.7** と **現在 v1.20.1** の明示例で、公開承認ではない。
+v1.22.8 の merge 後 WebKit 失敗を理由に候補を最新版へ自動置換しない。
+SHA は40桁を必須とし、main に含まれる exact commit / VERSION を確認する。
+Firebase 4設定、TAF URL、Legacy migration URL、account、origin と repository variable を
+canonical release に照合し、environment variable による shadowing も拒否する。
+Migration URL は維持する。受付終了の検討（10/24〜25目安）は別の承認・変更として扱う。
+
+prepare は現在の成功した Pages production ID/commit、完全な deployment inventory と idle、
+Direct Upload の対象、Functions/設定混入、稼働中の Firestore Rules を読み取りで確認する。
+候補/current の Rules、indexes、Project schema は同一を必須とする保守的な互換 gate。
+互換性変更がある release はこのスクリプトで自動処理せず、別の移行レビューを必要とする。
+稼働中 Rules は [release GET](https://firebase.google.com/docs/reference/rules/rest/v1/projects.releases/get)
+と [ruleset GET](https://firebase.google.com/docs/reference/rules/rest/v1/projects.rulesets/get) で確認し、
+候補に一致しない場合は自動 deploy しない。これは実 Google login / Sync の受入を代用しない。
+現在の plan/limits/共有枠確認と独立レビュー・候補 CI の確認は上の checklist と #121 を継続する。
+
+producer は現行 feed の保持 asset を復元し、25時間分を実取得・decode して新たに生成する。
+アプリ更新では同じ Run の実再取得を許すが、retained-only の timestamp 更新を認めない。
+既存 `validate_feed` の30分 freshness、24時間 coverage、2時間残存、Run/hash 検証を再利用する。
+候補の release/data/schema 検査、typecheck、static artifact tests、production Browser E2E と、
+tooling による独立 inventory/private-material gate が完了してから plan を保存する。
+保存先は checkout 外の新規0700 directory。plan と status は0600。
+保存内容は公開 Firebase 識別子を含むので private のまま保管する。
+
+**本番への書き込み、定期停止/再開、承認 SHA 切替を明示承認した後だけ**:
+
+```sh
+# 同じ WSL/tooling commit。レビューで確認した64桁ハッシュを文字列で指定する。
+# この値を publish 時に再計算して自動採用しない。
+scripts/static_ops/app_release.sh publish \
+  --sha e0ad634a8fab2ed48310f48b08c4ec3961cad14b \
+  --current-sha a4de2a226dfa205b8be42fb62a710a1b06271ed8 \
+  --store "$release_store" \
+  --reviewed-plan-sha256 REVIEWED_64_HEX_DIGEST
+```
+
+publish は30分以内の plan、reviewed hash、prepare の inventory/report、SHA/設定/Rules/tooling
+を再照合する。古い prepare は新しい保存先で prepare し直してレビューする。
+その後 `STATIC_AUTOMATION_ENABLED=false` を確認し、同じ `static-production.yml` を一時 disable
+して新規 schedule/dispatch を止める。既に開始済み・queued・waiting の run は cancel せず、
+完全な inventory で idle を確認できなければ、停止状態を保持して終了する。
+ローカル呼出しは同じ git common directory の flock で直列化する。
+これは remote lock ではないため、承認した公開作業中は別 WSL/host、Dashboard、手動 upload、
+workflow enable/dispatch を行わない。Pages の GET inventory は atomic lock ではなく、
+最後の照合直後に別 operator が公開する競合まで保証しない。
+
+publish は **fresh/** に再生成・再テストし、prepare の dist を upload しない。
+共有 workflow の idle、Pages ID/設定、SHA、Rules と fresh inventory/coverage を再確認する。
+固定 lockfile の trusted Wrangler を最小 upload directory（dist-static と wrangler.json のみ）
+から使い、`pages deploy dist-static --project-name navmate --branch main --commit-hash SHA` を実行。
+Pages の未サポート `--dry-run` / custom `--config` は使わない。TAF Worker deploy は呼ばない。
+正規 URL の release 全 inventory（既存 bounded poll）、freshness、HTML/manifest の内容・
+HTTPS/no redirect/no-cache/ETag/MIME、欠落 asset の404、Pages commit を確認する。
+成功後だけ承認 SHA を更新・read-backし、workflow を enable する。
+開始時に automation が true だった場合だけ true に戻し、元が false なら false を維持する。
+#121 の実 login/Sync、旧タブ、保存データ、plan/billing 等の production acceptance は別途必要。
+
+両段階の `*-status.json` は stage、操作履歴、変更済み/未変更/UNKNOWN を原子的に保存する。
+`UNKNOWN` は timeout/interruption により server 側が変更済みの可能性がある。
+SIGKILL 等では RUNNING/ATTEMPTED が残るため、成功扱いせず remote state を確認する。
+失敗後の finally で再開したり、自動 rollback したりしない。一度試行した publish の保存先は
+再利用しない。失敗段階ごとの必要操作:
+
+| 失敗した段階 | 確認・復旧操作（別途承認） |
+| --- | --- |
+| pause 前 | 本番未変更。原因を直し新規 prepare。 |
+| pause/disable/idle/build | 停止操作の read-back と既存 run の完了を確認。本番と承認 SHA を照合してから再開可否を判断。 |
+| upload または canonical 検証 | 配置が変わった可能性を調査。新旧 inventory/ID と weather を確認し、停止を維持。自動 rollback なし。 |
+| 承認 SHA 更新 | 新 app が配信済みでも旧承認 SHA の可能性あり。canonical と read-back を照合してから切替・再開。 |
+| workflow/automation 再開 | 新 app/承認 SHA が成功していても定期更新状態は不明。workflow と variable を読んで確認し、必要な操作だけ行う。 |
+
+今回の実装検証では publish、repository variable 更新、workflow disable/enable を実サービスへ
+実行しない。`tests/unit/test_static_app_release.py` は隔離 inventory と provider mock で正常系、
+設定変化、競合、改変/古い成果物、各書き込み前後の失敗、SHA更新・再開失敗を検証する。
+
 ## Acceptance still requiring production authorization
 
 Repository verification proves build/gate logic, not remote operation. Activation must
