@@ -61,6 +61,9 @@ services:
 EOF
     fi
     cat >>"$OVERRIDE_FILE" <<EOF
+    restart: "no"
+    environment:
+      AUTONAVLOG_MSM_PREWARM: "\${AUTONAVLOG_MSM_PREWARM:-false}"
     deploy:
       resources:
         limits:

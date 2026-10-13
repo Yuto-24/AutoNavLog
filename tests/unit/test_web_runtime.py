@@ -162,3 +162,113 @@ def test_prune_msm_cache_reports_deleted_count_and_remaining_bytes(
     assert (deleted, remaining) == (1, 0)
     assert not cached.exists()
     assert "deleted_files=1 remaining_bytes=0" in caplog.text
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_msm_prewarm_switch_preserves_on_demand_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, enabled: bool,
+) -> None:
+    prepared: list[ForecastRequirement] = []
+
+    class RecordingMsm:
+        def __init__(self, *, cache_dir: Path) -> None:
+            pass
+
+        def resolve_run(self, requirement: ForecastRequirement) -> ForecastRun:
+            return ForecastRun(id="20260812000000", initial_time_utc=requirement.valid_times_utc[0])
+
+        def prepare_run(self, run_id: str, requirement: ForecastRequirement) -> None:
+            prepared.append(requirement)
+
+    monkeypatch.setattr(runtime, "MsmWeatherProvider", RecordingMsm)
+    app = runtime.build_web_application(WebRuntimeConfig(
+        data_root=Path(__file__).resolve().parents[2] / "data",
+        storage_root=tmp_path,
+        weather_mode="msm",
+        msm_prewarm=enabled,
+    ))
+    assert prepared == []
+    assert isinstance(app.weather_factory(), RecordingMsm)
+    assert app.weather_factory() is app.weather_factory()
+    if enabled:
+        assert app.weather_prewarmer is not None
+        app.weather_prewarmer.run_once()
+        assert len(prepared) == 1
+        times = prepared[0].valid_times_utc
+        assert max(times) - min(times) == timedelta(hours=48)
+    else:
+        assert app.weather_prewarmer is None
+        # The same provider is still available to calculation requests.
+        from datetime import UTC, datetime
+        requirement = ForecastRequirement(valid_times_utc=(datetime.now(UTC),))
+        provider = app.weather_factory()
+        provider.prepare_run(provider.resolve_run(requirement).id, requirement)
+        assert prepared == [requirement]
+
+
+def test_cli_reads_prewarm_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from autonavlog.web import __main__ as cli
+
+    configs = []
+    monkeypatch.setattr("sys.argv", ["autonavlog-web", "--storage-root", str(tmp_path)])
+    monkeypatch.setattr(cli, "create_app", lambda config: configs.append(config))
+    monkeypatch.setattr(cli.uvicorn, "run", lambda *args, **kwargs: None)
+    monkeypatch.delenv("AUTONAVLOG_MSM_PREWARM", raising=False)
+    cli.main()
+    assert configs[-1].msm_prewarm is True
+    monkeypatch.setenv("AUTONAVLOG_MSM_PREWARM", "false")
+    cli.main()
+    assert configs[-1].msm_prewarm is False
+    monkeypatch.setenv("AUTONAVLOG_MSM_PREWARM", "true")
+    cli.main()
+    assert configs[-1].msm_prewarm is True
+    monkeypatch.setenv("AUTONAVLOG_MSM_PREWARM", "typo")
+    with pytest.raises(RuntimeError, match="AUTONAVLOG_MSM_PREWARM"):
+        cli.main()
+
+
+@pytest.mark.parametrize("value, expected", [(None, True), ("false", False), ("true", True)])
+def test_environment_factory_reads_prewarm_switch(
+    monkeypatch: pytest.MonkeyPatch, value: str | None, expected: bool,
+) -> None:
+    from autonavlog.web.app import _environment_config
+
+    monkeypatch.setenv("AUTONAVLOG_WEATHER", "msm")
+    if value is None:
+        monkeypatch.delenv("AUTONAVLOG_MSM_PREWARM", raising=False)
+    else:
+        monkeypatch.setenv("AUTONAVLOG_MSM_PREWARM", value)
+    assert _environment_config().msm_prewarm is expected
+
+
+def test_environment_factory_rejects_invalid_prewarm_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from autonavlog.web.app import _environment_config
+
+    monkeypatch.setenv("AUTONAVLOG_MSM_PREWARM", "typo")
+    with pytest.raises(RuntimeError, match="AUTONAVLOG_MSM_PREWARM"):
+        _environment_config()
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_environment_factory_lifespan_only_starts_enabled_prewarm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, enabled: bool,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from autonavlog.web.app import create_app
+
+    started = Event()
+    monkeypatch.setenv("AUTONAVLOG_WEATHER", "msm")
+    monkeypatch.setenv("AUTONAVLOG_MSM_PREWARM", str(enabled).lower())
+    monkeypatch.setenv("AUTONAVLOG_DATA_ROOT", str(Path(__file__).resolve().parents[2] / "data"))
+    monkeypatch.setenv("AUTONAVLOG_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setattr(WeatherPrewarmer, "run_once", lambda self: started.set())
+    with TestClient(create_app()) as client:
+        assert client.get("/healthz").status_code == 200
+        if enabled:
+            assert started.wait(2)
+        else:
+            assert not started.is_set()
+    assert started.is_set() is enabled
