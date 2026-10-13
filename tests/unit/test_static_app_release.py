@@ -117,7 +117,12 @@ class SimulatedOperator(app.Operator):
         self.event("enable" if enabled else "disable")
         self.workflow_state = "active" if enabled else "disabled_manually"
 
-    def upload(self, destination, sha, snapshot):
+    def prepare_upload(self, destination, sha, snapshot):
+        self.event("pre-upload")
+        self.validate_build(destination, sha, snapshot)
+        return {"isolated": "upload-env"}
+
+    def upload(self, destination, sha, env):
         self.event("upload")
         self.uploaded = destination
         self.state["target"]["commit"] = sha
@@ -200,6 +205,8 @@ def test_disabled_automation_is_preserved(prepared):
         ("disable", "UNCHANGED", "UNCHANGED"),
         ("paused-snapshot", "UNCHANGED", "UNCHANGED"),
         ("fresh-build", "UNCHANGED", "UNCHANGED"),
+        ("pre-upload", "UNCHANGED", "UNCHANGED"),
+        ("validate-fresh", "UNCHANGED", "UNCHANGED"),
         ("upload", "UNKNOWN", "UNCHANGED"),
         ("verify", "CONFIRMED", "UNCHANGED"),
         ("variables", "CONFIRMED", "UNCHANGED"),
@@ -549,7 +556,9 @@ def test_isolated_upload_uses_supported_pages_command_and_disables_native_logs(
     }
     operator.snapshot = lambda *args, **kwargs: copy.deepcopy(snapshot)
     operator.validate_build = lambda *args: calls.append(("validate", {}))
-    operator.upload(tmp_path / "fresh", NEW, snapshot)
+    env = operator.prepare_upload(tmp_path / "fresh", NEW, snapshot)
+    assert all(not isinstance(args, list) or "deploy" not in args for args, _ in calls)
+    operator.upload(tmp_path / "fresh", NEW, env)
     args, kwargs = calls[-1]
     assert args[1:] == [
         "pages",
@@ -629,3 +638,46 @@ def test_canonical_root_headers_bytes_and_missing_asset_gate(prepared, monkeypat
         real.verify_serving(store / "prepared")
         assert urls[0] == gate.ORIGIN + "/"
         assert urls[1] == gate.ORIGIN + "/local/manifest.json"
+
+
+@pytest.mark.parametrize("failure", ["cli-install", "target-drift", "final-validation"])
+def test_real_pre_upload_failures_leave_remote_production_unchanged(prepared, monkeypatch, failure):
+    operator, store, _ = prepared
+    real = app.Operator(operator.root)
+    validations = []
+
+    def validate(*args):
+        validations.append(args)
+        if failure == "final-validation" and len(validations) == 2:
+            raise app.Blocked("Final feed validation failed")
+        return operator.validate_build(*args)
+
+    real.validate_build = validate
+
+    def snapshot(*args, **kwargs):
+        observed = copy.deepcopy(operator.state)
+        if failure == "target-drift":
+            observed["target"]["id"] = "competing-upload"
+        return observed
+
+    real.snapshot = snapshot
+
+    def command(args, **kwargs):
+        assert args[:2] == ["npm", "--prefix"]  # Never invoke Wrangler on failure.
+        if failure == "cli-install":
+            raise app.Blocked("CLI install failed")
+        return ""
+
+    monkeypatch.setattr(app, "command", command)
+    operator.prepare_upload = real.prepare_upload
+    with pytest.raises(app.Blocked):
+        run_publish(prepared)
+    status = json.loads((store / "publish-status.json").read_text())
+    assert status["stage"] == "pre-upload"
+    assert status["changes"]["production"] == "UNCHANGED"
+    assert not any(event["action"] == "production" for event in status["events"])
+    assert (
+        operator.uploaded is None
+        and "approve" not in operator.calls
+        and "resume" not in operator.calls
+    )

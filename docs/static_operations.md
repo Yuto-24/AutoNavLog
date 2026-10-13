@@ -478,7 +478,7 @@ SIGKILL 等では RUNNING/ATTEMPTED が残るため、成功扱いせず remote 
 | 失敗した段階 | 確認・復旧操作（別途承認） |
 | --- | --- |
 | pause 前 | 本番未変更。原因を直し新規 prepare。 |
-| pause/disable/idle/build | 停止操作の read-back と既存 run の完了を確認。本番と承認 SHA を照合してから再開可否を判断。 |
+| pause/disable/idle/build/pre-upload | 停止操作の read-back と既存 run の完了を確認。本番と承認 SHA を照合してから再開可否を判断。 |
 | upload または canonical 検証 | 配置が変わった可能性を調査。新旧 inventory/ID と weather を確認し、停止を維持。自動 rollback なし。 |
 | 承認 SHA 更新 | 新 app が配信済みでも旧承認 SHA の可能性あり。canonical と read-back を照合してから切替・再開。 |
 | workflow/automation 再開 | 新 app/承認 SHA が成功していても定期更新状態は不明。workflow と variable を読んで確認し、必要な操作だけ行う。 |

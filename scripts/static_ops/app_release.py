@@ -522,7 +522,7 @@ class Operator:
         )
         return candidate
 
-    def upload(self, destination: Path, sha: str, snapshot: dict) -> None:
+    def prepare_upload(self, destination: Path, sha: str, snapshot: dict) -> dict:
         self.validate_build(destination, sha, snapshot)
         # Locked trusted CLI installation; never candidate node_modules or Wrangler config.
         command(["npm", "--prefix", "services/taf-proxy", "ci", "--ignore-scripts"], cwd=self.root)
@@ -533,12 +533,16 @@ class Operator:
         }
         env.update(CI="true", WRANGLER_WRITE_LOGS="false", WRANGLER_SEND_METRICS="false")
         env["CLOUDFLARE_ACCOUNT_ID"] = snapshot["variables"]["CLOUDFLARE_ACCOUNT_ID"]
-        self.validate_build(destination, sha, snapshot)
         unchanged(
             snapshot,
             self.snapshot(sha, snapshot["variables"]["STATIC_APPROVED_SHA"], paused=True),
             deployment=True,
         )
+        self.validate_build(destination, sha, snapshot)
+        return env
+
+    def upload(self, destination: Path, sha: str, env: dict) -> None:
+        # Only this command can change remote production; all prechecks are complete.
         command(
             [
                 str(self.wrangler),
@@ -679,8 +683,10 @@ def publish(
     journal.stage("fresh-build-test")
     operator.build(sha, paused, store / "fresh")  # Never upload prepare's dist.
     unchanged(paused, operator.snapshot(sha, current, paused=True), deployment=True)
+    journal.stage("pre-upload")
+    upload_env = operator.prepare_upload(store / "fresh", sha, paused)
     journal.stage("upload")
-    journal.mutation("production", lambda: operator.upload(store / "fresh", sha, paused))
+    journal.mutation("production", lambda: operator.upload(store / "fresh", sha, upload_env))
     journal.stage("canonical-verification")
     operator.verify(store / "fresh", sha, paused)
     # Check config/state again before changing the approved source or resuming.
