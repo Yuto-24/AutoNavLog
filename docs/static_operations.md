@@ -452,7 +452,7 @@ publish は30分以内の plan、reviewed hash、prepare の inventory/report、
 を再照合する。古い prepare は新しい保存先で prepare し直してレビューする。
 その後 `STATIC_AUTOMATION_ENABLED=false` を確認し、同じ `static-production.yml` を一時 disable
 して新規 schedule/dispatch を止める。既に開始済み・queued・waiting の run は cancel せず、
-完全な inventory で idle を確認できなければ、停止状態を保持して終了する。
+全ての非完了状態の明示的な空 inventory で idle を確認できなければ、停止状態を保持して終了する。
 ローカル呼出しは同じ git common directory の flock で直列化する。
 これは remote lock ではないため、承認した公開作業中は別 WSL/host、Dashboard、手動 upload、
 workflow enable/dispatch を行わない。Pages の GET inventory は atomic lock ではなく、

@@ -350,19 +350,40 @@ def test_real_idle_check_rejects_every_non_completed_state(tmp_path, status):
         operator.idle()
 
 
-def test_real_idle_check_requires_complete_stable_pagination(tmp_path):
+def test_real_idle_check_ignores_unbounded_completed_hourly_history(tmp_path):
     operator = app.Operator(tmp_path)
-    first = [{"id": i, "status": "completed"} for i in range(100)]
-    responses = iter(
-        [
-            {"total_count": 101, "workflow_runs": first},
-            {"total_count": 101, "workflow_runs": [{"id": 101, "status": "completed"}]},
-        ]
-    )
-    operator.gh = lambda endpoint: next(responses)
+    calls = []
+
+    def gh(endpoint):
+        calls.append(endpoint)
+        assert "status=" in endpoint  # Never request historical completed runs.
+        return {"total_count": 0, "workflow_runs": []}
+
+    operator.gh = gh
     operator.idle()
-    operator.gh = lambda endpoint: {"total_count": 101, "workflow_runs": first[:1]}
-    with pytest.raises(app.Blocked, match="Incomplete"):
+    assert {endpoint.split("status=")[1].split("&")[0] for endpoint in calls} == {
+        "requested",
+        "waiting",
+        "pending",
+        "queued",
+        "in_progress",
+    }
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"total_count": 1, "workflow_runs": []},
+        {"total_count": 0, "workflow_runs": [{"id": 1}]},
+        {"total_count": True, "workflow_runs": []},
+        {"total_count": -1, "workflow_runs": []},
+        {"total_count": 1001, "workflow_runs": []},
+    ],
+)
+def test_unknown_or_truncated_active_inventory_never_proves_idle(tmp_path, response):
+    operator = app.Operator(tmp_path)
+    operator.gh = lambda endpoint: response
+    with pytest.raises(app.Blocked, match="not idle"):
         operator.idle()
 
 
@@ -417,3 +438,170 @@ def test_build_container_receives_only_public_configuration(monkeypatch, tmp_pat
     assert kwargs["input_text"] == "trusted build"
     assert "/feed,readonly" in " ".join(args)
     assert "--hours" in next(item[0] for item in calls if "--hours" in item[0])
+
+
+def test_live_rules_and_source_contract_must_match_without_deploy(tmp_path):
+    operator = app.Operator(tmp_path)
+    calls = []
+    operator.git = lambda *args: (
+        "reviewed-rules" if args[-1].endswith(".rules") else "same-contract"
+    )
+
+    def rules_get(path):
+        calls.append(path)
+        if "/releases/" in path:
+            return {"rulesetName": "projects/navmate-prod/rulesets/ruleset-id"}
+        return {"source": {"files": [{"content": "reviewed-rules\n"}]}}
+
+    operator.rules_get = rules_get
+    assert operator.compatibility(NEW, OLD, {"VITE_FIREBASE_PROJECT_ID": "navmate-prod"})
+    assert len(calls) == 3 and all(path.startswith("projects/navmate-prod/") for path in calls)
+    operator.rules_get = lambda path: {"rulesetName": "projects/other/rulesets/ruleset-id"}
+    with pytest.raises(app.Blocked, match="another project"):
+        operator.compatibility(NEW, OLD, {"VITE_FIREBASE_PROJECT_ID": "navmate-prod"})
+
+
+@pytest.mark.parametrize("path", app.COMPATIBILITY)
+def test_rules_indexes_and_project_schema_change_need_separate_review(tmp_path, path):
+    operator = app.Operator(tmp_path)
+    operator.git = lambda *args: "changed" if args[-1] == f"{NEW}:{path}" else "old"
+    with pytest.raises(app.Blocked, match="migration required"):
+        operator.compatibility(NEW, OLD, {"VITE_FIREBASE_PROJECT_ID": "navmate-prod"})
+
+
+def test_deployed_rules_change_between_reads_blocks(tmp_path):
+    operator = app.Operator(tmp_path)
+    operator.git = lambda *args: "same"
+    replies = iter(
+        [
+            {"rulesetName": "projects/navmate-prod/rulesets/one"},
+            {"source": {"files": [{"content": "same"}]}},
+            {"rulesetName": "projects/navmate-prod/rulesets/two"},
+        ]
+    )
+    operator.rules_get = lambda path: next(replies)
+    with pytest.raises(app.Blocked, match="changed during read"):
+        operator.compatibility(NEW, OLD, {"VITE_FIREBASE_PROJECT_ID": "navmate-prod"})
+
+
+@pytest.mark.parametrize(
+    "sha,current", [("main", OLD), (NEW, "v1.20.1"), ("b" * 39, OLD), (NEW, "A" * 40)]
+)
+def test_full_explicit_shas_fail_before_any_provider_or_command(tmp_path, sha, current):
+    operator = app.Operator(tmp_path)
+    operator.git = lambda *args: pytest.fail("Must not run commands on invalid SHA")
+    with pytest.raises(app.Blocked, match="full"):
+        operator.snapshot(sha, current)
+
+
+def test_environment_shadowed_configuration_is_rejected(tmp_path):
+    operator = app.Operator(tmp_path)
+
+    def gh(endpoint):
+        if endpoint.startswith("actions/variables/"):
+            name = endpoint.split("/")[-1]
+            return {"name": name, "value": "public"}
+        return {"total_count": 1, "variables": [{"name": "STATIC_APPROVED_SHA", "value": NEW}]}
+
+    operator.gh = gh
+    with pytest.raises(app.Blocked, match="shadows"):
+        operator.variables()
+
+
+def test_isolated_upload_uses_supported_pages_command_and_disables_native_logs(
+    monkeypatch, tmp_path
+):
+    operator = app.Operator(tmp_path)
+    snapshot = SimulatedOperator(tmp_path).state
+    snapshot["variables"]["STATIC_AUTOMATION_ENABLED"] = "false"
+    calls = []
+    monkeypatch.setattr(app, "command", lambda args, **kwargs: calls.append((args, kwargs)))
+    operator.env = {
+        "PATH": "/bin",
+        "HOME": "/private",
+        "CLOUDFLARE_API_TOKEN": "SECRET_CF",
+        "GH_TOKEN": "SECRET_GH",
+        "STATIC_GOOGLE_ACCESS_TOKEN": "SECRET_GOOGLE",
+    }
+    operator.snapshot = lambda *args, **kwargs: copy.deepcopy(snapshot)
+    operator.validate_build = lambda *args: calls.append(("validate", {}))
+    operator.upload(tmp_path / "fresh", NEW, snapshot)
+    args, kwargs = calls[-1]
+    assert args[1:] == [
+        "pages",
+        "deploy",
+        "dist-static",
+        "--project-name",
+        "navmate",
+        "--branch",
+        "main",
+        "--commit-hash",
+        NEW,
+    ]
+    assert kwargs["cwd"] == tmp_path / "fresh/upload"
+    assert "GH_TOKEN" not in kwargs["env"] and "STATIC_GOOGLE_ACCESS_TOKEN" not in kwargs["env"]
+    assert kwargs["env"]["WRANGLER_WRITE_LOGS"] == "false"
+    assert kwargs["env"]["CI"] == "true"
+    assert calls[-2][0] == "validate"
+
+
+@pytest.mark.parametrize(
+    "change", [None, "content", "cache", "etag", "mime", "missing-200", "missing-403"]
+)
+def test_canonical_root_headers_bytes_and_missing_asset_gate(prepared, monkeypatch, change):
+    from email.message import Message
+    from urllib.error import HTTPError
+
+    operator, store, _ = prepared
+    real = app.Operator(store)
+    dist = store / "prepared/upload/dist-static"
+    urls = []
+
+    class Response:
+        status = 200
+
+        def __init__(self, name):
+            self.payload = (dist / name).read_bytes()
+            self.headers = Message()
+            self.headers["Content-Type"] = (
+                "text/html" if name == "index.html" else "application/json"
+            )
+            self.headers["Cache-Control"] = "no-cache"
+            self.headers["ETag"] = "hash"
+            if change == "content":
+                self.payload = b"wrong"
+            if change in ("cache", "etag"):
+                del self.headers["Cache-Control" if change == "cache" else "ETag"]
+            if change == "mime":
+                self.headers.replace_header("Content-Type", "text/plain")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self, *args):
+            return self.payload
+
+    class Opener:
+        def open(self, request, **kwargs):
+            urls.append(request.full_url)
+            if request.full_url.endswith(".missing.whl"):
+                if change == "missing-200":
+                    return Response("index.html")
+                raise HTTPError(
+                    request.full_url, 403 if change == "missing-403" else 404, "missing", {}, None
+                )
+            return Response(
+                "index.html" if request.full_url.endswith("/") else "local/manifest.json"
+            )
+
+    monkeypatch.setattr(app, "build_opener", lambda *args: Opener())
+    if change:
+        with pytest.raises(app.Blocked):
+            real.verify_serving(store / "prepared")
+    else:
+        real.verify_serving(store / "prepared")
+        assert urls[0] == gate.ORIGIN + "/"
+        assert urls[1] == gate.ORIGIN + "/local/manifest.json"

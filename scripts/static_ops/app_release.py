@@ -223,29 +223,17 @@ class Operator:
         return self.gh("actions/workflows/" + WORKFLOW)
 
     def idle(self) -> None:
-        page, count, seen = 1, None, set()
-        while True:
-            value = self.gh(f"actions/workflows/{WORKFLOW}/runs?per_page=100&page={page}")
+        # GitHub's documented non-completed states. Completed hourly history is
+        # irrelevant to exclusivity and must not eventually exhaust a page budget.
+        for status in ("requested", "waiting", "pending", "queued", "in_progress"):
+            value = self.gh(f"actions/workflows/{WORKFLOW}/runs?status={status}&per_page=100")
             total, rows = value["total_count"], value["workflow_runs"]
+            # Any possible run blocks; only explicit zero plus an empty page proves
+            # absence in this state. No pagination/truncation can turn work into idle.
             require(
-                type(total) is int
-                and total >= 0
-                and isinstance(rows, list)
-                and (count is None or count == total),
-                "Workflow run inventory changed",
+                type(total) is int and total == 0 and rows == [],
+                "Existing publication workflow is not idle or inventory is unknown",
             )
-            count = total
-            for row in rows:
-                require(row["id"] not in seen, "Duplicate workflow run")
-                seen.add(row["id"])
-                require(
-                    row.get("status") == "completed", "Existing publication workflow is not idle"
-                )
-            require(len(seen) <= total, "Invalid workflow run inventory")
-            if len(seen) == total:
-                return
-            require(len(rows) == 100 and page < 40, "Incomplete workflow run inventory")
-            page += 1
 
     def set_variable(self, name: str, value: str) -> None:
         require(
@@ -527,6 +515,7 @@ class Operator:
             for key in ("PATH", "HOME", "CLOUDFLARE_API_TOKEN")
             if key in self.env
         }
+        env.update(CI="true", WRANGLER_WRITE_LOGS="false", WRANGLER_SEND_METRICS="false")
         env["CLOUDFLARE_ACCOUNT_ID"] = snapshot["variables"]["CLOUDFLARE_ACCOUNT_ID"]
         self.validate_build(destination, sha, snapshot)
         unchanged(
@@ -579,7 +568,10 @@ class Operator:
             ("index.html", "text/html"),
             ("local/manifest.json", "application/json"),
         ):
-            request = Request(gate.ORIGIN + "/" + name, headers={"Cache-Control": "no-cache"})
+            request = Request(
+                gate.ORIGIN + ("/" if name == "index.html" else "/" + name),
+                headers={"Cache-Control": "no-cache"},
+            )
             with opener.open(request, timeout=30) as response:
                 require(
                     response.status == 200
