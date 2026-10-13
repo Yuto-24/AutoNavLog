@@ -23,7 +23,7 @@ def check_install(workspace: Path) -> None:
     assert (app / "VERSION").read_text().strip() == "1.20.1"
     workflow = (tooling / ".github/workflows/static-production.yml").read_text()
     step = workflow.split(
-        "      - name: Install trusted producer dependencies and build candidate sandbox\n", 1
+        "      - name: Install trusted producer dependencies\n", 1
     )[1].split("      - name:", 1)[0]
     commands = [line.strip() for line in step.splitlines()
                 if line.strip().startswith("python -m pip install ")]
@@ -57,7 +57,8 @@ def check_install(workspace: Path) -> None:
         assert Path(unquote(origin.path)).resolve() == tooling.resolve()
         # Match the producer's actual source import path; --help never calls produce().
         env["PYTHONPATH"] = str(tooling / "src")
-        for script in ("scripts/prepare_msm_feed.py", "scripts/static_ops/validate_feed.py"):
+        for script in ("scripts/prepare_msm_feed.py", "scripts/static_ops/validate_feed.py",
+                       "scripts/static_ops/preflight_feed.py"):
             subprocess.run([python, str(tooling / script), "--help"],
                            cwd=workspace, env=env, check=True)
         print(json.dumps({"status": "OK", "tooling_version": installed["version"],

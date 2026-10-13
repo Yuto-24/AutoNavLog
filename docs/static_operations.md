@@ -22,7 +22,7 @@ all target this origin. The historical #121 pages.dev evidence is not new-origin
 - `static-production.yml` builds a clean **full approved application SHA**, produces
   real MSM data, checks version/hash/size/freshness, and runs production Browser E2E
   without FastAPI. A dispatch with `publish=false` only builds/tests. No remote preview.
-- The three-hour schedule is disabled unless `STATIC_AUTOMATION_ENABLED=true`.
+- The hourly schedule is disabled unless `STATIC_AUTOMATION_ENABLED=true`.
   That variable is explicit authorization for recurring feed publication, not app upgrades.
   This MSM-only workflow rejects `source_sha` unless it equals `STATIC_APPROVED_SHA`.
   App upgrades use the separately approved #121 publication procedure.
@@ -71,8 +71,33 @@ use an existing machine with the same build commands; do not enable billing.
 
 ## Feed lifecycle and failure recovery
 
-At minute 23 every three hours, the workflow reads canonical `release.json` and rejects
-any mismatch with `STATIC_APPROVED_SHA`. It restores recent immutable NPZ files from
+At minute 23 every hour, the workflow reads canonical `release.json` and rejects
+any mismatch with `STATIC_APPROVED_SHA`. Scheduled runs then read the canonical MSM
+catalog and fresh upstream listings before restoring NPZ files, downloading GRIB,
+decoding, building the candidate sandbox, or running Browser E2E. A complete newer
+Run covering the producer's 25-hour horizon enables the existing publication path.
+With no newer Run, a valid catalog with at least two hours remaining and matching
+complete upstream discovery, plus current 24-hour coverage in its own retained
+listings, produces `NO_NEW_RUN` and skips heavy work and upload.
+The preflight never writes a catalog or renews forecast timestamps.
+
+Failed reads, blank successful responses, malformed listings/catalogs, incomplete
+newer Runs without a complete newer candidate, and regressed discovery fail closed.
+An upstream directory HTTP 404 is known absence; other failed reads cannot become
+absence. With no new Run, expired or less-than-two-hours-remaining catalogs fail.
+An expired catalog with a complete newer Run may recover through all existing gates;
+the summary explicitly records its expiry. Preflight retains dependency installation
+and source checks, so a healthy no-op still incurs runner startup work.
+
+Manual dispatch, including `publish=false`, retains the existing build/test path and
+newer-Run requirement; preflight no-op semantics apply only to scheduled events.
+All runs retain the shared `static-production` concurrency group with cancellation
+disabled. Queued scheduled runs reread canonical metadata after acquiring the group;
+the later restore/refresh check also rejects a Run already published after preflight.
+Merging this cadence change affects an already-enabled schedule immediately; it does
+not change the authorization variable or create a separate scheduler.
+
+For a newer Run, the workflow restores recent immutable NPZ files from
 production, verifies byte lengths/hashes, and seeds the existing producer. Seven-day
 Run retention survives runner replacement and cache eviction. No Project data is sent.
 A failed read/hash check/producer/build/test stops before upload. A retained-only
@@ -80,8 +105,9 @@ producer result with no newly prepared Run newer than the retained latest Run is
 is not a successful refresh. The previous deployment
 is retained, and expired weather still fails closed in the browser.
 
-The producer's six-hour catalog lifetime leaves roughly three hours for delay/retry.
-The independent hourly monitor warns with fewer than two hours remaining. GitHub cron
+The producer's six-hour catalog lifetime and each validator's 24-hour coverage check
+remain unchanged. Hourly preflight offers another opportunity after delay/failure;
+the independent hourly monitor warns with fewer than two hours remaining. GitHub cron
 is best-effort and can be delayed/dropped; public inactive repositories can have schedules
 disabled. Check Actions schedule status and notification delivery during the daily audit.
 Neither this workflow nor GitHub cron promises weather availability during outages.
