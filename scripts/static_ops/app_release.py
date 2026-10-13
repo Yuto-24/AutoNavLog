@@ -223,17 +223,32 @@ class Operator:
         return self.gh("actions/workflows/" + WORKFLOW)
 
     def idle(self) -> None:
-        # GitHub's documented non-completed states. Completed hourly history is
-        # irrelevant to exclusivity and must not eventually exhaust a page budget.
-        for status in ("requested", "waiting", "pending", "queued", "in_progress"):
-            value = self.gh(f"actions/workflows/{WORKFLOW}/runs?status={status}&per_page=100")
+        # A single unfiltered inventory cannot lose queued -> waiting transitions
+        # between separate status queries. Scan every declared page without an
+        # arbitrary historical ceiling; incomplete/changed history fails closed.
+        page, count, seen = 1, None, set()
+        while True:
+            value = self.gh(f"actions/workflows/{WORKFLOW}/runs?per_page=100&page={page}")
             total, rows = value["total_count"], value["workflow_runs"]
-            # Any possible run blocks; only explicit zero plus an empty page proves
-            # absence in this state. No pagination/truncation can turn work into idle.
             require(
-                type(total) is int and total == 0 and rows == [],
-                "Existing publication workflow is not idle or inventory is unknown",
+                type(total) is int
+                and total >= 0
+                and isinstance(rows, list)
+                and (count is None or count == total),
+                "Workflow run inventory changed",
             )
+            count = total
+            for row in rows:
+                require(row["id"] not in seen, "Duplicate workflow run")
+                seen.add(row["id"])
+                require(
+                    row.get("status") == "completed", "Existing publication workflow is not idle"
+                )
+            require(len(seen) <= total, "Invalid workflow run inventory")
+            if len(seen) == total:
+                return
+            require(len(rows) == 100, "Incomplete workflow run inventory")
+            page += 1
 
     def set_variable(self, name: str, value: str) -> None:
         require(

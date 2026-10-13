@@ -350,24 +350,40 @@ def test_real_idle_check_rejects_every_non_completed_state(tmp_path, status):
         operator.idle()
 
 
-def test_real_idle_check_ignores_unbounded_completed_hourly_history(tmp_path):
+def test_real_idle_check_reads_all_completed_hourly_history_without_ceiling(tmp_path):
     operator = app.Operator(tmp_path)
     calls = []
 
     def gh(endpoint):
         calls.append(endpoint)
-        assert "status=" in endpoint  # Never request historical completed runs.
-        return {"total_count": 0, "workflow_runs": []}
+        assert "status=" not in endpoint
+        page = int(endpoint.split("page=")[-1])
+        start = (page - 1) * 100
+        return {
+            "total_count": 4001,
+            "workflow_runs": [
+                {"id": index, "status": "completed"}
+                for index in range(start, min(start + 100, 4001))
+            ],
+        }
 
     operator.gh = gh
     operator.idle()
-    assert {endpoint.split("status=")[1].split("&")[0] for endpoint in calls} == {
-        "requested",
-        "waiting",
-        "pending",
-        "queued",
-        "in_progress",
-    }
+    assert len(calls) == 41
+
+
+def test_queued_to_waiting_transition_cannot_escape_unfiltered_inventory(tmp_path):
+    operator = app.Operator(tmp_path)
+
+    def gh(endpoint):
+        assert "status=" not in endpoint
+        # The run changed state before this snapshot. It still has the same ID
+        # and must remain observable regardless of its non-completed state.
+        return {"total_count": 1, "workflow_runs": [{"id": 7, "status": "waiting"}]}
+
+    operator.gh = gh
+    with pytest.raises(app.Blocked, match="not idle"):
+        operator.idle()
 
 
 @pytest.mark.parametrize(
@@ -383,7 +399,7 @@ def test_real_idle_check_ignores_unbounded_completed_hourly_history(tmp_path):
 def test_unknown_or_truncated_active_inventory_never_proves_idle(tmp_path, response):
     operator = app.Operator(tmp_path)
     operator.gh = lambda endpoint: response
-    with pytest.raises(app.Blocked, match="not idle"):
+    with pytest.raises(app.Blocked, match="inventory|not idle"):
         operator.idle()
 
 
