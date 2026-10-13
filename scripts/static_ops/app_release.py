@@ -147,7 +147,8 @@ class Journal:
             "any pause/upload attempt where possible; a timed-out resume may already have "
             "taken effect. "
             "Verify canonical inventory and approved SHA before a "
-            "separately authorized recovery/resume. No automatic rollback or resume was attempted."
+            "separately authorized recovery/resume. No automatic rollback or unconditional "
+            "restart after failure was attempted."
         )
         self.save()
         print(json.dumps(self.value, indent=2))

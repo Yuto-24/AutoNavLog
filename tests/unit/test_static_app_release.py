@@ -220,6 +220,14 @@ def test_failure_reports_partial_state_and_never_unconditionally_resumes(
     assert status["changes"]["production"] == production
     assert status["changes"]["approved_sha"] == approved
     assert status["status"] == "BLOCKED"
+    assert "unconditional restart after failure" in status["required_action"]
+    if failure == "resume":
+        assert status["events"][-1] == {
+            "action": "automation",
+            "stage": "resume",
+            "state": "ATTEMPTED",
+        }
+        assert status["changes"]["automation"] == "UNKNOWN"
     assert "rollback" not in operator.calls
     if failure != "resume":
         assert "resume" not in operator.calls
