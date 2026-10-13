@@ -158,6 +158,7 @@ def _environment_config() -> WebRuntimeConfig:
         data_root=Path(os.environ.get("AUTONAVLOG_DATA_ROOT", "data")),
         storage_root=Path(os.environ.get("AUTONAVLOG_STORAGE_ROOT", ".autonavlog-data")),
         weather_mode=cast(WeatherMode, raw_weather_mode),
+        msm_prewarm=environment_bool("AUTONAVLOG_MSM_PREWARM", default=True),
         msm_cache_dir=(
             None
             if not os.environ.get("AUTONAVLOG_MSM_CACHE")

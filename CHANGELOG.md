@@ -2,6 +2,19 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.22.8
+
+### 利用者向け
+
+#### 修正
+
+- 通常の Codex worktree では MSM の自動 prewarm を無効化する。
+
+### 開発者向け
+
+- #257: worktree の MSM prewarm を明示的な opt-in とし、restart policy を no に設定。オンデマンド MSM と通常 runtime の既定動作は維持。
+- worktree 全体の Volume・キャッシュ使用量を診断するスクリプトと安全な整理手順を追加。cleanup 失敗時は再試行用の生成設定を保持。
+
 ## 1.22.7
 
 ### 利用者向け

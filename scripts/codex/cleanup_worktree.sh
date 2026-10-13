@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -u
+set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
@@ -35,11 +35,15 @@ fi
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     if ! docker compose down -v --remove-orphans; then
         echo "Warning: generated Compose configuration failed; retrying cleanup with the base Compose file." >&2
-        COMPOSE_FILE=compose.yaml docker compose -p "$COMPOSE_PROJECT_NAME" down -v --remove-orphans || true
+        if ! COMPOSE_FILE=compose.yaml docker compose -p "$COMPOSE_PROJECT_NAME" down -v --remove-orphans; then
+            echo "Cleanup failed; retaining generated configuration for retry." >&2
+            exit 1
+        fi
     fi
     docker image rm "$AUTONAVLOG_IMAGE" >/dev/null 2>&1 || true
 else
-    echo "Warning: Docker is unavailable; worktree Docker resources were not removed." >&2
+    echo "Docker is unavailable; retaining generated configuration for cleanup retry." >&2
+    exit 1
 fi
 
 rm -rf "$STATE_DIR"

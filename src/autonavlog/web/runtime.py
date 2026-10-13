@@ -53,6 +53,7 @@ class WebRuntimeConfig:
     storage_root: Path
     weather_mode: WeatherMode = "fake"
     msm_cache_dir: Path | None = None
+    msm_prewarm: bool = True
     maximum_sessions: int = 256
     trusted_local_identity: str | None = None
     session_cookie_secure: bool = True
@@ -186,7 +187,7 @@ def build_web_application(config: WebRuntimeConfig) -> AutoNavLogWebApplication:
     project_service = ProjectService(LocalProjectRepository(storage_root))
     weather_factory, weather_label, development_weather = _weather_factory(config)
     weather_prewarmer = None
-    if config.weather_mode == "msm":
+    if config.weather_mode == "msm" and config.msm_prewarm:
         weather_prewarmer = WeatherPrewarmer(
             weather_factory(),
             cleanup=lambda: _prune_msm_cache(

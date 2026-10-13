@@ -66,6 +66,7 @@ def main() -> None:
         storage_root=args.storage_root,
         weather_mode=args.weather,
         msm_cache_dir=args.msm_cache,
+        msm_prewarm=environment_bool("AUTONAVLOG_MSM_PREWARM", default=True),
         maximum_sessions=args.maximum_sessions,
         trusted_local_identity=args.trusted_local_identity,
         cloudflare_team_domain=args.cloudflare_team_domain,
