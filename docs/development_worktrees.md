@@ -1,5 +1,8 @@
 # Codex Worktree 開発環境
 
+モデル選択と独立レビューの運用は [agent_workflow.md](agent_workflow.md) を参照してください。
+この文書は、モデルに依存しないローカル実行環境の設定を扱います。
+
 Codex の Worktree で複数の変更を並列に進める場合、通常の AutoNavLog runtime と別 Worktree の runtime を共有しません。
 Worktree ごとに Compose project、Docker image、host port、named volume を分離します。
 
@@ -8,6 +11,8 @@ Worktree ごとに Compose project、Docker image、host port、named volume を
 ## Codex のローカル環境設定
 
 Codex の Settings > Environments で AutoNavLog の Linux 設定を次のようにします。
+アプリが生成する `.codex/environments/environment.toml` は、この画面で管理します。
+手編集やモデルの設定場所としての利用は避けてください。
 
 セットアップスクリプト:
 
