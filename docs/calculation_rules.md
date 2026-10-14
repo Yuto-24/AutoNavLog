@@ -56,7 +56,7 @@ Flight Phaseは`CLIMB`、`CRUISE`、`DESCENT`、`VISUAL_ARRIVAL`を扱います�
 - EOCは降下に必要な時間を逆算して経路上へ配置します。
 - EOCとPhysical Turn Pointの経路上距離差が0.5 NM未満なら、内部計算上もTurn Pointへsnapします。ちょうど0.5 NMではsnapしません。
 - snap後も、計画高度差から求めた降下時間とlevel-off後の60秒は保持します。
-- EOC後の風、WCA、MH、GSは継承境界として最初のDESCENT行へ明示します。
+- EOC後のTOAT、風、WCA、MH、GSは継承境界として最初のDESCENT行へ明示します。TOATはそのCalculation ZoneのDESCENT phaseの実効値を使い、直前と同値でも省略しません。以後の通常区間は既存の継承表示を維持します。
 
 ## VISUAL ARRIVAL
 
