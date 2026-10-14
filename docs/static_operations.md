@@ -118,9 +118,13 @@ feed publication rejects configuration drift. All app/feed jobs share a non-canc
 concurrency group. Static identity/source/artifact checks repeat immediately before upload.
 Atomic Pages upload switches payload and catalog together. Post-upload checks compare
 canonical **whole release inventory**, not just the version, and check freshness.
-The post-upload verifier immediately checks canonical `release.json`, then retries failed
-checks after 10 seconds for up to 300 seconds (monotonic deadline). Each check runs the
-unchanged `check_candidate.py --remote` in a child process with at most 30 seconds,
+The post-upload verifier immediately checks canonical `release.json` and reads the actual
+`weather/msm/catalog.json`. Its exact SHA-256 and byte length must match the candidate
+inventory, and the same response must pass the existing MSM freshness monitor checks
+(nonempty assets, at least two hours remaining, no future generation timestamp).
+Publication freshness is evaluated at catalog receipt, including body-read time.
+Failed checks retry after 10 seconds for up to 300 seconds (monotonic deadline).
+Each check runs `check_candidate.py --remote` in a child process with at most 30 seconds,
 clipped to the remaining overall budget; a hung or slowly streaming response cannot
 extend the polling window. Inventory mismatch, HTTP/network errors, invalid JSON and
 other checker failures are retried within that budget. Redirects remain rejected on
@@ -128,10 +132,25 @@ every attempt and are never followed; only exact inventory equality passes. Read
 retain the existing `Cache-Control: no-cache` header, origin and byte budget.
 Deadline expiry fails closed, including a match returned at/after the deadline. Attempt
 diagnostics go to the job log; only successful identity verification enters the summary.
-The fresh MSM monitor runs **after** identity verification succeeds, never on timeout.
+Catalog results include receipt/check timestamps, observed hash/size, generation/expiry,
+seconds remaining and, during candidate verification, expected hash/size and whether they
+match. Mismatch/freshness errors keep these diagnostics on one line in the attempt log.
+The independent MSM monitor still makes a separate request **after** identity and catalog
+verification succeeds, never on timeout; its diagnostics describe that separate response.
+Matching release metadata alone does not establish which catalog that request received.
 These retries do not re-upload, change the approved SHA/configuration gates, or authorize
 another deployment. Failure after upload needs investigation; it does not automatically
 roll production back.
+
+Investigation of [run 38575361551](https://github.com/Yuto-24/AutoNavLog/actions/runs/38575361551)
+on 2026-10-14 found upload completion at 13:57:33 UTC, inventory match on the first attempt,
+and a freshness failure at 13:57:34 UTC. The staged candidate expiry was 19:52:23.600805 UTC
+after generation-age/six-hour-lifetime validation succeeded. Its expiry was therefore
+about 5h55m away. The failed monitor response was not retained, so an old catalog read
+is a hypothesis, not a confirmed incident cause. Regression tests establish the prior
+verification gap: matching release metadata could pass with an old or different actual
+catalog. The additional response checks and diagnostics address that gap without changing
+publication timing, expiry policy, or authorizing recovery publication.
 
 No large build artifacts or raw MSM caches are stored in Actions. Production itself is
 the next retention source; job summaries record release hash and size/freshness report.
