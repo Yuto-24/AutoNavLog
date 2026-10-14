@@ -3,8 +3,9 @@
 import argparse
 import json
 import os
+from datetime import UTC, datetime
 
-from operations import fetch, release
+from operations import fetch, monitor, release
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("candidate")
@@ -19,7 +20,10 @@ if args.remote:
     canonical = json.loads(fetch(origin.rstrip("/") + "/release.json", 8 * 1024 * 1024))
     if canonical != candidate:
         raise ValueError("Canonical release does not match uploaded artifact inventory")
-    print(json.dumps({"status": "OK", "commit": candidate["commit"]}))
+    weather = monitor(
+        origin, datetime.now(UTC), expected=candidate["files"]["weather/msm/catalog.json"]
+    )
+    print(json.dumps({"commit": candidate["commit"], **weather}))
 elif os.environ["EXPECTED_SOURCE"] == os.environ["APPROVED_SHA"]:
     canonical = release(origin, os.environ["APPROVED_SHA"])
     if canonical["configuration"] != candidate["configuration"]:
