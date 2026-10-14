@@ -38,7 +38,7 @@ const rowVersions = (rows: unknown[]) => JSON.stringify(rows.map(raw => {
     typeof row.claimedAccount === "string" ? row.claimedAccount : null];
 }));
 const conflict = () => new ApplicationError(
-  "別のタブでProjectが更新または削除されています。編集内容を確認してから開き直してください。", "PROJECT_REVISION_CONFLICT");
+  "別のタブでプロジェクトが更新または削除されています。編集内容を確認してから開き直してください。", "PROJECT_REVISION_CONFLICT");
 const unavailable = (id: string) => new ApplicationError(
   "このProjectの保存データを読み込めません。元データは保持されています。", "LOCAL_PROJECT_UNAVAILABLE", { projectId: id });
 

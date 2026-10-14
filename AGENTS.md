@@ -2,9 +2,9 @@
 
 ## Coordination and review
 
-- GPT-6 Astra should normally perform investigation, implementation, and testing directly. Use another model only for independent review; do not delegate other work unless the user explicitly requests it.
-- Review code changes with a model independent of the implementer. Self-review alone is not sufficient.
-- Before substantive work, inspect the relevant repository documentation, Issues/PRs, prior decisions, and analogous code. Reuse prior knowledge only after checking it against the current code, specification, and dependencies.
+- GPT-6 Astra and GPT-6.1 Sol are both used in this project. The model selected for the task performs investigation, implementation, and testing directly. Preserve the user's model and reasoning-effort selection; do not delegate other work unless the user explicitly requests it.
+- Review repository changes in a separate, read-only context with the other model: GPT-6.1 Sol reviews Astra's changes, and GPT-6 Astra reviews Sol's changes. Explicitly select the reviewer model; a separate agent or `/review` alone does not establish model independence. If the other model is unavailable, report the review as blocked. Self-review alone is not sufficient. See `docs/agent_workflow.md` for the review handoff and configuration boundaries.
+- Before substantive work, inspect the repository documentation, Issues/PRs, prior decisions, and analogous code relevant to the task. Keep the inspection proportional to the change. Reuse prior knowledge only after checking it against the current code, specification, and dependencies.
 - Keep reusable, non-obvious findings in the appropriate external documentation. Do not turn AGENTS.md into a work log or duplicate detailed evidence.
 - When adding or changing user-facing UI copy, use Gemini CLI to determine the wording. Codex, GPT, and other implementation agents must not choose the final wording themselves. User-provided wording takes precedence. If Gemini CLI is unavailable, preserve existing copy where possible or leave the final wording unresolved and report the blocker instead of inventing it.
 
@@ -13,7 +13,7 @@
 - At 1,240 px and below, the primary flow is input, route/map, readiness, NAV LOG, then NAV LOG guidance, in that order. Do not move a later step above an earlier one or require the user to scroll back up after checking the route/map. Above 1,240 px, retain the input / route / readiness three-column workspace unless the feature requires otherwise.
 - Any layout change needs browser coverage around 1,100 px and above 1,240 px, asserting workflow-region order/position rather than visibility alone. See `docs/web-design/README.md` for the UI reference.
 - For release-management, version metadata, documentation, or CI changes without user-facing behavior or layout changes, skip browser automation, screenshots, and visual checks unless the user explicitly requests them. Use focused source, build, and health checks instead.
-- Docker Compose is the supported runtime. Preserve the `autonavlog-data` volume: routine updates and stops must not use `docker compose down -v`. Follow `README.md` and `docs/cloudflare_tunnel.md` for environment-specific startup and exposure rules.
+- Docker Compose is the supported local/Legacy runtime; the production delivery path is Static Web as described in `README.md` and `docs/static_production.md`. Local Compose health does not establish Static Web production acceptance. Preserve the `autonavlog-data` volume: routine updates and stops must not use `docker compose down -v`. Follow `README.md` and `docs/cloudflare_tunnel.md` for environment-specific startup and exposure rules.
 - For a release-required Issue, update root `VERSION` and the latest `CHANGELOG.md` section directly. `VERSION` is the sole AutoNavLog version source; do not place it in web package manifests or README. Run `python scripts/validate_release.py`, `pytest tests/unit/test_version.py`, and `npm --prefix web run typecheck`. Do not change the separately managed `src/autonavlog/version.py` or `jma-msm-wind` version.
 
 ## Codex worktrees

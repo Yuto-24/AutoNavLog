@@ -1,17 +1,40 @@
 import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { test, expect, type Page } from "@playwright/test";
 import { resolve } from "node:path";
-import { backend } from "./helpers/sync-auth";
+import { backend, waitForSyncAccount } from "./helpers/sync-auth";
 async function start(page: Page, subject: string) {
   await page.goto("/e2e/auth-harness/index.html?sync");
   await expect.poll(() => page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
   // Vite may reload the first page while generated Local assets settle in CI.
-  await expect.poll(() => page.evaluate(() => (window as any).authTest?.state().account?.displayName)).toBe(subject);
+  await waitForSyncAccount(page, subject);
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 
 }
+
+test("sync account readiness survives a reload while the account is pending", async ({ page }) => {
+  let restored = false;
+  await page.route("https://readiness.example/", route => route.fulfill({
+    contentType: "text/html",
+    body: `<script>window.authTest = { state() {
+      window.readinessPolled = true;
+      return { account: { displayName: ${JSON.stringify(restored ? "expected" : "other")} } };
+    } };</script>`,
+  }));
+  await page.goto("https://readiness.example/");
+  const ready = waitForSyncAccount(page, "expected");
+  await page.waitForFunction(() => (window as any).readinessPolled);
+  restored = true;
+  await page.reload();
+  await ready;
+  expect(await page.evaluate(() => (window as any).authTest.state().account.displayName)).toBe("expected");
+});
+
+test("sync account readiness rejects a different account", async ({ page }) => {
+  await page.setContent("<script>window.authTest = { state: () => ({ account: { displayName: 'other' } }) };</script>");
+  await expect(waitForSyncAccount(page, "expected", 250)).rejects.toThrow(/Timeout/);
+});
 async function state(page: Page) { return page.evaluate(() => (window as any).authTest.contexts.at(-1).sync.getState()); }
 async function create(page: Page, name: string) {
   await enterImportWorkflow(page);
@@ -21,18 +44,26 @@ async function create(page: Page, name: string) {
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   await expect(page.getByLabel("RJFM出発Legの計画高度", { exact: true })).toBeVisible();
   for (const [node, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
-    await page.getByLabel(`${node}出発Legの計画高度`, { exact: true }).fill(altitude!);
+    const input = page.getByLabel(`${node}出発Legの計画高度`, { exact: true });
+    // Unlike fill(), click scrolls into view and waits for a stable target.
+    await input.click();
+    await input.fill(altitude!);
+    await expect(input).toHaveValue(altitude!);
   }
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
   await expect(page.locator(".nav-log-table")).toBeVisible();
-  await page.getByLabel("プロジェクト", { exact: true }).fill(name);
+  await expect(page.getByLabel("計算済みNAV LOG", { exact: true })).toBeFocused();
+  const projectName = page.getByLabel("プロジェクト", { exact: true });
+  await projectName.click();
+  await projectName.fill(name);
+  await expect(projectName).toHaveValue(name);
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.locator("#saved-project option").filter({ hasText: name })).toHaveCount(1);
 }
 async function open(page: Page, name: string) {
   await expect(page.locator("#saved-project option").filter({ hasText: name })).toHaveCount(1);
   await page.getByLabel("保存済み", { exact: true }).selectOption({ label: name });
-  await page.getByRole("button", { name: "保存済みProjectを開く" }).click();
+  await page.getByRole("button", { name: "保存済みプロジェクトを開く" }).click();
   await expect(page.locator(".nav-log-table")).toBeVisible();
 }
 async function blockLocalDeletion(page: Page, accountId: string) {
@@ -77,7 +108,7 @@ test("real SDK: fresh device Last Calculation, offline edit, blocking conflict b
     await expect(ipad.getByLabel("FUEL gal", { exact: true })).toHaveValue("78");
     await expect(ipad.locator(".nav-log-table")).not.toBeVisible(); // edited fingerprint is stale
     ipad.once("dialog", dialog => dialog.accept());
-    await ipad.getByRole("button", { name: "保存済みProjectを削除" }).click();
+    await ipad.getByRole("button", { name: "保存済みプロジェクトを削除" }).click();
     await expect(ipad.getByRole("button", { name: "元に戻す", exact: true })).toBeVisible();
     await ipad.getByRole("button", { name: "元に戻す", exact: true }).click();
     await expect.poll(() => ipad.locator("#saved-project option").count()).toBe(3);
@@ -201,11 +232,11 @@ test("anonymous Latest collision is durable and blocks editing until named save"
   await expect(modal).toBeVisible();
   await page.reload(); await expect(modal).toBeVisible();
   await page.keyboard.press("Escape"); await expect(modal).toBeVisible();
-  await modal.getByLabel("Project名", { exact: true }).fill("Imported work");
+  await modal.getByLabel("プロジェクト名", { exact: true }).fill("Imported work");
   await modal.getByRole("button", { name: "名前を付けて保存", exact: true }).click();
   await expect(modal).not.toBeVisible();
   await expect(page.locator("#saved-project option").filter({ hasText: "Imported work" })).toHaveCount(1);
-  await expect(page.locator("#saved-project option").filter({ hasText: "Latest" })).toHaveCount(1);
+  await expect(page.locator("#saved-project option").filter({ hasText: "自動保存" })).toHaveCount(1);
 });
 
 for (const operation of ["resolve", "import"] as const) test("post-" + operation + " refresh failure remains visible without Undo", async ({ page }) => {

@@ -22,6 +22,11 @@ export interface VorStation {
   variation_source: string;
   source_file: string;
   source_page: number;
+  /** Overrides the dataset's baseline cycle only for this station. */
+  effective_cycle?: string;
+  source_effective_date?: string;
+  source_section?: string;
+  source_sha256?: string;
 }
 
 export interface VorRoutePoint {
@@ -45,6 +50,7 @@ const dataset = vorStationData as VorStationDataset;
 
 export const VOR_AUTO_SELECTION = AUTO_SELECTION_VALUE;
 export const VOR_DATASET_ID = dataset.dataset_id;
+// Baseline cycle; individual stations may be verified against a later cycle.
 export const VOR_DATASET_EFFECTIVE_CYCLE = dataset.effective_cycle;
 export const VOR_STATIONS = dataset.stations;
 

@@ -29,8 +29,8 @@ export function LegacyAccountControl({ busy }: { busy: boolean }) {
     }}><UserRound aria-hidden="true" size={18} /></button>
     {open && <div className="modal-backdrop"><section ref={dialog} className="modal-panel account-dialog" role="dialog" aria-modal="true" aria-labelledby="legacy-account-title" onKeyDown={event => { if (event.key === "Escape" && !pending) setOpen(false); }}>
       <div className="modal-heading"><h2 id="legacy-account-title">アカウント</h2><button type="button" className="icon-button" aria-label="アカウントを閉じる" disabled={pending} onClick={() => setOpen(false)}><X size={20} /></button></div>
-      <p>現在のLegacyデータをGoogleアカウントに紐付けます。紐付け後も、この画面で編集・保存・計算を続けられます。</p>
-      <p>NavMateへ初めてログインすると、その時点のProjectと計算結果を自動で引き継ぎます。引継ぎ中だけLegacyの操作を停止し、完了後はNavMateへ移動します。</p>
+      <p>現在のデータをGoogleアカウントに紐付けます。紐付け後も、引き続きこの画面で編集・保存・計算が可能です。</p>
+      <p>NavMateへの初回ログイン時に、その時点のプロジェクトと計算結果を自動で引き継ぎます。引継ぎ中は現在の画面操作を一時停止し、完了後にNavMateへ移動します。</p>
       {status && status.state !== "UNLINKED" ? <><p>紐付け済みです。</p><a href={status.navmateUrl}>NavMateを開く</a></> :
         <button type="button" className="primary-button" disabled={busy || pending || !status || !linkOperation} onClick={() => { void link(); }}>Googleアカウントを紐付ける</button>}
       {error && <p role="alert">{error}</p>}

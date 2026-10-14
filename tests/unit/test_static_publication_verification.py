@@ -157,6 +157,7 @@ def test_workflow_only_monitors_after_identity_success(tmp_path, identity_ok):
             **os.environ,
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "STATIC_ORIGIN": "https://example.com",
+            "RUNNER_TEMP": str(tmp_path),
             "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
             "CALL_LOG": str(tmp_path / "calls"),
             "IDENTITY_EXIT": "0" if identity_ok else "1",

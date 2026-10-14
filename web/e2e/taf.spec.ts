@@ -76,7 +76,8 @@ test("Static Local TAF success, quota/timeout/outage and recovery preserve navig
     await page.getByRole("button", { name: "NAV LOGを再計算", exact: true }).click();
     await expect.poll(async () => (await working(page)).destination_wind?.reason_code).toBe(
       failure === "timeout" ? "TAF_FETCH_TIMEOUT" : "TAF_FETCH_FAILED");
-    await expect(page.getByRole("region", { name: "目的地空港の風予報" })).toContainText("取得できませんでした");
+    await expect(page.getByRole("region", { name: "目的地空港の風予報" })).toContainText(
+      failure === "timeout" ? "取得失敗（タイムアウト）" : "取得失敗（通信・応答エラー）");
     const current = await working(page);
     expect(navigation(current.outcome)).toEqual(navigation(initial.outcome));
     expect(current.outcome.fuel_plan).toEqual(initial.outcome.fuel_plan);

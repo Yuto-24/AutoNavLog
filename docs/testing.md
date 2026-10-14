@@ -1,5 +1,42 @@
 # Backendテストのレイヤーと計測
 
+## ドキュメント変更時の CI
+
+`test.yml` は PR と main への push で起動し、`release-sources` を常に実行します。
+Python 3.12 上で変更判定とソース契約のテスト、VERSION / CHANGELOG と PR の Release 契約を
+確認します。このジョブには Docker build やアプリの依存関係のインストールは不要です。
+
+`scripts/ci_changes.py` が、変更全体を次の範囲だけと確認できた場合は、残りの7ジョブを
+runner 起動前に skip します。対象は pytest、runtime、web、taf-proxy、local-browser、
+account-sync、static-tooling-install です。
+
+- ルートの `AGENTS.md`
+- ルートの `README.md`（削除・symlink 化は対象外）
+- `docs/` 以下の Markdown（`.md`）
+
+通常ファイル以外や実行権限の変更は全文検証の対象です。
+`CHANGELOG.md` / `KNOWN_ISSUES.md` は画面生成の入力なので、この省略範囲に含めません。
+コード・テスト・CI・依存関係、参照データ、未知のパスが1つでも混ざれば従来の全ジョブを実行します。
+
+PR は base と head の共通祖先から head まで、push はイベントの before から after までを
+比較します。rename は削除と追加の両方で評価し、API のファイル件数上限に依存しません。
+比較元が取得できない場合や判定が失敗した場合、空の差分では全文検証に戻します。
+`release-sources` の失敗や出力欠落でも後続ジョブを省略しません。キャンセル時は停止します。
+
+workflow 全体の `paths-ignore` は使わず、既存の check 名を維持して job の条件で制御します。
+判定の根拠は Actions の job summary に記録します。skip はテスト成功として報告せず、
+実際に実行したチェックと区別します。GitHub の skip / 必須チェックの扱いは
+[公式ドキュメント](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)
+を参照してください。
+
+判定とソース契約だけを確認するコマンド（Python 3.12、pytest が必要）:
+
+```bash
+python -m pytest --noconftest tests/integration/check_ci_changes.py \
+  tests/unit/test_release_ci.py tests/unit/test_supported_runtime_contract.py \
+  tests/unit/test_version.py::test_version_is_the_only_release_version_source
+```
+
 ## テストを追加する場所
 
 検証したい仕様を先に決め、その仕様を失敗させられる最も小さい境界を使います。

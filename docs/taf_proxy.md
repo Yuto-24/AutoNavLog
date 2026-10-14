@@ -38,13 +38,19 @@ TAF取得失敗では既存Projectを削除しない。保存自体が失敗し�
 - upstreamはheaderとstream全体を含め5秒、decoded body最大64 KiB。
   JSON配列とICAO一致を確認し、不正・別空港・oversizeは502、timeoutは504。
 - 同時upstream取得はisolateごとに4件。上限では待ちqueueを作らず503。
-- Cloudflare native Rate Limiting bindingでclient IPごと20件/分、cache miss全体60件/分、
-  同一ICAOのcache missは1件/分。bindingエラー/欠落も503でfail closed。
-- Cache APIに正常TAFを5分、204の空配列を1分だけ保存。エラーは`no-store`。
+- Origin / method / path / ICAO / client IPを検証後、有効なCache API応答を先に返す。
+  共有IPでcache hitをclient制限まで消費させない。
+- 同じisolate内の同一ICAOへのcache missは取得Promiseを共有し、origin別に独立した応答を返す。
+  Cache APIへの非同期保存が完了するまで共有し、保存待ちでも絶対期限を延長しない。
+- 実際の上流取得を始めるcache missだけ、既存native bindingでclient IPごと20件/分、
+  全体60件/分、同一ICAO1件/分を消費する。bindingエラー/欠落は503でfail closed。
+- Cache APIに正常TAFを5分、204または200の空配列を1分だけ保存。エラーは`no-store`。
   cache keyは正規化したICAOのみ。cached responseにoriginは保存せず、response時に付ける。
   cache hitのbrowser TTLは残存時間まで。期限切れfallbackはない。
 - Originは認証ではなく、非Browser clientは偽装できる。rate limitはCloudflare location単位で
-  eventually consistent、同時数はisolate単位であり、世界全体の厳密な上限ではない。
+  eventually consistent、同時数と取得Promiseはisolate単位であり、世界全体の厳密な上限ではない。
+  別isolateでは同時取得を完全には共有できず、同じ制限単位なら他isolateのcold missは429に
+  なり得る。異なるlocationでは複数取得が起こり得る。自動retryや上流制限の緩和は加えない。
   無制限のpublic abuseを防げると主張しない。無料枠のhard stopを最後の境界とする。
   拒否やcache hitもWorker request枠を消費する。停止時はTAFだけを利用不可にする。
 
@@ -161,3 +167,22 @@ MSMは#125の固定fixtureのままなので、live TAFの有効期間がfixture
   日次枠は上記容量計画と公式制限で検証し、枠消尽を模擬した。負荷で無料枠を消費していない。
 - **Cloudflare本番accountへのdeploy・本番origin接続・Cloudflare上のCPU実測は未実施**。
   これらは公開承認とaccount設定後のrelease gate。local workerdの結果を本番実測とは扱わない。
+
+## 集中アクセスの隔離検証
+
+`crowd.test.mjs`は実AWCへ接続せず、同じ学校IPの100人warm/cold cache、
+8空港、4つの独立proxyインスタンス、cache保存待ち、絶対TTL切替、TAF AMD、
+200/204の空結果、429、timeout、不正JSON・ICAO不一致を検証する。
+同一ICAOのcold集中は1isolate内で1回取得。8空港を4空港ずつ処理すると計8回、
+8空港同時では既存同時数4件を維持し、残りは503になる。queue / retryは追加しない。
+4isolateの模擬では同じlocationのstation制限を共有する条件と、別locationの独立条件を
+分ける。このfixtureは実Cloudflareのlocation/isolate分布や厳密な共有上限の証拠ではない。
+
+ChronestはこのProxyを経由せずAWCへ直接取得する別経路。提供された8空港運用では
+ICAOをまとめ、METARとTAFは各1本であり、空港数倍のrequestとは仮定しない。
+参照したローカルChronestのproviderは`ids`を1回のrequestに渡し、engineはproductごとに
+1回fetchする。実環境の取得回数・実稼働版・AWC制限を共有するIP等の単位は未確認。
+本変更ではChronestを変更せず、AWCへの実負荷試験も行わない。
+
+本番Worker設定・allowlist・namespace・制限値は変更していない。実配置後のcache / TTL /
+CPU / CORSと、複数isolateの観測は別途公開承認後のgate。

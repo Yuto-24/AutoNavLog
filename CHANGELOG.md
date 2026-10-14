@@ -2,7 +2,7 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
-## 1.22.3
+## 1.22.9
 
 ### 利用者向け
 
@@ -14,6 +14,83 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 
 - EOC後最初のDESCENT Calculation Zoneで、そのphaseの実効TOATを明示します。通常区間のTOAT継承表示と既存のWIND / WCA / MH / GS表示は維持します。
 - 同値・異値、自動・手動気温、未取得、EOC snapと後続区間の継承、および1,100 / 1,440 pxでのブラウザー回帰を追加しました。
+
+## 1.22.8
+
+### 利用者向け
+
+#### 修正
+
+- 通常の Codex worktree では MSM の自動 prewarm を無効化する。
+
+### 開発者向け
+
+- #257: worktree の MSM prewarm を明示的な opt-in とし、restart policy を no に設定。オンデマンド MSM と通常 runtime の既定動作は維持。
+- worktree 全体の Volume・キャッシュ使用量を診断するスクリプトと安全な整理手順を追加。cleanup 失敗時は再試行用の生成設定を保持。
+
+## 1.22.7
+
+### 利用者向け
+
+#### 改善
+
+- 画面の案内・保存状態・エラーを分かりやすい日本語に統一し、目的地TAFの取得失敗と予報なしを区別する。
+
+### 開発者向け
+
+- #246: Geminiで検討したUI文言を反映し、状態別表示と操作・レイアウトの回帰テストを更新。
+
+## 1.22.6
+
+### 利用者向け
+
+#### 修正
+
+- 共有IPからの目的地TAF同時取得時に発生していた制限による拒否を防ぐため、有効なキャッシュを先に返し、同一空港へのリクエストをまとめるよう変更しました。
+
+### 開発者向け
+
+- TAF Proxyのmiss開始時に既存client / upstream / station制限を適用し、同一ICAOの取得とcache保存待ちをisolate内で集約。正常300秒・空結果60秒の絶対期限、同時数4件、fail closed、retryなしを維持。
+- 学校IPの100人warm / cold、8空港、複数isolate、TTL / AMD / 空結果 / 429 / timeout / 不正payloadをfixtureで検証。Worker設定・本番公開は変更しない。
+
+## 1.22.5
+
+### 利用者向け
+
+#### 改善
+
+- NAV LOG JSONのダウンロード・コピー操作をNAV LOG下部へ移動する
+
+### 開発者向け
+
+- #220: JSON export操作をNavLogTableの後ろへ移し、上余白を追加。既存のハンドラー、通知、disabled状態、計算後のscroll / focusを維持。
+
+## 1.22.4
+
+### 利用者向け
+
+#### 修正
+
+- Planning画面が表示された後に、DATEへのスクロール・フォーカスを確実に1回実行する。
+
+### 開発者向け
+
+- MAP経路確定後の単発rAFがPlanningのmount前に実行されるとfocus要求を失うraceを修正。確定Projectに紐付けた要求を保持し、DOM commit後またはrAFで一度だけ消費します。
+- 既存の1100/1440px MAP経路テストでReact描画とanimation frameの順序を制御し、DATEのviewport・focusと既存の保存・再開・計算を検証します。固定sleep、assertionの削除、テスト件数の追加は行いません。
+- 保存済みProjectの地図表示の検証は、viewport復元effectがlocalStorageへ反映されるまで同じ一致条件を待ちます。
+
+## 1.22.3
+
+### 利用者向け
+
+#### 追加
+
+- 清水 VORを基準局候補に追加する
+
+### 開発者向け
+
+- #233: JCAB AIP ENR 4.1-21（EFF 2026-10-01、ENR_20261001.pdf p.541）に基づき、清水SUCをVORTAC基準局へ追加。VOR座標と局偏差7°W（2020）を採用し、TACAN座標・標高・方位制限とは区別します。
+- 基準局ごとの確認サイクル、ページ適用日、節、原PDF SHA-256を保持し、選択局のAIPサイクルを表示します。既存32局は2026-08-06サイクルを維持します。
 
 ## 1.22.2
 

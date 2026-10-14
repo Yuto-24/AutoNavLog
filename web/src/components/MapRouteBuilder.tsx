@@ -35,8 +35,8 @@ export function MapDraftLayers({ points, airports, busy, onAirport, onPoint }: M
 }
 export function RouteStrip({ points, busy, onRemove, onClear, onConfirm }: MapRouteBuilderProps) {
   return <div className="map-route-controls">
-    <p>{points.length ? "飛行順に地点を追加し、最後の空港で経路を確定してください。" : "空港Markerを選んでFROMを設定してください。"}</p>
-    {points.length > 0 && <ol className="route-strip" aria-label="Route Strip">
+    <p>{points.length ? "飛行順に地点を追加し、最後の空港で経路を確定してください。" : "地図上の空港を選んで、出発地（FROM）を設定してください。"}</p>
+    {points.length > 0 && <ol className="route-strip" aria-label="経路リスト">
       {points.map((point, index) => <li key={point.id}>
         <span>{index + 1}. {point.name}{index === 0 ? " (FROM)" : ""}</span>
         {index > 0 && <button type="button" disabled={busy} onClick={() => onRemove(point.id)}

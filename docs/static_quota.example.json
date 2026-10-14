@@ -1,4 +1,5 @@
 {
+  "schema_version": 2,
   "plans": {
     "cloudflare": "Free",
     "workers": "Free",
@@ -10,91 +11,138 @@
   "metrics": {
     "pages_builds": {
       "used": null,
-      "limit": null,
+      "limit": 500,
       "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
       "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
       "window": {
         "start": "REPLACE_WITH_CURRENT_PERIOD_START",
         "end": "REPLACE_WITH_CURRENT_PERIOD_END"
       },
-      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION",
+      "observation": "counter",
+      "unit": "count"
     },
     "workers_requests": {
       "used": null,
-      "limit": null,
+      "limit": 100000,
       "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
       "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
       "window": {
         "start": "REPLACE_WITH_CURRENT_PERIOD_START",
         "end": "REPLACE_WITH_CURRENT_PERIOD_END"
       },
-      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION",
+      "observation": "counter",
+      "unit": "count"
     },
     "firestore_reads": {
       "used": null,
-      "limit": null,
+      "limit": 50000,
       "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
       "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
       "window": {
         "start": "REPLACE_WITH_CURRENT_PERIOD_START",
         "end": "REPLACE_WITH_CURRENT_PERIOD_END"
       },
-      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION",
+      "observation": "counter",
+      "unit": "count"
     },
     "firestore_writes": {
       "used": null,
-      "limit": null,
+      "limit": 20000,
       "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
       "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
       "window": {
         "start": "REPLACE_WITH_CURRENT_PERIOD_START",
         "end": "REPLACE_WITH_CURRENT_PERIOD_END"
       },
-      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION",
+      "observation": "counter",
+      "unit": "count"
     },
     "firestore_deletes": {
       "used": null,
-      "limit": null,
+      "limit": 20000,
       "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
       "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
       "window": {
         "start": "REPLACE_WITH_CURRENT_PERIOD_START",
         "end": "REPLACE_WITH_CURRENT_PERIOD_END"
       },
-      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION",
+      "observation": "counter",
+      "unit": "count"
     },
     "firestore_storage_bytes": {
       "used": null,
-      "limit": null,
+      "limit": 1073741824,
       "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
       "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
       "window": "instant",
-      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION",
+      "observation": "counter",
+      "unit": "bytes"
     },
     "firestore_outbound_bytes": {
       "used": null,
-      "limit": null,
+      "limit": 10737418240,
       "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
       "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
       "window": {
         "start": "REPLACE_WITH_CURRENT_PERIOD_START",
         "end": "REPLACE_WITH_CURRENT_PERIOD_END"
       },
-      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+      "source": "REPLACE_WITH_EVIDENCE_LOCATION",
+      "observation": "provider_unobservable",
+      "unit": "bytes",
+      "reason": "spark_no_usage_counter"
     },
-    "actions_storage_bytes": {
+    "actions_storage_gb_hours": {
+      "observation": "accrued_billing",
+      "unit": "GB-hours",
       "used": null,
-      "limit": null,
+      "billed_amount_usd": null,
       "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
-      "scope": "REPLACE_WITH_ACCOUNT_OR_PROJECT",
+      "scope": "REPLACE_WITH_GITHUB_OWNER",
+      "window": {
+        "start": "REPLACE_WITH_CURRENT_UTC_MONTH_START",
+        "end": "REPLACE_WITH_NEXT_UTC_MONTH_START"
+      },
+      "source": "REPLACE_WITH_OWNER_ACTIONS_STORAGE_BILLING_EVIDENCE",
+      "shared_allowance": {
+        "coverage": "actions_artifacts_and_packages",
+        "status": "within_included",
+        "billed_amount_usd": null,
+        "source": "REPLACE_WITH_OWNER_SHARED_ALLOWANCE_AND_BILLING_EVIDENCE"
+      }
+    },
+    "actions_cache_storage_bytes": {
+      "observation": "counter",
+      "unit": "bytes",
+      "used": null,
+      "limit": 10737418240,
+      "configured_limit": null,
+      "configuration_source": "REPLACE_WITH_REPOSITORY_CACHE_LIMIT_SETTINGS_EVIDENCE",
+      "observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP",
+      "scope": "REPLACE_WITH_OWNER_SLASH_REPOSITORY",
       "window": "instant",
-      "source": "REPLACE_WITH_EVIDENCE_LOCATION"
+      "source": "REPLACE_WITH_REPOSITORY_CACHE_USAGE_EVIDENCE",
+      "billing": {
+        "window": {
+          "start": "REPLACE_WITH_CURRENT_UTC_MONTH_START",
+          "end": "REPLACE_WITH_NEXT_UTC_MONTH_START"
+        },
+        "billed_amount_usd": null,
+        "source": "REPLACE_WITH_CURRENT_MONTH_CACHE_BILLING_EVIDENCE"
+      }
     }
   },
   "scopes": {
     "cloudflare_account": "REPLACE_WITH_ACCOUNT_ID",
     "firebase_project": "REPLACE_WITH_PROJECT_ID",
-    "github_owner": "REPLACE_WITH_GITHUB_OWNER"
+    "github_owner": "REPLACE_WITH_GITHUB_OWNER",
+    "github_repository": "REPLACE_WITH_OWNER_SLASH_REPOSITORY"
   },
   "plans_observed_at": "REPLACE_WITH_TIMEZONE_TIMESTAMP"
 }

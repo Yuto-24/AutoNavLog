@@ -24,9 +24,11 @@
 
 ## NAV LOGのVOR/DME基準局
 
-`web/src/data/vorStations.json`は、2026-08-06サイクルのJCAB AIP AD 2から転記した、
-RJFM ARPから540 km圏内の基準局データです。各局に元PDF名・1始まりのPDFページ番号・
-偏差の出典を保持します。
+`web/src/data/vorStations.json`は、JCAB AIP AD 2 / ENR 4.1から転記した、
+RJFM ARPから540 km圏内の基準局データです。既存32局の基準サイクルは2026-08-06です。
+トップレベルの`effective_cycle`はその基準サイクルで、局ごとの`effective_cycle`がある場合は
+その局だけの確認サイクルを示します。NAV LOGの選択欄も選択局のサイクルを表示します。
+各局に元PDF名・1始まりのPDFページ番号・偏差の出典を保持します。
 
 天草（AKE）は同サイクルの`AD2_Combine/RJDA__20251201.pdf`、PDF 6ページの
 RJDA AD2-6 / AD 2.19（ページ適用日2018-01-04）で照合しました。
@@ -34,6 +36,25 @@ RJDA AD2-6 / AD 2.19（ページ適用日2018-01-04）で照合しました。
 空港全体のMAG VARは使いません。元PDFのSHA-256は
 `71673449f5c131d7065cb5c87b5e41953755788cc7736416c1dc181fafa19e51`です。
 これは既存サイクル内の欠落補正であり、データセット全体の更新ではありません。
+
+清水（SUC）は利用者提供のJCAB AIP `ENR_20261001.pdf`、PDF 541ページの
+ENR 4.1-21（ページ適用日2026-10-01）で照合しました。公式資料の入口は
+[SWIM portal](https://top.swim.mlit.go.jp/swim)です。元PDFのSHA-256は
+`5f30504f557ab31bbac5a1d0369da6e71b58cd6abc1af938f70a0100df87331a`です。
+元PDF画像の独立照合と本文抽出の照合に基づき、SHIMIZU VOR（SUC、115.2 MHz、H24）の
+32°45′21.49″N / 132°59′47.93″E、VOR局偏差7°W（2020）を採用します。
+同PDFの航空路表はSHIMIZU VORTAC（SUC）と記載しており、既存の施設種別は`VORTAC`です。
+
+ENR 4.1-21はVORとTACANを別行で掲載しています。TACAN行の座標
+32°45′21.47″N / 132°59′45.05″E、453.8 m / 1489 ftのDME標高、
+CH-99X / 1186 MHz、TACAN AZM unusableの000°–020° / 160°–180° / 290°–310°は、
+VOR座標・周波数・局偏差に混ぜません。現行schemaと距離計算の意味は従来どおりで、
+VOR座標からTOへのWGS84地表距離を表示し、別のTACANアンテナ位置やslant rangeは計算しません。
+
+SUCだけに2026-10-01の`effective_cycle`、`source_effective_date`、`source_section`、
+`source_sha256`を記録します。既存32局を2026-10-01確認済みと扱うものではありません。
+この追加はAIPの当該ページに基づく参照データ更新であり、ライブNOTAM / SUPの確認、
+現在の供用状態や電波受信可能性の保証は含みません。
 
 ## RJFM参照パック
 

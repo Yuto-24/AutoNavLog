@@ -29,7 +29,7 @@ export function AccountControl({ auth, busy, onBeforeChange }: { auth?: AuthProv
           <button type="button" className="icon-button" aria-label="アカウントを閉じる" onClick={() => setOpen(false)}><X size={20} /></button>
         </div>
         <p>{state.account ? `${state.account.displayName} でログイン中` : "未ログイン・この端末のみで利用中"}</p>
-        <p>Projectと最後の計算結果はこの端末に保存され、ログインすると同じアカウントの端末間で同期されます。</p>
+        <p>プロジェクトと最後の計算結果はこの端末に保存され、ログインすると同じアカウントの端末間で同期されます。</p>
         {state.account ? <p>ログアウト後も保存データは残ります。同じアカウントでログインすると再び開けます。</p>
           : <p>未ログイン中の保存データは、ログインしたアカウントへ取り込まれます。</p>}
         {!state.available && !state.notice && <p>この環境ではGoogleログインが設定されていません。未ログインのまま利用できます。</p>}

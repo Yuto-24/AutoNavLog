@@ -19,7 +19,7 @@ export async function migrationRequest(url: string, init?: RequestInit): Promise
 }
 export const progressOf = (status: MigrationStatus): MigrationProgress => ({
   percent: status.total ? Math.min(99, Math.floor(status.completed / status.total * 100)) : 0,
-  message: `Projectを引継ぎ・検証中 ${status.completed} / ${status.total} 件`,
+  message: `プロジェクトを引継ぎ・検証中 ${status.completed} / ${status.total} 件`,
 });
 
 // This runs BEFORE constructing Application, its Worker, local import or sync outbox.

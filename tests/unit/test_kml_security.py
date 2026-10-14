@@ -87,7 +87,7 @@ def test_kmz_rejects_unicode_normalized_and_casefolded_duplicates() -> None:
             ("cafe\u0301.kml", _kml("B", "133,33 134,34")),
         ]
     )
-    with pytest.raises(KmlImportError, match="duplicate normalized"):
+    with pytest.raises(KmlImportError, match="重複したエントリ"):
         import_kml_or_kmz(unicode_duplicate, filename="route.kmz")
 
     case_duplicate = _kmz(
@@ -96,7 +96,7 @@ def test_kmz_rejects_unicode_normalized_and_casefolded_duplicates() -> None:
             ("DOC.KML", _kml("B", "133,33 134,34")),
         ]
     )
-    with pytest.raises(KmlImportError, match="duplicate normalized"):
+    with pytest.raises(KmlImportError, match="重複したエントリ"):
         import_kml_or_kmz(case_duplicate, filename="route.kmz")
 
 
@@ -104,23 +104,23 @@ def test_kmz_rejects_symlink_encryption_nested_archive_and_backslash() -> None:
     symlink = ZipInfo("link.kml")
     symlink.create_system = 3
     symlink.external_attr = (stat.S_IFLNK | 0o777) << 16
-    with pytest.raises(KmlImportError, match="symbolic link"):
+    with pytest.raises(KmlImportError, match="シンボリックリンク"):
         import_kml_or_kmz(
             _kmz([(symlink, b"doc.kml")]),
             filename="route.kmz",
         )
 
     encrypted = _mark_first_entry_encrypted(_kmz([("doc.kml", _kml("A", "131,31 132,32"))]))
-    with pytest.raises(KmlImportError, match="encrypted"):
+    with pytest.raises(KmlImportError, match="暗号化されたエントリ"):
         import_kml_or_kmz(encrypted, filename="route.kmz")
 
-    with pytest.raises(KmlImportError, match="nested archive"):
+    with pytest.raises(KmlImportError, match="ネストされたアーカイブ"):
         import_kml_or_kmz(
             _kmz([("payload.bin", b"PK\x03\x04payload")]),
             filename="route.kmz",
         )
 
-    with pytest.raises(KmlImportError, match="unsafe path"):
+    with pytest.raises(KmlImportError, match="安全でないパス"):
         import_kml_or_kmz(
             _kmz([("folder\\doc.kml", _kml("A", "131,31 132,32"))]),
             filename="route.kmz",
@@ -130,7 +130,7 @@ def test_kmz_rejects_symlink_encryption_nested_archive_and_backslash() -> None:
 def test_kmz_expanded_limit_uses_bytes_read_not_advertised_size() -> None:
     archive = _ArchiveWithUntrustedSize(b"x" * 11)
 
-    with pytest.raises(KmlImportError, match="expanded size"):
+    with pytest.raises(KmlImportError, match="展開後のサイズ上限"):
         kml_module._safe_kml_members(
             archive,  # type: ignore[arg-type]
             ImportLimits(max_expanded_bytes=10),
@@ -151,7 +151,7 @@ def test_path_source_is_rejected_by_stat_before_reading(
 
     monkeypatch.setattr(Path, "read_bytes", unexpected_read)
 
-    with pytest.raises(KmlImportError, match="archive size"):
+    with pytest.raises(KmlImportError, match="アーカイブサイズ上限"):
         import_kml_or_kmz(
             source,
             limits=ImportLimits(max_archive_bytes=1),
@@ -241,7 +241,7 @@ def test_selected_line_rejects_fewer_than_two_points_after_deduplication() -> No
         _kml("SHORT", "131,31 131.00001,31.00001"),
         filename="route.kml",
     )
-    with pytest.raises(KmlImportError, match="fewer than two"):
+    with pytest.raises(KmlImportError, match="重複を除くと2点未満"):
         select_imported_line(result, 0)
 
 
@@ -267,7 +267,7 @@ def test_polygon_keeps_full_outer_ring_then_enforces_selected_limit() -> None:
 
     assert len(result.polygons[0].outer_boundary) == 7
     assert len(result.polygons[0].display_outer_boundary) <= 4
-    with pytest.raises(KmlImportError, match="Polygon outer coordinate"):
+    with pytest.raises(KmlImportError, match="Polygonの外枠の座標数上限"):
         select_imported_polygon_outer(
             result,
             0,

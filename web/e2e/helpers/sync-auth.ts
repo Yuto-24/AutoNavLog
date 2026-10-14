@@ -1,4 +1,14 @@
-import type { BrowserContext } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
+
+export async function waitForSyncAccount(page: Page, subject: string, timeout = 40_000) {
+  // The frame task resumes in the new execution context after a Vite reload.
+  // Keep the exact account condition; never retry sign-in or swallow auth errors.
+  const ready = await page.waitForFunction(
+    expected => (window as any).authTest?.state().account?.displayName === expected,
+    subject, { timeout },
+  );
+  await ready.dispose();
+}
 function jwt(subject: string) {
   const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
   const now = Math.floor(Date.now() / 1000);

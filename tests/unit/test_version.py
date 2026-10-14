@@ -4,12 +4,12 @@ import tomllib
 from importlib.metadata import version
 from pathlib import Path
 
-from autonavlog.version import __version__
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_runtime_version_matches_installed_package_metadata():
+    from autonavlog.version import __version__
+
     assert __version__ == version("autonavlog")
     assert __version__ == (ROOT / "VERSION").read_text().strip()
 

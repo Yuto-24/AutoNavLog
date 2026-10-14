@@ -338,7 +338,7 @@ export function CheckPointEditor({
                     type="button"
                     aria-label={`${item.name}を削除`}
                     onClick={() => {
-                      if (!window.confirm(`Check Point「${item.name}」を削除しますか？`)) return;
+                      if (!window.confirm(`チェックポイント「${item.name}」を削除しますか？`)) return;
                       void onReplace(inputs.filter((candidate) => candidate.id !== item.id));
                     }}
                     disabled={busy}

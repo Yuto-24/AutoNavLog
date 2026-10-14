@@ -169,9 +169,9 @@ test("KMZ document choice resumes after reload with modal closed", async ({ page
   await page.getByLabel("KML文書").selectOption("b.kml");
   await page.reload();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByRole("button", { name: "KMZ文書の選択を続ける" }).click();
+  await page.getByRole("button", { name: "KMZからの選択を続ける" }).click();
   await expect(page.getByLabel("KML文書")).toHaveValue("b.kml");
-  await page.getByRole("button", { name: "選択KMLを読み込む" }).click();
+  await page.getByRole("button", { name: "選択したKMLを読み込む" }).click();
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await page.getByLabel("FUEL gal", { exact: true }).focus();
   await page.keyboard.press("Tab");
@@ -279,6 +279,6 @@ test("pasted KML draft resumes without reading a changed clipboard", async ({ pa
   await page.evaluate(() => Object.defineProperty(navigator, "clipboard", {
     configurable: true, value: { readText: async () => "別のクリップボード内容" },
   }));
-  await page.getByRole("button", { name: "貼付KMLの編集を続ける" }).click();
+  await page.getByRole("button", { name: "貼り付けたKMLの編集を続ける" }).click();
   await expect(page.getByRole("dialog").getByRole("textbox")).toHaveValue("<kml>入力途中");
 });

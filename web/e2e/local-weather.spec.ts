@@ -121,7 +121,7 @@ test("saved Run stays fixed while a newer Run is available", async ({ page }) =>
   await page.goto("/");
   await enterImportWorkflow(page);
   await page.getByLabel("保存済み", { exact: true }).selectOption(recovery.project.id);
-  await page.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
+  await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
   await expect(page.locator(".nav-log-table")).toBeVisible();
   await calculate(page);
   expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915180000");
