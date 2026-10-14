@@ -689,7 +689,7 @@ def pinned_rules_operator(tmp_path):
     transition = app.RULES_TRANSITION_V1227
     operator = app.Operator(tmp_path, rules_transition_v1227=True)
     old = (app.ROOT / "tests/fixtures/firestore-v1201.rules").read_bytes().decode("utf-8")
-    new = (app.ROOT / "firebase/firestore.rules").read_bytes().decode("utf-8")
+    new = (app.ROOT / "tests/fixtures/firestore-v1227.rules").read_bytes().decode("utf-8")
     assert app.digest(old.encode()) == transition["before_sha256"]
     assert app.digest(new.encode()) == transition["after_sha256"]
     sources = {transition["current_sha"]: old, transition["sha"]: new}
@@ -871,40 +871,15 @@ def test_real_snapshot_requires_transition_schedule_already_paused(
         assert value["rules_receipt"]["transition"] == transition
 
 
-def test_rules_source_reader_preserves_raw_line_endings(tmp_path):
-    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
-    source = tmp_path / "firebase/firestore.rules"
-    source.parent.mkdir()
+def test_rules_source_reader_preserves_raw_line_endings(tmp_path, monkeypatch):
+    # CI excludes Git and deployable Firebase source. Verify the binary subprocess boundary.
     raw = b"rules_version = '2';\r\n// trailing whitespace \r\n"
-    source.write_bytes(raw)
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(tmp_path),
-            "-c",
-            "core.autocrlf=false",
-            "add",
-            "firebase/firestore.rules",
-        ],
-        check=True,
-    )
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(tmp_path),
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.test",
-            "commit",
-            "-m",
-            "fixture",
-        ],
-        check=True,
-        capture_output=True,
-    )
+
+    def read_source(args, **kwargs):
+        assert not kwargs.get("text") and kwargs.get("encoding") is None
+        return subprocess.CompletedProcess(args, 0, raw, b"")
+
+    monkeypatch.setattr(subprocess, "run", read_source)
     assert app.Operator(tmp_path).rules_source("HEAD").encode() == raw
 
 
