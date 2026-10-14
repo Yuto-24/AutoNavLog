@@ -407,12 +407,16 @@ release_store="$HOME/autonavlog-releases/v1.22.7-$(date -u +%Y%m%dT%H%M%SZ)"
 scripts/static_ops/app_release.sh prepare \
   --sha e0ad634a8fab2ed48310f48b08c4ec3961cad14b \
   --current-sha a4de2a226dfa205b8be42fb62a710a1b06271ed8 \
+  --rules-transition-v1227 \
   --store "$release_store"
 # plan.json / prepare-status.json / prepared/upload と検証結果を private に確認。
 sha256sum "$release_store/plan.json"
 ```
 
 上記は **候補 v1.22.7** と **現在 v1.20.1** の明示例で、公開承認ではない。
+この切替では先に別途承認された定期停止・Rules反映と読み取り照合が必要。
+下の「v1.22.7 の Rules / Pages 切替」に従い、automation=false、workflow=active、
+稼働中Rulesが固定候補に一致した後だけ、このprepareを実行する。
 v1.22.8 の merge 後 WebKit 失敗を理由に候補を最新版へ自動置換しない。
 SHA は40桁を必須とし、main に含まれる exact commit / VERSION を確認する。
 Firebase 4設定、TAF URL、Legacy migration URL、account、origin と repository variable を
@@ -421,8 +425,9 @@ Migration URL は維持する。受付終了の検討（10/24〜25目安）は�
 
 prepare は現在の成功した Pages production ID/commit、完全な deployment inventory と idle、
 Direct Upload の対象、Functions/設定混入、稼働中の Firestore Rules を読み取りで確認する。
-候補/current の Rules、indexes、Project schema は同一を必須とする保守的な互換 gate。
-互換性変更がある release はこのスクリプトで自動処理せず、別の移行レビューを必要とする。
+通常は候補/current の Rules、indexes、Project schema の同一を必須とする。
+`--rules-transition-v1227` は下記の固定SHA・project・元バイトRules hashだけを例外として
+許可する。indexes / Project schema の同一条件は維持する。他の移行を許可する入力はない。
 稼働中 Rules は [release GET](https://firebase.google.com/docs/reference/rules/rest/v1/projects.releases/get)
 と [ruleset GET](https://firebase.google.com/docs/reference/rules/rest/v1/projects.rulesets/get) で確認し、
 候補に一致しない場合は自動 deploy しない。これは実 Google login / Sync の受入を代用しない。
@@ -444,6 +449,7 @@ tooling による独立 inventory/private-material gate が完了してから pl
 scripts/static_ops/app_release.sh publish \
   --sha e0ad634a8fab2ed48310f48b08c4ec3961cad14b \
   --current-sha a4de2a226dfa205b8be42fb62a710a1b06271ed8 \
+  --rules-transition-v1227 \
   --store "$release_store" \
   --reviewed-plan-sha256 REVIEWED_64_HEX_DIGEST
 ```
@@ -470,6 +476,8 @@ HTTPS/no redirect/no-cache/ETag/MIME、欠落 asset の404、Pages commit を確
 #121 の実 login/Sync、旧タブ、保存データ、plan/billing 等の production acceptance は別途必要。
 
 両段階の `*-status.json` は stage、操作履歴、変更済み/未変更/UNKNOWN を原子的に保存する。
+snapshot / plan / status の `rules_receipt` は外部反映済みRulesのrelease全体・source hash・
+固定移行を記録する。Rules反映はこのscriptのmutationではない。下記の外部操作記録も保管する。
 `UNKNOWN` は timeout/interruption により server 側が変更済みの可能性がある。
 SIGKILL 等では RUNNING/ATTEMPTED が残るため、成功扱いせず remote state を確認する。
 失敗後の finally で再開したり、自動 rollback したりしない。一度試行した publish の保存先は
@@ -477,7 +485,7 @@ SIGKILL 等では RUNNING/ATTEMPTED が残るため、成功扱いせず remote 
 
 | 失敗した段階 | 確認・復旧操作（別途承認） |
 | --- | --- |
-| pause 前 | 本番未変更。原因を直し新規 prepare。 |
+| pause 前 | scriptによるPages/変数/workflow変更なし。外部Rulesは反映済みの場合があるためRules操作記録を確認。原因を直し新規 prepare。 |
 | pause/disable/idle/build/pre-upload | 停止操作の read-back と既存 run の完了を確認。本番と承認 SHA を照合してから再開可否を判断。 |
 | upload または canonical 検証 | 配置が変わった可能性を調査。新旧 inventory/ID と weather を確認し、停止を維持。自動 rollback なし。 |
 | 承認 SHA 更新 | 新 app が配信済みでも旧承認 SHA の可能性あり。canonical と read-back を照合してから切替・再開。 |
@@ -486,6 +494,160 @@ SIGKILL 等では RUNNING/ATTEMPTED が残るため、成功扱いせず remote 
 今回の実装検証では publish、repository variable 更新、workflow disable/enable を実サービスへ
 実行しない。`tests/unit/test_static_app_release.py` は隔離 inventory と provider mock で正常系、
 設定変化、競合、改変/古い成果物、各書き込み前後の失敗、SHA更新・再開失敗を検証する。
+
+## v1.22.7 の Rules / Pages 切替
+
+この手順は **実施する対象・回数・停止/再開を別途承認した後だけ** 使用する。
+本PRの実装・mockテスト・レビュー・mergeは本番操作の承認を代用しない。
+固定候補のRulesそのもの、Auth/IAM/indexes/TAF/DNS、旧サーバーと移行URLは変更しない。
+`--rules-transition-v1227` は旧Rulesを自動反映する機能でも、Rules検査を省く機能でもない。
+
+| 固定項目 | 値 |
+| --- | --- |
+| 現行アプリ v1.20.1 | `a4de2a226dfa205b8be42fb62a710a1b06271ed8` |
+| 候補アプリ v1.22.7 | `e0ad634a8fab2ed48310f48b08c4ec3961cad14b` |
+| Firebase project / release | `navmate-prod` / `cloud.firestore` |
+| 変更前Rules SHA-256（UTF-8元バイト） | `f27ee41870413f48b9ac0da609350cac3b3cc3d2d3a4fa0d30772b3312865246` |
+| 変更後Rules SHA-256（UTF-8元バイト） | `574725b83fc0d0bca5df7311b970f97aeaaae068524eb1343bdc3912973757d8` |
+| 事前確認済み旧ruleset | `projects/navmate-prod/rulesets/688d5522-783a-452c-bbaf-7981748d3ef0` |
+| Pages / origin | `navmate` / `https://navmate.yuto24.com` |
+| 維持する移行URL | `https://navlog.yuto24.com` |
+
+任意のSHA・project・hash・移行manifestを受け取る一般基盤は追加しない。
+例外はこの旧→新の一方向だけ。逆方向、未知の差分、他project、Rulesの空白/改行を含む
+hash違い、indexes/Project schema差分を拒否する。通常の同一Rules更新は既存ルートを使う。
+
+### 再利用する検証と残る保証
+
+2026-10-14の固定SHA検証・GPT-6 Astra独立レビューを引き継ぐ。旧/新アプリ＋新Rulesの
+通常保存/同期、別所有者拒否、cleanup中断/retry、offline端末再接続、明示再登録後の世代分離、
+旧Legacy adapterによる200 ProjectとLast Calculationの引継ぎを合成データで確認した。
+検証は既存Rules/auth/sync unit 46、切替/復旧の観測11、Chromium SDK 3、旧版タブ1、
+Legacy Python 25（計86）とLegacy移行5状態。実Google認証・実機・本番受入とは区別する。
+旧版タブは削除後もLocalコピーを表示し続ける。Remote writeは拒否されるが、全端末の
+即時Local消去は保証しない。DELETING中はcleanup read/deleteを許可する。
+
+同一所有者が手作りrequestで過去accountIdまたは別v1形式IDから旧保存先を再開できる限界は
+[後続Issue #262](https://github.com/Yuto-24/AutoNavLog/issues/262) へ分離した。
+通常の削除・再登録は成功しており、他所有者のデータ取得や普通の旧タブによる自動復活を
+示す再現ではない。本人の任意requestに対する全履歴非再利用保証は残件であり、ユーザー合意に
+より今回の公開条件にはしない。候補Rulesを黙って修正しない。
+
+### 1. 排他・停止・変更前の読取り
+
+cleanなレビュー済みtooling checkout、既存認可、固定旧/新SHAを用意する。最新版mainの
+アプリへ候補を置換しない。public config、live app/Pages ID/full inventory、Legacy版と
+移行URL、repo/env variables、workflow、現Rules releaseを実施直前に読み直す。
+読取りがUNKNOWNまたは想定外なら停止する。新しいlogin/scope/IAM変更で補わない。
+
+別operator/Dashboard/manual dispatch/uploadを停止窓から除外し、別途承認された
+`STATIC_AUTOMATION_ENABLED=false` を1回変更・read-backする。`STATIC_APPROVED_SHA` は旧SHAを
+維持する。queued/running/waiting runとPages deployがidleであることを完全inventoryで確認する。
+workflowはactiveを維持する（prepareが要求する）。後のpublishがdisableを行う。
+
+RulesはFirebase Rules APIのrelease GET→指定ruleset GET→release GETを行い、同じproject、
+前後release完全一致、1ファイル `firebase/firestore.rules` の元バイトhashが変更前値であることを
+確認する。旧ruleset IDだけでrollback安全とは扱わない。既に候補Rulesが適用済みなら再deployせず、
+既存の反映記録と正確な変更後hashを照合して次段階へ進む。未知のRulesは上書きしない。
+
+### 2. Rules反映（外部操作・別途承認）
+
+新規privateな専用directoryへ固定候補のRulesを抽出し、hashを確認する。以下はローカル準備例:
+
+```sh
+rules_directory="$(mktemp -d /tmp/autonavlog-v1227-rules.XXXXXX)"
+mkdir "$rules_directory/firebase"
+git show e0ad634a8fab2ed48310f48b08c4ec3961cad14b:firebase/firestore.rules \
+  > "$rules_directory/firebase/firestore.rules"
+sha256sum "$rules_directory/firebase/firestore.rules"
+```
+
+本番反映は **Firebase Rules APIだけ** に限定する。汎用Firebase CLI deployは暗黙のAPI有効化や
+default DB作成を行い得るため、このRules専用の承認で呼ばない。既存の対象Rules更新認可だけを
+使用し、権限不足やAPI拒否は停止する。新login/scope/IAM/API有効化/DB作成は行わない。
+ローカルの別Firebase project設定やweb/.env.localは流用しない。indexesは反映しない。
+
+別途承認された外部操作は次の2段階。tokenは既存の安全な環境経由で渡し、値を引数/ログへ出さない。
+
+1. [Ruleset create](https://firebase.google.com/docs/reference/rules/rest/v1/projects.rulesets/create):
+   `POST https://firebaserules.googleapis.com/v1/projects/navmate-prod/rulesets`。
+   request bodyは `source.files` を1要素とし、`name="firebase/firestore.rules"`、
+   `content`は上でhash確認したファイルの元バイトをUTF-8 decodeした全文とする。
+   応答の同project新ruleset名を保存し、そのrulesetをGETして正確なsource hash/filenameを確認する。
+   これはruleset作成だけであり、稼働releaseはまだ変更しない。失敗/UNKNOWNで自動再POSTしない。
+2. 旧releaseを再GETして事前記録と完全一致することを確認後、
+   [Release patch](https://firebase.google.com/docs/reference/rules/rest/v1/projects.releases/patch):
+   `PATCH https://firebaserules.googleapis.com/v1/projects/navmate-prod/releases/cloud.firestore`。
+   bodyは `{"release":{"name":"projects/navmate-prod/releases/cloud.firestore",`
+   `"rulesetName":"CREATED_AND_VERIFIED_RULESET_NAME"},"updateMask":"rulesetName"}`。
+   placeholderを直前に作成・検証した同project名へ置換する。このPATCHが稼働Rulesの変更点。
+   releaseが404や変化中なら新releaseを作らず停止する。自動retryや旧Rules復元はしない。
+
+RulesとPagesは原子的に同時更新できないので **Rulesを先に反映** する。
+旧アプリ＋新Rulesの通常保存は事前に検証済み。旧サーバーや移行受付は停止しない。
+
+### 3. 反映後の読み取り照合とprepare
+
+成功表示だけで完了にせず、同じrelease→ruleset source→releaseをGETする。新ruleset ID、
+updateTime、変更後の正確なsource hash、前後release一致を記録する。失敗/UNKNOWNなら
+Pagesへ進まず、追加deployを自動実行しない。`app_release` はRules反映を一切行わない。
+
+workflow=active、automation=false、承認SHA=旧SHAで、上のprepare例に
+`--rules-transition-v1227` を付ける。候補Rulesが未反映ならprepareは止まる。
+prepareはlive Rulesに加え、旧/新git sourceの元バイトhash、indexes/schema、fresh MSM、
+純静的成果物、build/E2E、独立inventory、Pages target/idleを検証する。
+plan.jsonのsnapshotとprepare-status.jsonへrelease/source hash/固定移行の`rules_receipt`を保存する。
+review済みplan hashを明示して承認する。30分超過・tooling/設定/Rules driftは新規prepareが必要。
+
+### 4. Pages公開・機械検証・承認SHA更新
+
+同一固定SHA・tooling・オプションで上のpublishを承認回数だけ実行する。scriptはworkflowを
+disableし、idle確認後にfresh成果物を再生成して公開する。prepare成果物を再利用しない。
+canonical inventory/headers/hash/404、MSM freshness/coverage、Pages ID/commit/config、
+Rulesの前後照合を維持し、すべて成功した後だけ `STATIC_APPROVED_SHA` を候補へ更新する。
+publish時にオプションを外す、先に承認SHAを変える、MSM-only workflowへ候補を流す操作は禁止。
+publishはworkflowをenableへ戻すが、事前停止を必須としたのでautomation=falseを保持する。
+
+### 5. 実受入後の定期再開
+
+旧タブを閉じ新版を再読込みする案内を用意する。未同期Localを持つ端末へstorage消去を
+指示しない。削除済み旧Localを新世代へ自動取込しない。配信するUI文言はユーザー提供または
+Gemini CLIで確定する（このPRはproduct copyを変更しない）。
+実Google認証、2端末保存/同期・削除retry・旧端末再接続・再登録・Legacy移行、実機Safariの
+受入を別途承認された専用試験アカウントと合成Projectで実施する。現ユーザーデータで試験しない。
+受入成功、canonical候補SHA、Rules source、workflow/variables/idleを再確認した後だけ、
+別途承認された `STATIC_AUTOMATION_ENABLED=true` を変更・read-backする。元がfalseなら
+勝手にenableしない。期限を跨ぐschedule受入は定期再開操作と別に記録する。
+
+### 変更済み状態の記録と復旧
+
+Rules更新前にprivateな `rules-update-status.json` へ操作時刻、project、旧release全体、
+変更前/後source hash、停止前/停止後automation/workflow、Pages ID/SHAを保存する。
+Ruleset POSTとRelease PATCHを別eventにし、それぞれwrite直前に `UNKNOWN` / `ATTEMPTED` を
+記録する。新ruleset GET成功で作成eventだけを `CONFIRMED` とし、稼働Rulesはまだ未変更と扱う。
+Release PATCH後のGETで正確な候補を確認した場合だけrelease変更を `CONFIRMED` にする。
+未試行eventは `UNCHANGED`。同じ記録へPOST/PATCH各回数と作成ruleset名を保存する。
+timeout、Ctrl-C、拒否応答だけで未変更とは決めない。操作回数と新ruleset ID/updateTimeを記録する。
+この外部記録とapp_releaseのplan／両statusを同じ作業の証拠として保管する。
+
+| 中断段階 | 判別と対応（必要な追加操作は別途承認） |
+| --- | --- |
+| Rules反映前 | 外部記録の未試行を確認。Pages/SHAも旧版のままなら停止理由を修正する。 |
+| Rules反映中/後、Pages前 | Rulesが候補へ変わった可能性をGETで判別。新Rules＋旧アプリのまま停止可能。旧Rulesへ自動復元しない。 |
+| Pages upload/verify | publish-statusのproductionがUNKNOWN/CONFIRMEDか、実Pages ID/releaseで判別。承認SHAは更新前の可能性がある。 |
+| 承認SHA更新/再開 | journalのATTEMPTED/UNKNOWNとvariables/workflow read-backを照合し、必要な操作だけを判断。automationは実受入までfalse。 |
+
+候補が利用者へ到達した、またはlifecycle/世代別writeの有無がUNKNOWNなら、
+旧Rules/旧アプリへの一般rollbackは行わない。旧Rulesは削除済みデータの再read・旧Localの
+再アップロードを許可し、旧アプリはv2データを開けずcleanup retryもできない。
+新Rulesと世代管理を保持するforward fixを原則とする。候補公開前でも本人requestで親recordを
+writeできるため、単にPages未公開という理由だけで旧Rules復元を安全と扱わない。
+LegacyのNAVMATE_ACTIVE markerを手で戻したり、削除済みデータを旧backupから再移行しない。
+
+公開時の承認対象は、固定候補/source、Rules反映回数、Pages公開とreview済みplan hash、
+automation停止/再開、workflow disable/enable、機械検証後の承認SHA変更、専用試験データの
+本番write/不可逆削除、障害時の停止/forward fixを明示する。merge・旧サーバー停止・新認証・
+権限変更はこの手順に含めない。
 
 ## Acceptance still requiring production authorization
 

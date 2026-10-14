@@ -24,7 +24,13 @@ sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
 from scripts.static_ops import pages_target, probe_providers  # noqa: E402
 from scripts.static_ops import publication_gate as gate  # noqa: E402
-from scripts.static_ops.operations import NoRedirect, instant, monitor, release, restore  # noqa: E402
+from scripts.static_ops.operations import (  # noqa: E402
+    NoRedirect,
+    instant,
+    monitor,
+    release,
+    restore,
+)
 from scripts.static_ops.refresh_feed import PUBLICATION_GENERATION_HOURS  # noqa: E402
 from scripts.static_ops.validate_feed import validate_feed  # noqa: E402
 
@@ -42,6 +48,17 @@ COMPATIBILITY = (
     "firebase/firestore.indexes.json",
     "data/schemas/project.schema.json",
 )
+# Only the emulator-verified v1.20.1 -> v1.22.7 transition is admitted by the opt-in.
+# Owner-crafted generation reuse is tracked separately in #262; Rules stay unchanged.
+RULES_TRANSITION_V1227 = {
+    "current_sha": "a4de2a226dfa205b8be42fb62a710a1b06271ed8",
+    "sha": "e0ad634a8fab2ed48310f48b08c4ec3961cad14b",
+    "project": "navmate-prod",
+    "before_sha256": "f27ee41870413f48b9ac0da609350cac3b3cc3d2d3a4fa0d30772b3312865246",
+    "after_sha256": "574725b83fc0d0bca5df7311b970f97aeaaae068524eb1343bdc3912973757d8",
+    "previous_ruleset": "projects/navmate-prod/rulesets/688d5522-783a-452c-bbaf-7981748d3ef0",
+    "recovery": "forward-fix; no automatic old Rules rollback",
+}
 
 
 class Blocked(Exception):
@@ -155,13 +172,30 @@ class Journal:
 
 
 class Operator:
-    def __init__(self, root: Path = ROOT):
+    def __init__(self, root: Path = ROOT, *, rules_transition_v1227: bool = False):
         self.root = root
+        self.rules_transition_v1227 = rules_transition_v1227
+        self.rules_receipt: dict | None = None
         self.env = dict(os.environ)
         self.wrangler = root / "services/taf-proxy/node_modules/.bin/wrangler"
 
     def git(self, *args: str) -> str:
         return command(["git", *args], cwd=self.root).strip()
+
+    def rules_source(self, sha: str) -> str:
+        # Text-mode subprocess output normalizes CRLF; this transition pins exact UTF-8 bytes.
+        try:
+            result = subprocess.run(
+                ["git", "show", f"{sha}:firebase/firestore.rules"],
+                cwd=self.root,
+                capture_output=True,
+                timeout=180,
+                check=False,
+            )
+            require(result.returncode == 0, "Pinned Rules source unavailable")
+            return result.stdout.decode("utf-8")
+        except (OSError, subprocess.TimeoutExpired, UnicodeDecodeError):
+            raise Blocked("Pinned Rules source unavailable") from None
 
     def gh(self, endpoint: str, method: str = "GET", body: dict | None = None):
         args = [
@@ -343,7 +377,22 @@ class Operator:
         return json.loads(raw)
 
     def compatibility(self, sha: str, current: str, variables: dict) -> str:
+        transition = RULES_TRANSITION_V1227 if self.rules_transition_v1227 else None
+        if transition:
+            require(
+                sha == transition["sha"]
+                and current == transition["current_sha"]
+                and variables["VITE_FIREBASE_PROJECT_ID"] == transition["project"],
+                "Only the pinned navmate-prod v1.22.7 Rules transition is supported",
+            )
+            require(
+                digest(self.rules_source(current).encode("utf-8")) == transition["before_sha256"]
+                and digest(self.rules_source(sha).encode("utf-8")) == transition["after_sha256"],
+                "Pinned before/after Rules source hash mismatch",
+            )
         for path in COMPATIBILITY:
+            if transition and path == "firebase/firestore.rules":
+                continue  # Both exact sources were checked above; other contracts remain identical.
             require(
                 self.git("show", f"{sha}:{path}") == self.git("show", f"{current}:{path}"),
                 "Rules/indexes/Project schema changed; separately reviewed migration required",
@@ -360,11 +409,26 @@ class Operator:
             and files[0]["content"].strip() == self.git("show", f"{sha}:firebase/firestore.rules"),
             "Deployed Firestore Rules differ; no automatic Rules deploy",
         )
+        if transition:
+            require(
+                files[0].get("name") == "firebase/firestore.rules"
+                and digest(files[0]["content"].encode("utf-8")) == transition["after_sha256"],
+                "Pinned candidate Rules must already be deployed; no automatic Rules deploy",
+            )
         require(
             self.rules_get(prefix + "/releases/cloud.firestore") == live,
             "Deployed Rules changed during read",
         )
-        return fingerprint({"release": live, "content": files[0]["content"].strip()})
+        self.rules_receipt = {
+            "release": live,
+            "source_sha256": digest(files[0]["content"].encode("utf-8")),
+            "transition": transition,
+            "deployment": "external; this script only reads Rules",
+        }
+        receipt = {"release": live, "content": files[0]["content"].strip()}
+        if transition:
+            receipt["transition"] = transition
+        return fingerprint(receipt)
 
     def snapshot(self, sha: str, current: str, *, paused: bool = False) -> dict:
         require(
@@ -400,6 +464,11 @@ class Operator:
         require(
             variables["STATIC_AUTOMATION_ENABLED"] in ("true", "false"), "Unknown automation state"
         )
+        if self.rules_transition_v1227:
+            require(
+                variables["STATIC_AUTOMATION_ENABLED"] == "false",
+                "Pause recurring publication before the pinned Rules transition",
+            )
         require(
             self.env.get("CLOUDFLARE_API_TOKEN"), "Existing Pages upload authentication unavailable"
         )
@@ -427,6 +496,7 @@ class Operator:
             "variables": variables,
             "target": target,
             "rules_digest": rules,
+            "rules_receipt": self.rules_receipt,
             "tooling_sha": self.git("rev-parse", "HEAD"),
             "version": self.git("show", f"{sha}:VERSION"),
         }
@@ -626,6 +696,8 @@ def unchanged(before: dict, after: dict, *, paused: bool = False, deployment: bo
 
 def prepare(operator: Operator, sha: str, current: str, store: Path, journal: Journal) -> dict:
     snapshot = operator.snapshot(sha, current)
+    journal.value["rules_receipt"] = snapshot.get("rules_receipt")
+    journal.save()
     journal.stage("build-test")
     operator.build(sha, snapshot, store / "prepared")
     unchanged(snapshot, operator.snapshot(sha, current))
@@ -660,6 +732,8 @@ def publish(
         "Prepare is stale or in the future; prepare again",
     )
     snapshot = operator.snapshot(sha, current)
+    journal.value["rules_receipt"] = snapshot.get("rules_receipt")
+    journal.save()
     unchanged(plan["snapshot"], snapshot)
     require(
         digest((store / "prepared/upload/dist-static/release.json").read_bytes())
@@ -734,6 +808,14 @@ def main() -> int:
     parser.add_argument(
         "--reviewed-plan-sha256", help="Publish authorization must cover this exact prepare plan"
     )
+    parser.add_argument(
+        "--rules-transition-v1227",
+        action="store_true",
+        help=(
+            "Only the pinned navmate-prod v1.20.1 -> v1.22.7 Rules transition; "
+            "Rules must already match"
+        ),
+    )
     args = parser.parse_args()
     store = args.store.resolve()
     require(
@@ -760,7 +842,7 @@ def main() -> int:
         journal = Journal(report, args.mode, args.sha)
         success = False
         try:
-            operator = Operator()
+            operator = Operator(rules_transition_v1227=args.rules_transition_v1227)
             if args.mode == "prepare":
                 prepare(operator, args.sha, args.current_sha, store, journal)
                 journal.value["plan_sha256"] = digest((store / "plan.json").read_bytes())

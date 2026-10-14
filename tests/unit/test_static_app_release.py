@@ -681,3 +681,241 @@ def test_real_pre_upload_failures_leave_remote_production_unchanged(prepared, mo
         and "approve" not in operator.calls
         and "resume" not in operator.calls
     )
+
+
+@pytest.fixture
+def pinned_rules_operator(tmp_path):
+    """Exact historical Rules bytes; no network, credentials or production writes."""
+    transition = app.RULES_TRANSITION_V1227
+    operator = app.Operator(tmp_path, rules_transition_v1227=True)
+    old = (app.ROOT / "tests/fixtures/firestore-v1201.rules").read_bytes().decode("utf-8")
+    new = (app.ROOT / "tests/fixtures/firestore-v1227.rules").read_bytes().decode("utf-8")
+    assert app.digest(old.encode()) == transition["before_sha256"]
+    assert app.digest(new.encode()) == transition["after_sha256"]
+    sources = {transition["current_sha"]: old, transition["sha"]: new}
+    operator.rules_source = lambda sha: sources[sha]
+    operator.git = lambda *args: (
+        sources[args[-1].split(":")[0]].strip() if args[-1].endswith(".rules") else "same-contract"
+    )
+    release = {
+        "name": "projects/navmate-prod/releases/cloud.firestore",
+        "rulesetName": "projects/navmate-prod/rulesets/new-ruleset",
+        "updateTime": "2026-10-14T12:00:00Z",
+    }
+    calls = []
+
+    def rules_get(path):
+        calls.append(path)
+        if "/releases/" in path:
+            return copy.deepcopy(release)
+        return {"source": {"files": [{"name": "firebase/firestore.rules", "content": new}]}}
+
+    operator.rules_get = rules_get
+    return operator, sources, release, calls
+
+
+def pinned_compatibility(operator, *, sha=None, current=None, project="navmate-prod"):
+    transition = app.RULES_TRANSITION_V1227
+    return operator.compatibility(
+        sha or transition["sha"],
+        current or transition["current_sha"],
+        {"VITE_FIREBASE_PROJECT_ID": project},
+    )
+
+
+def test_exact_v1227_transition_requires_explicit_opt_in(pinned_rules_operator):
+    operator, _, _, calls = pinned_rules_operator
+    operator.rules_transition_v1227 = False
+    with pytest.raises(app.Blocked, match="migration required"):
+        pinned_compatibility(operator)
+    assert calls == []
+    operator.rules_transition_v1227 = True
+    assert pinned_compatibility(operator)
+    receipt = operator.rules_receipt
+    assert receipt["transition"] == app.RULES_TRANSITION_V1227
+    assert receipt["source_sha256"] == app.RULES_TRANSITION_V1227["after_sha256"]
+    assert receipt["deployment"] == "external; this script only reads Rules"
+    assert len(calls) == 3 and calls[0] == calls[2]
+
+
+@pytest.mark.parametrize("change", ["sha", "current", "project", "reverse", "same-source"])
+def test_transition_opt_in_cannot_admit_other_release_or_project(pinned_rules_operator, change):
+    operator, _, _, calls = pinned_rules_operator
+    scope = dict(
+        sha=app.RULES_TRANSITION_V1227["sha"],
+        current=app.RULES_TRANSITION_V1227["current_sha"],
+        project="navmate-prod",
+    )
+    if change in scope:
+        scope[change] = "navmate-6b281" if change == "project" else "c" * 40
+    elif change == "reverse":
+        scope["sha"], scope["current"] = scope["current"], scope["sha"]
+    else:
+        scope["current"] = scope["sha"]
+    with pytest.raises(app.Blocked, match="Only the pinned"):
+        pinned_compatibility(operator, **scope)
+    assert calls == []
+
+
+@pytest.mark.parametrize("source", ["current_sha", "sha"])
+@pytest.mark.parametrize("change", ["content", "whitespace", "crlf"])
+def test_transition_rejects_changed_source_bytes(pinned_rules_operator, source, change):
+    operator, sources, _, calls = pinned_rules_operator
+    sha = app.RULES_TRANSITION_V1227[source]
+    raw = sources[sha]
+    sources[sha] = raw + ("// changed\n" if change == "content" else "\n")
+    if change == "crlf":
+        sources[sha] = raw.replace("\n", "\r\n")
+    with pytest.raises(app.Blocked, match="source hash mismatch"):
+        pinned_compatibility(operator)
+    assert calls == []
+
+
+@pytest.mark.parametrize("path", app.COMPATIBILITY[1:])
+def test_pinned_transition_still_rejects_index_or_schema_changes(pinned_rules_operator, path):
+    operator, _, _, calls = pinned_rules_operator
+    original = operator.git
+    operator.git = lambda *args: (
+        "changed" if args[-1] == f"{app.RULES_TRANSITION_V1227['sha']}:{path}" else original(*args)
+    )
+    with pytest.raises(app.Blocked, match="migration required"):
+        pinned_compatibility(operator)
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["old-rules", "extra-whitespace", "filename", "extra-file", "foreign-ruleset", "release-drift"],
+)
+def test_transition_requires_already_deployed_exact_rules_and_stable_release(
+    pinned_rules_operator, change
+):
+    operator, sources, release, calls = pinned_rules_operator
+    new = sources[app.RULES_TRANSITION_V1227["sha"]]
+
+    def rules_get(path):
+        calls.append(path)
+        if "/releases/" in path:
+            value = copy.deepcopy(release)
+            if change == "foreign-ruleset":
+                value["rulesetName"] = "projects/another-project/rulesets/new"
+            if change == "release-drift" and len(calls) > 1:
+                value["updateTime"] = "changed"
+            return value
+        content = (
+            sources[app.RULES_TRANSITION_V1227["current_sha"]] if change == "old-rules" else new
+        )
+        if change == "extra-whitespace":
+            content += "\n"
+        files = [
+            {
+                "name": "unexpected.rules" if change == "filename" else "firebase/firestore.rules",
+                "content": content,
+            }
+        ]
+        if change == "extra-file":
+            files.append(files[0])
+        return {"source": {"files": files}}
+
+    operator.rules_get = rules_get
+    with pytest.raises(app.Blocked):
+        pinned_compatibility(operator)
+    assert operator.rules_receipt is None
+
+
+@pytest.mark.parametrize("automation", ["true", "false"])
+def test_real_snapshot_requires_transition_schedule_already_paused(
+    pinned_rules_operator, monkeypatch, automation
+):
+    operator, _, _, _ = pinned_rules_operator
+    transition = app.RULES_TRANSITION_V1227
+    variables = {
+        **{name: "public" for name in gate.CONFIGURATION},
+        "STATIC_ORIGIN": gate.ORIGIN,
+        "STATIC_APPROVED_SHA": transition["current_sha"],
+        "STATIC_AUTOMATION_ENABLED": automation,
+        "CLOUDFLARE_ACCOUNT_ID": "c" * 32,
+        "VITE_FIREBASE_PROJECT_ID": "navmate-prod",
+    }
+    operator.variables = lambda: variables
+    operator.gh = lambda endpoint: {"private": False, "full_name": app.REPO}
+    operator.workflow = lambda: {"state": "active"}
+    operator.idle = lambda: None
+    operator.target = lambda vars: {"commit": transition["current_sha"], "id": "deployment"}
+    operator.env["CLOUDFLARE_API_TOKEN"] = "SYNTHETIC"
+    git = operator.git
+
+    def source_git(*args):
+        if args[0] == "status":
+            return ""
+        if args[0] == "remote":
+            return "https://github.com/" + app.REPO + ".git"
+        if args[0] == "rev-parse":
+            return args[1].removesuffix("^{commit}")
+        return git(*args)
+
+    operator.git = source_git
+    monkeypatch.setattr(
+        app,
+        "release",
+        lambda origin, current: {
+            "configuration": {name: variables[name] for name in gate.CONFIGURATION}
+        },
+    )
+    if automation == "true":
+        with pytest.raises(app.Blocked, match="Pause recurring"):
+            operator.snapshot(transition["sha"], transition["current_sha"])
+    else:
+        value = operator.snapshot(transition["sha"], transition["current_sha"])
+        assert value["rules_receipt"]["release"]["rulesetName"].endswith("/new-ruleset")
+        assert value["rules_receipt"]["transition"] == transition
+
+
+def test_rules_source_reader_preserves_raw_line_endings(tmp_path, monkeypatch):
+    # CI excludes Git and deployable Firebase source. Verify the binary subprocess boundary.
+    raw = b"rules_version = '2';\r\n// trailing whitespace \r\n"
+
+    def read_source(args, **kwargs):
+        assert not kwargs.get("text") and kwargs.get("encoding") is None
+        return subprocess.CompletedProcess(args, 0, raw, b"")
+
+    monkeypatch.setattr(subprocess, "run", read_source)
+    assert app.Operator(tmp_path).rules_source("HEAD").encode() == raw
+
+
+def test_prepare_and_publish_record_external_rules_and_keep_recurring_paused(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir(mode=0o700)
+    operator = SimulatedOperator(tmp_path / "tooling", automation="false")
+    operator.state["rules_receipt"] = {
+        "transition": copy.deepcopy(app.RULES_TRANSITION_V1227),
+        "release": {"rulesetName": "projects/navmate-prod/rulesets/new"},
+        "source_sha256": app.RULES_TRANSITION_V1227["after_sha256"],
+        "deployment": "external; this script only reads Rules",
+    }
+    journal = app.Journal(store / "prepare-status.json", "prepare", NEW)
+    app.prepare(operator, NEW, OLD, store, journal)
+    expected = operator.state["rules_receipt"]
+    assert json.loads((store / "prepare-status.json").read_text())["rules_receipt"] == expected
+    result = run_publish((operator, store, app.digest((store / "plan.json").read_bytes())))
+    assert result["rules_receipt"] == expected
+    assert "resume" not in operator.calls
+    assert "rules" not in result["changes"]  # External Rules deployment is never our mutation.
+
+
+def test_transition_receipt_drift_before_publish_blocks_all_mutations(prepared):
+    operator, store, _ = prepared
+    operator.state["rules_receipt"] = {"transition": app.RULES_TRANSITION_V1227}
+    with pytest.raises(app.Blocked, match="changed"):
+        run_publish(prepared)
+    assert "pause" not in operator.calls and operator.uploaded is None
+
+
+def test_transition_rules_drift_after_upload_keeps_old_approval_and_stops(prepared):
+    operator, _, _ = prepared
+    operator.fail = "rules"
+    with pytest.raises(app.Blocked):
+        run_publish(prepared)
+    assert operator.state["variables"]["STATIC_APPROVED_SHA"] == OLD
+    assert operator.workflow_state == "disabled_manually"
+    assert operator.state["variables"]["STATIC_AUTOMATION_ENABLED"] == "false"
