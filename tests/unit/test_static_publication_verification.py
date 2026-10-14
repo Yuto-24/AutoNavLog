@@ -1,6 +1,7 @@
 """Canonical publication waits for exact identity and never advances after failure."""
 
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,6 +23,9 @@ spec = importlib.util.spec_from_file_location(
 )
 poll = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(poll)
+ops_spec = importlib.util.spec_from_file_location("operations", SCRIPTS / "operations.py")
+ops = importlib.util.module_from_spec(ops_spec)
+ops_spec.loader.exec_module(ops)
 
 
 @pytest.fixture
@@ -105,36 +110,201 @@ def test_hung_checker_is_killed_within_overall_budget(monkeypatch, tmp_path):
     assert time.monotonic() - start < 5
 
 
-@pytest.mark.parametrize("change", [None, "commit", "dirty", "configuration", "files", "invalid"])
-def test_remote_checker_keeps_exact_inventory_equality(monkeypatch, tmp_path, change):
+@pytest.fixture
+def remote_checker(monkeypatch, tmp_path):
+    now = datetime.now(UTC)
+    catalog = {
+        "generated_at": now.isoformat(),
+        "expires_at": (now + timedelta(hours=6)).isoformat(),
+        "assets": [{}],
+    }
+    catalog_raw = json.dumps(catalog).encode()
     candidate = {
         "commit": "a" * 40,
         "dirty": False,
         "configuration": {},
-        "files": {"weather/msm/catalog.json": {"sha256": "old", "bytes": 10}},
+        "files": {"weather/msm/catalog.json": {
+            "sha256": hashlib.sha256(catalog_raw).hexdigest(), "bytes": len(catalog_raw),
+        }},
     }
-    canonical = copy.deepcopy(candidate)
-    if change and change != "invalid":
-        canonical[change] = "different"
-    raw = "not json" if change == "invalid" else json.dumps(canonical)
-    calls = []
+    state = SimpleNamespace(candidate=candidate, catalog=catalog, catalog_raw=catalog_raw,
+                            canonical_raw=json.dumps(candidate).encode(), calls=[])
 
-    def fetch(*args):
-        calls.append(args)
-        return raw
+    def fetch(url, limit):
+        state.calls.append((url, limit))
+        return state.canonical_raw if url.endswith("/release.json") else state.catalog_raw
 
-    monkeypatch.setitem(sys.modules, "operations", SimpleNamespace(fetch=fetch, release=None))
+    monkeypatch.setattr(ops, "fetch", fetch)
+    monkeypatch.setitem(sys.modules, "operations", ops)
     monkeypatch.setenv("EXPECTED_SOURCE", candidate["commit"])
     monkeypatch.setenv("STATIC_ORIGIN", "https://example.com/")
     path = tmp_path / "release.json"
     path.write_text(json.dumps(candidate))
     monkeypatch.setattr(sys, "argv", ["check_candidate.py", str(path), "--remote"])
+
+    def run():
+        path.write_text(json.dumps(state.candidate))
+        runpy.run_path(str(SCRIPTS / "check_candidate.py"), run_name="__main__")
+
+    state.run = run
+    return state
+
+
+@pytest.mark.parametrize("change", [None, "commit", "dirty", "configuration", "files", "invalid"])
+def test_remote_checker_keeps_exact_inventory_equality(remote_checker, change):
+    state = remote_checker
+    canonical = copy.deepcopy(state.candidate)
+    if change and change != "invalid":
+        canonical[change] = "different"
+    state.canonical_raw = ("not json" if change == "invalid" else json.dumps(canonical)).encode()
     if change:
         with pytest.raises(ValueError):
-            runpy.run_path(str(SCRIPTS / "check_candidate.py"), run_name="__main__")
+            state.run()
     else:
-        runpy.run_path(str(SCRIPTS / "check_candidate.py"), run_name="__main__")
-    assert calls == [("https://example.com/release.json", 8 * 1024 * 1024)]
+        state.run()
+    assert state.calls == [("https://example.com/release.json", 8 * 1024 * 1024)] + (
+        [] if change else [("https://example.com/weather/msm/catalog.json", 8 * 1024 * 1024)]
+    )
+
+
+def test_matching_release_with_old_catalog_cannot_pass(remote_checker):
+    state = remote_checker
+    state.catalog["generated_at"] = (datetime.now(UTC) - timedelta(hours=7)).isoformat()
+    state.catalog["expires_at"] = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    state.catalog_raw = json.dumps(state.catalog).encode()
+    with pytest.raises(ValueError, match="catalog.*inventory") as error:
+        state.run()
+    evidence = json.loads("{" + str(error.value).split(": {", 1)[1])
+    assert evidence["catalog_sha256"] == hashlib.sha256(state.catalog_raw).hexdigest()
+    assert evidence["candidate_catalog_sha256"] == state.candidate["files"][
+        "weather/msm/catalog.json"
+    ]["sha256"]
+    assert evidence["catalog_matches_candidate"] is False
+    assert evidence["catalog_generated_at"] == state.catalog["generated_at"]
+    assert evidence["catalog_expires_at"] == state.catalog["expires_at"]
+    assert evidence["weather_seconds_remaining"] < 0
+    assert datetime.fromisoformat(evidence["catalog_received_at"]).tzinfo == UTC
+    assert evidence["catalog_checked_at"] == evidence["catalog_received_at"]
+
+
+def test_matching_release_and_fresh_but_different_catalog_cannot_pass(remote_checker):
+    state = remote_checker
+    state.catalog["assets"] = [{"different": True}]
+    state.catalog_raw = json.dumps(state.catalog).encode()
+    with pytest.raises(ValueError, match="catalog.*inventory"):
+        state.run()
+
+
+def seal_catalog(state):
+    state.catalog_raw = json.dumps(state.catalog).encode()
+    state.candidate["files"]["weather/msm/catalog.json"] = {
+        "sha256": hashlib.sha256(state.catalog_raw).hexdigest(), "bytes": len(state.catalog_raw),
+    }
+    state.canonical_raw = json.dumps(state.candidate).encode()
+
+
+@pytest.mark.parametrize("change", ["expires_at", "generated_at", "assets"])
+def test_exact_catalog_must_still_pass_freshness(remote_checker, change):
+    state = remote_checker
+    state.catalog[change] = {
+        "expires_at": (datetime.now(UTC) + timedelta(minutes=119)).isoformat(),
+        "generated_at": (datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
+        "assets": [],
+    }[change]
+    seal_catalog(state)
+    with pytest.raises(ValueError, match="freshness|future") as error:
+        state.run()
+    evidence = json.loads("{" + str(error.value).split(": {", 1)[1])
+    assert evidence["catalog_matches_candidate"] is True
+
+
+def test_catalog_byte_length_is_checked_even_when_hash_matches(remote_checker):
+    state = remote_checker
+    state.candidate["files"]["weather/msm/catalog.json"]["bytes"] += 1
+    state.canonical_raw = json.dumps(state.candidate).encode()
+    with pytest.raises(ValueError, match="catalog.*inventory"):
+        state.run()
+
+
+def test_catalog_hash_is_checked_even_when_byte_length_matches(remote_checker):
+    state = remote_checker
+    state.catalog_raw = state.catalog_raw.replace(b'"assets": [{}]', b'"assets": [42]')
+    assert len(state.catalog_raw) == state.candidate["files"]["weather/msm/catalog.json"]["bytes"]
+    with pytest.raises(ValueError, match="catalog.*inventory"):
+        state.run()
+
+
+def test_publication_freshness_uses_catalog_receipt_time(remote_checker, monkeypatch):
+    state = remote_checker
+    before = datetime.now(UTC)
+    state.catalog["expires_at"] = (before + timedelta(seconds=7210)).isoformat()
+    seal_catalog(state)
+    received = before + timedelta(seconds=20)
+    monkeypatch.setattr(
+        ops, "datetime",
+        SimpleNamespace(now=lambda zone: received, fromisoformat=datetime.fromisoformat),
+    )
+    with pytest.raises(ValueError, match="freshness") as error:
+        state.run()
+    evidence = json.loads("{" + str(error.value).split(": {", 1)[1])
+    assert evidence["weather_seconds_remaining"] == 7190
+    assert evidence["catalog_received_at"] == received.isoformat()
+
+
+@pytest.mark.parametrize("raw", [b"not json", b"{}", b"null", b"[]"])
+def test_bad_catalog_cannot_pass(remote_checker, raw):
+    remote_checker.catalog_raw = raw
+    with pytest.raises(ValueError, match="Invalid MSM catalog"):
+        remote_checker.run()
+
+
+def test_exact_catalog_success_includes_diagnostics(remote_checker, capsys):
+    remote_checker.run()
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "OK"
+    assert result["catalog_matches_candidate"] is True
+    assert result["catalog_sha256"] == result["candidate_catalog_sha256"]
+    assert result["catalog_bytes"] == result["candidate_catalog_bytes"]
+    assert result["catalog_generated_at"] == remote_checker.catalog["generated_at"]
+    assert result["catalog_expires_at"] == remote_checker.catalog["expires_at"]
+    assert 7200 < result["weather_seconds_remaining"] <= 21600
+
+
+def test_actual_catalog_mismatch_retries_within_existing_budget(
+    remote_checker, monkeypatch, clock, capsys
+):
+    state = remote_checker
+    fresh = state.catalog_raw
+    state.catalog_raw = b'{"assets":[],"expires_at":"2020-01-01T00:00:00Z"}'
+
+    def run(command, **kwargs):
+        clock.calls.append((command, kwargs))
+        try:
+            state.run()
+        except ValueError as error:
+            state.catalog_raw = fresh
+            return subprocess.CompletedProcess(command, 1, "", str(error))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(poll.subprocess, "run", run)
+    poll.wait_for_candidate(Path("release.json"))
+    assert clock.sleeps == [10]
+    assert len(clock.calls) == 2
+    output = capsys.readouterr()
+    assert '"catalog_matches_candidate": false' in output.err
+    assert "verified after 2 attempt(s)" in output.err
+
+
+def test_standalone_monitor_failure_identifies_separate_response(remote_checker):
+    state = remote_checker
+    state.catalog["expires_at"] = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    state.catalog_raw = json.dumps(state.catalog).encode()
+    with pytest.raises(ValueError, match="freshness") as error:
+        ops.monitor("https://example.com", datetime.now(UTC))
+    evidence = json.loads("{" + str(error.value).split(": {", 1)[1])
+    assert evidence["catalog_expires_at"] == state.catalog["expires_at"]
+    assert evidence["catalog_sha256"] == hashlib.sha256(state.catalog_raw).hexdigest()
+    assert "candidate_catalog_sha256" not in evidence
 
 
 @pytest.mark.parametrize("identity_ok", [False, True])
