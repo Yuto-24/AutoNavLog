@@ -32,6 +32,34 @@ Executed test source SHA-256:
   and existing browser assets were reused. Official distribution checksums were verified
   during preparation; PATH/JAVA_HOME remain command-local.
 
+## Release validation and hosted CI conditions
+
+The local results above were delivered at branch HEAD
+`a57db47600b0aa3ebd41a50319fea0c948889d22`, retaining VERSION **1.22.7**.
+For the separate branch-head PR contract check, `origin/main` was
+`0a87a0582532dd33f4b51d118583d198b94669c0`, VERSION **1.22.8**, and the saved PR
+body declared `Release: not-required`. The command was:
+
+```sh
+python3 scripts/validate_release.py --base origin/main \
+  --pr-body-file /tmp/autonavlog-no-legacy-complete-h8wqzwqp/pr-body.md
+```
+
+It **failed (exit 1)**: `Release validation failed: Release: not-required must not change VERSION`.
+`finish-checks.json` and `release-pr-contract.log` in the current evidence directory
+record this result. VERSION was not modified; the 9 browser and 4 Rules successes
+do not establish a successful branch-head release contract against that main revision.
+
+In contrast, [hosted CI run 38554298498](https://github.com/Yuto-24/AutoNavLog/actions/runs/38554298498)
+**passed all 8 jobs**, including `release-sources`. Its checkout logs show
+`refs/pull/261/merge` at `3e20ea29a91e31c47a11a2a237ebab76589dd4f0`, integrating
+the main and branch SHAs above. That tree has VERSION **1.22.8**; `release-sources`
+validated it against the main SHA, and the runtime log records `EXPECTED_VERSION: 1.22.8`.
+This success applies to the PR integration tree, not the standalone branch HEAD.
+The hosted workflow's suites are separate from the local no-Legacy 9-case execution.
+Logs and run status are saved in `/tmp/autonavlog-pr261-release-record-gnn710hu/`.
+Checking the PR integration tree did not merge the PR or publish production artifacts.
+
 ## Previous failure and minimal correction
 
 The previous cloud cases stopped when the original context tried to save FUEL 76:
