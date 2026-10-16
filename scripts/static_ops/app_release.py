@@ -309,9 +309,23 @@ class Operator:
         path = f"/client/v4/accounts/{variables['CLOUDFLARE_ACCOUNT_ID']}/pages/projects/navmate"
         project = pages_target.read_project(client, path)
         gate.verify_project(project)
-        # Direct Upload only: Git integration could publish despite Actions being disabled.
+        # Wrangler uploads also support Git-linked projects with automatic deploys disabled.
+        # Missing/unknown controls cannot establish that Git builds will stay paused.
+        source = project.get("source")
+        config = source.get("config") if isinstance(source, dict) else None
         require(
-            project.get("source") is None, "Pages Git integration requires operator investigation"
+            "source" in project
+            and (
+                source is None
+                or (
+                    isinstance(source, dict)
+                    and source.get("type") == "github"
+                    and isinstance(config, dict)
+                    and config.get("production_deployments_enabled") is False
+                    and config.get("preview_deployment_setting") == "none"
+                )
+            ),
+            "Pages automatic Git deployments are enabled or unknown",
         )
         observation = pages_target.inspect(client, variables["CLOUDFLARE_ACCOUNT_ID"])
         require(
