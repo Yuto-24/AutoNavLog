@@ -20,7 +20,8 @@ class NoRedirect(HTTPRedirectHandler):
         raise ValueError("Static origin redirected")
 
 
-def fetch(url: str, limit: int = 25 * 1024 * 1024) -> bytes:
+def static_request(url: str) -> Request:
+    """Identify authorized static operations honestly, without credentials or cache busting."""
     parsed = urlsplit(url)
     if (
         parsed.scheme != "https"
@@ -30,13 +31,14 @@ def fetch(url: str, limit: int = 25 * 1024 * 1024) -> bytes:
         or parsed.fragment
     ):
         raise ValueError("Expected credential-free HTTPS URL")
-    with build_opener(NoRedirect).open(
-        Request(
-            url,
-            headers={"Cache-Control": "no-cache", "User-Agent": "AutoNavLog-StaticOperations/1.0"},
-        ),
-        timeout=60,
-    ) as response:
+    return Request(
+        url,
+        headers={"Cache-Control": "no-cache", "User-Agent": "AutoNavLog-StaticOperations/1.0"},
+    )
+
+
+def fetch(url: str, limit: int = 25 * 1024 * 1024) -> bytes:
+    with build_opener(NoRedirect).open(static_request(url), timeout=60) as response:
         data = response.read(limit + 1)
     if len(data) > limit:
         raise ValueError("Response exceeds byte budget")

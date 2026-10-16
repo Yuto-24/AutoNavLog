@@ -30,6 +30,7 @@ from scripts.static_ops.operations import (  # noqa: E402
     monitor,
     release,
     restore,
+    static_request,
 )
 from scripts.static_ops.refresh_feed import PUBLICATION_GENERATION_HOURS  # noqa: E402
 from scripts.static_ops.validate_feed import validate_feed  # noqa: E402
@@ -327,7 +328,9 @@ class Operator:
             ),
             "Pages automatic Git deployments are enabled or unknown",
         )
-        observation = pages_target.inspect(client, variables["CLOUDFLARE_ACCOUNT_ID"])
+        observation = pages_target.inspect(
+            client, variables["CLOUDFLARE_ACCOUNT_ID"], expected_project=project
+        )
         require(
             all(
                 observation.get(name) is True
@@ -672,9 +675,8 @@ class Operator:
             ("index.html", "text/html"),
             ("local/manifest.json", "application/json"),
         ):
-            request = Request(
-                gate.ORIGIN + ("/" if name == "index.html" else "/" + name),
-                headers={"Cache-Control": "no-cache"},
+            request = static_request(
+                gate.ORIGIN + ("/" if name == "index.html" else "/" + name)
             )
             with opener.open(request, timeout=30) as response:
                 require(
@@ -691,7 +693,7 @@ class Operator:
             )
         missing = gate.ORIGIN + "/local/" + candidate["commit"] + ".missing.whl"
         try:
-            with opener.open(Request(missing), timeout=30):
+            with opener.open(static_request(missing), timeout=30):
                 raise Blocked("Missing canonical asset did not return 404")
         except HTTPError as error:
             require(error.code == 404, "Missing canonical asset did not return 404")
