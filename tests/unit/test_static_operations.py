@@ -239,6 +239,7 @@ def test_fetch_never_follows_redirect_even_to_matching_inventory(monkeypatch, co
     def opener(handler):
         def open_url(request, **kwargs):
             assert request.get_header("Cache-control") == "no-cache"
+            assert request.get_header("User-agent") == "AutoNavLog-StaticOperations/1.0"
             handler().redirect_request(
                 request, None, code, "redirect", {}, "https://other.example/"
             )
