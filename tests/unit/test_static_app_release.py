@@ -1,15 +1,20 @@
 """App publication boundary: real inventory gates, simulated provider side effects."""
 
 import copy
+import io
 import json
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
 from scripts.static_ops import app_release as app
 from scripts.static_ops import publication_gate as gate
+from tests.unit.test_pages_target import deployment as pages_deployment
+from tests.unit.test_pages_target import page as pages_page
+from tests.unit.test_pages_target import project as pages_project
 from tests.unit.test_static_publication_gate import fixture_artifact
 
 OLD, NEW = "a" * 40, "b" * 40
@@ -350,6 +355,221 @@ def test_timeout_after_upload_remains_unknown_and_preserves_new_remote_state(pre
     assert operator.state["target"]["commit"] == NEW
     assert operator.state["variables"]["STATIC_APPROVED_SHA"] == OLD
     assert "resume" not in operator.calls
+
+
+@pytest.fixture
+def pages_operator(monkeypatch, tmp_path):
+    """Real target and paginated GETs; synthetic build and provider mutations only."""
+    operator = SimulatedOperator(tmp_path / "tooling", automation="false")
+    operator.env = {"CLOUDFLARE_API_TOKEN": "SYNTHETIC"}
+    project = pages_project()
+    project["source"] = None
+    project["canonical_deployment"]["deployment_trigger"]["metadata"]["commit_hash"] = OLD
+    rows = [copy.deepcopy(project["canonical_deployment"])]
+    requests = []
+
+    class Response(io.BytesIO):
+        status = 200
+
+    class Opener:
+        def open(self, request, timeout):
+            assert request.get_method() == "GET" and request.data is None
+            parsed = urlsplit(request.full_url)
+            path = f"/client/v4/accounts/{'c' * 32}/pages/projects/navmate"
+            assert parsed.hostname == "api.cloudflare.com"
+            requests.append(request.full_url)
+            if parsed.path == path:
+                payload = {"success": True, "result": copy.deepcopy(project)}
+            else:
+                assert parsed.path == path + "/deployments"
+                query = parse_qs(parsed.query)
+                assert query["per_page"] == ["20"] and set(query) == {"page", "per_page"}
+                page = int(query["page"][0])
+                payload = pages_page(rows[(page - 1) * 20:page * 20], page, len(rows))
+            return Response(json.dumps(payload).encode())
+
+    client = app.probe_providers.Client
+    monkeypatch.setattr(
+        app.probe_providers, "Client", lambda env: client(env, opener=Opener())
+    )
+    snapshot = operator.snapshot
+
+    def real_target_snapshot(*args, **kwargs):
+        value = snapshot(*args, **kwargs)
+        value["target"] = operator.target(value["variables"])
+        return value
+
+    operator.snapshot = real_target_snapshot
+    return operator, project, rows, requests
+
+
+def disabled_github_source():
+    return {
+        "type": "github",
+        "config": {"production_deployments_enabled": False, "preview_deployment_setting": "none"},
+    }
+
+
+@pytest.mark.parametrize("source", [None, disabled_github_source()])
+def test_real_target_allows_upload_method_with_git_builds_disabled(pages_operator, source):
+    operator, project, rows, requests = pages_operator
+    project["source"] = source
+    rows.extend(pages_deployment(i) for i in range(2, 22))
+    result = operator.target(operator.variables())
+    assert result["id"] == project["canonical_deployment"]["id"]
+    assert result["commit"] == OLD
+    assert len([url for url in requests if "/deployments?" in url]) == 2
+    assert len(requests) == 5  # Initial project, inventory's before/after project, two pages.
+
+
+@pytest.mark.parametrize("legacy", [True, False, "deprecated", 0, None])
+def test_real_target_does_not_require_deprecated_deployments_flag(pages_operator, legacy):
+    operator, project, _, _ = pages_operator
+    project["source"] = disabled_github_source()
+    project["source"]["config"]["deployments_enabled"] = legacy
+    assert operator.target(operator.variables())["commit"] == OLD
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {}, [], "github", False, 0,
+        {"type": "gitlab", "config": disabled_github_source()["config"]},
+        {"config": disabled_github_source()["config"]},
+        {"type": None, "config": disabled_github_source()["config"]},
+        {"type": "github"},
+        *({"type": "github", "config": config} for config in (None, [], "none", False, 0, {})),
+    ],
+)
+def test_real_target_rejects_unknown_source_shapes(pages_operator, source):
+    operator, project, _, requests = pages_operator
+    project["source"] = source
+    with pytest.raises(app.Blocked, match="Git deployments"):
+        operator.target(operator.variables())
+    assert len(requests) == 1
+
+
+def test_real_target_requires_explicit_source_field(pages_operator):
+    operator, project, _, _ = pages_operator
+    del project["source"]
+    with pytest.raises(app.Blocked, match="Git deployments"):
+        operator.target(operator.variables())
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("production_deployments_enabled", value)
+        for value in (True, "false", 0, 1, None, [], {})
+    ] + [
+        ("preview_deployment_setting", value)
+        for value in ("all", "custom", "unknown", "NONE", False, 0, None, [], {})
+    ],
+)
+def test_real_target_rejects_enabled_unknown_or_mistyped_git_controls(
+    pages_operator, key, value
+):
+    operator, project, _, _ = pages_operator
+    project["source"] = disabled_github_source()
+    project["source"]["config"][key] = value
+    with pytest.raises(app.Blocked, match="Git deployments"):
+        operator.target(operator.variables())
+
+
+@pytest.mark.parametrize("key", ["production_deployments_enabled", "preview_deployment_setting"])
+def test_real_target_rejects_missing_git_controls(pages_operator, key):
+    operator, project, _, _ = pages_operator
+    project["source"] = disabled_github_source()
+    del project["source"]["config"][key]
+    with pytest.raises(app.Blocked, match="Git deployments"):
+        operator.target(operator.variables())
+
+
+@pytest.mark.parametrize(
+    "stage,state", [("build", "active"), ("queued", "idle"), ("new", "unknown")]
+)
+def test_real_target_disabled_git_still_rejects_busy_or_unknown_last_page(
+    pages_operator, stage, state
+):
+    operator, project, rows, requests = pages_operator
+    project["source"] = disabled_github_source()
+    rows.extend(pages_deployment(i) for i in range(2, 21))
+    rows.append(pages_deployment(21, stage, state, "preview"))
+    with pytest.raises(app.Blocked, match="in flight"):
+        operator.target(operator.variables())
+    assert len([url for url in requests if "/deployments?" in url]) == 2
+
+
+def test_source_drift_during_prepare_has_no_plan_or_provider_writes(pages_operator, tmp_path):
+    operator, project, _, _ = pages_operator
+    project["source"] = disabled_github_source()
+    build = operator.build
+
+    def build_then_drift(*args):
+        result = build(*args)
+        project["source"] = None  # Still allowed; its reviewed fingerprint must change.
+        return result
+
+    operator.build = build_then_drift
+    store = tmp_path / "store"
+    store.mkdir(mode=0o700)
+    journal = app.Journal(store / "prepare-status.json", "prepare", NEW)
+    with pytest.raises(app.Blocked, match="changed"):
+        app.prepare(operator, NEW, OLD, store, journal)
+    assert not (store / "plan.json").exists()
+    assert journal.value["events"] == []
+    assert set(journal.value["changes"].values()) == {"UNCHANGED"}
+    assert not {"pause", "disable", "upload", "approve", "enable", "resume"} & set(operator.calls)
+
+
+@pytest.mark.parametrize("phase", ["before-publish", "fresh-build"])
+@pytest.mark.parametrize("change", ["safe-source", "source-config", "enabled-production"])
+def test_source_drift_after_real_target_prepare_stops_publish_before_upload(
+    pages_operator, tmp_path, phase, change
+):
+    operator, project, _, _ = pages_operator
+    project["source"] = disabled_github_source()
+    store = tmp_path / "store"
+    store.mkdir(mode=0o700)
+    initial = copy.deepcopy(project)
+    journal = app.Journal(store / "prepare-status.json", "prepare", NEW)
+    app.prepare(operator, NEW, OLD, store, journal)
+    plan = json.loads((store / "plan.json").read_text())
+    assert plan["snapshot"]["target"] == operator.target(operator.variables())
+    assert project == initial
+    assert operator.state["variables"]["STATIC_AUTOMATION_ENABLED"] == "false"
+    assert operator.workflow_state == "active"
+    assert not {"pause", "disable", "upload", "approve", "enable", "resume"} & set(operator.calls)
+    operator.calls.clear()
+
+    def drift():
+        if change == "safe-source":
+            project["source"] = None
+        elif change == "source-config":
+            project["source"]["config"]["preview_branch_excludes"] = ["draft/*"]
+        else:
+            project["source"]["config"]["production_deployments_enabled"] = True
+
+    if phase == "before-publish":
+        drift()
+    else:
+        build = operator.build
+
+        def build_then_drift(*args):
+            result = build(*args)
+            drift()
+            return result
+
+        operator.build = build_then_drift
+    reviewed = app.digest((store / "plan.json").read_bytes())
+    with pytest.raises(app.Blocked, match="changed|Git deployments"):
+        run_publish((operator, store, reviewed))
+    assert operator.uploaded is None
+    assert not {"upload", "approve", "enable", "resume"} & set(operator.calls)
+    assert operator.state["variables"]["STATIC_APPROVED_SHA"] == OLD
+    assert operator.state["variables"]["STATIC_AUTOMATION_ENABLED"] == "false"
+    expected_workflow = "active" if phase == "before-publish" else "disabled_manually"
+    assert operator.workflow_state == expected_workflow
 
 
 @pytest.mark.parametrize(
