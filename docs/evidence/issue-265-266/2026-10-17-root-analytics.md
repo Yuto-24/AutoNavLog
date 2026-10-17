@@ -1,5 +1,10 @@
 # Root HTML Analytics verification (#266)
 
+Historical snapshot of the initial single-version change and 2026-10-17 failure.
+The later script was subsequently fetched, hash-verified and explicitly approved;
+see [2026-10-18 two-version evidence](2026-10-18-two-analytics-versions.md) for the
+current allowlist and actual serving completion. The failure below remains historical evidence.
+
 ## Scope and dependency
 
 This incremental change starts at PR #268 HEAD

@@ -1,4 +1,4 @@
-"""Exercise the real serving sequence with one exact, independently saved insertion."""
+"""Exercise real serving with either saved insertion, never mixed pairs."""
 
 import io
 import json
@@ -13,14 +13,19 @@ from scripts.static_ops import app_release as app
 OBSERVED = (
     Path(__file__).parents[1] / "fixtures/static-root-analytics/observed-root.html"
 ).read_bytes()
+NEW_OBSERVED = (
+    Path(__file__).parents[1] / "fixtures/static-root-analytics/changed-root.html"
+).read_bytes()
 # Offline capture offsets, not a runtime extraction rule or a candidate original.
 INSERTION = OBSERVED[639:1006]
+NEW_INSERTION = NEW_OBSERVED[639:1006]
 ORIGINAL = (
     b'<!doctype html>\n<html><head><script src="/assets/app.js"></script>'
     b'<link href="/assets/app.css" rel="stylesheet"></head>\n'
     b'<body><div id="root"></div>\n  </body>\n</html>\n'
 )
 INSERTED = ORIGINAL.replace(b"</body>", INSERTION + b"</body>")
+NEW_INSERTED = ORIGINAL.replace(b"</body>", NEW_INSERTION + b"</body>")
 
 
 def serving(tmp_path, monkeypatch, payload, *, etag=None, status=200, mime="text/html",
@@ -84,9 +89,15 @@ def serving(tmp_path, monkeypatch, payload, *, etag=None, status=200, mime="text
     return lambda: app.Operator().verify_serving(tmp_path), calls
 
 
-@pytest.mark.parametrize("payload,mode", [(ORIGINAL, "exact"), (INSERTED, "approved-insertion")])
+@pytest.mark.parametrize("payload,mode,insertion", [
+    (ORIGINAL, "exact", None),
+    (INSERTED, "approved-insertion", INSERTION),
+    (NEW_INSERTED, "approved-insertion", NEW_INSERTION),
+])
 @pytest.mark.parametrize("etag", [None, '"root"'])
-def test_root_matches_and_reaches_manifest_and_missing(tmp_path, monkeypatch, payload, mode, etag):
+def test_root_matches_and_reaches_manifest_and_missing(
+    tmp_path, monkeypatch, payload, mode, insertion, etag
+):
     verify, calls = serving(tmp_path, monkeypatch, payload, etag=etag)
     verify()
     assert len(calls) == 3
@@ -98,63 +109,61 @@ def test_root_matches_and_reaches_manifest_and_missing(tmp_path, monkeypatch, pa
     assert evidence["raw_complete"] is True
     assert evidence["etag_present"] is (etag is not None) and evidence["etag"] == etag
     assert evidence["compared"] == {"bytes": len(ORIGINAL), "sha256": app.digest(ORIGINAL)}
-    assert evidence["insertion_sha256"] == (app.digest(INSERTION) if mode != "exact" else None)
+    assert evidence["insertion_sha256"] == (app.digest(insertion) if insertion else None)
 
 
-def test_saved_response_matches_recorded_inventory_not_original(tmp_path, monkeypatch):
-    assert app.digest(OBSERVED) == (
-        "44e6e333e078407e1ee5f582d6fb0905fb2fda0fddfc41e0343001449135353f"
-    )
-    assert len(INSERTION) == 367 and app.ROOT_ANALYTICS_INSERTION == INSERTION
-    verify, calls = serving(tmp_path, monkeypatch, OBSERVED, expected={
+@pytest.mark.parametrize("observed,insertion,expected_hash", [
+    (OBSERVED, INSERTION, "44e6e333e078407e1ee5f582d6fb0905fb2fda0fddfc41e0343001449135353f"),
+    (NEW_OBSERVED, NEW_INSERTION,
+     "563d09a93aee94ebf8d68b0cc69eaf205f2b97e32c10c7ef3c884fdacf763340"),
+])
+def test_saved_response_matches_recorded_inventory_not_original(
+    tmp_path, monkeypatch, observed, insertion, expected_hash
+):
+    """Both owner-approved captures match inventory without claiming retained originals."""
+    assert app.digest(observed) == expected_hash
+    assert len(insertion) == 367
+    assert app.ROOT_ANALYTICS_INSERTIONS == (INSERTION, NEW_INSERTION)
+    verify, calls = serving(tmp_path, monkeypatch, observed, expected={
         "bytes": 655, "sha256": "5f064aed2bdce84445cf9e15dc6d4cb2dee923ea8e750f9f762b7e051ff5c9d1"
     })
     verify()
     assert len(calls) == 3
+    evidence = json.loads((tmp_path / "serving-root.json").read_text())
+    assert evidence["insertion_sha256"] == app.digest(insertion)
+    assert (tmp_path / "serving-root.body").read_bytes() == observed
 
 
-def test_new_cloudflare_script_is_not_learned_from_live_response(tmp_path, monkeypatch):
-    changed = (
-        Path(__file__).parents[1] / "fixtures/static-root-analytics/changed-root.html"
-    ).read_bytes()
-    assert app.digest(changed) == (
-        "563d09a93aee94ebf8d68b0cc69eaf205f2b97e32c10c7ef3c884fdacf763340"
-    )
-    verify, calls = serving(tmp_path, monkeypatch, changed, expected={
-        "bytes": 655, "sha256": "5f064aed2bdce84445cf9e15dc6d4cb2dee923ea8e750f9f762b7e051ff5c9d1"
-    })
-    with pytest.raises(app.Blocked, match="no approved insertion"):
-        verify()
-    assert len(calls) == 1
-    assert (tmp_path / "serving-root.body").read_bytes() == changed
-
-
-@pytest.mark.parametrize("payload", [
-    INSERTED.replace(INSERTION, INSERTION * 2),
-    INSERTED.replace(INSERTION, b'<script src="https://other.example/a.js"></script>\n'),
-    INSERTED.replace(b"static.cloudflareinsights.com", b"other.cloudflareinsights.com"),
-    INSERTED.replace(b"1791215815920", b"1791215815921"),
-    INSERTED.replace(b"sha512-L0", b"sha512-M0"),
-    INSERTED.replace(b'"token":"95', b'"token":"96'),
-    INSERTED.replace(b'"r":1', b'"r":0'),
-    INSERTED.replace(b'"spa":2', b'"spa":1'),
-    INSERTED.replace(b'"2024.11.0"', b'"2025.11.0"'),
-    INSERTED.replace(b'crossorigin="anonymous"', b'crossorigin="use-credentials"'),
-    INSERTED.replace(b'<script type="module" src="https:', b'<script defer src="https:'),
-    INSERTED.replace(b"data-cf-beacon=", b"nonce=\"extra\" data-cf-beacon="),
-    ORIGINAL.replace(b"</head>", INSERTION + b"</head>"),
-    ORIGINAL + INSERTION,
-    INSERTED.replace(b"  <script", b" <script"),
-    INSERTED.replace(INSERTION, INSERTION[:-1]),
-    INSERTED.replace(INSERTION, INSERTION[:-1] + b"\r\n"),
-    INSERTED.replace(INSERTION, INSERTION + b"\n"),
-    INSERTED.replace(b"app.js", b"bad.js"),
-    INSERTED.replace(b"app.css", b"bad.css"),
-    INSERTED.replace(b'id="root"', b'id="evil"'),
-    INSERTED.replace(b"</html>\n", b"</html>"),
-    ORIGINAL.replace(b"app.js", b"bad.js"),
+@pytest.mark.parametrize("insertion", [INSERTION, NEW_INSERTION], ids=["old", "new"])
+@pytest.mark.parametrize("mutate", [
+    lambda raw, ins: raw.replace(ins, ins * 2),
+    lambda raw, ins: raw.replace(ins, b'<script src="https://other.example/a.js"></script>\n'),
+    lambda raw, ins: raw.replace(b"static.cloudflareinsights.com", b"other.cloudflareinsights.com"),
+    lambda raw, ins: raw.replace(b'" integrity=', b'x" integrity='),
+    lambda raw, ins: raw.replace(b"sha512-", b"sha512-X"),
+    lambda raw, ins: raw.replace(b'"token":"95', b'"token":"96'),
+    lambda raw, ins: raw.replace(b'"r":1', b'"r":0'),
+    lambda raw, ins: raw.replace(b'"spa":2', b'"spa":1'),
+    lambda raw, ins: raw.replace(b'"2024.11.0"', b'"2025.11.0"'),
+    lambda raw, ins: raw.replace(b'crossorigin="anonymous"', b'crossorigin="use-credentials"'),
+    lambda raw, ins: raw.replace(
+        b'<script type="module" src="https:', b'<script defer src="https:'
+    ),
+    lambda raw, ins: raw.replace(b"data-cf-beacon=", b'nonce="extra" data-cf-beacon='),
+    lambda raw, ins: ORIGINAL.replace(b"</head>", ins + b"</head>"),
+    lambda raw, ins: ORIGINAL + ins,
+    lambda raw, ins: raw.replace(b"  <script", b" <script"),
+    lambda raw, ins: raw.replace(ins, ins[:-1]),
+    lambda raw, ins: raw.replace(ins, ins[:-1] + b"\r\n"),
+    lambda raw, ins: raw.replace(ins, ins + b"\n"),
+    lambda raw, ins: raw.replace(b"app.js", b"bad.js"),
+    lambda raw, ins: raw.replace(b"app.css", b"bad.css"),
+    lambda raw, ins: raw.replace(b'id="root"', b'id="evil"'),
+    lambda raw, ins: raw.replace(b"</html>\n", b"</html>"),
+    lambda raw, ins: ORIGINAL.replace(b"app.js", b"bad.js"),
 ])
-def test_changes_beyond_exact_insertion_fail(tmp_path, monkeypatch, payload):
+def test_changes_beyond_exact_insertion_fail(tmp_path, monkeypatch, insertion, mutate):
+    payload = mutate(ORIGINAL.replace(b"</body>", insertion + b"</body>"), insertion)
     verify, calls = serving(tmp_path, monkeypatch, payload)
     with pytest.raises(app.Blocked):
         verify()
@@ -164,16 +173,17 @@ def test_changes_beyond_exact_insertion_fail(tmp_path, monkeypatch, payload):
     assert (tmp_path / "serving-root.body").read_bytes() == payload
 
 
+@pytest.mark.parametrize("payload", [INSERTED, NEW_INSERTED], ids=["old", "new"])
 @pytest.mark.parametrize("options", [
     {"status": 403}, {"status": 201}, {"mime": "text/plain"},
     {"cache": "public, max-age=3600"},
 ])
-def test_root_header_failure_retains_raw(tmp_path, monkeypatch, options):
-    verify, calls = serving(tmp_path, monkeypatch, INSERTED, **options)
+def test_root_header_failure_retains_raw(tmp_path, monkeypatch, options, payload):
+    verify, calls = serving(tmp_path, monkeypatch, payload, **options)
     with pytest.raises(app.Blocked):
         verify()
     assert len(calls) == 1
-    assert (tmp_path / "serving-root.body").read_bytes() == INSERTED
+    assert (tmp_path / "serving-root.body").read_bytes() == payload
     assert json.loads((tmp_path / "serving-root.json").read_text())["result"] == "BLOCKED"
 
 
@@ -190,21 +200,45 @@ def test_root_byte_budget_cannot_be_bypassed_even_by_matching_inventory(tmp_path
     assert json.loads((tmp_path / "serving-root.json").read_text())["raw_complete"] is False
 
 
+@pytest.mark.parametrize("payload", [INSERTED, NEW_INSERTED], ids=["old", "new"])
 @pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
-def test_root_redirects_rejected_with_analytics(tmp_path, monkeypatch, code):
-    verify, calls = serving(tmp_path, monkeypatch, INSERTED, status=code)
+def test_root_redirects_rejected_with_analytics(tmp_path, monkeypatch, code, payload):
+    verify, calls = serving(tmp_path, monkeypatch, payload, status=code)
     with pytest.raises(ValueError, match="redirected"):
         verify()
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("payload", [INSERTED, NEW_INSERTED], ids=["old", "new"])
 @pytest.mark.parametrize("options,count", [
     ({"manifest_change": "content"}, 2), ({"manifest_change": "length"}, 2),
     ({"manifest_change": "etag"}, 2), ({"missing": 200}, 3), ({"missing": 403}, 3),
 ])
-def test_approved_insertion_does_not_skip_subsequent_gates(tmp_path, monkeypatch, options, count):
-    verify, calls = serving(tmp_path, monkeypatch, INSERTED, **options)
+def test_approved_insertion_does_not_skip_subsequent_gates(
+    tmp_path, monkeypatch, options, count, payload
+):
+    verify, calls = serving(tmp_path, monkeypatch, payload, **options)
     with pytest.raises(app.Blocked):
         verify()
     assert len(calls) == count
     assert json.loads((tmp_path / "serving-root.json").read_text())["result"] == "OK"
+
+
+@pytest.mark.parametrize("first,second", [(INSERTION, NEW_INSERTION), (NEW_INSERTION, INSERTION)])
+@pytest.mark.parametrize("change", ["mixed-pair", "both-versions"])
+def test_reviewed_versions_cannot_be_mixed_or_combined(
+    tmp_path, monkeypatch, first, second, change
+):
+    """A valid src and valid integrity from different versions never form a valid pair."""
+    if change == "both-versions":
+        insertion = first + second
+    else:
+        first_integrity = first.split(b'integrity="', 1)[1].split(b'"', 1)[0]
+        second_integrity = second.split(b'integrity="', 1)[1].split(b'"', 1)[0]
+        insertion = first.replace(first_integrity, second_integrity)
+    verify, calls = serving(
+        tmp_path, monkeypatch, ORIGINAL.replace(b"</body>", insertion + b"</body>")
+    )
+    with pytest.raises(app.Blocked, match="no approved insertion"):
+        verify()
+    assert len(calls) == 1
