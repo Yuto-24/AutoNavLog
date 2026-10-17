@@ -911,8 +911,9 @@ def test_canonical_root_headers_bytes_and_missing_asset_gate(
         return Opener()
 
     monkeypatch.setattr(app, "build_opener", build)
-    if change:
-        with pytest.raises(HTTPError if change == "forbidden" else app.Blocked):
+    if change and not (change == "etag" and resource == "index.html"):
+        exception = HTTPError if change == "forbidden" and resource != "index.html" else app.Blocked
+        with pytest.raises(exception):
             real.verify_serving(store / "prepared")
         if change == "forbidden":
             assert len(urls) == (1 if resource == "index.html" else 2)
