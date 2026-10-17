@@ -61,6 +61,29 @@ RULES_TRANSITION_V1227 = {
     "recovery": "forward-fix; no automatic old Rules rollback",
 }
 
+# Owner-confirmed Analytics settings and saved payload: see the dated #266 evidence.
+# Never learn this allowlist from a serving response. Any provider change needs review.
+ROOT_ANALYTICS_INSERTIONS = (
+    (
+        b'<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/'
+        b'v4bc70e2c01a94c73b74392e4234840661791215815920" '
+        b'integrity="sha512-L0ha0OXavK/8okipN9F8BtP84dg9DUhPERbBXzwI6dgTA55d2+yweo3pn5CSFYs45/'
+        b'r8md2+xvUPtTdvTNRfjA==" '
+        b'data-cf-beacon=\'{"version":"2024.11.0","token":"95f71c67cb5a41d3ab040fe18f7bcaa4",'
+        b'"r":1,"spa":2}\' crossorigin="anonymous"></script>\n'
+    ),
+    (
+        b'<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/'
+        b'vce701823e78c4301a35b7e07294d87301792088814092" '
+        b'integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/'
+        b'BikHawapSCaiD2XCmp+Bw==" '
+        b'data-cf-beacon=\'{"version":"2024.11.0","token":"95f71c67cb5a41d3ab040fe18f7bcaa4",'
+        b'"r":1,"spa":2}\' crossorigin="anonymous"></script>\n'
+    ),
+)
+ROOT_HTML_END = b"</body>\n</html>\n"
+SERVING_BYTE_LIMIT = 8 * 1024 * 1024
+
 
 class Blocked(Exception):
     """Fixed messages only; native API/command errors must not escape."""
@@ -116,6 +139,66 @@ def write_json(path: Path, value: object) -> None:
         stream.flush()
         os.fsync(stream.fileno())
     temporary.replace(path)
+
+
+def verify_root_response(response, expected: dict, destination: Path) -> None:
+    """Retain raw HTML; admit only exact inventory or one pinned byte insertion."""
+    raw = response.read(SERVING_BYTE_LIMIT + 1)
+    with (destination / "serving-root.body").open("wb") as stream:
+        os.chmod(stream.name, 0o600)
+        stream.write(raw)
+    raw_identity = {"bytes": len(raw), "sha256": digest(raw)}
+    evidence = {
+        "observed_at": datetime.now(UTC).isoformat(),
+        "url": gate.ORIGIN + "/",
+        "status": response.status,
+        "content_type": response.headers.get("Content-Type"),
+        "cache_control": response.headers.get("Cache-Control"),
+        "etag_present": response.headers.get("ETag") is not None,
+        "etag": response.headers.get("ETag"),
+        "raw": raw_identity,
+        "raw_complete": len(raw) <= SERVING_BYTE_LIMIT,
+        "expected_inventory": expected,
+        "match": None,
+        "insertion_sha256": None,
+        "compared": raw_identity,
+        "result": "BLOCKED",
+    }
+    try:
+        require(len(raw) <= SERVING_BYTE_LIMIT, "Canonical HTML exceeds byte budget")
+        require(
+            response.status == 200
+            and "no-cache" in response.headers.get("Cache-Control", "")
+            and response.headers.get_content_type() == "text/html",
+            "Canonical serving/header verification failed",
+        )
+        compared = raw
+        mode = "exact"
+        if raw_identity != expected:
+            # The two original spaces stay before the script; only script + LF is removed.
+            matches = [
+                insertion for insertion in ROOT_ANALYTICS_INSERTIONS
+                if raw.endswith(b"  " + insertion + ROOT_HTML_END)
+            ]
+            require(
+                len(matches) == 1
+                and sum(raw.count(insertion) for insertion in ROOT_ANALYTICS_INSERTIONS) == 1,
+                "Canonical HTML has no approved insertion at the pinned position",
+            )
+            insertion = matches[0]
+            offset = len(raw) - len(ROOT_HTML_END) - len(insertion)
+            compared = raw[:offset] + raw[offset + len(insertion):]
+            mode = "approved-insertion"
+            evidence["insertion_sha256"] = digest(insertion)
+        evidence["compared"] = {"bytes": len(compared), "sha256": digest(compared)}
+        require(
+            evidence["compared"] == expected,
+            "Canonical HTML/manifest content differs from fresh upload",
+        )
+        evidence["match"] = mode
+        evidence["result"] = "OK"
+    finally:
+        write_json(destination / "serving-root.json", evidence)
 
 
 class Journal:
@@ -678,7 +761,16 @@ class Operator:
             request = static_request(
                 gate.ORIGIN + ("/" if name == "index.html" else "/" + name)
             )
-            with opener.open(request, timeout=30) as response:
+            try:
+                response = opener.open(request, timeout=30)
+            except HTTPError as error:
+                if name != "index.html":
+                    raise
+                response = error  # Retain the bounded error body; the status gate still rejects it.
+            with response:
+                if name == "index.html":
+                    verify_root_response(response, candidate["files"][name], destination)
+                    continue
                 require(
                     response.status == 200
                     and response.headers.get("ETag")
