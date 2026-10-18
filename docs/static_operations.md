@@ -479,7 +479,13 @@ publish は **fresh/** に再生成・再テストし、prepare の dist を upl
 から使い、`pages deploy dist-static --project-name navmate --branch main --commit-hash SHA` を実行。
 Pages の未サポート `--dry-run` / custom `--config` は使わない。TAF Worker deploy は呼ばない。
 正規 URL の release 全 inventory（既存 bounded poll）、freshness、HTML/manifest の内容・
-HTTPS/no redirect/no-cache/ETag/MIME、欠落 asset の404、Pages commit を確認する。
+HTTPS/no redirect/no-cache/MIME、欠落 asset の404、Pages commit を確認する。
+manifest の ETag は必須。root の ETag は有無と値を記録し、本文は候補 inventory の
+bytes/SHA-256 完全一致、または[確認済みの旧版・新版いずれかの解析scriptとLFの単一挿入](evidence/issue-265-266/2026-10-18-two-analytics-versions.md)
+だけを除いた完全一致を要求する。src と integrity の組み替えや両版の同時挿入は拒否する。
+挿入の全bytes・位置を固定し、実応答から許可内容を
+学習しない。Cloudflare が挿入内容を変えた場合は停止し、証拠と許可内容の再確認が必要。
+raw root と比較結果は `serving-root.body` / `serving-root.json` に保持する。
 成功後だけ承認 SHA を更新・read-backし、workflow を enable する。
 開始時に automation が true だった場合だけ true に戻し、元が false なら false を維持する。
 #121 の実 login/Sync、旧タブ、保存データ、plan/billing 等の production acceptance は別途必要。
