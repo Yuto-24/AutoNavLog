@@ -424,7 +424,13 @@ canonical release に照合し、environment variable による shadowing も拒
 Migration URL は維持する。受付終了の検討（10/24〜25目安）は別の承認・変更として扱う。
 
 prepare は現在の成功した Pages production ID/commit、完全な deployment inventory と idle、
-Direct Upload の対象、Functions/設定混入、稼働中の Firestore Rules を読み取りで確認する。
+Wrangler で直接公開する対象、Functions/設定混入、稼働中の Firestore Rules を読み取りで確認する。
+ここでの直接公開は公開方法であり、Git 連携のないプロジェクト構成だけを意味しない。
+`source=null`、または GitHub 連携で `production_deployments_enabled=false`（真偽値）と
+`preview_deployment_setting="none"` の両方を明示した構成だけを許可する。欠落・型違い・
+未知の形式は拒否し、非推奨の `deployments_enabled` は条件に使わない。設定変更は行わない。
+これは Cloudflare の [Git 連携で自動配備を停止して Wrangler から公開する手順](https://developers.cloudflare.com/pages/configuration/git-integration/#disable-automatic-deployments)と
+[本番・preview の branch controls](https://developers.cloudflare.com/pages/configuration/branch-build-controls/)に従う。
 通常は候補/current の Rules、indexes、Project schema の同一を必須とする。
 `--rules-transition-v1227` は下記の固定SHA・project・元バイトRules hashだけを例外として
 許可する。indexes / Project schema の同一条件は維持する。他の移行を許可する入力はない。
