@@ -367,6 +367,7 @@ def pages_operator(monkeypatch, tmp_path):
     project["canonical_deployment"]["deployment_trigger"]["metadata"]["commit_hash"] = OLD
     rows = [copy.deepcopy(project["canonical_deployment"])]
     requests = []
+    operator.project_reads = []
 
     class Response(io.BytesIO):
         status = 200
@@ -379,7 +380,8 @@ def pages_operator(monkeypatch, tmp_path):
             assert parsed.hostname == "api.cloudflare.com"
             requests.append(request.full_url)
             if parsed.path == path:
-                payload = {"success": True, "result": copy.deepcopy(project)}
+                observed = operator.project_reads.pop(0) if operator.project_reads else project
+                payload = {"success": True, "result": copy.deepcopy(observed)}
             else:
                 assert parsed.path == path + "/deployments"
                 query = parse_qs(parsed.query)
@@ -420,6 +422,43 @@ def test_real_target_allows_upload_method_with_git_builds_disabled(pages_operato
     assert result["commit"] == OLD
     assert len([url for url in requests if "/deployments?" in url]) == 2
     assert len(requests) == 5  # Initial project, inventory's before/after project, two pages.
+
+
+@pytest.mark.parametrize("pattern", ["AAA", "ABB", "AAB", "ABA"])
+@pytest.mark.parametrize(
+    "change", ["enabled", "allowed-source", "allowed-config", "bool-to-number", "functions"]
+)
+def test_real_target_binds_initial_settings_to_both_inventory_reads(
+    pages_operator, pattern, change
+):
+    """All three GETs must agree, including allowed source changes and JSON types."""
+    operator, project, _, requests = pages_operator
+    project["source"] = disabled_github_source()
+    changed = copy.deepcopy(project)
+    if change == "enabled":
+        changed["source"]["config"]["production_deployments_enabled"] = True
+    elif change == "allowed-source":
+        changed["source"] = None
+    elif change == "allowed-config":
+        changed["source"]["config"]["preview_branch_excludes"] = ["draft/*"]
+    elif change == "bool-to-number":
+        changed["source"]["config"]["production_deployments_enabled"] = 0
+    else:
+        changed["deployment_configs"]["production"]["kv_namespaces"] = {
+            "PRIVATE_BINDING": {"namespace_id": "PRIVATE_VALUE"}
+        }
+    operator.project_reads = [copy.deepcopy(project if read == "A" else changed)
+                              for read in pattern]
+    if pattern == "AAA":
+        baseline = operator.target(operator.variables())
+        app.unchanged({"target": baseline}, {"target": operator.target(operator.variables())},
+                      deployment=True)
+    else:
+        with pytest.raises(app.Blocked, match="Pages target unknown or changed") as error:
+            operator.target(operator.variables())
+        assert "PRIVATE" not in str(error.value)
+        assert len(requests) == 4  # All three project reads and complete inventory.
+    assert not operator.project_reads
 
 
 @pytest.mark.parametrize("legacy", [True, False, "deprecated", 0, None])
@@ -799,9 +838,14 @@ def test_isolated_upload_uses_supported_pages_command_and_disables_native_logs(
 
 
 @pytest.mark.parametrize(
-    "change", [None, "content", "cache", "etag", "mime", "missing-200", "missing-403"]
+    "change", [None, "content", "length", "cache", "etag", "mime", "status", "forbidden",
+               "missing-200", "missing-403"]
 )
-def test_canonical_root_headers_bytes_and_missing_asset_gate(prepared, monkeypatch, change):
+@pytest.mark.parametrize("resource", ["index.html", "local/manifest.json"])
+def test_canonical_root_headers_bytes_and_missing_asset_gate(
+    prepared, monkeypatch, change, resource
+):
+    """Honest operations identity must not bypass any serving or missing-asset gate."""
     from email.message import Message
     from urllib.error import HTTPError
 
@@ -821,8 +865,16 @@ def test_canonical_root_headers_bytes_and_missing_asset_gate(prepared, monkeypat
             )
             self.headers["Cache-Control"] = "no-cache"
             self.headers["ETag"] = "hash"
+            if name != resource:
+                return
+            if change == "forbidden":
+                raise HTTPError(gate.ORIGIN + "/" + name, 403, "forbidden", {}, None)
+            if change == "status":
+                self.status = 201
             if change == "content":
-                self.payload = b"wrong"
+                self.payload = b"x" * len(self.payload)
+            if change == "length":
+                self.payload += b"x"
             if change in ("cache", "etag"):
                 del self.headers["Cache-Control" if change == "cache" else "ETag"]
             if change == "mime":
@@ -840,6 +892,10 @@ def test_canonical_root_headers_bytes_and_missing_asset_gate(prepared, monkeypat
     class Opener:
         def open(self, request, **kwargs):
             urls.append(request.full_url)
+            assert request.get_method() == "GET" and request.data is None
+            assert dict(request.header_items()) == {
+                "Cache-control": "no-cache", "User-agent": "AutoNavLog-StaticOperations/1.0"
+            }
             if request.full_url.endswith(".missing.whl"):
                 if change == "missing-200":
                     return Response("index.html")
@@ -850,14 +906,59 @@ def test_canonical_root_headers_bytes_and_missing_asset_gate(prepared, monkeypat
                 "index.html" if request.full_url.endswith("/") else "local/manifest.json"
             )
 
-    monkeypatch.setattr(app, "build_opener", lambda *args: Opener())
+    def build(handler):
+        assert handler is app.NoRedirect
+        return Opener()
+
+    monkeypatch.setattr(app, "build_opener", build)
     if change:
-        with pytest.raises(app.Blocked):
+        with pytest.raises(HTTPError if change == "forbidden" else app.Blocked):
             real.verify_serving(store / "prepared")
+        if change == "forbidden":
+            assert len(urls) == (1 if resource == "index.html" else 2)
     else:
         real.verify_serving(store / "prepared")
         assert urls[0] == gate.ORIGIN + "/"
         assert urls[1] == gate.ORIGIN + "/local/manifest.json"
+        assert urls[2] == gate.ORIGIN + "/local/" + NEW + ".missing.whl"
+
+
+@pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
+@pytest.mark.parametrize("resource", ["/", "/local/manifest.json", "/missing.whl"])
+def test_verify_serving_never_follows_redirects(prepared, monkeypatch, code, resource):
+    """Reject redirects on HTML, manifest and the expected missing-asset response."""
+    from email.message import Message
+
+    _, store, _ = prepared
+    dist = store / "prepared/upload/dist-static"
+    calls = []
+
+    class Opener:
+        def open(self, request, **kwargs):
+            calls.append(request.full_url)
+            path = request.full_url.removeprefix(gate.ORIGIN)
+            if path == resource or (resource == "/missing.whl" and path.endswith(".missing.whl")):
+                app.NoRedirect().redirect_request(
+                    request, None, code, "redirect", {}, "https://other.example/"
+                )
+                pytest.fail("Redirect must not be followed")
+            name = "index.html" if path == "/" else "local/manifest.json"
+            response = io.BytesIO((dist / name).read_bytes())
+            response.status = 200
+            response.headers = Message()
+            response.headers["Content-Type"] = "text/html" if path == "/" else "application/json"
+            response.headers["Cache-Control"] = "no-cache"
+            response.headers["ETag"] = "hash"
+            return response
+
+    def build(handler):
+        assert handler is app.NoRedirect
+        return Opener()
+
+    monkeypatch.setattr(app, "build_opener", build)
+    with pytest.raises(ValueError, match="redirected"):
+        app.Operator(store).verify_serving(store / "prepared")
+    assert len(calls) == {"/": 1, "/local/manifest.json": 2, "/missing.whl": 3}[resource]
 
 
 @pytest.mark.parametrize("failure", ["cli-install", "target-drift", "final-validation"])
