@@ -378,6 +378,60 @@ healthy readings. At warning/exhaustion, reduce workloads or wait for reset; nev
 automatically. GitHub failure notifications remain the transport, with live receipt still
 an acceptance requirement. Application / calculation / Project schemas are unchanged.
 
+## MSM-only recovery preparation and one-off publication
+
+Use this path when the approved application still serves correctly but its MSM
+catalog has expired. Keep `STATIC_APPROVED_SHA`, VERSION and the six public
+connection settings unchanged. This is the existing whole-artifact Pages Direct
+Upload path; #270 and #273 are independent follow-up enhancements. The app-release
+wrapper and its Rules-transition approval are unnecessary for a same-app renewal.
+
+Before requesting publication approval:
+
+1. Read canonical `release.json` and catalog; compare the approved SHA, clean
+   source, public settings, catalog hash/bytes and actual expiry. Record each
+   observation time. Check repository/environment variable shadowing and existing
+   publication protection without reading secret values.
+2. Inspect current main, the recovery PR and its independent/CodeRabbit reviews.
+   Ensure the publication verifier checks the **actual catalog response**, not
+   only `release.json` (#264). Do not infer the cause of a past failure when its
+   response was not retained.
+3. Run `static-provider-probe`, selector `cloudflare_pages_target`, with the
+   reviewed execution SHA as described in [#250 observation](#get-only-pages-target-observation-250).
+   Check the canonical successful deployment, fixed project/branch/domain,
+   Functions/configuration, full pagination and absence of concurrent work.
+   Record missing fields as UNKNOWN and resolve material target uncertainty;
+   the diagnostic's intentional exit 1 is not a failed upload.
+4. On reviewed main, dispatch `static-production.yml` with `publish=false` and
+   `source_sha` equal to the full current approved SHA. This performs real MSM
+   generation, static build and production-artifact E2E without exposing the Pages
+   edit token or uploading. Check the run's steps, not just its overall status.
+5. Finish relevant source tests, independent review and PR CI. Report separately
+   what passed, what remains UNKNOWN, and what needs operator approval. Do not
+   change production, merge a PR or enable schedules during preparation.
+
+After **separate explicit approval** and an acceptable final merge-gate check,
+merge the recovery tooling PR. Reconfirm the merged workflow/checker and repeat
+current target/configuration/idle reads, including the full Actions run inventory.
+Keep other operators from uploading during the approved window; GET inventory
+does not provide a remote lock. Resolve target uncertainty or competing work
+before proceeding. Dispatch `static-production.yml` on main with the same full
+approved application SHA and `publish=true`; approve `static-publication` through
+its existing required reviewer. A new feed is generated in that run, so a previous
+build-only catalog is never promoted after expiry.
+
+Verify the canonical inventory and catalog with the bounded same-response
+hash/bytes/freshness check, then the independent monitor. Complete the live-origin
+checks in [Static production](static_production.md#release-acceptance-gate), including
+FORECAST/TAF and Local persistence. Keep recurring publication and monitoring
+disabled until separately authorized. Failure after upload may mean production
+already changed: inspect it and use the existing approved recovery/rollback
+contract, without an automatic retry-upload, rollback or scheduler restart.
+
+The [October 21 preparation audit](evidence/issue-123/msm-recovery-2026-10-21.md)
+records the same-app build, Pages observation and remaining approval boundaries.
+Its timestamps are historical evidence, not current publication authorization.
+
 ## App release and rollback checklist
 
 - Confirm the existing test workflow (Reference/differential/browser/sync), independent
