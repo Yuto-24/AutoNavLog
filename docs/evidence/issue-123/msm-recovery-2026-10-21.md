@@ -60,6 +60,13 @@ The old local-OAuth 401 no longer blocks this observation route. #250 remains op
 repeat the inventory immediately before publication, resolve unknown target facts,
 and record that observation. A GET inventory is not a lock against another operator.
 
+At 17:34 JST, [repeat diagnostic 39570276909](https://github.com/Yuto-24/AutoNavLog/actions/runs/39570276909)
+observed the same canonical deployment, target/configuration and missing binding
+states. Pagination covered 182 deployments (18 FINISHED, 164 explicitly SKIPPED),
+with no ACTIVE/PENDING/UNKNOWN activities, no in-flight entries and an unchanged
+project reread. At 17:28 JST, canonical catalog/configuration and disabled switches
+also remained unchanged. These later reads still do not authorize publication.
+
 ## Build-only verification
 
 [Run 39521789417](https://github.com/Yuto-24/AutoNavLog/actions/runs/39521789417)
@@ -84,7 +91,13 @@ PR #264's catalog fix was integrated with current main locally without changing
 its behavior. The regression verifies an old or different catalog cannot pass
 even when `release.json` matches, and evaluates freshness on the same received
 catalog. Existing 300/30/10-second polling budgets remain unchanged.
-Explicit GPT-6 Astra read-only code review found no actionable issue. Historical
+The implementation chat uses GPT-6 Astra. Its separate Astra read-only review
+found no actionable issue but is same-model review, not independent acceptance.
+Explicitly selected **GPT-6.1 Sol** subsequently reviewed all six changed files
+and the relevant request, polling and workflow boundaries: no actionable findings,
+289 focused tests passed, and no checkout changes. Full local Docker CI passed
+1,904 tests, Ruff, mypy (77 source files), release/data/schema checks and package
+build; Web typecheck and the release/PR-body contract also passed. Historical
 PR #264 HEAD `687709f` has GPT-6.1 Sol review, CodeRabbit approval, no review
 threads and passing hosted checks; those do not substitute for final updated-HEAD
 CI/review. Final test/review results are recorded on PR #264.
