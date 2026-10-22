@@ -136,6 +136,17 @@ def test_line_break_is_whitespace_and_nested_note_is_counted_once():
 
 
 @pytest.mark.parametrize("wrapper", [
+    "<div>Previous limit: {} Current limit: two databases.</div>",
+    "<div>Historical example: <div>{}</div></div>",
+    "<div>{}<span> No longer applicable.</span></div>",
+    "<div><div>Previous limit:</div>{}<div>Current limit: two databases.</div></div>",
+    "<div><p>Historical example:</p>{}</div>",
+    "<div>{}<p>No longer applicable.</p></div>",
+    "<div><div><p>Historical</p><p>example:</p></div>{}</div>",
+    "<div><p>Previous limit:</p>{}<p>Current limit: two databases.</p>"
+    "<h3>Additional information</h3></div>",
+    "<div><p>Previous limit:</p>{}<p>Current limit: two databases.</p>"
+    "<h2>Free quota</h2></div>",
     "<li>Previous limit: {} Current limit: two databases.</li>",
     "<aside>Historical example: <li>{}</li></aside>",
     "<li>{}<span> No longer applicable.</span></li>",
@@ -148,6 +159,24 @@ def test_nested_note_cannot_discard_visible_ancestor_qualification(wrapper):
     docs["firestore"] = docs["firestore"].replace(note, wrapper.format(note))
     result = limits.audit(NOW, Client(docs))
     assert result["status"] == "BLOCKED" and "limits_checked_at" not in result
+
+
+def test_layout_div_preserves_sections_tables_and_unique_clauses():
+    docs = {name: f"<div><div>{body}</div></div>" for name, body in current_markup().items()}
+    assert limits.audit(NOW, Client(docs))["status"] == "OK"
+
+
+@pytest.mark.parametrize(
+    "context", ["<h3>Historical example</h3>", "<table><tr><td>Historical</td></tr></table>"]
+)
+def test_parent_clause_cannot_discard_structured_child_context(context):
+    docs = documents()
+    docs["firestore"] = docs["firestore"].replace(
+        "<p>Cloud Firestore allows exactly one free database per project.</p>",
+        "<div>Cloud Firestore allows exactly one free database per project."
+        + context + "</div>",
+    )
+    assert "limits_checked_at" not in limits.audit(NOW, Client(docs))
 
 
 def test_parent_clause_cannot_discard_nested_visible_qualification():

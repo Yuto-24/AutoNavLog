@@ -68,7 +68,12 @@ GitHubのinline link終端に存在しない空白を挿入していた。
 これにより上限・scopeが同じ公式HTMLでも`limits_clause_changed`になった。
 可視注記を本文blockとして扱い、inline要素間は元の文字列を保持、`br`は空白として扱う。
 入れ子の注記は親blockの文脈を確認してから採用する。親が「旧制限」などの可視テキストを
-持つ場合、子だけを独立した肯定条項として採用しない。説明のないwrapperだけは透過させる。
+持つ場合、子だけを独立した肯定条項として採用しない。`div`もこの文脈確認に含め、
+説明のないwrapperだけは透過させる。見出し・表は既存のsection/value検証で扱い、
+layout用`div`の説明文と混同しない。
+注記wrapperは単一の子だけを透過させ、子`div`/`p`に分かれた前置・後置の修飾文も
+落とさない。wrapper自身で見出しが開いたsectionに限り複数の独立blockを扱い、
+後続の見出しが以前の修飾付きgroupを遡って許可することも防ぐ。
 値、単位、plan列、section、affirmative clause、重複拒否、hidden/history拒否は維持する。
 table/文言への緩い部分一致や、HTTP成功だけでのtimestamp更新は追加しない。
 
