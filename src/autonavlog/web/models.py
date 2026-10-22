@@ -37,6 +37,7 @@ class ImportRouteRequest(WebRequestModel):
 
 
 class MapRoutePoint(WebRequestModel):
+    original_node_id: UUID | None = None
     name: str = Field(min_length=1, max_length=100)
     latitude_deg: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude_deg: float = Field(ge=-180, le=180, allow_inf_nan=False)
@@ -45,6 +46,7 @@ class MapRoutePoint(WebRequestModel):
 
 class ConfirmRouteRequest(WebRequestModel):
     candidate_kind: Literal["line", "connected_lines", "polygon", "points", "map"]
+    edit_project_id: UUID | None = None
     map_points: list[MapRoutePoint] = Field(default_factory=list, max_length=500)
     candidate_index: int = Field(default=0, ge=0)
     point_indices: list[Annotated[int, Field(ge=0)]] = Field(
@@ -79,6 +81,8 @@ class ConfirmRouteRequest(WebRequestModel):
                 or not self.map_points[-1].airport_id
             ):
                 raise ValueError("Map route requires at least two points and airport endpoints")
+        elif self.edit_project_id is not None:
+            raise ValueError("Only MAP drafts can edit a confirmed Project")
         elif self.map_points:
             raise ValueError("map_points requires candidate_kind=map")
         if self.weather_mode == "FTD" and self.ftd_weather is None:

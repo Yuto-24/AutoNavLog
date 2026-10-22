@@ -1,20 +1,19 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { resolve } from "node:path";
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 
 async function importRoute(page: Page, fixture: string) {
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles(resolve(`../tests/fixtures/${fixture}`));
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地上風向 ° FROM").fill("360");
   await page.getByLabel("地上風速 kt").fill("15");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
-  await page.locator('input[type="file"]').setInputFiles(resolve(`../tests/fixtures/${fixture}`));
-  await expect(page.getByLabel("飛行経路候補")).not.toHaveValue("");
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
   await expect(page.locator(".route-table .destination-row")).toBeVisible();
 }
 
@@ -105,7 +104,7 @@ for (const width of [1100, 1440]) {
     await expect(candidateRow).not.toHaveClass(/altitude-warning-row/);
     await assertCenteredRows(page);
 
-    for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+    for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
       await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude);
     }
     await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();

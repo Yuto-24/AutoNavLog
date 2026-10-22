@@ -1,4 +1,5 @@
-import { canConfirmMapDraft, nextWaypointName, type MapRoutePoint } from "./mapRouteDraft";
+import { importCandidateToMapDraft } from "./importRouteDraft";
+import { canConfirmMapDraft, nextWaypointName, routeDraftFromProject, type MapRoutePoint } from "./mapRouteDraft";
 import { AccountSyncControl } from "./components/AccountSyncControl";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
@@ -37,6 +38,7 @@ import type {
 import { AccountNotice } from "./components/AccountControl";
 import { Header } from "./components/Header";
 import { InformationDialog } from "./components/InformationDialog";
+import { ImportCandidateDialog } from "./components/ImportCandidateDialog";
 import { ImportPlanPanel } from "./components/ImportPlanPanel";
 import { NavLogTable } from "./components/NavLogTable";
 import { PasteDialog } from "./components/PasteDialog";
@@ -103,8 +105,17 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [kmzOpen, setKmzOpen] = useState(false);
   const [state, setState] = useState<WebState | null>(null);
   const [mapRouteDraft, setMapRouteDraft] = useState<MapRoutePoint[]>([]);
+  const [editingRouteProjectId, updateEditingRouteProjectId] = useState<string | null>(null);
+  const editingRouteProjectIdRef = useRef<string | null>(null);
+  const setEditingRouteProjectId = (id: string | null) => {
+    editingRouteProjectIdRef.current = id;
+    updateEditingRouteProjectId(id);
+  };
   const [legacyRouteInput, setLegacyRouteInput] = useState(false);
-  const confirmDiscardMapDraft = () => mapRouteDraft.length === 0 || window.confirm("作成中の経路を破棄しますか？");
+  const [pendingImportDraft, setPendingImportDraft] = useState(false);
+  const [importFitCoordinates, setImportFitCoordinates] = useState<[number, number][] | null>(null);
+  const [selectedImportCandidate, setSelectedImportCandidate] = useState("");
+  const confirmDiscardMapDraft = () => (mapRouteDraft.length === 0 && !pendingImportDraft) || window.confirm("作成中の経路を破棄しますか？");
   const [form, setForm] = useState<PlanningForm>(() => initialPlanningForm());
   const [altitudeInputs, setAltitudeInputs] = useState<Record<string, string>>({});
   const [navLogDrafts, setNavLogDrafts] = useState<NavLogEditDrafts>({});
@@ -236,11 +247,16 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       syncCalculationInputs?: boolean;
       syncDerivedArrival?: boolean;
       freshImport?: boolean;
+      preserveMapDraft?: boolean;
       preserveRouteViewport?: boolean;
     } = {},
   ) => {
     setPreserveRouteViewport(Boolean(options.preserveRouteViewport));
-    if (next.project || options.freshImport) setMapRouteDraft([]);
+    if (!options.preserveMapDraft && (next.project?.id !== editingRouteProjectIdRef.current || options.freshImport)) {
+      setPendingImportDraft(false);
+      setMapRouteDraft([]);
+      setEditingRouteProjectId(null);
+    }
     const nextProjectId = next.project?.id ?? null;
     const nextPatternBasis = patternRequestBasis(next);
     const patternBasisChanged = destinationPatternBasisRef.current !== nextPatternBasis;
@@ -395,7 +411,17 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           setState({ ...next, project: restoreProjectDraft(next.project, restored.projectDraft) });
         }
         setMapRouteDraft(restored.mapRouteDraft ?? []);
+        setEditingRouteProjectId(restored.editingRouteProjectId ?? null);
         setLegacyRouteInput(restored.legacyRouteInput ?? false);
+        const pendingImport = restored.pendingImportDraft ?? Boolean(!next.project && next.import.candidates.length && !restored.mapRouteDraft?.length);
+        setPendingImportDraft(pendingImport);
+        setSelectedImportCandidate(restored.selectedImportCandidate ?? "");
+        const restoredImport = pendingImport ? candidateFromKey(next.import.candidates, restored.form.candidateKey) : null;
+        const restoredDraft = restoredImport ? importCandidateToMapDraft(restoredImport, next.airports) : null;
+        if (restoredDraft?.status === "ready") {
+          setMapRouteDraft(restoredDraft.points);
+          setPendingImportDraft(false);
+        }
         setForm(restored.form);
         restoredPattern.current = restored.form.destinationPatternAltitudeFtMsl;
         restoredCandidate.current = restored.form.candidateKey;
@@ -439,7 +465,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   useLayoutEffect(() => {
     if (!sessionReady || !state?.workingRecovery || sessionDiscarded.current) return;
     const snapshot: ApplicationSession = {
-      mapRouteDraft, legacyRouteInput, checkPointDraft, nodeNameDraft, vorColumns,
+      mapRouteDraft, editingRouteProjectId, legacyRouteInput, pendingImportDraft, selectedImportCandidate, checkPointDraft, nodeNameDraft, vorColumns,
       version: 1, working: state.workingRecovery, form, altitudeInputs, navLogDrafts,
       projectDraft: projectDraft(state.project), calculationInputsAreLocallyCurrent, pastedKml,
       projectName, selectedProjectId, pendingKmz, selectedKmzDocument,
@@ -448,7 +474,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     if (!writeSession(snapshot, platform.session.storage)) {
       setNotice("作業状態を一時保存できません。再読み込みすると未保存の作業を失う可能性があります。");
     }
-  }, [sessionReady, state, form, mapRouteDraft, legacyRouteInput, altitudeInputs, navLogDrafts, checkPointDraft, nodeNameDraft, vorColumns,
+  }, [sessionReady, state, form, mapRouteDraft, editingRouteProjectId, legacyRouteInput, pendingImportDraft, selectedImportCandidate, altitudeInputs, navLogDrafts, checkPointDraft, nodeNameDraft, vorColumns,
     calculationInputsAreLocallyCurrent, pastedKml, projectName, selectedProjectId, pendingKmz, selectedKmzDocument]);
 
   useEffect(() => {
@@ -502,8 +528,9 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         (reason.committedState.project?.id === projectIdRef.current ||
           (reason.details.operation === "confirmRoute" && projectIdRef.current === null))) {
       // Retain raw UI drafts while advancing canonical recovery and its storage token.
-      const newRoute = reason.details.operation === "confirmRoute" && projectIdRef.current === null;
-      applyState(reason.committedState, { syncCalculationInputs: false, preserveRouteViewport: reason.details.operation === "confirmRoute" });
+      const newRoute = reason.details.operation === "confirmRoute";
+      if (newRoute) { setMapRouteDraft([]); setEditingRouteProjectId(null); }
+      applyState(reason.committedState, { syncCalculationInputs: newRoute, preserveRouteViewport: newRoute });
       if (newRoute) focusPlanning(true);
       return true;
     }
@@ -554,6 +581,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       syncCalculationInputs?: boolean;
       operation?: Exclude<ActiveOperation, null>;
       freshImport?: boolean;
+      preserveMapDraft?: boolean;
       preserveRouteViewport?: boolean;
     } = {},
   ) => {
@@ -574,11 +602,44 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     setForm(value);
   };
 
+  const adoptImportCandidate = (next: WebState, key: string) => {
+    const candidate = candidateFromKey(next.import.candidates, key);
+    if (!candidate) return;
+    const draft = importCandidateToMapDraft(candidate, next.airports);
+    if (draft.status === "invalid") {
+      setError("KMLを読み込めません。内容を確認してください。");
+      setPendingImportDraft(false);
+      return;
+    }
+    setImportFitCoordinates(draft.points.map(point => [point.latitude_deg, point.longitude_deg]));
+    setForm(current => ({ ...current, candidateKey: key }));
+    if (draft.status === "ready") {
+      setMapRouteDraft(draft.points);
+      setPendingImportDraft(false);
+    } else {
+      setPendingImportDraft(true);
+    }
+  };
+
+  const stageImportedRoute = (next: WebState) => {
+    // A failed/cancelled candidate selection must not erase the current Map Draft.
+    applyState(next, { freshImport: true, preserveMapDraft: true });
+    setSelectedImportCandidate("");
+    setPendingImportDraft(next.import.candidates.length > 0);
+    if (!next.import.candidates.length) setError("KMLを読み込めません。内容を確認してください。");
+    if (next.import.candidates.length === 1) {
+      const candidate = next.import.candidates[0]!;
+      adoptImportCandidate(next, `${candidate.kind}:${candidate.index}`);
+    }
+  };
+
   const importEncodedFile = async (
     filename: string,
     contentBase64: string,
     kmzDocument?: string,
   ) => {
+    if (state?.project) return;
+    const epoch = lifecycle.current;
     invalidateDestinationPatternRequests();
     try {
       const next = await application.importRoute({
@@ -586,11 +647,13 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         content_base64: contentBase64,
         kmz_kml_filename: kmzDocument ?? null,
       });
-      applyState(next, { freshImport: true });
+      if (epoch !== lifecycle.current) return;
+      stageImportedRoute(next);
       setNotice("経路候補を読み込みました。地図と記載順を確認してください。");
       setPendingKmz(null);
       setSelectedKmzDocument("");
     } catch (reason) {
+      if (epoch !== lifecycle.current) return;
       if (reason instanceof ApplicationError && reason.code === "KMZ_DOCUMENT_SELECTION_REQUIRED") {
         setPendingKmz({ filename, contentBase64, candidates: reason.details.candidates ?? [] });
         setKmzOpen(true);
@@ -602,18 +665,24 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   };
 
   const handleFile = async (file: FileContentSource) => {
-    if (!confirmDiscardMapDraft()) return;
-    await runTask(
-      async () => {
-        const input = routeImportInput(await platform.files.read(file));
-        await importEncodedFile(input.filename, input.content_base64);
-      },
-      { fallbackError: "ファイルを読み込めません。" },
-    );
+    if (busy || state?.project || pasteInFlight.current || !confirmDiscardMapDraft()) return;
+    const epoch = lifecycle.current;
+    pasteInFlight.current = true;
+    try {
+      await runTask(
+        async () => {
+          const input = routeImportInput(await platform.files.read(file));
+          if (epoch !== lifecycle.current) return;
+          await importEncodedFile(input.filename, input.content_base64);
+        },
+        { fallbackError: "ファイルを読み込めません。" },
+      );
+    } finally { pasteInFlight.current = false; }
   };
 
   const handlePasteImport = async (source: "manual" | "clipboard" = "manual") => {
-    if (busy || pasteInFlight.current || !confirmDiscardMapDraft()) return;
+    if (busy || state?.project || pasteInFlight.current || !confirmDiscardMapDraft()) return;
+    const epoch = lifecycle.current;
     if (source === "clipboard") {
       pasteReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     }
@@ -622,6 +691,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       await runTask(async () => {
         let text = pastedKml;
         const showManualPaste = (message: string) => {
+          if (epoch !== lifecycle.current) return;
           setPasteMessage(message);
           setPasteOpen(true);
         };
@@ -630,6 +700,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
             // Keep this call in the click's activation, before any other await.
             text = await platform.clipboard.readText();
           } catch (reason) {
+            if (epoch !== lifecycle.current) return;
             // A failed read has no current clipboard content to offer for import.
             setPastedKml("");
             const message = reason instanceof PlatformError ? reason.message : "クリップボードを読み取れませんでした。";
@@ -637,11 +708,12 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
             return;
           }
         }
+        if (epoch !== lifecycle.current) return;
+        setPastedKml(text);
         if (!text.trim()) {
           showManualPaste("読み込むテキストがありません。下の欄にKMLを貼り付けてください。");
           return;
         }
-        setPastedKml(text);
         setPasteMessage(null);
         invalidateDestinationPatternRequests();
         let next: WebState;
@@ -651,7 +723,8 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           showManualPaste(reason instanceof Error ? reason.message : "KMLを読み込めません。内容を確認してください。");
           return;
         }
-        applyState(next, { freshImport: true });
+        if (epoch !== lifecycle.current) return;
+        stageImportedRoute(next);
         setNotice("貼付KMLから経路候補を読み込みました。");
         setPasteOpen(false);
       });
@@ -661,17 +734,22 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   };
 
   const handleConfirmMapRoute = async () => {
-    if (!state || busy || !canConfirmMapDraft(mapRouteDraft)) return;
+    if (!state || busy) return;
+    const pendingCandidate = pendingImportDraft ? candidateFromKey(state.import.candidates, form.candidateKey) : null;
+    const pendingDraft = pendingCandidate ? importCandidateToMapDraft(pendingCandidate, state.airports) : null;
+    const points = pendingImportDraft ? (pendingDraft?.status === "ready" ? pendingDraft.points : []) : mapRouteDraft;
+    if (!canConfirmMapDraft(points)) return;
     const defaults = initialPlanningForm(state.airports);
-    const from = state.airports.find(airport => airport.id === mapRouteDraft[0]?.airport_id);
+    const from = state.airports.find(airport => airport.id === points[0]?.airport_id);
     const confirmed = await run(() => application.confirmRoute({
-      candidate_kind: "map", map_points: mapRouteDraft.map(({ id: _id, ...point }) => point),
+      edit_project_id: editingRouteProjectId ?? undefined,
+      candidate_kind: "map", map_points: points.map(({ id: _id, ...point }) => point),
       route_use_confirmed: true, use_penultimate_as_vrep: true,
       flight_date: defaults.flightDate, departure_time_jst: defaults.departureTimeJst,
       weather_mode: defaults.weatherMode, ftd_weather: defaults.weatherMode === "FTD" ? ftdWeatherSettings(defaults) : null,
       total_usable_fuel_gal: 90, default_variation_deg_east: from && from.latitudeDeg < 32 ? 7 : 8,
     }), "経路を確定しました。飛行計画を入力してください。", { syncCalculationInputs: true, preserveRouteViewport: true });
-    if (confirmed?.project) focusPlanning();
+    if (confirmed?.project) { setMapRouteDraft([]); setEditingRouteProjectId(null); focusPlanning(); }
   };
 
   const handleConfirmRoute = async () => {
@@ -1248,6 +1326,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     field: NavLogEditableField,
     value: string,
   ) => {
+    if (editingRouteProjectIdRef.current) return;
     const inputSection = state?.project?.sections.find((section) => section.id === sectionId);
     if (!inputSection || !state?.project) return;
     const inputMode = altitudeGuidanceBySection.get(sectionId)?.inputMode;
@@ -1411,6 +1490,8 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       { syncCalculationInputs: true },
     );
     if (!loaded) return;
+    setMapRouteDraft([]);
+    setEditingRouteProjectId(null);
     setNotice(
       loaded.outcome
         ? loaded.readiness.calculationIsCurrent
@@ -1559,9 +1640,14 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     ? state.outcome?.rjfm_inbound_guidance ?? null
     : null;
 
-  const buildingRoute = !state.project && !state.import.candidates.length && !legacyRouteInput;
+  const buildingRoute = Boolean(editingRouteProjectId) || !state.project;
+  const pendingImportedDraft = pendingImportDraft && selectedCandidate
+    ? importCandidateToMapDraft(selectedCandidate, state.airports) : null;
+  const importPreview = pendingImportedDraft && pendingImportedDraft.status !== "invalid" ? pendingImportedDraft.points : null;
+  const importSelectionOpen = pendingImportDraft && state.import.candidates.length > 1 && !form.candidateKey;
   const mapBuilder = buildingRoute ? {
-    points: mapRouteDraft, airports: state.airports, busy,
+    points: importPreview ?? mapRouteDraft, airports: state.airports, busy: busy || pendingImportDraft,
+    importFitCoordinates: editingRouteProjectId ? null : importFitCoordinates,
     onAirport: (airport: WebState["airports"][number]) => setMapRouteDraft(current => [...current, {
       id: crypto.randomUUID(), name: airport.icao, airport_id: airport.id,
       latitude_deg: airport.latitudeDeg, longitude_deg: airport.longitudeDeg,
@@ -1571,7 +1657,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       latitude_deg: latitude, longitude_deg: longitude,
     }]),
     onRemove: (id: string) => setMapRouteDraft(current => current.filter(point => point.id !== id)),
-    onClear: () => { if (confirmDiscardMapDraft()) setMapRouteDraft([]); },
+    onClear: () => { if (confirmDiscardMapDraft()) { setMapRouteDraft([]); setPendingImportDraft(false); } },
     onConfirm: () => void handleConfirmMapRoute(),
   } : undefined;
 
@@ -1586,7 +1672,10 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         await discardPendingDraftAutosave();
         const next = await application.refreshProjects?.();
         if (next?.savedProjects.some(project => project.id === id)) {
-          applyState(await application.loadProject(id), { syncCalculationInputs: true });
+          const loaded = await application.loadProject(id);
+          setMapRouteDraft([]);
+          setEditingRouteProjectId(null);
+          applyState(loaded, { syncCalculationInputs: true });
         } else {
           await application.newWork();
           applyState(await application.bootstrap(), { syncCalculationInputs: true });
@@ -1641,15 +1730,24 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       <main className={`app-workspace${buildingRoute ? " is-route-building" : ""}`}>
         {buildingRoute ? <aside className="input-rail map-input-rail" aria-label="経路作成">
           <h2>経路作成</h2>
+          {editingRouteProjectId && <button className="secondary-button" disabled={busy} onClick={() => {
+            if (confirmDiscardMapDraft()) { setMapRouteDraft([]); setEditingRouteProjectId(null); }
+          }}>キャンセル</button>}
+          {!editingRouteProjectId && <>
           {pastedKml && !pasteOpen && <button className="secondary-button" onClick={() => setPasteOpen(true)}>貼り付けたKMLの編集を続ける</button>}
           {pendingKmz && !kmzOpen && <button className="secondary-button" onClick={() => setKmzOpen(true)}>KMZからの選択を続ける</button>}
           <p>FROMの空港から飛行順に地点を選択します。</p>
-          <button className="secondary-button" disabled={busy} onClick={() => {
-            if (confirmDiscardMapDraft()) { setMapRouteDraft([]); setLegacyRouteInput(true); }
-          }}>KML/KMZから開始</button>
+          {state.import.warnings.map((warning, index) => <p className="inline-warning" key={`${index}:${warning}`}>{warning}</p>)}
+          {pendingImportDraft && <button className="secondary-button" disabled={busy} onClick={() => { if (confirmDiscardMapDraft()) setPendingImportDraft(false); }}>キャンセル</button>}
+          {pendingImportedDraft?.status === "unmatched-endpoints" && <p role="alert">{
+            pendingImportedDraft.missingEndpoints.includes("departure")
+              ? "KML始点から5 NM以内に出発空港が見つかりません。経路始点を確認してください。"
+              : "KML終点から5 NM以内に目的空港が見つかりません。経路終点を確認してください。"
+          }</p>}
           <FileInput busy={busy} onFile={handleFile} inputRef={routeFileInput} />
-          <button className="secondary-button" disabled={busy} onClick={() => void handlePasteImport("clipboard")}>KMLを貼り付け</button>
+          <button className="secondary-button" disabled={busy} onClick={() => void handlePasteImport("clipboard")}>KMLを取り込む</button>
           <p className="quiet-state">ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。</p>
+          </>}
         </aside> : <ImportPlanPanel
           panelRef={planningPanelRef}
           importState={state.import}
@@ -1658,12 +1756,27 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           setForm={setTrackedForm}
           projectExists={Boolean(state.project)}
           busy={busy}
-          onResumePaste={pastedKml && !pasteOpen ? () => setPasteOpen(true) : undefined}
-          onResumeKmz={pendingKmz && !kmzOpen ? () => setKmzOpen(true) : undefined}
+          onResumePaste={!state.project && pastedKml && !pasteOpen ? () => setPasteOpen(true) : undefined}
+          onResumeKmz={!state.project && pendingKmz && !kmzOpen ? () => setKmzOpen(true) : undefined}
           fileInput={<FileInput busy={busy} onFile={handleFile} inputRef={routeFileInput} />}
           onPaste={() => void handlePasteImport("clipboard")}
         />}
         <RouteWorkspace
+          onEditRoute={state.project && !buildingRoute ? () => {
+            if (busy) return;
+            const projectId = state.project!.id;
+            cancelPendingRecalculation();
+            invalidateDestinationPatternRequests();
+            void runTask(async () => {
+              await Promise.all([navLogRecalculationRef.current, destinationPatternRecalculationRef.current]);
+              return await flushDraftAutosave(true);
+            }, { apply: saved => {
+              const project = canonicalProjectRef.current;
+              if (!saved || project?.id !== projectId) return;
+              setMapRouteDraft(routeDraftFromProject(project, state.airports));
+              setEditingRouteProjectId(project.id);
+            } });
+          } : undefined}
           mapBuilder={mapBuilder}
           viewportStorage={platform.persistence.values}
           preserveRouteViewport={preserveRouteViewport}
@@ -1803,6 +1916,11 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           onSignOut={application.auth?.getState().account
             ? () => { void application.auth!.signOut().catch(() => {}); } : undefined} />
       )}
+
+      <ImportCandidateDialog open={importSelectionOpen} candidates={state.import.candidates}
+        selected={selectedImportCandidate} busy={busy} onSelect={setSelectedImportCandidate}
+        onCancel={() => setPendingImportDraft(false)}
+        onConfirm={() => adoptImportCandidate(state, selectedImportCandidate)} />
 
       <PasteDialog
         open={pasteOpen}

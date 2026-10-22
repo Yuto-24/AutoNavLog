@@ -398,7 +398,7 @@ class AutoNavLogWebApplication:
                 )
             result = session.import_result
             if request.candidate_kind == "map":
-                if session.project is not None:
+                if session.project is not None and request.edit_project_id != session.project.id:
                     raise WebApplicationError(
                         "PROJECT_ALREADY_CONFIRMED", "新規作業から経路を作成してください。"
                     )
@@ -406,25 +406,53 @@ class AutoNavLogWebApplication:
                     request.map_points[0].airport_id or "",
                     request.map_points[-1].airport_id or "",
                 )
+                if request.edit_project_id is not None and session.project is None:
+                    raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
+                original_ids = [point.original_node_id for point in request.map_points]
+                supplied_ids = [identity for identity in original_ids if identity is not None]
+                known_ids = (
+                    {node.id for node in session.project.route_nodes} if session.project else set()
+                )
+                if (
+                    len(supplied_ids) != len(set(supplied_ids))
+                    or not set(supplied_ids) <= known_ids
+                ):
+                    raise WebApplicationError(
+                        "ROUTE_NODE_NOT_FOUND", "対象のRoute点が見つかりません。"
+                    )
                 entries = []
                 for point in request.map_points:
                     if point.airport_id:
                         airport, _ = self._selected_airports(point.airport_id, point.airport_id)
-                        entries.append((
-                            airport.icao, float(airport.latitude_deg), float(airport.longitude_deg),
-                            f"REFERENCE:{airport.source_revision}", RouteNodeNameSource.GENERATED,
-                        ))
+                        entries.append(
+                            (
+                                airport.icao,
+                                float(airport.latitude_deg),
+                                float(airport.longitude_deg),
+                                f"REFERENCE:{airport.source_revision}",
+                                RouteNodeNameSource.GENERATED,
+                            )
+                        )
                     else:
-                        entries.append((
-                            point.name, point.latitude_deg, point.longitude_deg,
-                            "MAP", RouteNodeNameSource.GENERATED,
-                        ))
+                        entries.append(
+                            (
+                                point.name,
+                                point.latitude_deg,
+                                point.longitude_deg,
+                                "MAP",
+                                RouteNodeNameSource.GENERATED,
+                            )
+                        )
                 destination_entry = entries[-1]
-                entries = [
-                    entry for index, entry in enumerate(entries)
+                retained_indices = [
+                    index
+                    for index, entry in enumerate(entries)
                     if index == 0
                     or (entry[1], entry[2]) != (entries[index - 1][1], entries[index - 1][2])
                 ]
+                entries = [entries[index] for index in retained_indices]
+                retained_ids = [original_ids[index] for index in retained_indices]
+                retained_ids[-1] = original_ids[-1]
                 if len(entries) < 2:
                     raise WebApplicationError(
                         "ROUTE_INCOMPLETE", "異なる2地点以上で経路を作成してください。"
@@ -459,6 +487,10 @@ class AutoNavLogWebApplication:
                 destination.id,
                 explicit_point_names,
             )
+            if request.edit_project_id is not None:
+                return self._confirm_route_edit(
+                    session, request, entries, retained_ids, departure, destination
+                )
             departure_time = self._departure_datetime(
                 request.flight_date,
                 request.departure_time_jst,
@@ -544,6 +576,103 @@ class AutoNavLogWebApplication:
             session.outcome = materialized.outcome
             session.readiness = materialized.evaluation
             return self.present(session)
+
+    def _confirm_route_edit(
+        self,
+        session: WebSession,
+        request: ConfirmRouteRequest,
+        entries: list[RouteEntry],
+        original_ids: list[UUID | None],
+        departure: Any,
+        destination: Any,
+    ) -> dict[str, Any]:
+        """Replace only changed directed legs; occurrence IDs disambiguate repeat visits."""
+        previous = session.project
+        assert previous is not None
+        ordered_previous = previous.ordered_nodes()
+        if (
+            departure.id == previous.departure_airport_id
+            and destination.id == previous.destination_airport_id
+            and len(entries) == len(ordered_previous)
+            and all(
+                original_id == node.id
+                and (entry[1], entry[2]) == (node.latitude_deg, node.longitude_deg)
+                for entry, original_id, node in zip(
+                    entries, original_ids, ordered_previous, strict=True
+                )
+            )
+        ):
+            return self.present(session)
+        previous_nodes = {node.id: node for node in previous.route_nodes}
+        working = previous.model_copy(deep=True, update={"route_nodes": [], "sections": []})
+        working.departure_airport_id = departure.id
+        working.destination_airport_id = destination.id
+        self._install_route(
+            working,
+            entries,
+            request.all_leg_altitude_ft_msl,
+            destination.id,
+            use_penultimate_as_vrep=request.use_penultimate_as_vrep,
+        )
+        nodes = []
+        for node, original_id in zip(working.ordered_nodes(), original_ids, strict=True):
+            original = previous_nodes.get(original_id) if original_id is not None else None
+            if original and (original.latitude_deg, original.longitude_deg) == (
+                node.latitude_deg,
+                node.longitude_deg,
+            ):
+                node = original.model_copy(update={"sequence": node.sequence, "role": node.role})
+            nodes.append(node)
+        old_sections = {(leg.from_node_id, leg.to_node_id): leg for leg in previous.sections}
+        sections = []
+        for generated, start, end in zip(
+            working.ordered_sections(), nodes, nodes[1:], strict=False
+        ):
+            existing = old_sections.get((start.id, end.id))
+            sections.append(
+                existing.model_copy(update={"sequence": generated.sequence})
+                if existing
+                else generated.model_copy(update={"from_node_id": start.id, "to_node_id": end.id})
+            )
+        working = working.model_copy(update={"route_nodes": nodes, "sections": sections})
+        if (
+            working.route_nodes == previous.route_nodes
+            and working.sections == previous.sections
+            and departure.id == previous.departure_airport_id
+            and destination.id == previous.destination_airport_id
+        ):
+            return self.present(session)
+        retained_sections = {section.id for section in sections}
+        working.visual_references = [
+            reference
+            for reference in previous.visual_references
+            if reference.linked_section_id is None
+            or reference.linked_section_id in retained_sections
+        ]
+        state = self.project_service.ui_state(previous).model_copy(deep=True)
+        state.reference_data_snapshot = ReferenceDataSnapshot(
+            departure_airport=departure, destination_airport=destination
+        )
+        vrep = nodes[-2] if request.use_penultimate_as_vrep and len(nodes) >= 3 else None
+        if not (
+            vrep
+            and state.arrival_plan
+            and state.arrival_plan.visual_reporting_point_node_id == vrep.id
+            and destination.id == previous.destination_airport_id
+        ):
+            state.arrival_plan = (
+                self._automatic_arrival_plan(vrep.id, destination) if vrep else None
+            )
+        self.project_service.set_ui_state(working, state, reconfirmed=True)
+        self._normalize_rjfm_departure(working)
+        materialized = session.readiness_service.evaluate(working, session.outcome)
+        self._persist_draft(session, materialized.project)
+        session.project = materialized.project
+        session.outcome = materialized.outcome
+        if materialized.outcome is None:
+            session.destination_wind = None
+        session.readiness = materialized.evaluation
+        return self.present(session)
 
     def update_project(
         self,

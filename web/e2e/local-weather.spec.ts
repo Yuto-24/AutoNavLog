@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft, importedMapNames } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -27,13 +27,12 @@ const record = (page: Page) => page.evaluate(() => new Promise<any>((resolve, re
 async function setup(page: Page) {
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-16");
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
   await page.getByLabel("気象モード").selectOption("FORECAST");
-  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     const field = page.getByLabel(`${name}出発Legの計画高度`, { exact: true });
     await field.fill(altitude!); await field.blur();
   }
@@ -83,7 +82,7 @@ test("portable real MSM: cold, warm after reload, Python reference and saved NAV
   const downloads: string[] = [];
   context.on("request", r => { if (r.url().includes("/weather/msm/")) downloads.push(r.url()); });
   await setup(page); await calculate(page);
-  compare(calculationCoreGolden(await state(page)), calculationCoreGolden(reference()));
+  compare(calculationCoreGolden(await state(page)), importedMapNames(calculationCoreGolden(reference())));
   expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915210000");
   expect(downloads.filter(url => url.endsWith(".npz"))).toHaveLength(1);
   const before = (await record(page)).lastCalculation;
@@ -105,7 +104,7 @@ test("saved Run stays fixed on first click and refreshes snapshot on second clic
   for (const project of [recovery.project, recovery.last_calculation.project]) delete project.metadata.web_owner_id;
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await page.evaluate(recovery => new Promise<void>((resolve, reject) => {
     const opening = indexedDB.open("autonavlog.projects", 1);
     opening.onsuccess = () => {

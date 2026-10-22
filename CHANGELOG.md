@@ -2,6 +2,20 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.22.10
+
+### 利用者向け
+
+#### 改善
+
+- 確定済みRouteをMAP上で再編集できるようにする
+- KML/KMZを新規Route Draft作成フローへ統合する
+
+### 開発者向け
+
+- Route occurrence identity preserves unchanged Planning inputs and Check Points during confirmed-route re-editing; unchanged reconfirmation preserves Last Calculation.
+- KML/KMZ candidates enter the Map Draft workflow with endpoint validation, same-tab pending-import recovery, explicit replacement and Platform Clipboard/file handling.
+
 ## 1.22.9
 
 ### 利用者向け

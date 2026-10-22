@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 
 const routeKml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>RJFM-RJFO</name>
@@ -29,12 +29,11 @@ async function mockAirspace(page: Page) {
 async function importLocalRoute(page: Page) {
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles({ name: "map-interaction.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(routeKml) });
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.getByLabel("気象モード").selectOption("FTD");
-  await page.locator('input[type="file"]').setInputFiles({ name: "map-interaction.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(routeKml) });
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
   await expect(page.getByRole("button", { name: "チェックポイントを追加" })).toBeEnabled();
 }
 

@@ -1,5 +1,5 @@
 import { expectNavLogPaperGrid } from "./helpers/navLogGrid";
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
@@ -35,16 +35,16 @@ test("first Local NAV LOG calculation and recalculation scroll to the result", a
   });
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles(fileURLToPath(new URL("../../tests/fixtures/issue_43_golden.kml", import.meta.url)));
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地上風向 ° FROM").fill("360");
   await page.getByLabel("地上風速 kt").fill("15");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
-  await page.locator('input[type="file"]').setInputFiles(fileURLToPath(new URL("../../tests/fixtures/issue_43_golden.kml", import.meta.url)));
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude);
   }
 

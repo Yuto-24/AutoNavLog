@@ -5,6 +5,7 @@ import { canConfirmMapDraft, type MapRoutePoint } from "../mapRouteDraft";
 
 const airportIcon = divIcon({ className: "airport-draft-marker", html: '<span aria-hidden="true">✈</span>', iconSize: [28, 28], iconAnchor: [14, 14] });
 export interface MapRouteBuilderProps {
+  importFitCoordinates?: [number, number][] | null;
   points: MapRoutePoint[];
   airports: AirportOption[];
   busy: boolean;
