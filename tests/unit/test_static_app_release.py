@@ -60,7 +60,7 @@ class SimulatedOperator(app.Operator):
     def build(self, sha, snapshot, destination):
         self.event("fresh-build" if destination.name == "fresh" else "prepare-build")
         destination.mkdir()
-        config = {key: snapshot["variables"][key] for key in gate.CONFIGURATION}
+        config = app.public_configuration(snapshot["variables"])
         fixture_artifact(
             destination / "app", {"commit": sha, "dirty": False, "configuration": config}
         )
@@ -86,7 +86,7 @@ class SimulatedOperator(app.Operator):
         app.require(
             candidate["commit"] == sha
             and candidate["configuration"]
-            == {key: snapshot["variables"][key] for key in gate.CONFIGURATION},
+            == app.public_configuration(snapshot["variables"]),
             "Wrong candidate",
         )
         return candidate
@@ -788,14 +788,81 @@ def test_environment_shadowed_configuration_is_rejected(tmp_path):
     operator = app.Operator(tmp_path)
 
     def gh(endpoint):
-        if endpoint.startswith("actions/variables/"):
-            name = endpoint.split("/")[-1]
-            return {"name": name, "value": "public"}
+        if endpoint.startswith("actions/variables?"):
+            return {"total_count": len(app.VARIABLES),
+                    "variables": [{"name": name, "value": "public"} for name in app.VARIABLES]}
         return {"total_count": 1, "variables": [{"name": "STATIC_APPROVED_SHA", "value": NEW}]}
 
     operator.gh = gh
     with pytest.raises(app.Blocked, match="shadows"):
         operator.variables()
+
+
+def test_absent_legacy_variable_requires_complete_repository_inventory(tmp_path):
+    operator = app.Operator(tmp_path)
+    rows = [{"name": name, "value": "public"} for name in app.VARIABLES
+            if name != "VITE_LEGACY_MIGRATION_URL"]
+    rows += [{"name": f"OTHER_{n}", "value": "unrelated"} for n in range(110)]
+    calls = []
+
+    def gh(endpoint):
+        calls.append(endpoint)
+        if endpoint.startswith("actions/variables?"):
+            page = int(endpoint.rsplit("=", 1)[1])
+            return {"total_count": len(rows), "variables": rows[(page-1)*100:page*100]}
+        return {"total_count": 0, "variables": []}
+
+    operator.gh = gh
+    variables = operator.variables()
+    assert variables["VITE_LEGACY_MIGRATION_URL"] == ""
+    assert "VITE_LEGACY_MIGRATION_URL" not in app.public_configuration(variables)
+    assert "actions/variables?per_page=100&page=2" in calls
+
+
+@pytest.mark.parametrize("damage", ["incomplete", "duplicate", "missing-required", "failure"])
+def test_repository_inventory_failure_does_not_remove_migration_gate(tmp_path, damage):
+    operator = app.Operator(tmp_path)
+    rows = [{"name": name, "value": "public"} for name in app.VARIABLES]
+    if damage == "duplicate":
+        rows.append(rows[0])
+    elif damage == "missing-required":
+        rows = rows[1:]
+
+    def gh(endpoint):
+        if damage == "failure":
+            raise app.Blocked("Read denied")
+        if endpoint.startswith("actions/variables?"):
+            return {"total_count": len(rows) + (damage == "incomplete"), "variables": rows}
+        return {"total_count": 0, "variables": []}
+
+    operator.gh = gh
+    with pytest.raises(app.Blocked):
+        operator.variables()
+
+
+@pytest.mark.parametrize("key", gate.CONFIGURATION[:-1])
+def test_retirement_does_not_make_sync_or_taf_configuration_optional(key):
+    variables = {name: "public" for name in gate.CONFIGURATION}
+    variables["VITE_LEGACY_MIGRATION_URL"] = ""
+    variables[key] = ""
+    with pytest.raises(app.Blocked, match="configuration missing"):
+        app.public_configuration(variables)
+
+
+def test_app_update_after_retirement_preserves_absent_migration_configuration(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    operator = SimulatedOperator(tmp_path / "tooling", automation="false")
+    operator.state["variables"]["VITE_LEGACY_MIGRATION_URL"] = ""
+    app.prepare(operator, NEW, OLD, store,
+                app.Journal(store / "prepare-status.json", "prepare", NEW))
+    reviewed = app.digest((store / "plan.json").read_bytes())
+    result = run_publish((operator, store, reviewed))
+    candidate = json.loads((store / "fresh/upload/dist-static/release.json").read_text())
+    assert "VITE_LEGACY_MIGRATION_URL" not in candidate["configuration"]
+    assert len(candidate["configuration"]) == 5
+    assert result["final_automation"] == "false"
+    assert operator.state["variables"]["VITE_LEGACY_MIGRATION_URL"] == ""
 
 
 def test_isolated_upload_uses_supported_pages_command_and_disables_native_logs(
@@ -1146,8 +1213,9 @@ def test_transition_requires_already_deployed_exact_rules_and_stable_release(
 
 
 @pytest.mark.parametrize("automation", ["true", "false"])
+@pytest.mark.parametrize("legacy", ["public", ""])
 def test_real_snapshot_requires_transition_schedule_already_paused(
-    pinned_rules_operator, monkeypatch, automation
+    pinned_rules_operator, monkeypatch, automation, legacy
 ):
     operator, _, _, _ = pinned_rules_operator
     transition = app.RULES_TRANSITION_V1227
@@ -1158,6 +1226,7 @@ def test_real_snapshot_requires_transition_schedule_already_paused(
         "STATIC_AUTOMATION_ENABLED": automation,
         "CLOUDFLARE_ACCOUNT_ID": "c" * 32,
         "VITE_FIREBASE_PROJECT_ID": "navmate-prod",
+        "VITE_LEGACY_MIGRATION_URL": legacy,
     }
     operator.variables = lambda: variables
     operator.gh = lambda endpoint: {"private": False, "full_name": app.REPO}
@@ -1181,7 +1250,7 @@ def test_real_snapshot_requires_transition_schedule_already_paused(
         app,
         "release",
         lambda origin, current: {
-            "configuration": {name: variables[name] for name in gate.CONFIGURATION}
+            "configuration": app.public_configuration(variables)
         },
     )
     if automation == "true":
@@ -1191,6 +1260,14 @@ def test_real_snapshot_requires_transition_schedule_already_paused(
         value = operator.snapshot(transition["sha"], transition["current_sha"])
         assert value["rules_receipt"]["release"]["rulesetName"].endswith("/new-ruleset")
         assert value["rules_receipt"]["transition"] == transition
+        mismatched = app.public_configuration(variables)
+        if legacy:
+            mismatched.pop("VITE_LEGACY_MIGRATION_URL")
+        else:
+            mismatched["VITE_LEGACY_MIGRATION_URL"] = "public"
+        monkeypatch.setattr(app, "release", lambda *args: {"configuration": mismatched})
+        with pytest.raises(app.Blocked, match="Canonical public configuration changed"):
+            operator.snapshot(transition["sha"], transition["current_sha"])
 
 
 def test_rules_source_reader_preserves_raw_line_endings(tmp_path, monkeypatch):
