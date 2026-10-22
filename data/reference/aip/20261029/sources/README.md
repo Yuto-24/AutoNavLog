@@ -10,6 +10,6 @@ Place the unmodified SWIM portal download archives in this directory on the `doc
 
 Source: Ministry of Land, Infrastructure, Transport and Tourism, Civil Aviation Bureau / Aeronautical Information Center, [SWIM portal](https://top.swim.mlit.go.jp/swim/), AIP file download service `3_AIP(KML, Shapefile)`. Effective date: 2026-10-29.
 
-Keep the archive bytes unchanged. Verify SHA-256 and any service-specific redistribution conditions before publishing to a public repository. The original files have not yet been uploaded as part of this staging commit. Effective dates are provenance only and do **not** restrict when the MAP may display data. The import and display implementation remains tracked under #149.
+Keep the archive bytes unchanged. Verify SHA-256 and any service-specific redistribution conditions before publishing to a public repository. Source archive registration is complete only when all three original ZIPs exist here and match the checksums above. Effective dates are provenance only and do **not** restrict when the MAP may display data. The import and display implementation remains tracked under #149.
 
 See [reference data record](../../../../../docs/reference/aip_map_geodata_20261029.md) and [source manifest](../source_manifest.json).
