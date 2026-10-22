@@ -91,3 +91,7 @@ MSMの上空風・気温と地上気温にはForecast Run、元URL、source hash
 Projectは入力、手動値、選択した参照データを最新draftとして保存します。明示保存時にはcheckpointを更新します。
 
 最後にBlockerなしで完了したCalculationはProjectごとに1件だけ保持し、計算時Project snapshot、CalculationOutcome、Forecast Run等の来歴とともに保存します。履歴を無制限に蓄積する方式ではありません。
+
+## AIP地図表示用データ（2026-10-29有効）の取込準備
+
+SWIM portalのAIPファイルダウンロードサービスから配布されたKML・Shapefileのレイヤー構成、ハッシュと有効日を[`docs/reference/aip_map_geodata_20261029.md`](reference/aip_map_geodata_20261029.md)および[`data/reference/aip/20261029/source_manifest.json`](../data/reference/aip/20261029/source_manifest.json)へ記録した。元ZIP3個はRepositoryへ改変せず登録済みで、manifestのSHA-256と一致する。MAP向けruntimeデータの正規化・取り込みは未完了。公示訓練空域は`Civil_training_and_testing_areas`を採用し、学校独自の空域境界を二重登録しない。既存のRJFM計算用境界は表示用ソースの登録だけで変更しない。
