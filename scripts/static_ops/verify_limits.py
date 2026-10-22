@@ -99,9 +99,13 @@ class Document(HTMLParser):
             self.stack.append((tag, bool(hidden), in_main))
         if hidden or not in_main:
             return
+        # Inline element boundaries are not whitespace. Preserve source text so
+        # links followed by punctuation and emphasized clauses compare exactly.
+        if tag == "br":
+            self.handle_data(" ")
         if tag in {"h2", "h3", "h4", "h5", "h6"}:
             self.heading = []
-        elif tag in {"p", "li"}:
+        elif tag in {"p", "li", "aside"}:
             if self.block_stack:
                 self.block_stack[-1][2] = True
             self.block_stack.append([tag, [], False, self.section])
@@ -125,15 +129,15 @@ class Document(HTMLParser):
         if tag in {"h2", "h3", "h4", "h5", "h6"} and self.heading is not None:
             level = int(tag[1])
             self.headings = {n: title for n, title in self.headings.items() if n < level}
-            self.headings[level] = normalize(" ".join(self.heading))
+            self.headings[level] = normalize("".join(self.heading))
             self.section = tuple(self.headings[n] for n in sorted(self.headings))
             self.heading = None
-        elif tag in {"p", "li"} and self.block_stack:
+        elif tag in {"p", "li", "aside"} and self.block_stack:
             _, parts, has_child, section = self.block_stack.pop()
             if not has_child:
-                self.blocks.append((section, normalize(" ".join(parts))))
+                self.blocks.append((section, normalize("".join(parts))))
         elif tag in {"td", "th"} and self.cell is not None:
-            self.row.append(normalize(" ".join(self.cell)))
+            self.row.append(normalize("".join(self.cell)))
             self.cell = None
         elif tag == "tr" and self.row is not None:
             self.table.append(self.row)
