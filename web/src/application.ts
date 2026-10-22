@@ -12,6 +12,7 @@ export type PlanningInput = Pick<Project,
 >> & { departure_time_jst: string; defaults_confirmed?: boolean };
 export type ConfirmRouteInput = PlanningInput & {
   candidate_kind: "line" | "connected_lines" | "polygon" | "points" | "map";
+  edit_project_id?: string;
   map_points?: Omit<import("./mapRouteDraft").MapRoutePoint, "id">[];
   candidate_index?: number;
   point_indices?: number[];

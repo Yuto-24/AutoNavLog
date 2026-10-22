@@ -190,6 +190,22 @@ test("session decoding preserves invalid text and rejects incompatible UI shapes
     nodeNameDraft: { id: null, name: "" }, vorColumns: [{ id: 0, stationIdentifier: null }],
   };
   expect(decodeSession(JSON.stringify(session))).toEqual(session);
+  const importing = { ...session, pendingImportDraft: true, selectedImportCandidate: "line:1" };
+  expect(decodeSession(JSON.stringify(importing))).toEqual(importing);
+  expect(() => decodeSession(JSON.stringify({ ...importing, pendingImportDraft: "true" }))).toThrow();
+  expect(() => decodeSession(JSON.stringify({ ...importing, selectedImportCandidate: 1 }))).toThrow();
+  expect(() => decodeSession(JSON.stringify({ ...importing, working: { ...session.working, project: { id: "x" } } }))).toThrow();
+
+  const editing = { ...session, working: { ...session.working, project: { id: "project" } },
+    editingRouteProjectId: "project", mapRouteDraft: [{ id: "node", original_node_id: "node", name: "RJFM",
+      latitude_deg: 31, longitude_deg: 131, airport_id: "RJFM" }] };
+  expect(decodeSession(JSON.stringify(editing))).toEqual(editing);
+  const longNameEditing = { ...editing, mapRouteDraft: editing.mapRouteDraft.map(point =>
+    ({ ...point, name: "既存".repeat(100) })) };
+  expect(decodeSession(JSON.stringify(longNameEditing))).toEqual(longNameEditing);
+  expect(() => decodeSession(JSON.stringify({ ...editing, editingRouteProjectId: "other" }))).toThrow();
+  expect(() => decodeSession(JSON.stringify({ ...editing, editingRouteProjectId: null }))).toThrow();
+  expect(decodeSession(JSON.stringify({ ...editing, mapRouteDraft: [] })).editingRouteProjectId).toBe("project");
   for (const malformed of [
     { ...session, version: 99 }, { ...session, form: {} },
     { ...session, navLogDrafts: { a: null } }, { ...session, pendingKmz: {} },

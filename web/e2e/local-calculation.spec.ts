@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft, importedMapNames } from "./helpers/importWorkflow";
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -63,17 +63,16 @@ for (const width of [1100, 1440]) {
   await enterImportWorkflow(page);
     await expect(page).toHaveTitle(/AutoNavLog/);
     await expect(page.locator(".brand-subtitle").filter({ hasText: " / Local" })).toBeVisible();
+    await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+    await confirmImportedDraft(page);
     await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
     await page.getByLabel("気象モード").selectOption("FTD");
     await page.getByLabel("地上風向 ° FROM").fill("360");
     await page.getByLabel("地上風速 kt").fill("15");
     await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
     await page.getByLabel("5,000 ft風速 kt").fill("30");
-    await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-    await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-    await page.getByLabel("地図とKML記載順を確認しました").check();
-    await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-    for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+    await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
+    for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
       const input = page.getByLabel(`${name}出発Legの計画高度`, { exact: true });
       await input.fill(altitude!);
       await input.blur();
@@ -81,12 +80,12 @@ for (const width of [1100, 1440]) {
     await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
     await expect(page.locator(".nav-log-table")).toBeVisible();
     const state = await page.evaluate(() => (window as any).localStates.at(-1));
-    compare(localGolden(state), reference);
+    compare(localGolden(state), importedMapNames(reference));
     const native = JSON.parse(execFileSync(
       process.env.AUTONAVLOG_REFERENCE_PYTHON ?? resolve("../.venv/bin/python"),
       [resolve("../scripts/local_reference.py")], { encoding: "utf8" },
     ));
-    compare(calculationCoreGolden(state), calculationCoreGolden(native));
+    compare(calculationCoreGolden(state), importedMapNames(calculationCoreGolden(native)));
     expect(state.readiness.calculationIsCurrent).toBe(true);
     const vorSelect = page.getByLabel("VOR基準局", { exact: true });
     await expect(vorSelect.locator("option:checked")).toHaveText("自動 MZE");
@@ -158,7 +157,6 @@ for (const corrupt of [false, true]) {
       await page.context().route("**/local/manifest.json", route => route.fulfill({ status: 503, body: "" }));
     }
     await page.goto("/");
-  await enterImportWorkflow(page);
     await expect(page.getByRole("alert")).toContainText("処理を実行できませんでした。画面を再読み込みしてください。");
     expect(apiRequests).toEqual([]);
   });
@@ -181,15 +179,16 @@ test("strong FTD wind preserves Python Warning and Blocker results", async ({ pa
   await page.context().route("**/api/**", route => route.abort());
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+  await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地上風向 ° FROM").fill("360");
   await page.getByLabel("地上風速 kt").fill("200");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("360");
   await page.getByLabel("5,000 ft風速 kt").fill("200");
-  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     const input = page.getByLabel(`${name}出発Legの計画高度`, { exact: true });
     await input.fill(altitude!);
     await input.blur();
@@ -197,7 +196,7 @@ test("strong FTD wind preserves Python Warning and Blocker results", async ({ pa
   await page.getByRole("button", { name: "NAV LOGを作る", exact: true }).click();
   await page.waitForFunction(() => (window as any).localStates.at(-1)?.outcome !== null);
   const state = await page.evaluate(() => (window as any).localStates.at(-1));
-  compare(calculationCoreGolden(state), expected);
+  compare(calculationCoreGolden(state), importedMapNames(expected));
   await expect(page.locator(".issue-blocker").first()).toBeVisible();
   expect(apiRequests).toEqual([]);
 });
@@ -225,20 +224,19 @@ test("actual MSM FORECAST reaches NAV LOG with Python provenance and no fallback
   await page.context().route("**/api/**", route => route.abort());
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-12");
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
   await page.getByLabel("気象モード").selectOption("FORECAST");
-  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     const input = page.getByLabel(`${name}出発Legの計画高度`, { exact: true });
     await input.fill(altitude!); await input.blur();
   }
   await page.getByRole("button", { name: "NAV LOGを作る", exact: true }).click();
   await expect(page.locator(".nav-log-table")).toBeVisible();
   const state = await page.evaluate(() => (window as any).localStates.at(-1));
-  compare(calculationCoreGolden(state), calculationCoreGolden(expected));
+  compare(calculationCoreGolden(state), importedMapNames(calculationCoreGolden(expected)));
   expect(state.runtime.weatherLabel).toBe(expected.runtime.weatherLabel);
   expect(state.outcome.selected_forecast_run_id).toBe("20260912030000");
   expect(state.readiness.calculationIsCurrent).toBe(true);

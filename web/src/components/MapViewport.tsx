@@ -11,9 +11,10 @@ function readViewport(storage: KeyValueStorage, key: string): Viewport | null {
       Number.isFinite(value.zoom) && value.zoom >= 0 && value.zoom <= 19 ? value : null;
   } catch { return null; }
 }
-export function MapViewport({ storage, scope, projectId, coordinates, preserveViewport }: {
+export function MapViewport({ storage, scope, projectId, coordinates, preserveViewport, importFitCoordinates }: {
   storage: KeyValueStorage; scope: string; projectId: string | null;
   coordinates: [number, number][]; preserveViewport: boolean;
+  importFitCoordinates?: [number, number][] | null;
 }) {
   const map = useMap();
   const initialized = useRef(false);
@@ -49,6 +50,13 @@ export function MapViewport({ storage, scope, projectId, coordinates, preserveVi
     previousProject.current = projectId;
     save();
   }, [map, storage, projectKey, preserveViewport, coordinates]);
+  // A new parser candidate is fitted once. Ordinary draft edits and resize keep
+  // the user's view; the request is an immutable snapshot, not live draft points.
+  useEffect(() => {
+    if (!importFitCoordinates || importFitCoordinates.length < 2) return;
+    map.invalidateSize({ animate: false });
+    map.fitBounds(importFitCoordinates, { padding: [28, 28], animate: false });
+  }, [map, importFitCoordinates]);
   useEffect(() => {
     const observer = new ResizeObserver(() => map.invalidateSize({ animate: false }));
     observer.observe(map.getContainer());

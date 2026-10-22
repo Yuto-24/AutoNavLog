@@ -46,6 +46,9 @@ export function restoreProjectDraft(project: Project, draft: ProjectDraft): Proj
 }
 export interface VorColumn { id: number; stationIdentifier: string | null }
 export interface ApplicationSession {
+  editingRouteProjectId?: string | null;
+  pendingImportDraft?: boolean;
+  selectedImportCandidate?: string;
   mapRouteDraft?: MapRoutePoint[];
   legacyRouteInput?: boolean;
   vorColumns: VorColumn[];
@@ -102,9 +105,14 @@ export function decodeSession(raw: string): ApplicationSession {
           ["CLIMB", "CRUISE", "DESCENT", "VISUAL_ARRIVAL"].includes(String(section.phase)))))) {
     throw new Error("Incompatible working session");
   }
+  if (value.selectedImportCandidate !== undefined && typeof value.selectedImportCandidate !== "string") throw new Error("Incompatible import selection");
+  if (value.pendingImportDraft !== undefined && (typeof value.pendingImportDraft !== "boolean" ||
+      (value.pendingImportDraft && value.working.project !== null))) throw new Error("Incompatible import draft");
   if (value.legacyRouteInput !== undefined && typeof value.legacyRouteInput !== "boolean") throw new Error("Incompatible route input mode");
+  if (value.editingRouteProjectId != null && (!record(value.working.project) ||
+      value.editingRouteProjectId !== value.working.project.id)) throw new Error("Incompatible route edit");
   if (value.mapRouteDraft !== undefined && (!validMapDraft(value.mapRouteDraft) ||
-      (value.working.project !== null && value.mapRouteDraft.length > 0))) {
+      (value.working.project !== null && value.mapRouteDraft.length > 0 && !value.editingRouteProjectId))) {
     throw new Error("Incompatible Map Route Draft");
   }
   return value as unknown as ApplicationSession;
