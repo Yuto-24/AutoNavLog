@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from autonavlog.domain.enums import VisualReferenceRole
 from autonavlog.domain.planning import (
     CP_PROJECTION_POLICY_VERSION,
@@ -24,6 +26,17 @@ def forecast_selection_fingerprint(project: Project) -> str:
     Manual inputs are included because they can change iterative flight timing.
     """
     state = project.metadata.get("ui_state", {})
+    planning_keys = {
+        "arrival_plan", "rjfm_departure_plan", "rjfm_inbound_plan",
+        "reference_data_snapshot",
+    }
+    # Browser JSON roundtrips erase integral float notation in untyped metadata.
+    # Restore domain types before hashing so an unchanged Save keeps its intent.
+    planning = PersistedUiState.model_validate_json(json.dumps({
+        key: state.get(key) for key in planning_keys
+    } if isinstance(state, dict) else {}, allow_nan=False)).model_dump(
+        mode="python", include=planning_keys,
+    )
     return make_fingerprint(
         kind="forecast_selection",
         fields={
@@ -38,13 +51,7 @@ def forecast_selection_fingerprint(project: Project) -> str:
                     "air_conditioning_enabled", "run_up_included", "total_usable_fuel_gal",
                 },
             ),
-            "planning": {
-                key: state.get(key)
-                for key in (
-                    "arrival_plan", "rjfm_departure_plan", "rjfm_inbound_plan",
-                    "reference_data_snapshot",
-                )
-            } if isinstance(state, dict) else None,
+            "planning": planning,
         },
     )
 

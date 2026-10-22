@@ -689,7 +689,8 @@ def test_ftd_does_not_consume_forecast_refresh_intent(local):
     assert local.session.forecast_update_fingerprint is None
 
 
-def test_portable_forecast_refresh_acquires_new_run_before_shared_calculation():
+@pytest.mark.parametrize("save_between_clicks", [False, True])
+def test_portable_forecast_refresh_acquires_new_run_before_shared_calculation(save_between_clicks):
     from datetime import UTC, datetime, timedelta
 
     from scripts.local_reference import reference_state
@@ -710,6 +711,22 @@ def test_portable_forecast_refresh_acquires_new_run_before_shared_calculation():
             )) == {}
             result = json.loads(local.dispatch("calculate"))
             _assert_forecast_snapshot(result, expected)
+            if save_between_clicks and expected == "20260915180000":
+                # JSON.stringify represents integral JS Numbers without a decimal.
+                def js_numbers(value):
+                    if isinstance(value, dict):
+                        return {key: js_numbers(item) for key, item in value.items()}
+                    if isinstance(value, list):
+                        return [js_numbers(item) for item in value]
+                    if isinstance(value, float) and value.is_integer():
+                        return int(value)
+                    return value
+
+                recovery = js_numbers(result["workingRecovery"])
+                recovery["project"]["name"] = "Forecast refresh"
+                recovery["project"]["revision"] += 1
+                local.dispatch("adoptSavedProject", recovery)
+                assert local.session.forecast_update_fingerprint is not None
         assert "FORECAST_UPDATE_AVAILABLE" not in {
             issue["code"] for issue in result["outcome"]["issues"]
         }

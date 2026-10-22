@@ -12,6 +12,9 @@ a new button, model field, schema version, or GSM selection policy.
 flight timing, airports, route, section altitude/phase/manual inputs, TGL,
 descent rate, aircraft settings, and relevant planning/reference state. It
 excludes the selected Run, save/revision bookkeeping, and acknowledgements.
+Planning metadata is revalidated through its typed domain model before hashing,
+so JavaScript JSON roundtrips (`1000.0` to `1000`) cannot invalidate an unchanged
+Save. The portable-MSM regression exercises this browser number normalization.
 The calculation fingerprint remains separate and includes the actual Run.
 
 Intent lives only in the working application session. Every presented input

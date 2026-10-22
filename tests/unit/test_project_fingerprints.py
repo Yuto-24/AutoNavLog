@@ -221,7 +221,9 @@ def test_forecast_selection_key_excludes_pin_and_save_bookkeeping(project):
     lambda p: setattr(p.sections[0], "manual_temperature_c", 12),
     lambda p: setattr(p, "tgl_count", 2),
     lambda p: setattr(p, "descent_rate_fpm", 1000),
-    lambda p: p.metadata.update(ui_state={"arrival_plan": {"altitude": 1000}}),
+    lambda p: p.metadata.update(ui_state={"arrival_plan": {
+        "visual_reporting_point_node_id": str(p.route_nodes[-2].id),
+    }}),
 ])
 def test_forecast_selection_key_tracks_requirement_inputs(project, change):
     from autonavlog.application.project_fingerprints import forecast_selection_fingerprint
