@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "dataset_id": "jcab-aip-map-20261029",
+  "state": "source_metadata_registered_binary_archives_not_vendored",
+  "effective_date": "2026-10-29",
+  "published_notice_date": "2026-10-22",
+  "publisher": "国土交通省航空局 航空情報センター",
+  "distribution": "SWIM portal / AIPファイルダウンロードサービス / 3_AIP(KML, Shapefile)",
+  "coordinate_system": "WGS84 (EPSG:4326)",
+  "source_archives": [
+    {
+      "filename": "KML_20261029.zip",
+      "size_bytes": 15020775,
+      "sha256": "5f67328c812192677ce4679c2ee707eb77bbf5571d75e63b7efa5c0d8cfd3e6f"
+    },
+    {
+      "filename": "Shapefile_20261029.zip",
+      "size_bytes": 8110168,
+      "sha256": "df81f5c3e9d3460542734f2ea51ee660f66f0c09d8abfd76f12b5a8ea18e5295"
+    },
+    {
+      "filename": "Documents.zip",
+      "size_bytes": 10074117,
+      "sha256": "51968de5b5a158e4999b3374f3e2190013b7dae88356f3bbe0f41995215604bf"
+    }
+  ],
+  "layers": [
+    {
+      "id": "ACC_Sector_at_or_above_FL335",
+      "feature_count": 50
+    },
+    {
+      "id": "ACC_Sector_below_FL335",
+      "feature_count": 67
+    },
+    {
+      "id": "ADIZ_INNER",
+      "feature_count": 1
+    },
+    {
+      "id": "ADIZ_OUTER",
+      "feature_count": 1
+    },
+    {
+      "id": "AERODROME_REFERENCE_POINT",
+      "feature_count": 127
+    },
+    {
+      "id": "ATS_ROUTES",
+      "feature_count": 480
+    },
+    {
+      "id": "Approach_control_area_CIVIL",
+      "feature_count": 94
+    },
+    {
+      "id": "Approach_control_area_MIL",
+      "feature_count": 79
+    },
+    {
+      "id": "Civil_training_and_testing_areas",
+      "feature_count": 132
+    },
+    {
+      "id": "Control_zone_and_Information_zone",
+      "feature_count": 128
+    },
+    {
+      "id": "Corridors",
+      "feature_count": 12
+    },
+    {
+      "id": "Direct_routes",
+      "feature_count": 405
+    },
+    {
+      "id": "Enroute_Holding",
+      "feature_count": 127
+    },
+    {
+      "id": "FIR",
+      "feature_count": 2
+    },
+    {
+      "id": "JSDF_training_and_testing_areas_HIGH",
+      "feature_count": 81
+    },
+    {
+      "id": "JSDF_training_and_testing_areas_LOW",
+      "feature_count": 18
+    },
+    {
+      "id": "Oceanic_Transition_routes",
+      "feature_count": 29
+    },
+    {
+      "id": "QNH_Application_Area",
+      "feature_count": 4
+    },
+    {
+      "id": "RADIO_NAVIGATION_AIDS",
+      "feature_count": 135
+    },
+    {
+      "id": "REP_WPT",
+      "feature_count": 1292
+    },
+    {
+      "id": "RNAV_ROUTES",
+      "feature_count": 1368
+    },
+    {
+      "id": "Restricted_area_Airspace_restrictions",
+      "feature_count": 89
+    },
+    {
+      "id": "Supersonic_flight_area",
+      "feature_count": 1
+    },
+    {
+      "id": "Take_off_flight_path_area",
+      "feature_count": 26
+    },
+    {
+      "id": "Visual_REP",
+      "feature_count": 528
+    }
+  ],
+  "verified_shape_geometry": "WGS84 EPSG:4326; 25 layers / 5276 features; zero invalid and zero empty geometries (Shapefile)",
+  "source_availability": "Original ZIPs are not included in this repository commit. Import must verify these checksums. This manifest is not an active runtime reference dataset.",
+  "runtime_status": "NOT_IMPORTED",
+  "application_effective_date_gate": "Not before 2026-10-29",
+  "sources": {
+    "terms": "https://top.swim.mlit.go.jp/swim/terms.html",
+    "portal": "https://top.swim.mlit.go.jp/swim/"
+  }
+}
