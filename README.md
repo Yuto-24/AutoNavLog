@@ -26,6 +26,7 @@ production build、無料枠条件、手動deploy / rollback、公開前のdry-r
 本番への配置・受入は明示的な公開承認後の別gateです。
 
 以下のDocker / server storage / Cloudflare Tunnelの手順は、移行中のLegacy環境用です。
+旧サーバの停止条件と救済用backupは[サーバ廃止の準備](docs/server_retirement.md)を参照してください。
 Local-firstの保存と復元は[Local Persistence](docs/local_persistence.md)と
 [Account Sync](docs/account_sync.md)を参照してください。
 

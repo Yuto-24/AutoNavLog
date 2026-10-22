@@ -94,6 +94,17 @@ def require(condition: object, message: str) -> None:
         raise Blocked(message)
 
 
+def public_configuration(variables: dict) -> dict:
+    """Migration URL is optional only when the canonical release agrees it is absent."""
+    required = gate.CONFIGURATION[:-1]
+    require(all(isinstance(variables.get(key), str) and variables[key].strip()
+                for key in required), "Existing public configuration missing")
+    optional = variables.get("VITE_LEGACY_MIGRATION_URL", "")
+    require(isinstance(optional, str) and (not optional or optional.strip()),
+            "Invalid Legacy migration configuration")
+    return {key: variables[key] for key in gate.CONFIGURATION if variables.get(key)}
+
+
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -301,14 +312,27 @@ class Operator:
         return json.loads(output) if output.strip() else None
 
     def variables(self) -> dict:
-        result = {}
-        for name in VARIABLES:
-            item = self.gh("actions/variables/" + name)
-            require(
-                item.get("name") == name and isinstance(item.get("value"), str),
-                "Missing repository variable",
-            )
-            result[name] = item["value"]
+        # Only a complete inventory proves the optional migration setting is absent.
+        # A failed individual GET (including 403/404) is not absence evidence.
+        inventory, page, count = {}, 1, None
+        while True:
+            value = self.gh(f"actions/variables?per_page=100&page={page}")
+            rows, total = value["variables"], value["total_count"]
+            require(type(total) is int and total >= 0 and isinstance(rows, list)
+                    and (count is None or count == total), "Repository inventory changed")
+            count = total
+            for row in rows:
+                require(isinstance(row.get("name"), str) and isinstance(row.get("value"), str)
+                        and row["name"] not in inventory, "Invalid repository variable")
+                inventory[row["name"]] = row["value"]
+            require(len(inventory) <= total, "Invalid repository inventory")
+            if len(inventory) == total:
+                break
+            require(len(rows) == 100 and page < 40, "Incomplete repository inventory")
+            page += 1
+        require(all(name in inventory for name in VARIABLES
+                    if name != "VITE_LEGACY_MIGRATION_URL"), "Missing repository variable")
+        result = {name: inventory.get(name, "") for name in VARIABLES}
         # Environment shadowing could make resumed feed builds use another SHA/config.
         for environment in ("static-production", "static-publication", "static-validation"):
             # Reject environment shadowing using a complete variable inventory.
@@ -572,10 +596,7 @@ class Operator:
         require(
             self.env.get("CLOUDFLARE_API_TOKEN"), "Existing Pages upload authentication unavailable"
         )
-        config = {key: variables[key] for key in gate.CONFIGURATION}
-        require(
-            all(value.strip() for value in config.values()), "Existing public configuration missing"
-        )
+        config = public_configuration(variables)
         canonical = release(gate.ORIGIN, current)
         require(canonical.get("configuration") == config, "Canonical public configuration changed")
         workflow = self.workflow()
@@ -633,7 +654,7 @@ class Operator:
             cwd=self.root,
             timeout=1800,
         )
-        config = {key: snapshot["variables"][key] for key in gate.CONFIGURATION}
+        config = public_configuration(snapshot["variables"])
         args = [
             "docker",
             "run",
@@ -682,7 +703,7 @@ class Operator:
             candidate["commit"] == sha
             and candidate["version"] == snapshot["version"]
             and candidate["configuration"]
-            == {key: snapshot["variables"][key] for key in gate.CONFIGURATION},
+            == public_configuration(snapshot["variables"]),
             "Reviewed candidate SHA/version/configuration changed",
         )
         report = json.loads((destination / "feed-report.json").read_text())
