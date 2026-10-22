@@ -129,9 +129,9 @@
   "verified_shape_geometry": "WGS84 EPSG:4326; 25 layers / 5276 features; zero invalid and zero empty geometries (Shapefile)",
   "source_availability": "Original ZIPs are not included in this repository commit. Import must verify these checksums. This manifest is not an active runtime reference dataset.",
   "runtime_status": "NOT_IMPORTED",
-  "application_effective_date_gate": "Not before 2026-10-29",
   "sources": {
     "terms": "https://top.swim.mlit.go.jp/swim/terms.html",
     "portal": "https://top.swim.mlit.go.jp/swim/"
-  }
+  },
+  "display_date_policy": "NO_DATE_BASED_VISIBILITY_RESTRICTION"
 }
