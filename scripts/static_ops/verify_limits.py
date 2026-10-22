@@ -108,7 +108,7 @@ class Document(HTMLParser):
         elif tag in {"p", "li", "aside"}:
             if self.block_stack:
                 self.block_stack[-1][2] = True
-            self.block_stack.append([tag, [], False, self.section])
+            self.block_stack.append([tag, [], False, self.section, []])
         elif tag == "table":
             if self.table is not None:
                 raise ProbeError("unsupported_nested_table")
@@ -133,9 +133,17 @@ class Document(HTMLParser):
             self.section = tuple(self.headings[n] for n in sorted(self.headings))
             self.heading = None
         elif tag in {"p", "li", "aside"} and self.block_stack:
-            _, parts, has_child, section = self.block_stack.pop()
-            if not has_child:
-                self.blocks.append((section, normalize("".join(parts))))
+            _, parts, has_child, section, children = self.block_stack.pop()
+            text = normalize("".join(parts))
+            # A transparent wrapper may pass its children through once. Visible
+            # parent text can qualify them (e.g. "Previous limit:"), so those
+            # children cannot become standalone affirmative evidence. Defer
+            # emission until all enclosing block context has been considered.
+            blocks = (children if not text else []) if has_child else [(section, text)]
+            if self.block_stack:
+                self.block_stack[-1][4].extend(blocks)
+            else:
+                self.blocks.extend(blocks)
         elif tag in {"td", "th"} and self.cell is not None:
             self.row.append(normalize("".join(self.cell)))
             self.cell = None
@@ -148,8 +156,8 @@ class Document(HTMLParser):
 
     def handle_data(self, data):
         if self.stack and not self.stack[-1][1] and self.stack[-1][2]:
-            for block in self.block_stack:
-                block[1].append(data)
+            if self.block_stack:
+                self.block_stack[-1][1].append(data)
             if self.heading is not None:
                 self.heading.append(data)
             if self.cell is not None:

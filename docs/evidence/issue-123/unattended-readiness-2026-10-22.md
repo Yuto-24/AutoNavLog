@@ -67,6 +67,8 @@ cache設定の402は実観測で、[REST仕様](https://docs.github.com/en/rest/
 GitHubのinline link終端に存在しない空白を挿入していた。
 これにより上限・scopeが同じ公式HTMLでも`limits_clause_changed`になった。
 可視注記を本文blockとして扱い、inline要素間は元の文字列を保持、`br`は空白として扱う。
+入れ子の注記は親blockの文脈を確認してから採用する。親が「旧制限」などの可視テキストを
+持つ場合、子だけを独立した肯定条項として採用しない。説明のないwrapperだけは透過させる。
 値、単位、plan列、section、affirmative clause、重複拒否、hidden/history拒否は維持する。
 table/文言への緩い部分一致や、HTTP成功だけでのtimestamp更新は追加しない。
 

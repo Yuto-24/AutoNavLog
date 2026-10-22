@@ -135,6 +135,31 @@ def test_line_break_is_whitespace_and_nested_note_is_counted_once():
     assert limits.audit(NOW, Client(docs))["status"] == "OK"
 
 
+@pytest.mark.parametrize("wrapper", [
+    "<li>Previous limit: {} Current limit: two databases.</li>",
+    "<aside>Historical example: <li>{}</li></aside>",
+    "<li>{}<span> No longer applicable.</span></li>",
+])
+def test_nested_note_cannot_discard_visible_ancestor_qualification(wrapper):
+    docs = current_markup()
+    start = docs["firestore"].index("<aside")
+    end = docs["firestore"].index("</aside>", start) + len("</aside>")
+    note = docs["firestore"][start:end]
+    docs["firestore"] = docs["firestore"].replace(note, wrapper.format(note))
+    result = limits.audit(NOW, Client(docs))
+    assert result["status"] == "BLOCKED" and "limits_checked_at" not in result
+
+
+def test_parent_clause_cannot_discard_nested_visible_qualification():
+    docs = documents()
+    docs["firestore"] = docs["firestore"].replace(
+        "<p>Cloud Firestore allows exactly one free database per project.</p>",
+        "<aside>Cloud Firestore allows exactly one free database per project."
+        "<p>This is historical.</p></aside>",
+    )
+    assert limits.audit(NOW, Client(docs))["status"] == "BLOCKED"
+
+
 @pytest.mark.parametrize("mutation", ["hidden", "changed", "duplicate", "historical"])
 def test_admonition_must_be_visible_unique_current_and_unchanged(mutation):
     docs = current_markup()
