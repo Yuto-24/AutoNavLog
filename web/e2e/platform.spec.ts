@@ -73,6 +73,62 @@ for (const mode of ["supported", "denied", "unsupported"] as const) {
   });
 }
 
+for (const failure of ["denied", "cancelled", "failed", "unsupported"] as const) {
+  test(`Clipboard read failure clears previous paste (${failure})`, async ({ page }) => {
+    await page.addInitScript((text) => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: async () => text } });
+    }, kml);
+    await open(page);
+    await paste(page).click();
+    await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+    const previous = (await snapshot(page)).working.import_result;
+    const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+    // Explicit editing preserves the prior text without attempting a new read.
+    await page.getByRole("button", { name: "貼り付けたKMLの編集を続ける" }).click();
+    await expect(dialog.getByRole("textbox")).toHaveValue(kml);
+    await dialog.getByRole("button", { name: "キャンセル", exact: true }).click();
+    await page.evaluate((failure) => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: failure === "unsupported" ? undefined : {
+        readText: () => {
+          if (failure === "cancelled") {
+            return new Promise<string>((_resolve, reject) => {
+              Object.assign(window, { cancelPlatformPaste: () => reject(new DOMException("Cancelled", "AbortError")) });
+            });
+          }
+          return Promise.reject(failure === "denied" ? new DOMException("Denied", "NotAllowedError") : new Error("Read failed"));
+        },
+      } });
+    }, failure);
+    await paste(page).click();
+    if (failure === "cancelled") {
+      await expect(dialog).toBeHidden();
+      await expect(paste(page)).toBeDisabled();
+      await page.evaluate(() => (window as unknown as { cancelPlatformPaste: () => void }).cancelPlatformPaste());
+    }
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("alert")).toContainText(failure === "unsupported" ? "この環境では" : "読み取れませんでした");
+    await expect(dialog.getByRole("textbox")).toHaveValue("");
+    await expect(dialog.getByRole("button", { name: "貼付KMLを読み込む" })).toBeDisabled();
+    expect((await snapshot(page)).working.import_result).toEqual(previous);
+    if (failure === "cancelled") {
+      const chooser = page.waitForEvent("filechooser");
+      await dialog.getByRole("button", { name: "ファイルから取り込む" }).click();
+      await (await chooser).setFiles({ name: "recovery.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(kml) });
+      await expect(page.locator(".imported-file")).toContainText("recovery.kml");
+    } else {
+      const replacement = kml.replace("</Document>", "<!-- manually supplied replacement --></Document>");
+      await dialog.getByRole("textbox").fill(replacement);
+      await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+      await expect(dialog).toBeHidden();
+      await page.getByRole("button", { name: "貼り付けたKMLの編集を続ける" }).click();
+      await expect(dialog.getByRole("textbox")).toHaveValue(replacement);
+      await dialog.getByRole("button", { name: "キャンセル", exact: true }).click();
+    }
+    await expect(dialog).toBeHidden();
+    await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  });
+}
+
 for (const entry of ["map", "import"] as const) {
 test(`pending platform Paste confirmation can be cancelled and recovered with file import (${entry})`, async ({ page }) => {
   await page.addInitScript(() => {

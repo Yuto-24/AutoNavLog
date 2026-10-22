@@ -812,7 +812,16 @@ export function NavLogTable({
                     data-row-type={row.row_type}
                     data-row-sequence={row.sequence}
                   >
-                    <td colSpan={navLogColumnCount} />
+                    {Array.from({ length: navLogColumnCount }, (_, index) => (
+                      <td
+                        key={index}
+                        className={index === vorColumns.length
+                          ? "route-name-cell route-from-cell"
+                          : index === vorColumns.length + 1
+                            ? "route-name-cell route-to-cell"
+                            : undefined}
+                      />
+                    ))}
                   </tr>
                 );
               }

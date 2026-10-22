@@ -217,6 +217,8 @@ jobs:
           trap 'kill "$local_server_pid"' EXIT
           curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4174/ > /dev/null
           npm --prefix web run test:local
+          (cd web && npx playwright test --config playwright.clipboard.config.ts)
+          (cd web && npx playwright test --config playwright.focused-ux.config.ts)
           npm --prefix web exec -- playwright test --config web/playwright.navlog-scroll.config.ts
           npm --prefix web exec -- playwright test --config web/playwright.browser-acceptance.config.ts
           AUTONAVLOG_TEST_FIXTURES=1 VITE_TAF_PROXY_URL=https://taf.example/taf npm --prefix web run build:local
@@ -227,6 +229,8 @@ jobs:
           name: local-browser-failure
           path: |
             /tmp/autonavlog-issue117-playwright
+            /tmp/autonavlog-clipboard-playwright
+            /tmp/autonavlog-focused-ux-browser
             /tmp/autonavlog-navlog-scroll-browser
             /tmp/autonavlog-issue122-browser
             /tmp/autonavlog-taf-playwright

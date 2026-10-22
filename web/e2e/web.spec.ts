@@ -1,3 +1,4 @@
+import { expectNavLogPaperGrid } from "./helpers/navLogGrid";
 import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { observeLegacySession } from "./helpers/legacySession";
 import { disableClipboardRead } from "./helpers/clipboard";
@@ -2959,6 +2960,47 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     width: "2",
   })));
 
+  const trainingPaths = page.locator(".rjfm-training-airspace, .rjfm-training-airspace-boundary");
+  expect(await trainingPaths.evaluateAll(paths => paths.every(path =>
+    !path.classList.contains("leaflet-interactive") && getComputedStyle(path).pointerEvents === "none",
+  ))).toBe(true);
+  await expect(page.locator(".rjfm-pca-boundary")).toHaveClass(/leaflet-interactive/);
+  await expect(page.locator(".rjfm-pca-exclusion")).toHaveClass(/leaflet-interactive/);
+
+  const map = page.locator(".route-map");
+  await map.scrollIntoViewIfNeeded();
+  for (const selector of [".rjfm-training-airspace", ".rjfm-training-airspace-boundary"]) {
+    // Use real SVG geometry, including clipping, rather than dragging an arbitrary map point.
+    const point = await map.evaluate((element, selector) => {
+      const bounds = element.getBoundingClientRect();
+      for (const path of element.querySelectorAll<SVGPathElement>(selector)) {
+        const matrix = path.getScreenCTM();
+        if (!matrix) continue;
+        for (let x = bounds.left + 50; x < bounds.right - 60; x += 3) {
+          for (let y = bounds.top + 50; y < bounds.bottom - 60; y += 3) {
+            const local = new DOMPoint(x, y).matrixTransform(matrix.inverse());
+            const inside = selector.endsWith("-boundary") ? path.isPointInStroke(local) : path.isPointInFill(local);
+            if (inside && !document.elementFromPoint(x, y)?.closest(".leaflet-control, .leaflet-marker-icon")) {
+              return { x, y };
+            }
+          }
+        }
+      }
+      return null;
+    }, selector);
+    expect(point, `visible geometry for ${selector}`).not.toBeNull();
+    await page.mouse.move(point!.x, point!.y);
+    await expect(page.locator(".leaflet-tooltip").filter({ hasText: /KS4-/ })).toHaveCount(0);
+    const pane = map.locator(".leaflet-map-pane");
+    const before = await pane.getAttribute("style");
+    await page.mouse.down();
+    await page.mouse.move(point!.x + 35, point!.y + 25, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(() => pane.getAttribute("style")).not.toBe(before);
+    expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+    await expect(trainingPaths).toHaveCount(31);
+  }
+
   await page.setViewportSize({ width: 1100, height: 900 });
   await expect(legend).toBeVisible();
   await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
@@ -3094,6 +3136,61 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   expect(pageErrors).toEqual([]);
 });
 
+for (const width of [390, 1100, 1440]) {
+  test(`map-picked checkpoint focuses its name once and reveals it at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await importKmlCandidate(page);
+    await page.getByLabel("気象モード").selectOption("FTD");
+    await page.getByLabel("地図とKML記載順を確認しました").check();
+    await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+    const route = page.getByRole("region", { name: "経路地図とLeg設定" });
+    const editor = route.getByRole("region", { name: "チェックポイント設定" });
+    const name = editor.getByLabel("名称", { exact: true });
+    const map = route.locator(".route-map");
+    await editor.getByRole("button", { name: "チェックポイントを追加" }).click();
+    // Merely opening an editor must not steal focus from its initiating control.
+    await expect(name).not.toBeFocused();
+    for (const suffix of ["first", "second"]) {
+      if (suffix === "second") {
+        await editor.getByRole("button", { name: "地図から座標を選択" }).click();
+      }
+      await map.click({ position: { x: 150, y: 150 } });
+      await expect(name).toBeFocused();
+      await expect(name).toBeInViewport({ ratio: 1 });
+      await expect(editor.getByLabel("緯度")).not.toHaveValue("");
+      await expect(editor.getByLabel("経度")).not.toHaveValue("");
+      await expect(route.locator("#route-map-frame")).not.toHaveClass(/is-picking-checkpoint/);
+      // No locator.fill/click: input must continue from the actual MAP click focus.
+      await page.keyboard.type(suffix);
+      await expect(name).toHaveValue(suffix === "first" ? "first" : "firstsecond");
+      await page.keyboard.press("Tab");
+      await expect(name).not.toBeFocused();
+      const latitude = editor.getByLabel("緯度");
+      await latitude.focus();
+      if (suffix === "second") await latitude.fill("32.482176");
+      await expect(latitude).toBeFocused();
+      await expect(name).not.toBeFocused();
+      const placement = await route.evaluate(element => ({
+        mapBottom: element.querySelector("#route-map-frame")!.getBoundingClientRect().bottom,
+        editorTop: element.querySelector(".checkpoint-editor")!.getBoundingClientRect().top,
+        editorBottom: element.querySelector(".checkpoint-editor")!.getBoundingClientRect().bottom,
+        tableTop: element.querySelector(".route-table-scroll")!.getBoundingClientRect().top,
+      }));
+      expect(placement.editorTop).toBeGreaterThanOrEqual(placement.mapBottom);
+      expect(placement.tableTop).toBeGreaterThanOrEqual(placement.editorBottom);
+    }
+    await editor.getByRole("button", { name: "キャンセル", exact: true }).click();
+    await expect(name).toHaveCount(0);
+    await expect(route.locator(".checkpoint-draft-marker")).toHaveCount(0);
+    await editor.getByRole("button", { name: "チェックポイントを追加" }).click();
+    await map.click({ position: { x: 150, y: 150 } });
+    await expect(name).toBeFocused();
+    await page.keyboard.type("new");
+    await expect(name).toHaveValue("new");
+  });
+}
+
 test("FTD route settings and checkpoint CRUD are available from the web UI", async ({ page }) => {
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
@@ -3151,6 +3248,7 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   const draftMarker = routePanel.locator(".checkpoint-draft-marker");
   await expect(draftMarker).toHaveCount(1);
   await expect(routePanel.getByText("仮CP（未保存）", { exact: true })).toBeVisible();
+  await expect(editor.getByLabel("名称")).toBeFocused();
   await expect(editor.getByLabel("緯度")).not.toHaveValue("");
   await expect(editor.getByLabel("経度")).not.toHaveValue("");
   const nameWarning = editor.getByText(
@@ -3472,6 +3570,7 @@ test("NAV LOG summary, sticky route names, and TIME / FUEL PLAN remain stable ac
     expect(fuelBox.x).toBeGreaterThanOrEqual(0);
 
     await scroll.evaluate((element) => { element.scrollLeft = 0; });
+    await expectNavLogPaperGrid(page);
     const before = await Promise.all([
       table.locator("th.route-from-cell").first().boundingBox(),
       table.locator("th.route-to-cell").first().boundingBox(),
@@ -3492,6 +3591,7 @@ test("NAV LOG summary, sticky route names, and TIME / FUEL PLAN remain stable ac
     if (before.some((box) => box === null) || after.some((box) => box === null)) {
       throw new Error("NAV LOG scroll geometry is missing");
     }
+    await expectNavLogPaperGrid(page);
     const actualScrollLeft = await scroll.evaluate((element) => element.scrollLeft);
     const expectedFromLeft = Math.max(before[0].x - actualScrollLeft, scrollBox.x);
     const expectedToLeft = Math.max(
@@ -3507,10 +3607,15 @@ test("NAV LOG summary, sticky route names, and TIME / FUEL PLAN remain stable ac
     expect(Math.abs(after[4].width - before[4].width)).toBeLessThanOrEqual(1);
     expect(Math.abs(after[5].width - before[5].width)).toBeLessThanOrEqual(1);
   }
+  await expectNavLogPaperGrid(page);
+  await page.emulateMedia({ media: "print" });
+  await expectNavLogPaperGrid(page);
+  await page.emulateMedia({ media: "screen" });
   const removeButtons = page.getByRole("button", { name: /VOR\/DME .*列目を削除/ });
   while (await removeButtons.count()) {
     await removeButtons.first().click();
   }
+  await expectNavLogPaperGrid(page);
   const section = page.locator(".nav-log-section");
   for (const width of [390, 1100, 1440] as const) {
     await page.setViewportSize({ width, height: 900 });

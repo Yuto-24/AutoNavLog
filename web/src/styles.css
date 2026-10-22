@@ -945,14 +945,31 @@ tbody tr:last-child td { border-bottom: 0; }
 .route-table th:nth-child(1) { width: 25%; }
 .route-table th:nth-child(2) { width: 17%; }
 .route-table th:nth-child(3) { width: 36%; }
-.route-table td { font-size: 11px; }
-.route-table td:first-child { display: flex; align-items: center; gap: 7px; }
+.route-table td { font-size: 11px; vertical-align: middle; }
+.route-point-content { display: flex; align-items: center; gap: 7px; }
 .point-index { width: 21px; height: 21px; display: inline-flex; align-items: center; justify-content: center; color: #ffffff; background: var(--navy-950); border-radius: 50%; font-size: 9px; font-weight: 750; }
 .vrep-row { color: var(--teal-700); background: var(--teal-50); }
 .vrep-row .point-index { background: var(--teal-700); }
 .table-number-input, .table-select, .arrival-pattern-input { width: 100%; min-height: 31px; padding: 0 6px; font-size: 11px; }
-.altitude-controls { display: grid; grid-template-columns: 1fr 0.78fr; gap: 5px; }
-.altitude-course { grid-column: 1 / -1; color: var(--slate-500); font-size: 9px; }
+/* Equal flexible tracks reserve the same space above and below the primary
+   controls, even when supporting text wraps. Keep the cells as table cells so
+   POINT and PHASE share the record's actual vertical center. */
+.altitude-controls, .route-phase-content {
+  display: grid;
+  grid-template-rows: 1fr auto 1fr;
+  row-gap: 5px;
+}
+.altitude-input-row {
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.altitude-input-row > .altitude-candidate-select { flex: 1 1 0; min-width: 0; }
+.altitude-input-row > .table-number-input { flex: 0.78 1 0; min-width: 0; }
+.altitude-course { grid-row: 3; color: var(--slate-500); font-size: 9px; }
+.route-phase-primary { grid-row: 2; }
+.route-phase-content > .descent-rate-result { grid-row: 3; margin-top: 0; }
 .fixed-altitude-control {
   display: grid;
   gap: 3px;
@@ -1213,7 +1230,31 @@ tbody tr:last-child td { border-bottom: 0; }
 .nav-log-summary dd { margin: 2px 0 0; color: var(--navy-950); font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .nav-log-summary .destination-wind-summary { flex: 1 1 360px; margin: 0; }
 .nav-log-tables { width: max-content; min-width: 100%; }
-.nav-log-table { width: auto; min-width: 0; table-layout: fixed; }
+.nav-log-table {
+  --nav-log-grid: #7990a5;
+  width: auto;
+  min-width: 0;
+  table-layout: fixed;
+  /* Separate borders remain attached to the sticky FROM/TO cells when scrolling. */
+  border-collapse: separate;
+  border-spacing: 0;
+  border-top: 2px solid var(--nav-log-grid);
+  border-left: 2px solid var(--nav-log-grid);
+}
+.nav-log-table th, .nav-log-table td {
+  border-right: 1px solid var(--nav-log-grid);
+  border-bottom: 1px dotted var(--nav-log-grid);
+}
+.nav-log-table thead th, .nav-log-table tbody tr:last-child td {
+  border-bottom: 2px solid var(--nav-log-grid);
+}
+/* Count from FUEL so adding VOR/DME columns cannot move the paper boundaries:
+   TO, TAS, MC, MH, ZONE/CUM ETE, ETO, ATE, then the right outer frame. */
+.nav-log-table tr > :is(th, td):is(
+  :nth-last-child(18), :nth-last-child(14), :nth-last-child(11),
+  :nth-last-child(8), :nth-last-child(5), :nth-last-child(4),
+  :nth-last-child(2), :last-child
+) { border-right: 2px solid var(--nav-log-grid); }
 .nav-log-table col.nav-log-vor-column { width: 90px; }
 .nav-log-table col.nav-log-from-column, .nav-log-table col.nav-log-to-column { width: 110px; }
 .nav-log-table col.nav-log-pa-column { width: 75px; }
@@ -1239,8 +1280,6 @@ tbody tr:last-child td { border-bottom: 0; }
 .nav-log-table .route-from-cell { left: 0; }
 .nav-log-table .route-to-cell { left: 110px; }
 .nav-log-table th.route-name-header { z-index: 4; background: var(--slate-100); }
-.nav-log-table .route-from-cell { box-shadow: 1px 0 0 var(--slate-200); }
-.nav-log-table .route-to-cell { box-shadow: 2px 0 0 var(--slate-200); }
 .vor-reference-header { width: 90px; min-width: 90px; }
 .vor-reference-heading {
   min-height: 18px;
@@ -1286,7 +1325,6 @@ tbody tr:last-child td { border-bottom: 0; }
 .nav-leg-heading-row td {
   color: var(--navy-950);
   background: #eaf1f7;
-  border-bottom-color: #9dafbf;
   font-weight: 800;
 }
 .nav-leg-heading-row td:not(.vor-reference-cell):not(.route-name-cell) { background: #f3f6f8; }
@@ -1298,8 +1336,6 @@ tbody tr:last-child td { border-bottom: 0; }
   height: 4px;
   padding: 0;
   background: #ffffff;
-  border-right: 0;
-  border-bottom-color: #9dafbf;
 }
 .manual-value small { display: block; margin-top: 2px; color: var(--teal-700); font-size: 8px; font-weight: 700; }
 .manual-entry-cell { min-width: 48px; background: #fffdf5; }

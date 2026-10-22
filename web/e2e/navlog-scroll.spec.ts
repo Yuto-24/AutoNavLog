@@ -1,3 +1,4 @@
+import { expectNavLogPaperGrid } from "./helpers/navLogGrid";
 import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
@@ -52,6 +53,7 @@ test("first Local NAV LOG calculation and recalculation scroll to the result", a
   await expectNavLogAtViewportTop(page);
   expect(await page.evaluate(() => (window as any).navLogScrollsAtCalculationStart)).toBe(0);
   expect(await page.evaluate(() => (window as any).navLogScrolls)).toBe(1);
+  await expectNavLogPaperGrid(page);
   const firstTable = await page.locator(".nav-log-table").innerText();
 
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -62,4 +64,24 @@ test("first Local NAV LOG calculation and recalculation scroll to the result", a
   expect(await page.evaluate(() => (window as any).navLogScrollsAtCalculationStart)).toBe(1);
   expect(await page.evaluate(() => (window as any).navLogScrolls)).toBe(2);
   await expect(page.locator(".nav-log-table")).toHaveText(firstTable, { useInnerText: true });
+  await expectNavLogPaperGrid(page);
+
+  // Exercise Issue #276 against the real Local result in the hosted browser job.
+  for (let index = 0; index < 5; index += 1) {
+    await page.getByRole("button", { name: "VOR/DME列を追加" }).click();
+  }
+  const scroll = page.locator(".nav-log-scroll");
+  for (const width of [390, 1100, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const left of [0, 420]) {
+      await scroll.evaluate((element, left) => { element.scrollLeft = left; }, left);
+      await expectNavLogPaperGrid(page);
+    }
+  }
+  await page.emulateMedia({ media: "print" });
+  await expectNavLogPaperGrid(page);
+  await page.emulateMedia({ media: "screen" });
+  const removeColumns = page.getByRole("button", { name: /VOR\/DME .*列目を削除/ });
+  while (await removeColumns.count()) await removeColumns.first().click();
+  await expectNavLogPaperGrid(page);
 });

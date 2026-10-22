@@ -89,18 +89,24 @@ for (const mode of ["denied", "unsupported", "empty", "whitespace", "exception"]
   });
 }
 
-test("read failures preserve a cancelled manual draft and restore button focus", async ({ page }) => {
+test("explicit editing preserves a cancelled draft; a new failed read clears it and restores button focus", async ({ page }) => {
   await disableClipboardRead(page);
   await page.goto("/");
   await pasteButton(page).click();
   await pasteDialog(page).getByRole("textbox").fill("unfinished KML draft");
   await pasteDialog(page).getByRole("button", { name: "キャンセル" }).click();
   await expect(pasteButton(page)).toBeFocused();
-  await pasteButton(page).click();
+  await page.getByRole("button", { name: "貼り付けたKMLの編集を続ける" }).click();
   await expect(pasteDialog(page).getByRole("textbox")).toHaveValue("unfinished KML draft");
   await page.keyboard.press("Escape");
   await expect(pasteDialog(page)).toBeHidden();
   await expect(pasteButton(page)).toBeEnabled();
+  await pasteButton(page).click();
+  await expect(pasteDialog(page).getByRole("textbox")).toHaveValue("");
+  await expect(pasteDialog(page).getByRole("button", { name: "貼付KMLを読み込む" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(pasteDialog(page)).toBeHidden();
+  await expect(pasteButton(page)).toBeFocused();
 });
 
 for (const failure of ["invalid KML", "server error"] as const) {

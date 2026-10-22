@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { emptyCheckPointDraft as initialDraft } from "../applicationSession";
 import type { CheckPointDraft as Draft } from "../applicationSession";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Crosshair, Pencil, Plus, Trash2, X } from "lucide-react";
 import type {
   CheckPointInput,
@@ -50,6 +50,8 @@ export function CheckPointEditor({
 }: CheckPointEditorProps) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const focusedCoordinateRef = useRef<PickedCoordinate | null>(null);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const sectionById = useMemo(
     () => new Map(sections.map((section) => [section.id, section])),
@@ -105,6 +107,17 @@ export function CheckPointEditor({
     setEditorOpen(true);
     onPickingFromMapChange(false);
   }, [pickedCoordinate, onPickingFromMapChange]);
+
+  useEffect(() => {
+    // Consume each MAP pick once, after the conditional form has mounted. Draft
+    // edits and manual focus changes must not retrigger this interaction.
+    if (!editorOpen || !pickedCoordinate || focusedCoordinateRef.current === pickedCoordinate) return;
+    const input = nameInputRef.current;
+    if (!input) return;
+    focusedCoordinateRef.current = pickedCoordinate;
+    input.focus({ preventScroll: true });
+    input.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [editorOpen, pickedCoordinate]);
 
   const reset = () => {
     setDraft(initialDraft());
@@ -192,6 +205,7 @@ export function CheckPointEditor({
           <label className={nameFieldClassName || undefined}>
             <span>名称</span>
             <input
+              ref={nameInputRef}
               value={draft.name}
               maxLength={100}
               aria-invalid={nameIsBlocking || undefined}
