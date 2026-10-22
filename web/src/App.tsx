@@ -630,6 +630,8 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
             // Keep this call in the click's activation, before any other await.
             text = await platform.clipboard.readText();
           } catch (reason) {
+            // A failed read has no current clipboard content to offer for import.
+            setPastedKml("");
             const message = reason instanceof PlatformError ? reason.message : "クリップボードを読み取れませんでした。";
             showManualPaste(`${message}下の欄にKMLを貼り付けてください。`);
             return;

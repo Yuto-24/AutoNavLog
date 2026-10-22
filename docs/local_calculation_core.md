@@ -64,6 +64,7 @@ TAFは#145の[Browser adapter / Serverless Proxy](taf_proxy.md)で取得しま�
 新規FORECASTは互換Runを選択します。保存済み00 UTC Runを既存repositoryで保存・復元し、
 03 UTC Runが利用可能でも00 UTCで再計算して`FORECAST_UPDATE_AVAILABLE`を出すことを
 Python/Pyodideで確認します。保存済みRunが非互換ならBlockerになり、最新Runへ切り替えません。
+同じ入力で次に再計算すると互換Runを明示更新します（[#277の更新契約](forecast_refresh.md)）。
 この#125保存試験は既存repositoryを一時filesystem上で使ったものです。
 現行のLocal画面では#124で端末内への明示保存が可能となり、#119で同一タブreload時の作業を復元します。
 

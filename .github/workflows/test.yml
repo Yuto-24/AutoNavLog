@@ -188,7 +188,13 @@ jobs:
     # Missing/failed classification runs the full checks; only proven docs-only changes skip.
     if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Official browser + OS dependencies avoid repeated apt mirror stalls.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -203,7 +209,16 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
       - run: npm --prefix web ci
-      - run: npm --prefix web exec -- playwright install --with-deps chromium webkit
+      - name: Verify pinned Playwright browser image matches the lockfile
+        working-directory: web
+        run: |
+          node - <<'JS'
+          const { version } = require('@playwright/test/package.json');
+          if (version !== '1.62.1') throw new Error(`Update pinned browser image for Playwright ${version}`);
+          const { chromium, webkit } = require('@playwright/test');
+          const { accessSync } = require('node:fs');
+          for (const browser of [chromium, webkit]) accessSync(browser.executablePath());
+          JS
       - run: npm --prefix web run build:local
         env:
           AUTONAVLOG_TEST_FIXTURES: "1"
@@ -217,6 +232,8 @@ jobs:
           trap 'kill "$local_server_pid"' EXIT
           curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4174/ > /dev/null
           npm --prefix web run test:local
+          (cd web && npx playwright test --config playwright.clipboard.config.ts)
+          (cd web && npx playwright test --config playwright.focused-ux.config.ts)
           npm --prefix web exec -- playwright test --config web/playwright.navlog-scroll.config.ts
           npm --prefix web exec -- playwright test --config web/playwright.browser-acceptance.config.ts
           AUTONAVLOG_TEST_FIXTURES=1 VITE_TAF_PROXY_URL=https://taf.example/taf npm --prefix web run build:local
@@ -227,6 +244,8 @@ jobs:
           name: local-browser-failure
           path: |
             /tmp/autonavlog-issue117-playwright
+            /tmp/autonavlog-clipboard-playwright
+            /tmp/autonavlog-focused-ux-browser
             /tmp/autonavlog-navlog-scroll-browser
             /tmp/autonavlog-issue122-browser
             /tmp/autonavlog-taf-playwright
@@ -240,6 +259,12 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    # Official browser + OS dependencies avoid repeated apt mirror stalls.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -259,7 +284,16 @@ jobs:
           java-version: "21"
       - run: python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
       - run: npm --prefix web ci
-      - run: npm --prefix web exec -- playwright install --with-deps chromium webkit
+      - name: Verify pinned Playwright browser image matches the lockfile
+        working-directory: web
+        run: |
+          node - <<'JS'
+          const { version } = require('@playwright/test/package.json');
+          if (version !== '1.62.1') throw new Error(`Update pinned browser image for Playwright ${version}`);
+          const { chromium, webkit } = require('@playwright/test');
+          const { accessSync } = require('node:fs');
+          for (const browser of [chromium, webkit]) accessSync(browser.executablePath());
+          JS
       - run: npm --prefix web run prepare:local
         env:
           AUTONAVLOG_TEST_FIXTURES: "1"

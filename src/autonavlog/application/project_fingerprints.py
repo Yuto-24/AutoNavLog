@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from autonavlog.domain.enums import VisualReferenceRole
 from autonavlog.domain.planning import (
     CP_PROJECTION_POLICY_VERSION,
@@ -14,6 +16,44 @@ from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.weather.ftd_provider import FTD_WEATHER_POLICY_VERSION
 
 from .fingerprints import make_fingerprint
+
+
+def forecast_selection_fingerprint(project: Project) -> str:
+    """Bind explicit Forecast refresh intent to weather-relevant inputs.
+
+    Selection itself, save/revision bookkeeping and warning acknowledgements are
+    excluded so recording the first calculation cannot consume the second click.
+    Manual inputs are included because they can change iterative flight timing.
+    """
+    state = project.metadata.get("ui_state", {})
+    planning_keys = {
+        "arrival_plan", "rjfm_departure_plan", "rjfm_inbound_plan",
+        "reference_data_snapshot",
+    }
+    # Browser JSON roundtrips erase integral float notation in untyped metadata.
+    # Restore domain types before hashing so an unchanged Save keeps its intent.
+    planning = PersistedUiState.model_validate_json(json.dumps({
+        key: state.get(key) for key in planning_keys
+    } if isinstance(state, dict) else {}, allow_nan=False)).model_dump(
+        mode="python", include=planning_keys,
+    )
+    return make_fingerprint(
+        kind="forecast_selection",
+        fields={
+            **project.model_dump(
+                mode="python",
+                include={
+                    "id", "flight_date", "planned_departure_time_jst",
+                    "departure_airport_id", "destination_airport_id", "aircraft_profile_id",
+                    "weather_mode", "ftd_weather", "route_nodes", "sections",
+                    "visual_references", "descent_rate_fpm", "tgl_count",
+                    "default_variation_deg_east", "nose_fairing_enabled",
+                    "air_conditioning_enabled", "run_up_included", "total_usable_fuel_gal",
+                },
+            ),
+            "planning": planning,
+        },
+    )
 
 
 def selected_reference_fingerprint(snapshot: ReferenceDataSnapshot) -> str:

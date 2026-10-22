@@ -92,7 +92,7 @@ export class LocalApplication implements AutoNavLogApplication {
     this.tokens.set(record.id, record.token);
     if (name !== undefined) {
       const { durableToken: _token, repositoryRecovery: _repository, ...recovery } = working;
-      state = await this.request<WebState>("bootstrap", { ...recovery, project: draft });
+      state = await this.request<WebState>("adoptSavedProject", { ...recovery, project: draft });
     }
     return this.present(state);
   }

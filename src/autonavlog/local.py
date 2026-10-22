@@ -15,6 +15,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ValidationError
 
+from autonavlog.application.project_fingerprints import forecast_selection_fingerprint
 from autonavlog.application.project_service import ProjectService
 from autonavlog.importers.kml import (
     KmlDocumentSelectionRequired,
@@ -123,12 +124,17 @@ class LocalApplication:
         """Adapter preflight, called by the Worker before synchronous calculation."""
         assert self.local_weather is not None and self.session.project is not None
         try:
+            project = self.session.project.model_copy(deep=True)
+            self.app._normalize_rjfm_departure(project)
             requirement = (
                 self.session.calculation_service.forecast_service.build_initial_requirement(
-                    self.session.project
+                    project
                 )
             )
-            return self.local_weather.plan(self.session.project, requirement, catalog_json)
+            return self.local_weather.plan(
+                project, requirement, catalog_json,
+                refresh_forecast=self.app.forecast_refresh_requested(self.session, project),
+            )
         except LocalWeatherError as error:
             return json.dumps({"error": {"code": error.code, "message": str(error)}})
 
@@ -190,12 +196,23 @@ class LocalApplication:
             return migrate_record(payload).model_dump_json()
         if path == "state":
             state = self.app.present(self.session)
-        elif path == "bootstrap":
+        elif path in {"bootstrap", "adoptSavedProject"}:
+            pending_refresh = (
+                self.session.forecast_update_fingerprint if path == "adoptSavedProject" else None
+            )
             state = (
                 self.app.restore_working(self.session, _validate_request(WorkingRecovery, payload))
                 if payload
                 else self.app.present(self.session)
             )
+            # Explicit Save adopts name/revision changes in the same working
+            # session. Reopen/reload use bootstrap and never inherit intent.
+            if (
+                pending_refresh is not None
+                and self.session.project is not None
+                and pending_refresh == forecast_selection_fingerprint(self.session.project)
+            ):
+                self.session.forecast_update_fingerprint = pending_refresh
         elif path == "importRoute":
             request = _validate_request(ImportRouteRequest, payload)
             if request.kml_text is not None:

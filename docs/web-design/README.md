@@ -54,7 +54,12 @@ decorative cards. Shadows are reserved for temporary overlays.
 - Route map with airport, waypoint, VREP, RCA, EOC, and CP markers.
 - Check Point creation from a map click or coordinates, with abeam projection and CRUD controls.
 - Desktop map-height separator with pointer and keyboard operation.
-- Editable route/leg table with ALT and PHASE controls.
+- Editable route/leg table with ALT and PHASE controls. ALT candidate selection and
+  numeric input form one horizontal primary row, centered with POINT and PHASE.
+  Symmetric flexible space above/below the primary controls keeps supplementary
+  VAR / MC warnings and calculated descent-rate text below them without shifting
+  their centers. POINT remains a table cell with an inner flex wrapper; fixed and
+  destination altitude details retain their multi-line layout.
 - Readiness rail showing the next action, data provenance, blockers, confirmation
   items, and acknowledgement controls.
 - NAV LOG Summary above the main table with canonical TTL DIST and TTL TIME, plus
@@ -118,6 +123,24 @@ layout at 390 px, 1,100 px, and 1,440 px.
 JSON download/copy actions follow the NAV LOG guidance/disclaimer, outside the
 horizontal scroll region, with a 1rem top margin and the same content inset and
 maximum width as NAV LOG. Buttons retain their 0.5rem gap and wrap on narrow screens.
+
+## NAV LOG main-table grid (Issue #276)
+
+The paper-derived columns have 2 px right-hand rules after TO, TAS, MC, MH,
+ZONE/CUM ETE, ETO, and ATE; other internal column rules are 1 px. The outer
+frame and header/detail boundary are 2 px, while body-row rules are 1 px dotted.
+Leg separator rows retain their blank content and short height, but render one
+cell per column so vertical rules continue through them. No extra heavy rule
+marks a leg or phase change. TIME / FUEL PLAN is unchanged.
+
+Rules are indexed from the fixed right-hand FUEL column so additional leading
+VOR/DME columns cannot shift them. Separate cell borders keep FROM/TO rules
+attached to those sticky cells during horizontal scrolling. Browser assertions
+in `web/e2e/helpers/navLogGrid.ts` check every column and row type, added/removed
+VOR columns, scrolling, and print media; the existing workflow-order test covers
+1,100 px and 1,440 px. These criteria come from the explicit Issue #276 contract;
+this implementation does not establish visual parity against the original paper
+image, which was not available in the repository or issue attachments.
 
 ## Implementation fidelity ledger (verified 2026-08-13 JST)
 

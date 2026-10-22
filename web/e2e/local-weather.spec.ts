@@ -40,7 +40,11 @@ async function setup(page: Page) {
 }
 async function calculate(page: Page) {
   const previous = await page.evaluate(() => (window as any).weatherStates.length);
-  await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+  const calculateButton = page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ });
+  await calculateButton.click();
+  // The forced draft save emits a current, last-good state before calculation.
+  // Wait for the operation to finish, not merely for that intermediate RPC reply.
+  await expect(calculateButton).toBeEnabled();
   await page.waitForFunction(count => (window as any).weatherStates.length > count, previous);
   await expect.poll(async () => (await state(page))?.readiness?.calculationIsCurrent).toBe(true);
   await expect(page.locator(".nav-log-table")).toBeVisible();
@@ -99,7 +103,7 @@ test("portable real MSM: cold, warm after reload, Python reference and saved NAV
   expect((await record(page)).lastCalculation.outcome.summary).toEqual(before.outcome.summary);
 });
 
-test("saved Run stays fixed while a newer Run is available", async ({ page }) => {
+test("saved Run stays fixed on first click and refreshes snapshot on second click", async ({ page }) => {
   const native = reference(true);
   const recovery = native.workingRecovery;
   for (const project of [recovery.project, recovery.last_calculation.project]) delete project.metadata.web_owner_id;
@@ -127,6 +131,22 @@ test("saved Run stays fixed while a newer Run is available", async ({ page }) =>
   expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915180000");
   expect((await state(page)).outcome.issues.map((i: any) => i.code)).toContain("FORECAST_UPDATE_AVAILABLE");
   compare(calculationCoreGolden(await state(page)), calculationCoreGolden(native));
+  await page.getByLabel("プロジェクト", { exact: true }).fill("Forecast refresh");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect.poll(async () => (await record(page)).checkpoint?.name).toBe("Forecast refresh");
+  await calculate(page);
+  const refreshed = await state(page);
+  expect(refreshed.project.selected_forecast_run_id).toBe("20260915210000");
+  expect(refreshed.outcome.selected_forecast_run_id).toBe("20260915210000");
+  expect(refreshed.outcome.issues.map((i: any) => i.code)).not.toContain("FORECAST_UPDATE_AVAILABLE");
+  await expect.poll(async () => (await record(page)).lastCalculation.forecast_metadata.forecast_run_id)
+    .toBe("20260915210000");
+  const saved = (await record(page)).lastCalculation;
+  expect(saved.project.selected_forecast_run_id).toBe("20260915210000");
+  expect(saved.outcome.selected_forecast_run_id).toBe("20260915210000");
+  await page.reload();
+  await expect(page.locator(".nav-log-table")).toBeVisible();
+  expect((await record(page)).lastCalculation).toEqual(saved);
 });
 
 test("Project quota retry releases the actual Weather cache and keeps Last Calculation", async ({ page }) => {
