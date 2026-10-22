@@ -2,7 +2,7 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
-## 1.22.10
+## 1.22.11
 
 ### 利用者向け
 
@@ -16,7 +16,7 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 - Route occurrence identity preserves unchanged Planning inputs and Check Points during confirmed-route re-editing; unchanged reconfirmation preserves Last Calculation.
 - KML/KMZ candidates enter the Map Draft workflow with endpoint validation, same-tab pending-import recovery, explicit replacement and Platform Clipboard/file handling.
 
-## 1.22.9
+## 1.22.10
 
 ### 利用者向け
 
@@ -32,6 +32,19 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 ### 開発者向け
 
 - #271 / #272 / #275 / #276 / #213 / #277: 地図操作、入力フォーカス、経路表・NAVLOG 表示、インポート失敗時の状態、MSM 再計算の回帰検証を追加。
+
+## 1.22.9
+
+### 利用者向け
+
+#### 追加
+
+- 2026年10月29日有効のAIP地図データ原本ZIPファイル3つを出典およびSHA-256付きで同梱しましたが、地図表示や計算への取り込みはまだ実装されていません。
+
+### 開発者向け
+
+- #279: AIPのKML・Shapefile・Documentsの元ZIPを改変せず登録し、サイズ・SHA-256と出典を記録。MAP向けruntimeの正規化・表示は#149で継続。
+- 地物数はShapefileの5,276件を基準とし、KMLの5,271件との進入管制空域2レイヤーの差分をmanifestと資料に明記。
 
 ## 1.22.8
 
