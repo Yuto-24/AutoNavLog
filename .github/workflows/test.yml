@@ -188,6 +188,12 @@ jobs:
     # Missing/failed classification runs the full checks; only proven docs-only changes skip.
     if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     runs-on: ubuntu-latest
+    # Official browser + OS dependencies avoid repeated apt mirror stalls.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
+    defaults:
+      run:
+        shell: bash
     # Includes auth, Map Draft, Clipboard and six-device acceptance suites after browser setup.
     timeout-minutes: 30
     steps:
@@ -204,7 +210,16 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
       - run: npm --prefix web ci
-      - run: npm --prefix web exec -- playwright install --with-deps chromium webkit
+      - name: Verify pinned Playwright browser image matches the lockfile
+        working-directory: web
+        run: |
+          node - <<'JS'
+          const { version } = require('@playwright/test/package.json');
+          if (version !== '1.62.1') throw new Error(`Update pinned browser image for Playwright ${version}`);
+          const { chromium, webkit } = require('@playwright/test');
+          const { accessSync } = require('node:fs');
+          for (const browser of [chromium, webkit]) accessSync(browser.executablePath());
+          JS
       - run: npm --prefix web run build:local
         env:
           AUTONAVLOG_TEST_FIXTURES: "1"
@@ -245,6 +260,12 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    # Official browser + OS dependencies avoid repeated apt mirror stalls.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -264,7 +285,16 @@ jobs:
           java-version: "21"
       - run: python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
       - run: npm --prefix web ci
-      - run: npm --prefix web exec -- playwright install --with-deps chromium webkit
+      - name: Verify pinned Playwright browser image matches the lockfile
+        working-directory: web
+        run: |
+          node - <<'JS'
+          const { version } = require('@playwright/test/package.json');
+          if (version !== '1.62.1') throw new Error(`Update pinned browser image for Playwright ${version}`);
+          const { chromium, webkit } = require('@playwright/test');
+          const { accessSync } = require('node:fs');
+          for (const browser of [chromium, webkit]) accessSync(browser.executablePath());
+          JS
       - run: npm --prefix web run prepare:local
         env:
           AUTONAVLOG_TEST_FIXTURES: "1"

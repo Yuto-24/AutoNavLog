@@ -61,10 +61,20 @@ async function assertCenteredRows(page: Page) {
 }
 
 async function assertWorkflowOrder(page: Page, width: number) {
-  const boxes = await Promise.all(
-    [".input-rail", ".route-workspace", ".status-rail", ".nav-log-focus-target"]
-      .map(selector => page.locator(selector).boundingBox()),
-  );
+  // A smooth scroll can advance between separate boundingBox RPCs. Measure
+  // every workflow/guidance region in one frame without changing the geometry.
+  const { boxes, guidanceBoxes } = await page.evaluate(() => {
+    const read = (element: Element | null) => {
+      if (!element) return null;
+      const { x, y, width, height } = element.getBoundingClientRect();
+      return width > 0 && height > 0 ? { x, y, width, height } : null;
+    };
+    return {
+      boxes: [".input-rail", ".route-workspace", ".status-rail", ".nav-log-focus-target"]
+        .map(selector => read(document.querySelector(selector))),
+      guidanceBoxes: Array.from(document.querySelectorAll(".rjfm-inbound-guidance"), read),
+    };
+  });
   expect(boxes.every(Boolean)).toBe(true);
   if (width <= 1240) {
     for (let index = 1; index < boxes.length; index++) {
@@ -76,8 +86,8 @@ async function assertWorkflowOrder(page: Page, width: number) {
     expect(boxes[3]!.y).toBeGreaterThanOrEqual(Math.max(...boxes.slice(0, 3).map(box => box!.y + box!.height)) - 1);
   }
   // Any applicable guidance must stay below the NAV LOG, including on narrow screens.
-  for (const guidance of await page.locator(".rjfm-inbound-guidance").all()) {
-    const box = await guidance.boundingBox();
+  for (const box of guidanceBoxes) {
+    expect(box).not.toBeNull();
     expect(box!.y).toBeGreaterThanOrEqual(boxes[3]!.y + boxes[3]!.height - 1);
   }
 }
