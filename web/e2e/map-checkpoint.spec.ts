@@ -95,24 +95,29 @@ for (const width of [390, 1100, 1440]) {
   });
 }
 
-test("KS4 display-only polygons and boundaries pass hover and drag through to the map", async ({ page, isMobile }) => {
-  test.skip(isMobile, "Mouse hover/pan is covered in both desktop engines");
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  await importLocalRoute(page);
-  await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
-  await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(12);
-  await expect(page.locator(".rjfm-training-airspace").first()).toHaveAttribute("stroke", "none");
-  await expect(page.locator(".rjfm-training-airspace-boundary").first()).toHaveAttribute("stroke", "#315caa");
-  const trainingPaths = page.locator(".rjfm-training-airspace, .rjfm-training-airspace-boundary");
-  expect(await trainingPaths.evaluateAll(paths => paths.every(path =>
-    !path.classList.contains("leaflet-interactive") && getComputedStyle(path).pointerEvents === "none",
-  ))).toBe(true);
-  await expect(page.locator(".rjfm-pca-boundary")).toHaveClass(/leaflet-interactive/);
-  await expect(page.locator(".rjfm-pca-exclusion")).toHaveClass(/leaflet-interactive/);
+// Each overlay gets the same initial view: one successful drag can move the
+// other synthetic overlay outside the viewport through Leaflet inertia.
+for (const [geometry, selector] of [
+  ["polygons", ".rjfm-training-airspace"],
+  ["boundaries", ".rjfm-training-airspace-boundary"],
+] as const) {
+  test(`KS4 display-only ${geometry} pass hover and drag through to the map`, async ({ page, isMobile }) => {
+    test.skip(isMobile, "Mouse hover/pan is covered in both desktop engines");
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await importLocalRoute(page);
+    await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
+    await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(12);
+    await expect(page.locator(".rjfm-training-airspace").first()).toHaveAttribute("stroke", "none");
+    await expect(page.locator(".rjfm-training-airspace-boundary").first()).toHaveAttribute("stroke", "#315caa");
+    const trainingPaths = page.locator(".rjfm-training-airspace, .rjfm-training-airspace-boundary");
+    expect(await trainingPaths.evaluateAll(paths => paths.every(path =>
+      !path.classList.contains("leaflet-interactive") && getComputedStyle(path).pointerEvents === "none",
+    ))).toBe(true);
+    await expect(page.locator(".rjfm-pca-boundary")).toHaveClass(/leaflet-interactive/);
+    await expect(page.locator(".rjfm-pca-exclusion")).toHaveClass(/leaflet-interactive/);
 
-  const map = page.locator(".route-map");
-  await map.scrollIntoViewIfNeeded();
-  for (const selector of [".rjfm-training-airspace", ".rjfm-training-airspace-boundary"]) {
+    const map = page.locator(".route-map");
+    await map.scrollIntoViewIfNeeded();
     // Use real SVG geometry, including clipping, rather than dragging an arbitrary map point.
     const point = await map.evaluate((element, selector) => {
       const bounds = element.getBoundingClientRect();
@@ -159,6 +164,5 @@ test("KS4 display-only polygons and boundaries pass hover and drag through to th
     await expect(pane).not.toHaveClass(/leaflet-pan-anim/);
     expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
     await expect(trainingPaths).toHaveCount(24);
-  }
-
-});
+  });
+}
