@@ -50,7 +50,8 @@ for (const width of [390, 1100, 1440]) {
     await importLocalRoute(page);
     const route = page.getByRole("region", { name: "経路地図とLeg設定" });
     const editor = route.getByRole("region", { name: "チェックポイント設定" });
-    const name = editor.getByLabel("名称", { exact: true });
+    // Required-field validation contributes to the label's accessible name.
+    const name = editor.getByRole("textbox", { name: /^名称(?:\s|$)/ });
     const map = route.locator(".route-map");
     await editor.getByRole("button", { name: "チェックポイントを追加" }).click();
     // Merely opening an editor must not steal focus from its initiating control.
@@ -119,10 +120,26 @@ test("KS4 display-only polygons and boundaries pass hover and drag through to th
       for (const path of element.querySelectorAll<SVGPathElement>(selector)) {
         const matrix = path.getScreenCTM();
         if (!matrix) continue;
+        if (selector.endsWith("-boundary")) {
+          // A coarse screen grid can miss a thin stroke after a fractional pan.
+          // Sample the actual path centerline, still checking stroke and clipping.
+          const length = path.getTotalLength();
+          for (let distance = 0; distance <= length; distance += 1) {
+            const local = path.getPointAtLength(distance);
+            const point = local.matrixTransform(matrix);
+            if (point.x < bounds.left + 50 || point.x >= bounds.right - 60
+              || point.y < bounds.top + 50 || point.y >= bounds.bottom - 60) continue;
+            if (path.isPointInStroke(local)
+              && !document.elementFromPoint(point.x, point.y)?.closest(".leaflet-control, .leaflet-marker-icon")) {
+              return { x: point.x, y: point.y };
+            }
+          }
+          continue;
+        }
         for (let x = bounds.left + 50; x < bounds.right - 60; x += 3) {
           for (let y = bounds.top + 50; y < bounds.bottom - 60; y += 3) {
             const local = new DOMPoint(x, y).matrixTransform(matrix.inverse());
-            const inside = selector.endsWith("-boundary") ? path.isPointInStroke(local) : path.isPointInFill(local);
+            const inside = path.isPointInFill(local);
             if (inside && !document.elementFromPoint(x, y)?.closest(".leaflet-control, .leaflet-marker-icon")) {
               return { x, y };
             }
@@ -140,6 +157,7 @@ test("KS4 display-only polygons and boundaries pass hover and drag through to th
     await page.mouse.move(point!.x + 35, point!.y + 25, { steps: 6 });
     await page.mouse.up();
     await expect.poll(() => pane.getAttribute("style")).not.toBe(before);
+    await expect(pane).not.toHaveClass(/leaflet-pan-anim/);
     expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
     await expect(trainingPaths).toHaveCount(24);
   }

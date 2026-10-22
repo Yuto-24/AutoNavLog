@@ -767,3 +767,24 @@ def test_explicit_save_adoption_preserves_only_unchanged_forecast_intent(local, 
     assert result["outcome"]["selected_forecast_run_id"] == (
         "20260912000000" if changed else "20260912030000"
     )
+
+
+@pytest.mark.parametrize("invalid_plan", [
+    {"visual_reporting_point_node_id": "not-a-uuid"},
+    "not-a-plan",
+    {"visual_reporting_point_node_id": object()},
+    {"visual_reporting_point_node_id": float("nan")},
+])
+@pytest.mark.parametrize("armed", [False, True])
+def test_invalid_planning_clears_refresh_intent_and_preserves_state_error(
+    local, invalid_plan, armed,
+):
+    _pin_old_forecast(local)
+    assert local.session.forecast_update_fingerprint is not None
+    if not armed:
+        local.session.forecast_update_fingerprint = None
+    local.session.project.metadata["ui_state"]["arrival_plan"] = invalid_plan
+    with pytest.raises(ValueError, match="PROJECT_STATE_INVALID"):
+        local.app.present(local.session)
+    assert local.session.forecast_update_fingerprint is None
+    assert local.session.project.metadata["ui_state"]["arrival_plan"] is invalid_plan

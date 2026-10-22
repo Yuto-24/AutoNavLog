@@ -954,7 +954,13 @@ class AutoNavLogWebApplication:
     @staticmethod
     def forecast_refresh_requested(session: WebSession, project: Project) -> bool:
         """Refresh intent belongs to this working session and unchanged inputs."""
-        fingerprint = forecast_selection_fingerprint(project)
+        try:
+            fingerprint = forecast_selection_fingerprint(project)
+        except (TypeError, ValueError):
+            # Invalid planning cannot retain refresh intent. Let the established
+            # readiness/state validation report its domain error to the caller.
+            session.forecast_update_fingerprint = None
+            return False
         if project.weather_mode != "FORECAST" or session.forecast_update_fingerprint != fingerprint:
             session.forecast_update_fingerprint = None
             return False
