@@ -12,6 +12,19 @@ before activation: publication, retention restore, monitoring and rollback accep
 all target this origin. The historical #121 pages.dev evidence is not new-origin acceptance.
 `STATIC_ORIGIN` remains an operator-owned GitHub variable, not a tracked workflow default.
 
+## Current policy (2026-10-23)
+
+Provider usage and billing collection is deferred to follow-up
+[#281](https://github.com/Yuto-24/AutoNavLog/issues/281). The operator assumes current
+operation fits within free tiers; unattended quota acceptance is no longer a prerequisite
+for #123, #146 or #116. This supersedes the quota prerequisite in the October 4 decision
+and historical investigations below. Missing readings remain UNKNOWN, not measured zero
+or proof of no billing. Periodic manual report renewal is not a replacement requirement.
+
+Catalog freshness, approved publication identity, actual scheduled MSM renewals,
+Auth/Sync/Local and rollback acceptance remain required. Production activation still
+needs explicit authorization; changing this policy does not enable schedules or billing.
+
 ## Ownership and activation
 
 - `publish-github-release.yml` continues to publish VERSION/CHANGELOG GitHub releases.
@@ -52,13 +65,13 @@ After explicit authorization, the operator configures:
    both `static-production` and `static-publication`, scoped only to Pages edit in
    the intended account. Keep #145 Worker credentials and configuration outside
    this workflow. Never expose the Pages token to the application build.
-4. Complete and accept unattended provider collection before enabling monitoring.
-   The monitor calls the native collection gate directly. Missing adapters and
-   unattended Google authentication block healthy usage monitoring, independently
-   of static-only build/publication. Missing usage remains **UNKNOWN**; it is never
-   zero, healthy, or proof of account-wide zero billing. Do not periodically replace
-   `STATIC_QUOTA_REPORT`. Failure-notification receipt was already accepted on 2026-10-03; the
-   remaining gate is healthy current-evidence collection. See the read-only checklist below.
+4. Enable catalog freshness monitoring with `STATIC_MONITOR_ENABLED=true` only after
+   its activation is authorized. Leave `STATIC_QUOTA_MONITOR_ENABLED` unset/false
+   while #281 is deferred. The independent quota job requires its own explicit `true`
+   and later acceptance; catalog success does not establish healthy usage monitoring.
+   Missing usage remains **UNKNOWN**. Do not periodically replace `STATIC_QUOTA_REPORT`.
+   Failure-notification receipt was already accepted on 2026-10-03; reuse that evidence
+   if the notification route is unchanged.
 5. Run build-only dispatch, inspect checks, then an approved publication. Confirm real
    origin/cache/ETag/404 and browser behavior per #121. Only then enable recurring updates.
    Cloudflare automatic Git builds/preview deployments remain disabled; use Direct Upload.
@@ -167,10 +180,20 @@ opt-outs, synthetic forecasts, a different application branch or Legacy fallback
 
 ## Quota evidence and monitoring
 
-`static-monitor.yml` calls `collection_gate.py` on each enabled run, even if weather
-failed. It collects current native fragments and checks official limits without an
-operator-report fallback. Incomplete collection remains BLOCKED/UNKNOWN and does not
-establish healthy monitoring, optional-service availability, or account-wide zero billing.
+`static-monitor.yml` has two independent jobs, both restricted to `main`:
+
+| Job | Explicit opt-in variable | Meaning |
+| --- | --- | --- |
+| `monitor` | `STATIC_MONITOR_ENABLED=true` | Public catalog freshness only; no provider credentials or quota collection |
+| `quota-monitor` | `STATIC_QUOTA_MONITOR_ENABLED=true` | Deferred #281 native collection and official-limit checks |
+
+Unset, false or unrecognized values disable the corresponding job. Neither job depends
+on the other. A weather failure does not suppress opted-in quota collection; an absent
+quota opt-in does not fail a fresh catalog check. The catalog summary explicitly reports
+deferred quota monitoring/UNKNOWN when disabled. If quota monitoring is later enabled,
+its incomplete collection still fails the job and workflow, without `continue-on-error`
+or an operator-report fallback. A successful catalog job never establishes healthy quota
+monitoring, optional-service availability or account-wide zero billing.
 
 `static-production.yml` instead calls the independent `publication_gate.py`.
 Google authentication and Workers/Firestore/shared-allowance missing counters do not
@@ -369,14 +392,13 @@ CLOUDFLARE_ACCOUNT_ID=your-account VITE_FIREBASE_PROJECT_ID=your-project \
 python3 scripts/static_ops/operations.py monitor --origin https://navmate.yuto24.com
 ```
 
-After #230 is reviewed/merged and separately authorized, the operator can install the
-validated report and resume #123 acceptance. A clean quota check alone does not authorize
-scheduler activation or deployment. Refresh all period evidence at reset, exercise live
-failure notifications, then complete the scheduled-renewal and rollback gates below.
-The monitor evaluates evidence even when catalog checks fail; absent/skipped runs are not
-healthy readings. At warning/exhaustion, reduce workloads or wait for reset; never upgrade
-automatically. GitHub failure notifications remain the transport, with live receipt still
-an acceptance requirement. Application / calculation / Project schemas are unchanged.
+These manual report commands are diagnostic only; do not install recurring manual
+reports as a #123 requirement. #281 retains current-period collection and notification
+acceptance. Its quota job evaluates evidence independently of catalog success when
+explicitly enabled; absent/skipped collection is not a healthy reading. At warning or
+exhaustion, reduce workloads or wait for reset; never upgrade automatically. GitHub
+failure notifications remain the transport. Application / calculation / Project schemas
+are unchanged.
 
 ## MSM-only recovery preparation and one-off publication
 
@@ -745,17 +767,20 @@ checks, notification delivery, at least two successful scheduled renewals across
 catalog expiry, canonical catalog/payload continuity, and controlled same-origin rollback
 with scheduler paused and saved Local data retained. Update #123 and parent #116 only
 with those results; do not mark the production automation gate complete from local tests.
-Optional Free/Spark/shared-usage acceptance remains a separate UNKNOWN gate until observable.
+Optional Free/Spark/shared-usage acceptance is deferred to #281 and remains UNKNOWN;
+it does not block the above #123 acceptance or #146 retirement.
 It does not authorize paid processing, automatic upgrades or billing activation.
 
-## Unattended collection investigation (#123, 2026-10-03)
+## Unattended collection investigation (historical #123 work, now #281)
 
-The [latest #123 decision](https://github.com/Yuto-24/AutoNavLog/issues/123#issuecomment-5972103619)
-supersedes periodic manual `STATIC_QUOTA_REPORT` renewal as the operating model.
-**Complete unattended collection is not implemented or accepted yet.** The monitor
-calls the collection gate directly, but required native mappings and Google unattended
-authentication remain incomplete. Static-only renewal is now independently gated as above. They must not be activated on the strength of the probe. The schema example and migration commands remain diagnostic tools, not
-an unattended collection solution. September evidence is historical only.
+The [October 4 decision](https://github.com/Yuto-24/AutoNavLog/issues/123#issuecomment-5972103619)
+defined unattended collection instead of periodic manual `STATIC_QUOTA_REPORT` renewal.
+Those quality requirements now belong to #281; the October 23 policy above removes them
+from retirement prerequisites. **Complete unattended collection is not implemented or
+accepted yet.** Only the separately opted-in quota job calls the collection gate.
+Native mappings and Google unattended authentication remain incomplete. Probes and schema
+examples are diagnostic tools, not acceptance or activation authorization. September
+evidence is historical only.
 
 `python3 scripts/static_ops/probe_providers.py` performs bounded, read-only API
 capability probes for Cloudflare, Google and GitHub. It does not read an old report,
@@ -839,9 +864,10 @@ References: [GitHub repository secrets](https://docs.github.com/en/actions/how-t
 API selection, parsing, aggregation, pagination, clock handling and evidence semantics
 are engineering responsibilities, not questions for the operator to answer. The previous
 list of open API questions describes technical investigation; it is not a request that
-the user select an API. No new product decision is currently needed: unattended operation,
+the user select an API. Within follow-up #281, unattended operation,
 zero cost, strict failure on unknown evidence, the outbound exception and publication
-warning behavior are already defined by #123/#230.
+warning behavior retain the requirements originally defined by #123/#230; they are no
+longer prerequisites for catalog monitoring or retirement.
 
 **Operator decisions/approval, when a concrete setup is ready:** authorize the exact
 least-privilege credential/IAM/OIDC/secret changes; later approve live monitor acceptance
@@ -1040,14 +1066,15 @@ account query or test run must never renew that timestamp by itself. The four Fi
 fragments have offline integration coverage against the existing schema-v2 validator;
 fixtures do not prove API availability or explicit zero-series coverage on this account.
 
-The full #123 implementation is still incomplete: Cloudflare plan/account-total adapters,
+The full #281 collection implementation is still incomplete: Cloudflare plan/account-total adapters,
 Firestore outbound's current three-surface finding, GitHub accrued SKU/shared allowance
 and billing controls, live limit-verifier acceptance and unattended Google authentication
 remain unverified or unsupported. In-memory report assembly, fixed-status audit output,
-and direct monitor/publication workflow routing are implemented. Final validation uses
+and the independent quota-monitor job are implemented. Final validation uses
 the collection completion time, so a provider reset during collection cannot keep an old
 period valid; original evidence timestamps are preserved. These changes are not
-unattended acceptance. Keep recurring publication disabled.
+unattended acceptance. Keep quota monitoring disabled until its separate acceptance and
+authorization. Recurring publication uses the independent #123 acceptance described above.
 
 The smallest next **read-only access verification**, distinct from permission to create
 credentials, is to run the probe and native collector using existing approved credentials
@@ -1074,7 +1101,7 @@ Additional mapping references:
 
 ### Exact next read-only checks (2026-10-04)
 
-The latest connector read still reports remote `main=56d62a5` and #123 comment
+The historical October 4 connector read reported remote `main=56d62a5` and #123 comment
 `5972103619` as the governing unattended-collection decision. The saved local work is
 based on that SHA. GitHub repository metadata reads through the existing connector
 succeeded and confirmed `Yuto-24/AutoNavLog` is public; they did **not** establish billing

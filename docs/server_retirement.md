@@ -4,6 +4,11 @@
 移行受付終了、公開、定期運用の有効化を承認するものではない。
 [#146](https://github.com/Yuto-24/AutoNavLog/issues/146) の直接前提は
 [#123](https://github.com/Yuto-24/AutoNavLog/issues/123) のproduction automation受入。
+ただし2026-10-23の方針変更により、無料枠利用量・課金状態の無人監視は
+後続の [#281](https://github.com/Yuto-24/AutoNavLog/issues/281) へ分離した。
+当面は無料枠内で運用できる想定とし、#281の未完了を廃止の条件に含めない。
+MSM定期更新・catalog整合性と鮮度・Auth/Sync/Local・rollbackの受入は維持する。
+対象はAutoNavLogの旧runtimeと専用公開経路であり、matsuホスト全体ではない。
 移行仕様は [Legacy migration](legacy_migration.md)、配信・監視は
 [Static operations](static_operations.md) を正本とする。
 
@@ -13,21 +18,22 @@
 | --- | --- |
 | Static / Browser / MSM / TAF / Account移行 | #121 / #122 / #144 / #145 / #183 / #186 はclosed。機能の受入完了であり、全ownerの移行完了を意味しない |
 | 定期公開・監視 | `STATIC_AUTOMATION_ENABLED=false`、monitor variableなし。直近scheduleは [39791264728](https://github.com/Yuto-24/AutoNavLog/actions/runs/39791264728) / [39807114879](https://github.com/Yuto-24/AutoNavLog/actions/runs/39807114879) ともskipped。成功更新2回の代わりにはならない |
-| 無人quota収集 | [PR #274の10/22 audit](https://github.com/Yuto-24/AutoNavLog/blob/d98d558eb71b12a049bd8239b5fdc4a656c5e6e3/docs/evidence/issue-123/unattended-readiness-2026-10-22.md)の未実装native adapter・無人Google認証が残る。今回もcache storage-limit GETがHTTP 402。課金有効化、未知値のゼロ化、手入力reportへのfallbackで解消しない |
+| 無人quota収集 | #281へ移管し、廃止の前提から除外。`STATIC_QUOTA_MONITOR_ENABLED`で鮮度監視と独立して制御し、未設定なら実行しない。未実装adapter・無人Google認証・cache storage-limit GETのHTTP 402は後続Issueで扱う。未取得値はUNKNOWNのままで、無料枠内という想定を実測値に変換しない |
 | 現行公開指定 | 01:50 JSTのcurl GETでclean v1.20.1 / `a4de2a226dfa205b8be42fb62a710a1b06271ed8`、migration URL `https://navlog.yuto24.com`。GitHubの指定と一致。catalogは622,770 bytes、SHA-256 `6f871a4c8bfba80537cce5af36530570375f71cd7558d67e26f75373b596c269`、期限10/22 13:06:53 JSTで失効済み。Pythonの直接取得は拒否されたがcurlの実応答で確認。10/22の成功を現時点の鮮度へ転記しない |
 | 初回ログインの旧サーバ依存 | `web/src/createApplication.ts` / `legacyMigration.ts`。移行URL設定中はfresh device / 未確認accountが旧status APIへ依存する。既存端末のactivation markerだけで停止可としない |
 | 救済 | `scripts/legacy_rescue.py`でoffline snapshot、hash照合、owner単位の取り出しを実装。fixtureで実repository・Last Calculation・既存移行receiptの復旧を検証。実サーバの最終backup・別媒体からの復元は未実施 |
-| 移行受付終了日・保持期限 | **未定**。operator回答により未設定を停止前の必須条件として維持。既定の日数・終了日は置かない |
+| 移行受付終了日・保持期限 | **未定のまま準備実装を進める**。実停止前には決定・記録が必要。既定の日数・終了日は置かない |
 | 公開・停止 | 本準備では未実施。#123完了、実backup、切替受入、対象を特定した明示承認が必要 |
 
 PR #274は無人監視の一部修正・監査であり、そのmergeだけで#123は完了しない。
-#159 / #160 / #161 / #187、branding、任意のUI改善を廃止条件に追加しない。
+#159 / #160 / #161 / #187 / #281、branding、任意のUI改善を廃止条件に追加しない。
+準備実装とfixture検証は先行でき、実データの最終backup・復元確認は実装後の工程とする。
 
 ## 停止までの順序
 
-1. #123の不足adapter・無人credentialを実装/設定し、current evidenceで監視を受入する。
-   native evidenceを取得できない場合は取得不能の根拠と未完了gateを残す。
-   設定変更・監視有効化・定期公開は個別に承認を得る。
+1. #123の定期MSM更新とcatalog鮮度監視を受入する。
+   `STATIC_MONITOR_ENABLED`は鮮度監視のみを制御し、#281のquota収集を有効にしない。
+   設定変更・鮮度監視有効化・定期公開は個別に承認を得る。
    旧catalog期限を跨ぐ実scheduleの成功公開を2回以上確認する。
    通知到達と同一origin rollback/Local保持の既存受入は範囲内で再利用できる。
 2. operatorが移行受付終了日時（timezone付き）、救済保持期限、保管責任者、暗号化先、

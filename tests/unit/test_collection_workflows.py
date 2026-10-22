@@ -1,4 +1,4 @@
-"""Live gates call fresh collection; shell pipelines cannot hide a blocked verdict."""
+"""Catalog monitoring is independent; opted-in quota failures remain failures."""
 
 import os
 import re
@@ -45,11 +45,66 @@ def test_all_live_gates_collect_without_operator_report_or_reusable_output():
         assert "${{ secrets.STATIC_GITHUB_READ_TOKEN }}" in step
 
 
-def test_monitor_still_runs_evidence_after_weather_failure_without_enabling_schedule():
-    assert "if: always()" in COLLECTION[0]
-    assert "vars.STATIC_MONITOR_ENABLED == 'true'" in MONITOR
-    assert "github.ref == 'refs/heads/main'" in MONITOR
+def monitor_jobs():
+    return dict(re.findall(
+        r"^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)",
+        MONITOR.split("jobs:\n", 1)[1], re.MULTILINE | re.DOTALL,
+    ))
+
+
+@pytest.mark.parametrize("weather,quota,ref,expected", [
+    ("", "", "refs/heads/main", (False, False)),
+    ("true", "", "refs/heads/main", (True, False)),
+    ("true", "false", "refs/heads/main", (True, False)),
+    ("true", "unknown", "refs/heads/main", (True, False)),
+    ("", "true", "refs/heads/main", (False, True)),
+    ("true", "true", "refs/heads/main", (True, True)),
+    ("true", "true", "refs/heads/feature", (False, False)),
+])
+def test_monitor_jobs_have_independent_explicit_opt_in(weather, quota, ref, expected):
+    jobs = monitor_jobs()
+    assert set(jobs) == {"monitor", "quota-monitor"}
+    for (name, enabled) in zip(("monitor", "quota-monitor"), expected, strict=True):
+        job = jobs[name]
+        assert "needs:" not in job  # either job may fail/skip without suppressing the other
+        condition = re.search(r"^    if: (.+)$", job, re.MULTILINE)
+        assert condition is not None
+        expression = condition[1].replace("vars.STATIC_MONITOR_ENABLED", repr(weather))
+        expression = expression.replace("vars.STATIC_QUOTA_MONITOR_ENABLED", repr(quota))
+        expression = expression.replace("github.ref", repr(ref)).replace("&&", "and")
+        assert bool(eval(expression, {"__builtins__": {}})) == enabled
+
+
+def test_catalog_job_has_no_provider_credentials_or_collection():
+    jobs = monitor_jobs()
+    assert "collection_gate.py" not in jobs["monitor"]
+    assert "secrets." not in jobs["monitor"]
+    assert "operations.py monitor" not in jobs["quota-monitor"]
+    assert "if: always()" not in COLLECTION[0]  # failed checkout must not run collection
     assert "--publication" not in COLLECTION[0]
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_catalog_failure_is_preserved_and_does_not_claim_quota_acceptance(tmp_path, exit_code):
+    python = tmp_path / "python3"
+    python.write_text(f'#!/bin/sh\nprintf \'catalog-result\\n\'\nexit {exit_code}\n')
+    python.chmod(0o755)
+    summary = tmp_path / "summary"
+    job_steps = steps(monitor_jobs()["monitor"])
+    check = next(step for step in job_steps if "operations.py monitor" in step)
+    command = check.split("        run: ", 1)[1].strip()
+    env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
+           "GITHUB_STEP_SUMMARY": str(summary), "STATIC_ORIGIN": "https://example.test",
+           "QUOTA_MONITOR_ENABLED": ""}
+    result = subprocess.run(["bash", "-e", "-c", command], env=env, check=False)
+    assert result.returncode == exit_code
+    scope = next(step for step in job_steps if "Record monitoring scope" in step)
+    assert "if: always()" in scope
+    subprocess.run(["bash", "-e", "-c", dedent(scope.split("        run: |\n", 1)[1])],
+                   env=env, check=True)
+    assert summary.read_text().startswith("catalog-result\n")
+    assert "deferred to #281" in summary.read_text()
+    assert "UNKNOWN" in summary.read_text()
 
 
 def test_publication_is_independent_and_uses_trusted_gates_and_isolated_upload():
