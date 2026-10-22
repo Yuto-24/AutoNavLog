@@ -2,9 +2,11 @@
 
 ## 確認済み事項
 
-2026-10-22付の航空情報センター配布「AIPに関する地図表示用データ」のKML・Shapefile（各25レイヤー）を確認した。適用日は**2026-10-29**。全5,276地物で、ShapefileのCRSはWGS84（EPSG:4326）、全レイヤーのgeometryは空・不正ともに0件。元ファイルのSHA-256とレイヤー別件数を[`source_manifest.json`](../../data/reference/aip/20261029/source_manifest.json)に記録する。
+2026-10-22付の航空情報センター配布「AIPに関する地図表示用データ」のKML・Shapefile（各25レイヤー）を確認した。適用日は**2026-10-29**。Shapefileは全5,276地物で、CRSはWGS84（EPSG:4326）、全レイヤーのgeometryは空・不正ともに0件。元ファイルのSHA-256とレイヤー別件数を[`source_manifest.json`](../../data/reference/aip/20261029/source_manifest.json)に記録する。
 
 出典：国土交通省航空局 航空情報センター、[SWIM portal](https://top.swim.mlit.go.jp/swim/) → AIPファイルダウンロードサービス → `3_AIP(KML, Shapefile)`。配布ファイルを検査して本記録を作成した。原本と加工データを混同せず、[SWIM利用規約](https://top.swim.mlit.go.jp/swim/terms.html)に従い出典と加工の有無を表示する。第三者の権利および個別の提供条件も必要に応じて確認する。
+
+KMLは全5,271 Placemarkで、Shapefileと件数が異なる。`Approach_control_area_CIVIL`はKML 93件／Shapefile 94件、`Approach_control_area_MIL`は75件／79件で、他の23レイヤーの件数は一致する。以下の表とmanifestの`layers[].feature_count`はShapefileを基準とする。形式間の差分照合は#149のruntime取り込み時に行い、原本ZIPは変更しない。
 
 ## #149 に採用する入力元
 

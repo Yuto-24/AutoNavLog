@@ -133,5 +133,20 @@
     "terms": "https://top.swim.mlit.go.jp/swim/terms.html",
     "portal": "https://top.swim.mlit.go.jp/swim/"
   },
-  "display_date_policy": "NO_DATE_BASED_VISIBILITY_RESTRICTION"
+  "display_date_policy": "NO_DATE_BASED_VISIBILITY_RESTRICTION",
+  "layer_feature_count_basis": "Shapefile DBF records; layers[].feature_count and the 5276 total refer to Shapefile, not KML Placemarks.",
+  "kml_feature_count": 5271,
+  "kml_shapefile_count_differences": [
+    {
+      "layer_id": "Approach_control_area_CIVIL",
+      "kml_placemark_count": 93,
+      "shapefile_record_count": 94
+    },
+    {
+      "layer_id": "Approach_control_area_MIL",
+      "kml_placemark_count": 75,
+      "shapefile_record_count": 79
+    }
+  ],
+  "format_reconciliation_status": "NOT_RECONCILED; resolve format differences during issue #149 runtime import; original ZIPs are unchanged."
 }
