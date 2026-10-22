@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 import { expect, test, chromium, type BrowserContext, type Page } from "@playwright/test";
 import { resolve, join } from "node:path";
 import { mkdtempSync } from "node:fs";
@@ -18,13 +18,13 @@ const signIn = async (page: Page, subject: string) => {
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
   await expect.poll(async () => (await authState(page)).account?.displayName).toBe(subject);
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 };
 const start = async (page: Page) => {
   await page.goto(path);
   await expect.poll(() => page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 };
 function jwt(subject: string) {
   const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -59,13 +59,17 @@ async function backend(context: BrowserContext) {
   });
   return state;
 }
-async function saveRoute(page: Page, name: string) {
-  await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+async function planRoute(page: Page) {
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await confirmImportedDraft(page);
+  await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
+  await page.getByLabel("気象モード").selectOption("FTD");
   await expect(page.getByLabel("RJFM出発Legの計画高度", { exact: true })).toBeVisible();
-  for (const [node, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+}
+async function saveRoute(page: Page, name: string) {
+  await planRoute(page);
+  for (const [node, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     await page.getByLabel(`${node}出発Legの計画高度`, { exact: true }).fill(altitude);
   }
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
@@ -148,7 +152,7 @@ test("cached authentication survives offline/provider failure at startup, termin
 });
 
 test("Account dialog remains compact and workflow regions retain their order", async ({ page, context }) => {
-  await backend(context); await start(page);
+  await backend(context); await start(page); await planRoute(page);
   for (const width of [320, 390, 629, 630, 631, 820, 996, 997, 1100, 1242, 1273, 1440, 1600]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.getByRole("button", { name: "アカウント", exact: true }).click();
@@ -198,7 +202,7 @@ test("browser process restart keeps account ownership offline; startup revocatio
     await page.reload();
     await expect.poll(async () => (await authState(page)).account).toBeNull();
     await enterImportWorkflow(page);
-    await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
     expect(await savedNames(page)).not.toContain("Restart account route");
     service.failure = ""; await signIn(page, "Restart");
     expect(await savedNames(page)).toContain("Restart account route");
@@ -274,7 +278,7 @@ test("logout from calculation overlay terminates in-flight work without modifyin
   expect((await authState(page)).account).toBeNull();
   await expect(page.locator(".calculation-progress-backdrop")).not.toBeVisible();
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   expect(await savedNames(page)).not.toContain("A calculation");
   await page.evaluate(() => (window as any).restoreWorker());
   await signIn(page, "A");
@@ -298,7 +302,7 @@ for (const rejection of ["TOKEN_EXPIRED", "INVALID_ID_TOKEN"]) test(`revocation 
 
 
 test("blocked Google popup reports an actionable error without resetting anonymous input", async ({ page, context }) => {
-  await backend(context); await start(page);
+  await backend(context); await start(page); await planRoute(page);
   await page.getByLabel("FUEL gal", { exact: true }).fill("81");
   await page.evaluate(() => { window.open = () => null; });
   await page.getByRole("button", { name: "アカウント", exact: true }).click();

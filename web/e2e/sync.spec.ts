@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 import { test, expect, type Page } from "@playwright/test";
 import { resolve } from "node:path";
 import { backend, waitForSyncAccount } from "./helpers/sync-auth";
@@ -9,7 +9,7 @@ async function start(page: Page, subject: string) {
   // Vite may reload the first page while generated Local assets settle in CI.
   await waitForSyncAccount(page, subject);
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 
 }
 
@@ -38,12 +38,13 @@ test("sync account readiness rejects a different account", async ({ page }) => {
 async function state(page: Page) { return page.evaluate(() => (window as any).authTest.contexts.at(-1).sync.getState()); }
 async function create(page: Page, name: string) {
   await enterImportWorkflow(page);
-  await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await confirmImportedDraft(page);
+  await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
+  await page.getByLabel("気象モード").selectOption("FTD");
   await expect(page.getByLabel("RJFM出発Legの計画高度", { exact: true })).toBeVisible();
-  for (const [node, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  for (const [node, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     const input = page.getByLabel(`${node}出発Legの計画高度`, { exact: true });
     // Unlike fill(), click scrolls into view and waits for a stable target.
     await input.click();
@@ -219,7 +220,7 @@ test("anonymous Latest collision is durable and blocks editing until named save"
   });
   await page.evaluate(() => (window as any).authTest.signOut());
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await create(page, "Anonymous saved");
   await page.evaluate(async () => {
     const app = (window as any).authTest.contexts.at(-1);

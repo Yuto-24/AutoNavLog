@@ -39,7 +39,11 @@ async function setup(page: Page) {
 }
 async function calculate(page: Page) {
   const previous = await page.evaluate(() => (window as any).weatherStates.length);
-  await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+  const calculateButton = page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ });
+  await calculateButton.click();
+  // The forced draft save emits a current, last-good state before calculation.
+  // Wait for the operation to finish, not merely for that intermediate RPC reply.
+  await expect(calculateButton).toBeEnabled();
   await page.waitForFunction(count => (window as any).weatherStates.length > count, previous);
   await expect.poll(async () => (await state(page))?.readiness?.calculationIsCurrent).toBe(true);
   await expect(page.locator(".nav-log-table")).toBeVisible();
