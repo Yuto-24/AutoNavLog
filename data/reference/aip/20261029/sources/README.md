@@ -1,6 +1,6 @@
 # AIP 2026-10-29 source archives
 
-Place the unmodified SWIM portal download archives in this directory on the `docs/aip-airspace-20261029-source` branch.
+This directory contains the three unmodified SWIM portal download archives. Their sizes and SHA-256 values match the source manifest.
 
 | File | SHA-256 |
 | --- | --- |

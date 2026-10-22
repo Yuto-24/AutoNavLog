@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "dataset_id": "jcab-aip-map-20261029",
-  "state": "source_metadata_registered_binary_archives_not_vendored",
+  "state": "raw_source_archives_vendored_runtime_not_imported",
   "effective_date": "2026-10-29",
   "published_notice_date": "2026-10-22",
   "publisher": "国土交通省航空局 航空情報センター",
@@ -127,7 +127,7 @@
     }
   ],
   "verified_shape_geometry": "WGS84 EPSG:4326; 25 layers / 5276 features; zero invalid and zero empty geometries (Shapefile)",
-  "source_availability": "Original ZIPs are not included in this repository commit. Import must verify these checksums. This manifest is not an active runtime reference dataset.",
+  "source_availability": "Original KML, Shapefile, and Documents ZIPs are vendored under data/reference/aip/20261029/sources; SHA-256 values are tracked here. Runtime data is not yet imported.",
   "runtime_status": "NOT_IMPORTED",
   "sources": {
     "terms": "https://top.swim.mlit.go.jp/swim/terms.html",
