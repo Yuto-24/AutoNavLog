@@ -12,6 +12,13 @@ before activation: publication, retention restore, monitoring and rollback accep
 all target this origin. The historical #121 pages.dev evidence is not new-origin acceptance.
 `STATIC_ORIGIN` remains an operator-owned GitHub variable, not a tracked workflow default.
 
+The [2026-10-22 unattended-readiness audit](evidence/issue-123/unattended-readiness-2026-10-22.md)
+separates the accepted one-off MSM recovery, notification and rollback evidence from
+unfinished native collection, credential setup and scheduled acceptance. It records
+current read-only settings, GitHub's cache-configuration HTTP 402, the Google auth
+prerequisite conflict, and the ordered approval gates. Neither monitor nor publication
+activation is authorized by that audit.
+
 ## Ownership and activation
 
 - `publish-github-release.yml` continues to publish VERSION/CHANGELOG GitHub releases.
@@ -877,7 +884,7 @@ token is useful for investigation but does not establish unattended renewal.
 | Firebase billing/plan interpretation | Google defines `billingEnabled=false` as no open billable account; Firebase documents downgrade to Spark when its billing account is unlinked or closed. These establish a technical inference after active Firebase project identity is verified, rather than asking the operator to define Spark semantics. The diagnostic probe reports only the billing flag. The native collector combines that flag with an ACTIVE Firebase project and the explicit free-tier database identity; the resulting Spark fragment is not an all-provider plan report. |
 | Firestore outbound | The inspected Firestore metric reference does not list a monthly outbound-byte counter. That alone is not proof of provider-unobservable status for this project. Check current Firebase Usage, Monitoring and Quotas using approved read access; only their combined, current configuration finding can support the existing exception. Errors/missing series never qualify. |
 | GitHub storage/shared allowance/cache | Use documented billing Usage/Usage Summary and separate cache usage/configuration endpoints; resolve actual SKU/unit/period and complete coverage privately. Net zero does not prove that discounts came from included allowance. The published Budget REST API inspected is organization-scoped, not a verified personal-account spending-control endpoint. No supported personal allowance/control source has been verified yet; this is an unresolved technical/access limitation, not a request for the user to invent one. |
-| Official limits | `verify_limits.py` now checks reviewed current public table columns and affirmative clauses, recording source, retrieval time and content digest only after all sources pass. Live HTML compatibility remains unverified because direct source fetches failed in this environment. Only successful semantic checks may renew `limits_checked_at`; HTTP success or a digest alone is insufficient. Unexpected clauses/values fail closed for review. Parser/source selection is delegated engineering work, not an outstanding user decision. Release-time review and the existing 31-day bound remain. |
+| Official limits | `verify_limits.py` checks reviewed current public table columns and affirmative clauses, recording source, retrieval time and content digest only after all sources pass. The 2026-10-22 audit verifies live Firestore/GitHub HTML after correcting visible admonition and inline-text parsing; Cloudflare fetches still return 403 in the local environment, so the full audit cannot issue `limits_checked_at`. Only successful semantic checks may renew that timestamp; HTTP success or a digest alone is insufficient. Unexpected clauses/values fail closed for review. Parser/source selection is engineering work, not an outstanding user decision. Release-time review and the existing 31-day bound remain. |
 
 Sources inspected:
 [Cloudflare OpenAPI](https://github.com/cloudflare/api-schemas/blob/main/openapi.json),

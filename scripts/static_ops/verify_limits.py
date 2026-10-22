@@ -69,6 +69,7 @@ class Document(HTMLParser):
         self.block_stack = []
         self.table = self.row = self.cell = self.heading = None
         self.section = ()
+        self.section_serial = 0
         self.headings = {}
         self.main_count = 0
         self.feed(raw.decode("utf-8"))
@@ -99,13 +100,21 @@ class Document(HTMLParser):
             self.stack.append((tag, bool(hidden), in_main))
         if hidden or not in_main:
             return
+        # Inline element boundaries are not whitespace. Preserve source text so
+        # links followed by punctuation and emphasized clauses compare exactly.
+        if tag == "br":
+            self.handle_data(" ")
         if tag in {"h2", "h3", "h4", "h5", "h6"}:
-            self.heading = []
-        elif tag in {"p", "li"}:
             if self.block_stack:
                 self.block_stack[-1][2] = True
-            self.block_stack.append([tag, [], False, self.section])
+            self.heading = []
+        elif tag in {"div", "p", "li", "aside"}:
+            if self.block_stack:
+                self.block_stack[-1][2] = True
+            self.block_stack.append([tag, [], False, self.section, [], set(), self.section_serial])
         elif tag == "table":
+            if self.block_stack:
+                self.block_stack[-1][2] = True
             if self.table is not None:
                 raise ProbeError("unsupported_nested_table")
             self.table = []
@@ -125,15 +134,44 @@ class Document(HTMLParser):
         if tag in {"h2", "h3", "h4", "h5", "h6"} and self.heading is not None:
             level = int(tag[1])
             self.headings = {n: title for n, title in self.headings.items() if n < level}
-            self.headings[level] = normalize(" ".join(self.heading))
+            self.headings[level] = normalize("".join(self.heading))
             self.section = tuple(self.headings[n] for n in sorted(self.headings))
+            self.section_serial += 1
+            for block in self.block_stack:
+                block[5].add(self.section_serial)
             self.heading = None
-        elif tag in {"p", "li"} and self.block_stack:
-            _, parts, has_child, section = self.block_stack.pop()
-            if not has_child:
-                self.blocks.append((section, normalize(" ".join(parts))))
+        elif tag in {"div", "p", "li", "aside"} and self.block_stack:
+            _, parts, has_child, section, children, sections, serial = self.block_stack.pop()
+            text = normalize("".join(parts))
+            # A transparent wrapper may pass its children through once. Visible
+            # parent text can qualify them (e.g. "Previous limit:"), so those
+            # children cannot become standalone affirmative evidence. Defer
+            # emission until all enclosing block context has been considered.
+            # Sibling notes can qualify each other. Several independent blocks
+            # are allowed only after a heading actually opened their section in
+            # this layout container. A later heading (even the same title) must
+            # not retroactively authorize earlier children.
+            if has_child:
+                # Keep a non-matching marker for rejected visible context so a
+                # containing wrapper cannot mistake it for an empty sibling.
+                blocks = [(section, "", serial)] if text else []
+                if not text:
+                    groups = {}
+                    for child in children:
+                        groups.setdefault(child[2], []).append(child)
+                    for child_serial, group in groups.items():
+                        if child_serial not in sections and len(group) > 1:
+                            blocks.append((group[0][0], "", child_serial))
+                        else:
+                            blocks.extend(group)
+            else:
+                blocks = [(section, text, serial)] if text else []
+            if self.block_stack:
+                self.block_stack[-1][4].extend(blocks)
+            else:
+                self.blocks.extend((sec, value) for sec, value, _ in blocks)
         elif tag in {"td", "th"} and self.cell is not None:
-            self.row.append(normalize(" ".join(self.cell)))
+            self.row.append(normalize("".join(self.cell)))
             self.cell = None
         elif tag == "tr" and self.row is not None:
             self.table.append(self.row)
@@ -144,8 +182,10 @@ class Document(HTMLParser):
 
     def handle_data(self, data):
         if self.stack and not self.stack[-1][1] and self.stack[-1][2]:
-            for block in self.block_stack:
-                block[1].append(data)
+            # Headings and tables have their own section/value contracts; their
+            # text is not a prose qualification of a surrounding layout div.
+            if self.block_stack and self.heading is None and self.table is None:
+                self.block_stack[-1][1].append(data)
             if self.heading is not None:
                 self.heading.append(data)
             if self.cell is not None:
