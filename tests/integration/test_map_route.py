@@ -337,3 +337,56 @@ def test_noop_edit_preserves_explicit_no_vrep_policy(local):
     after = json.loads(local.dispatch("confirmRoute", reconfirm))["project"]
     assert after == before
     assert after["metadata"]["ui_state"]["arrival_plan"] is None
+
+
+def test_existing_long_name_survives_reload_noop_and_rebuild(local):
+    local.dispatch("confirmRoute", payload([
+        point("FROM", airport="RJFO"), point("WP1"),
+        point("WP2", 32.3, 130.5), point("TO", airport="RJFS"),
+    ]))
+    long_name = "既存" * 100
+    local.session.project.route_nodes[1].name = long_name
+    state = json.loads(local.dispatch("bootstrap"))
+    restored = json.loads(local.dispatch("bootstrap", state["workingRecovery"]))
+    before = restored["project"]
+    assert before["route_nodes"][1]["name"] == long_name
+    assert json.loads(local.dispatch("confirmRoute", edit_payload(before)))["project"] == before
+    request = edit_payload(before)
+    request["map_points"].pop(2)
+    after = json.loads(local.dispatch("confirmRoute", request))["project"]
+    assert after["route_nodes"][1]["name"] == long_name
+    assert after["route_nodes"][1]["id"] == before["route_nodes"][1]["id"]
+
+
+@pytest.mark.parametrize("identity", ["none", "unknown", "existing"])
+def test_long_new_names_cannot_borrow_original_identity(local, identity):
+    from uuid import uuid4
+
+    from autonavlog.web.facade import WebApplicationError
+
+    before = json.loads(local.dispatch("confirmRoute", payload([
+        point("FROM", airport="RJFO"), point("WP1"), point("TO", airport="RJFS"),
+    ])))["project"]
+    request = edit_payload(before)
+    request["map_points"][1]["name"] = "x" * 101
+    if identity == "none":
+        request["map_points"][1].pop("original_node_id")
+    elif identity == "unknown":
+        request["map_points"][1]["original_node_id"] = str(uuid4())
+    with pytest.raises((ValueError, WebApplicationError)):
+        local.dispatch("confirmRoute", request)
+    assert json.loads(local.dispatch("bootstrap"))["project"] == before
+
+
+def test_fresh_map_cannot_use_forged_identity_for_long_name(local):
+    from uuid import uuid4
+
+    from autonavlog.web.facade import WebApplicationError
+
+    points = [point("FROM", airport="RJFO"), point("x" * 101), point("TO", airport="RJFS")]
+    with pytest.raises(ValueError):
+        ConfirmRouteRequest.model_validate(payload(points))
+    points[1]["original_node_id"] = str(uuid4())
+    with pytest.raises(WebApplicationError):
+        local.dispatch("confirmRoute", payload(points))
+    assert json.loads(local.dispatch("bootstrap"))["project"] is None

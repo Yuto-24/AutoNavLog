@@ -21,8 +21,11 @@ export function importCandidateToMapDraft(
   candidate: RouteCandidate,
   airports: readonly AirportOption[],
 ): ImportRouteDraftResult {
-  const coordinates = candidate.coordinates;
-  if (coordinates.length < 2 || coordinates.length > 500) {
+  const coordinates = candidate.routeCoordinates ?? candidate.coordinates;
+  // Preview geometry may be simplified. Older sessions are safe only when their
+  // preview contains every source occurrence; never silently confirm a preview.
+  if (!Number.isInteger(candidate.vertexCount) || candidate.vertexCount < 2 ||
+      candidate.vertexCount > 500 || coordinates.length !== candidate.vertexCount) {
     return { status: "invalid", reason: "point-count" };
   }
   if (coordinates.some(([latitude, longitude]) => !validCoordinate(latitude, longitude))) {

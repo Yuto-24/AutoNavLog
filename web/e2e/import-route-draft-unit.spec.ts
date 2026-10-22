@@ -67,6 +67,7 @@ test("missing or stale airport matches stay unconfirmable without losing importe
 
 test("direct route has no synthetic VREP and parser matches are authoritative despite rounded distances", () => {
   const result = importCandidateToMapDraft({ ...candidate,
+    vertexCount: 2,
     coordinates: [candidate.coordinates[0]!, candidate.coordinates[3]!],
     departureDistanceNm: 5, destinationDistanceNm: 5,
   }, airports);
@@ -76,13 +77,29 @@ test("direct route has no synthetic VREP and parser matches are authoritative de
 
 test("rejects unusable coordinate counts and non-finite/out-of-range geometry", () => {
   for (const coordinates of [[], [[31, 131]], Array.from({ length: 501 }, () => [31, 131])]) {
-    expect(importCandidateToMapDraft({ ...candidate, coordinates: coordinates as [number, number][] }, airports))
+    expect(importCandidateToMapDraft({ ...candidate, vertexCount: coordinates.length, coordinates: coordinates as [number, number][] }, airports))
       .toEqual({ status: "invalid", reason: "point-count" });
   }
   for (const coordinate of [[NaN, 131], [31, Infinity], [91, 131], [31, -181]]) {
-    expect(importCandidateToMapDraft({ ...candidate, coordinates: [coordinate as [number, number], [32, 130]] }, airports))
+    expect(importCandidateToMapDraft({ ...candidate, vertexCount: 2, coordinates: [coordinate as [number, number], [32, 130]] }, airports))
       .toEqual({ status: "invalid", reason: "coordinates" });
   }
   expect(importCandidateToMapDraft(candidate, [{ ...airports[0]!, latitudeDeg: NaN }, airports[1]!]))
     .toEqual({ status: "invalid", reason: "coordinates" });
+});
+
+test("uses original route geometry and refuses simplified previews or oversized originals", () => {
+  const preview: [number, number][] = [candidate.coordinates[0]!, candidate.coordinates[3]!];
+  const result = importCandidateToMapDraft({ ...candidate, coordinates: preview,
+    routeCoordinates: candidate.coordinates }, airports);
+  expect(result.status).toBe("ready");
+  if (result.status !== "invalid") {
+    expect(result.points).toHaveLength(4);
+    expect(result.points[1]).toMatchObject({ latitude_deg: 32, longitude_deg: 131 });
+  }
+  for (const input of [
+    { ...candidate, coordinates: preview },
+    { ...candidate, vertexCount: 2100, coordinates: preview, routeCoordinates: null },
+    { ...candidate, vertexCount: 501, coordinates: preview, routeCoordinates: preview },
+  ]) expect(importCandidateToMapDraft(input, airports)).toEqual({ status: "invalid", reason: "point-count" });
 });

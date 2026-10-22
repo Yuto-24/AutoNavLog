@@ -607,7 +607,9 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     if (!candidate) return;
     const draft = importCandidateToMapDraft(candidate, next.airports);
     if (draft.status === "invalid") {
-      setError("KMLを読み込めません。内容を確認してください。");
+      setError(candidate.vertexCount > 500
+        ? "選択した経路は座標数の上限（500点）を超えています。500点以下の経路を選択してください。"
+        : "KMLを読み込めません。内容を確認してください。");
       setPendingImportDraft(false);
       return;
     }

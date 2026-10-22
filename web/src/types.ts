@@ -35,6 +35,8 @@ export interface RouteCandidate {
   vertexCount: number;
   distanceNm: number | null;
   coordinates: [number, number][];
+  /** Unsimplified route geometry; absent on older sessions, null above the MAP limit. */
+  routeCoordinates?: [number, number][] | null;
   containerPath?: string[];
   segmentNames?: string[];
   segmentCount?: number;

@@ -13,7 +13,7 @@ export function validMapDraft(value: unknown): value is MapRoutePoint[] {
   return value.every(point => {
     if (!point || typeof point !== "object" || typeof point.id !== "string" || ids.has(point.id) ||
         (point.original_node_id !== undefined && typeof point.original_node_id !== "string") ||
-        typeof point.name !== "string" || !point.name.trim() || point.name.length > 100 ||
+        typeof point.name !== "string" || !point.name.trim() || (point.name.length > 100 && !point.original_node_id) ||
         !Number.isFinite(point.latitude_deg) || Math.abs(point.latitude_deg) > 90 ||
         !Number.isFinite(point.longitude_deg) || Math.abs(point.longitude_deg) > 180 ||
         !(point.airport_id === null || typeof point.airport_id === "string" && point.airport_id.length > 0)) return false;

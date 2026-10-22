@@ -589,6 +589,16 @@ class AutoNavLogWebApplication:
         """Replace only changed directed legs; occurrence IDs disambiguate repeat visits."""
         previous = session.project
         assert previous is not None
+        previous_nodes = {node.id: node for node in previous.route_nodes}
+        for point in request.map_points:
+            original = (
+                previous_nodes.get(point.original_node_id)
+                if point.original_node_id is not None else None
+            )
+            if len(point.name) > 100 and (original is None or point.name != original.name):
+                raise WebApplicationError(
+                    "ROUTE_NODE_NOT_FOUND", "対象のRoute点が見つかりません。"
+                )
         ordered_previous = previous.ordered_nodes()
         if (
             departure.id == previous.departure_airport_id
@@ -603,7 +613,6 @@ class AutoNavLogWebApplication:
             )
         ):
             return self.present(session)
-        previous_nodes = {node.id: node for node in previous.route_nodes}
         working = previous.model_copy(deep=True, update={"route_nodes": [], "sections": []})
         working.departure_airport_id = departure.id
         working.destination_airport_id = destination.id
@@ -2746,6 +2755,10 @@ class AutoNavLogWebApplication:
                         "coordinates": [
                             list(item) for item in route_shape.display_coordinates
                         ],
+                        "routeCoordinates": (
+                            [list(item) for item in route_shape.coordinates]
+                            if len(route_shape.coordinates) <= 500 else None
+                        ),
                     },
                 )
             )
@@ -2764,6 +2777,10 @@ class AutoNavLogWebApplication:
                         "vertexCount": len(line.coordinates),
                         "distanceNm": round(imported_line_length_nm(line), 2),
                         "coordinates": [list(item) for item in line.display_coordinates],
+                        "routeCoordinates": (
+                            [list(item) for item in line.coordinates]
+                            if len(line.coordinates) <= 500 else None
+                        ),
                     },
                 )
             )
@@ -2780,6 +2797,10 @@ class AutoNavLogWebApplication:
                     "vertexCount": len(polygon.outer_boundary),
                     "distanceNm": None,
                     "coordinates": [list(item) for item in polygon.display_outer_boundary],
+                    "routeCoordinates": (
+                        [list(item) for item in polygon.outer_boundary]
+                        if len(polygon.outer_boundary) <= 500 else None
+                    ),
                 }
             )
         if len(result.points) >= 2 and not result.lines and not result.connected_lines:
@@ -2793,6 +2814,10 @@ class AutoNavLogWebApplication:
                     "coordinates": [
                         [point.latitude_deg, point.longitude_deg] for point in result.points
                     ],
+                    "routeCoordinates": (
+                        [[point.latitude_deg, point.longitude_deg] for point in result.points]
+                        if len(result.points) <= 500 else None
+                    ),
                 }
             )
         for candidate in candidates:

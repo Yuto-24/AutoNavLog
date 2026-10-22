@@ -200,6 +200,9 @@ test("session decoding preserves invalid text and rejects incompatible UI shapes
     editingRouteProjectId: "project", mapRouteDraft: [{ id: "node", original_node_id: "node", name: "RJFM",
       latitude_deg: 31, longitude_deg: 131, airport_id: "RJFM" }] };
   expect(decodeSession(JSON.stringify(editing))).toEqual(editing);
+  const longNameEditing = { ...editing, mapRouteDraft: editing.mapRouteDraft.map(point =>
+    ({ ...point, name: "既存".repeat(100) })) };
+  expect(decodeSession(JSON.stringify(longNameEditing))).toEqual(longNameEditing);
   expect(() => decodeSession(JSON.stringify({ ...editing, editingRouteProjectId: "other" }))).toThrow();
   expect(() => decodeSession(JSON.stringify({ ...editing, editingRouteProjectId: null }))).toThrow();
   expect(decodeSession(JSON.stringify({ ...editing, mapRouteDraft: [] })).editingRouteProjectId).toBe("project");

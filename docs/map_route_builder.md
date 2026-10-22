@@ -30,8 +30,9 @@ Opening a confirmed Project without a saved device viewport fits its route once.
 Draft confirmation retains its current view. Selecting FROM never fits/recenters the map. Resizing invalidates the Leaflet canvas
 without fitting the route. Existing KML candidate preview retains its fit behavior.
 
-The KML compatibility workflow is still available through `KML/KMZから開始` and the
-existing import controls. It is not integrated into Map Draft in this issue (#176).
+The existing KML/KMZ import controls stage candidates as new Map Drafts (#176).
+Import uses unsimplified route coordinates, not display-only preview geometry;
+routes above the existing 500-point MAP limit are explicitly rejected.
 Undo, search, reorder, reference-point catalogs and marker dragging are not implemented here.
 
 Verification: `test_map_route.py` exercises validation, repeated airports, direct

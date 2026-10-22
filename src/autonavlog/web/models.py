@@ -38,10 +38,18 @@ class ImportRouteRequest(WebRequestModel):
 
 class MapRoutePoint(WebRequestModel):
     original_node_id: UUID | None = None
-    name: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1)
     latitude_deg: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude_deg: float = Field(ge=-180, le=180, allow_inf_nan=False)
     airport_id: str | None = Field(default=None, min_length=1, max_length=100)
+
+
+    @model_validator(mode="after")
+    def bound_new_point_name(self) -> MapRoutePoint:
+        # Existing domain names are unbounded; the facade verifies their identity/name.
+        if self.original_node_id is None and len(self.name) > 100:
+            raise ValueError("new MAP point names must not exceed 100 characters")
+        return self
 
 
 class ConfirmRouteRequest(WebRequestModel):
