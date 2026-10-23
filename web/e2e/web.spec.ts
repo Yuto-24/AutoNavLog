@@ -2976,10 +2976,26 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
       for (const path of element.querySelectorAll<SVGPathElement>(selector)) {
         const matrix = path.getScreenCTM();
         if (!matrix) continue;
+        if (selector.endsWith("-boundary")) {
+          // A coarse screen grid can miss a thin stroke after a fractional pan.
+          // Sample the actual path centerline, still checking stroke and clipping.
+          const length = path.getTotalLength();
+          for (let distance = 0; distance <= length; distance += 1) {
+            const local = path.getPointAtLength(distance);
+            const point = local.matrixTransform(matrix);
+            if (point.x < bounds.left + 50 || point.x >= bounds.right - 60
+              || point.y < bounds.top + 50 || point.y >= bounds.bottom - 60) continue;
+            if (path.isPointInStroke(local)
+              && !document.elementFromPoint(point.x, point.y)?.closest(".leaflet-control, .leaflet-marker-icon")) {
+              return { x: point.x, y: point.y };
+            }
+          }
+          continue;
+        }
         for (let x = bounds.left + 50; x < bounds.right - 60; x += 3) {
           for (let y = bounds.top + 50; y < bounds.bottom - 60; y += 3) {
             const local = new DOMPoint(x, y).matrixTransform(matrix.inverse());
-            const inside = selector.endsWith("-boundary") ? path.isPointInStroke(local) : path.isPointInFill(local);
+            const inside = path.isPointInFill(local);
             if (inside && !document.elementFromPoint(x, y)?.closest(".leaflet-control, .leaflet-marker-icon")) {
               return { x, y };
             }
@@ -3146,7 +3162,7 @@ for (const width of [390, 1100, 1440]) {
     await page.getByRole("button", { name: "経路を確定", exact: true }).click();
     const route = page.getByRole("region", { name: "経路地図とLeg設定" });
     const editor = route.getByRole("region", { name: "チェックポイント設定" });
-    const name = editor.getByLabel("名称", { exact: true });
+    const name = editor.getByLabel("名称");
     const map = route.locator(".route-map");
     await editor.getByRole("button", { name: "チェックポイントを追加" }).click();
     // Merely opening an editor must not steal focus from its initiating control.

@@ -1528,7 +1528,10 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     );
     if (deleted) {
       setSelectedProjectId("");
-      applyState(deleted, { syncCalculationInputs: true });
+      applyState(deleted, {
+        syncCalculationInputs: true,
+        preserveMapDraft: !deletingCurrentProject,
+      });
     }
   };
 
