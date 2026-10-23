@@ -7,7 +7,7 @@ The merged tree equals reviewed commit `e80989566137b0150e4ec61936901975612f506d
 
 Wheel SHA-256: `ecee71d1176f8ca6d5992b1a6dd10fd34a71dab2cc0d8ef30301d13962cb265e`.
 Built with `python -m build --wheel --no-isolation` from a clean archive of that tree.
-No upstream source is patched or forked in AutoNavLog. Desktop dependencies remain
+No upstream source is patched or forked in NavMate. Desktop dependencies remain
 native; the public Pyodide prepared-data consumer needs NumPy and tzdata.
 
 The historical `jma_msm_wind-0.2.1` wheel is unchanged and is no longer installed by

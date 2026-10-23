@@ -25,6 +25,8 @@ web/*.tsbuildinfo
 web/dist
 src/autonavlog/web/static
 *.png
+!web/public/*.png
+!assets/branding/*.png
 
 web/dist-local
 

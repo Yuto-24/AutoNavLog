@@ -1,4 +1,4 @@
-# AutoNavLog Design Notes
+# NavMate Design Notes
 
 このファイルは、過去の設計メモへの互換リンクを維持するために残しています。
 
