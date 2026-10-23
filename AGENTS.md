@@ -1,4 +1,4 @@
-# AutoNavLog agent guide
+# NavMate agent guide
 
 ## Coordination and review
 
@@ -14,13 +14,13 @@
 - Any layout change needs browser coverage around 1,100 px and above 1,240 px, asserting workflow-region order/position rather than visibility alone. See `docs/web-design/README.md` for the UI reference.
 - For release-management, version metadata, documentation, or CI changes without user-facing behavior or layout changes, skip browser automation, screenshots, and visual checks unless the user explicitly requests them. Use focused source, build, and health checks instead.
 - Docker Compose is the supported local/Legacy runtime; the production delivery path is Static Web as described in `README.md` and `docs/static_production.md`. Local Compose health does not establish Static Web production acceptance. Preserve the `autonavlog-data` volume: routine updates and stops must not use `docker compose down -v`. Follow `README.md` and `docs/cloudflare_tunnel.md` for environment-specific startup and exposure rules.
-- For a release-required Issue, update root `VERSION` and the latest `CHANGELOG.md` section directly. `VERSION` is the sole AutoNavLog version source; do not place it in web package manifests or README. Run `python scripts/validate_release.py`, `pytest tests/unit/test_version.py`, and `npm --prefix web run typecheck`. Do not change the separately managed `src/autonavlog/version.py` or `jma-msm-wind` version.
+- For a release-required Issue, update root `VERSION` and the latest `CHANGELOG.md` section directly. `VERSION` is the sole NavMate version source; do not place it in web package manifests or README. Run `python scripts/validate_release.py`, `pytest tests/unit/test_version.py`, and `npm --prefix web run typecheck`. Do not change the separately managed `src/autonavlog/version.py` or `jma-msm-wind` version.
 
 ## Codex worktrees
 
 - In Codex worktrees, run `scripts/codex/setup_worktree.sh` before Docker Compose work. The generated environment isolates the Compose project, image, host port, and named volume; do not target or reuse the primary `autonavlog` runtime from a worktree.
 - Do not assume port 8123 in a Codex worktree. Read `AUTONAVLOG_HOST_PORT` from the generated `.env` or use the URL printed by the setup script.
-- The only exception to the volume-preservation rule is `scripts/codex/cleanup_worktree.sh`, and only for generated projects whose `COMPOSE_PROJECT_NAME` matches `autonavlog-wt-*`. Never run `docker compose down -v` manually against the primary AutoNavLog runtime.
+- The only exception to the volume-preservation rule is `scripts/codex/cleanup_worktree.sh`, and only for generated projects whose `COMPOSE_PROJECT_NAME` matches `autonavlog-wt-*`. Never run `docker compose down -v` manually against the primary NavMate runtime.
 
 ## Change and delivery safety
 

@@ -2581,7 +2581,7 @@ test("responsive workflow keeps a one-way order at intermediate width", async ({
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
-  await expect(page).toHaveTitle(/AutoNavLog/);
+  await expect(page).toHaveTitle(/NavMate/);
   await expect(page.locator("body")).not.toBeEmpty();
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
@@ -3195,7 +3195,7 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
   await page.goto("/");
-  await expect(page).toHaveTitle(/AutoNavLog/);
+  await expect(page).toHaveTitle(/NavMate/);
   await expect(page.locator("body")).not.toBeEmpty();
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
@@ -3849,7 +3849,7 @@ test("EOC wind edit updates the DESCENT basis Leg common wind", async ({ page })
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   await page.goto("/");
-  await expect(page).toHaveTitle(/AutoNavLog/);
+  await expect(page).toHaveTitle(/NavMate/);
   await calculateNavLog(page, true, true);
 
   const calculated = await page.evaluate(async () => {
@@ -4473,7 +4473,7 @@ test("Japanese startup and import errors preserve retry and editable input", asy
     await route.abort();
   }, { times: 1 });
   await page.goto("/");
-  await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toBeVisible();
+  await expect(page.getByText("NavMateを起動しています", { exact: true })).toBeVisible();
   release();
   await expect(page.getByRole("alert")).toContainText("サーバーに接続できませんでした。再試行してください。");
   await page.getByRole("button", { name: "起動を再試行" }).click();

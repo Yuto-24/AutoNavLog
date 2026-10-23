@@ -2737,7 +2737,7 @@ class CalculationService:
                                 ),
                                 "CRUISE_POWER_TABLE_BOUNDARY_USED": (
                                     "65%が性能表cornerの掲載PWR範囲外のため、最寄りの2行から"
-                                    "65%へ線形外挿しました（AutoNavLogの実装Policy）。"
+                                    "65%へ線形外挿しました（NavMateの実装Policy）。"
                                 ),
                             }
                             issues.append(

@@ -9,7 +9,7 @@ description = "Ground-planning support for Civil Aviation College NAV2 navigatio
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = "LicenseRef-Proprietary"
-authors = [{name = "AutoNavLog contributors"}]
+authors = [{name = "NavMate contributors"}]
 dependencies = [
   "defusedxml>=0.7.1,<1",
   "fastapi>=0.116,<1",

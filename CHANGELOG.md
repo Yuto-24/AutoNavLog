@@ -1,8 +1,8 @@
 # 変更履歴
 
-AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
+NavMate のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
-## 1.22.11
+## 2.0.0
 
 ### 利用者向け
 
@@ -10,15 +10,6 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 
 - 確定済みRouteをMAP上で再編集できるようにする
 - KML/KMZを新規Route Draft作成フローへ統合する
-
-### 開発者向け
-
-- Route occurrence identity preserves unchanged Planning inputs and Check Points during confirmed-route re-editing; unchanged reconfirmation preserves Last Calculation.
-- KML/KMZ candidates enter the Map Draft workflow with endpoint validation, same-tab pending-import recovery, explicit replacement and Platform Clipboard/file handling.
-
-## 1.22.10
-
-### 利用者向け
 
 #### 修正
 
@@ -31,7 +22,10 @@ AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とし
 
 ### 開発者向け
 
+- Route occurrence identity preserves unchanged Planning inputs and Check Points during confirmed-route re-editing; unchanged reconfirmation preserves Last Calculation.
+- KML/KMZ candidates enter the Map Draft workflow with endpoint validation, same-tab pending-import recovery, explicit replacement and Platform Clipboard/file handling.
 - #271 / #272 / #275 / #276 / #213 / #277: 地図操作、入力フォーカス、経路表・NAVLOG 表示、インポート失敗時の状態、MSM 再計算の回帰検証を追加。
+- #199 / #187 / #240: Integrate the user-approved NavMate branding and source icon; retain storage identifiers, legacy import, Firebase configuration, and domain. Production publication and Rules transition remain separate acceptance gates.
 
 ## 1.22.9
 

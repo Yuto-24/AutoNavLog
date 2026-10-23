@@ -1574,7 +1574,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     return (
       <main className="loading-screen">
         <div className="loading-mark">A</div>
-        <strong>AutoNavLogを起動しています</strong>
+        <strong>NavMateを起動しています</strong>
         {error && (
           <>
             <p role="alert">{error}</p>
@@ -1909,7 +1909,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       )}
 
       <footer className="app-footer">
-        <span>AutoNavLogは非公式の地上準備支援ツールです。</span>
+        <span>NavMateは非公式の地上準備支援ツールです。</span>
         <span>参照 {state.runtime.referenceRevision} / 性能 {state.runtime.performanceRevision}</span>
       </footer>
 
