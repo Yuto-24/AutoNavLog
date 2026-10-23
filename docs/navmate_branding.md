@@ -21,6 +21,21 @@ flattening, recoloring or image generation is performed.
 The manifest declares `purpose: any`, not an unverified maskable safe area;
 no service worker or offline capability is added.
 
+## Reproduce icon assets
+
+From the repository root, create an optional, isolated tooling environment:
+
+```sh
+python3 -m venv /tmp/navmate-icon-tools
+/tmp/navmate-icon-tools/bin/python -m pip install 'Pillow==12.3.0'
+/tmp/navmate-icon-tools/bin/python scripts/build_navmate_icons.py
+git diff --exit-code HEAD -- web/public
+```
+
+Pillow is only needed when regenerating the committed assets, not by the
+application runtime. The final command verifies byte-for-byte reproduction
+against the committed PNG/ICO assets; it does not discard changes.
+
 ## Compatibility boundaries
 
 - Keep Python distribution/package `autonavlog`, CLI `autonavlog-web`, web package
