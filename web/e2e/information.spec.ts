@@ -104,7 +104,7 @@ test("Information exposes bundle-generated latest and historical release section
   const dialog = await openInformation(page);
   await expect(dialog.getByRole("heading", { name: `v${latestRelease.version}` })).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "追加", exact: true }).first()).toBeVisible();
-  await expect(dialog.getByText("AutoNavLogのお知らせ", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("NavMateのお知らせ", { exact: true })).toBeVisible();
   await expect(dialog.locator(".information-known-issues")).toHaveCount(0);
   const releases = dialog.locator(".information-release");
   await expect(releases).toHaveCount(informationData.information.releases.length);

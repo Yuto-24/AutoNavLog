@@ -1,6 +1,20 @@
 # 変更履歴
 
-AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
+NavMate のRelease履歴です。公開日時はGitHub Releaseを正本とします。
+
+## 2.0.0
+
+### 利用者向け
+
+#### 変更
+
+- AutoNavLog → NavMate
+
+### 開発者向け
+
+- #199 / #187 / #240: Display branding and user-adopted application icon only. Add favicon, Apple touch icon and web manifest; preserve the approved PNG source and deterministic derivatives.
+- Base this release on main 1.22.9. PR #282 / #283 features are explicitly excluded and remain separate unmerged work.
+- Preserve legacy import, persisted identifiers, Project schema, Firebase configuration, production Rules and domain. Production publication remains a separately reviewed gate.
 
 ## 1.22.9
 

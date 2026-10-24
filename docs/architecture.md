@@ -65,7 +65,7 @@ last-good calculationは復元できます。`docker compose down -v`またはvo
 削除します。
 
 MSMのmodel spec、Run選択、coverage、GRIB2 decode、補間、provenanceは
-`jma-gpv-weather==0.5.0` の公開APIを正本とします。AutoNavLogのadapterは型、request ID、
+`jma-gpv-weather==0.5.0` の公開APIを正本とします。NavMateのadapterは型、request ID、
 単位境界、既存の入力検査と表示metadataを変換します。地上気温も公開
 `SurfaceTemperatureQuery` を使用し、private compatibility branchは廃止しました。
 Localでは静的供給された `MsmPreparedData` をWorkerで取得・検証し、同じProviderへ接続します。

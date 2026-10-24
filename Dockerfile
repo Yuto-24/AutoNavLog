@@ -43,6 +43,8 @@ COPY tests ./tests
 COPY scripts ./scripts
 COPY VERSION CHANGELOG.md KNOWN_ISSUES.md Dockerfile .dockerignore ./
 COPY web/package.json web/package-lock.json ./web/
+COPY web/public ./web/public
+COPY assets/branding ./assets/branding
 COPY .github/workflows/test.yml ./.github/workflows/test.yml
 COPY .github/workflows/static-production.yml ./.github/workflows/static-production.yml
 

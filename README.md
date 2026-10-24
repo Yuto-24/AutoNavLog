@@ -1,6 +1,6 @@
-# AutoNavLog
+# NavMate
 
-AutoNavLog は、航空大学校の宮崎課程 NAV2 で使う航法 LOG の地上準備を支援する、
+NavMate は、航空大学校の宮崎課程 NAV2 で使う航法 LOG の地上準備を支援する、
 SR22 G6 向けの Web アプリです。KML または KMZ の経路を読み込み、NAV LOG の計算結果を
 Web 画面に表示します。
 
@@ -358,7 +358,7 @@ docker build --target runtime --tag autonavlog:runtime .
 ```
 
 Release対象PRでは root [`VERSION`](VERSION) と [`CHANGELOG.md`](CHANGELOG.md) を直接更新します。
-`VERSION` はAutoNavLog全体の唯一のVersion原本です。InformationにはCHANGELOGの「利用者向け」と [既知の不具合](KNOWN_ISSUES.md) を表示し、GitHub Release本文には同じVersionの利用者向け・開発者向けを掲載します。
+`VERSION` はNavMate全体の唯一のVersion原本です。InformationにはCHANGELOGの「利用者向け」と [既知の不具合](KNOWN_ISSUES.md) を表示し、GitHub Release本文には同じVersionの利用者向け・開発者向けを掲載します。
 
 PR本文には `Release: required` を記載します。Release不要の場合は `Release: not-required` と
 `Reason: <理由>` を記載し、`VERSION` は変更しません。docs・test・コメントのみの変更や、配布物を

@@ -1,6 +1,6 @@
 # 計算規則
 
-この文書は、AutoNavLogが実際に採用する計算・表示Policyの正本です。
+この文書は、NavMateが実際に採用する計算・表示Policyの正本です。
 
 一部のPolicyは航空大学校の内部運用資料を参照して設計・検証していますが、このRepositoryでは原資料の章節、ページ、原文要約、hashとの対応を保持しません。公開範囲の考え方は[出典・provenance方針](source_policy.md)を参照してください。
 
@@ -63,12 +63,12 @@ Flight Phaseは`CLIMB`、`CRUISE`、`DESCENT`、`VISUAL_ARRIVAL`を扱います�
 - VREPから目的空港まではCAS 121 ktを使用します。
 - 航法計算上の風はCALM固定で、WCA=0、GS=TASです。
 - 目的地TAF風は独立した目的空港情報として表示しますが、この区間の航法計算には使用しません。
-- VREP高度はAutoNavLogのstandard distance ruleまたは利用者のmanual overrideで決定します。
+- VREP高度はNavMateのstandard distance ruleまたは利用者のmanual overrideで決定します。
 - RJFMのARITA / SHIRAHAMAについては専用Policyを適用します。
 
 ## 燃料計画
 
-AutoNavLogの固定Fuel Plan Policyは次のとおりです。
+NavMateの固定Fuel Plan Policyは次のとおりです。
 
 - TAXI/RUN UP: 10分、1.5 gal。RUN UPなしの場合は0分、0 galです。
 - CLIMB: POH上昇性能から算出します。
@@ -86,7 +86,7 @@ AutoNavLogの固定Fuel Plan Policyは次のとおりです。
 
 ## RJFM北行き専用Policy
 
-RJFMから大分方面へ北上する一部経路では、AutoNavLogのRJFM専用Policyを適用します。
+RJFMから大分方面へ北上する一部経路では、NavMateのRJFM専用Policyを適用します。
 
 - UMK / OMARUは名称ではなく参照座標と距離で識別します。
 - 適用中はRJFM→UMKをCLIMB、UMK→OMARUをCRUISEとして扱い、目標高度を5,500 ft MSLに固定します。
@@ -127,7 +127,7 @@ RJFMのRWY09 / RWY27について、NAV LOG本体とは独立した参考経路�
 
 ## 使用制限
 
-- AutoNavLogは公式規程、公式様式、運航承認を代替しません。
+- NavMateは公式規程、公式様式、運航承認を代替しません。
 - SEA、DEM、地形・障害物は現行計算対象外です。
 - 参照値、気象、航空情報、ATC指示は利用時に最新情報と照合してください。
 - POH性能頁についても、対象機の製造番号、日本承認AFM/POH、Supplementへの適用性は別途確認が必要です。

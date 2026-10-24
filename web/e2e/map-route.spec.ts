@@ -130,7 +130,7 @@ for (const width of [1100, 1440]) {
     await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeDisabled();
     await page.locator(".route-workspace").screenshot({ path: info.outputPath("map-draft.png") });
     await page.reload();
-    await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
+    await expect(page.getByText("NavMateを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
     await expect(strip(page).locator("li")).toHaveCount(4, { timeout: 90_000 });
     await airport(page, "RJFS").click();
     await expect(strip(page).locator("li")).toHaveCount(5);
@@ -165,7 +165,7 @@ for (const width of [1100, 1440]) {
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
     await page.reload();
-    await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
+    await expect(page.getByText("NavMateを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
     await expect(page.locator(".nav-log-table")).toBeVisible();
     await expect(page.locator(".route-workspace.is-route-building")).toHaveCount(0);
     const projectId = await page.getByLabel("保存済み", { exact: true }).inputValue();
@@ -265,6 +265,6 @@ test("direct airport route survives failed local persistence and can be saved", 
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
   await page.reload();
-  await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
+  await expect(page.getByText("NavMateを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
   await expect(page.locator(".route-table tbody tr")).toHaveCount(2);
 });
