@@ -1,10 +1,18 @@
 name: static-production
+run-name: ${{ inputs.feed_refresh && format('msm-fallback/{0}', inputs.observed_run) || 'static-production' }}
 
 on:
   schedule:
     - cron: '23 * * * *'
   workflow_dispatch:
     inputs:
+      feed_refresh:
+        description: 'External MSM fallback; requires separate opt-in and publication approval'
+        type: boolean
+        default: false
+      observed_run:
+        description: 'Advertised upstream Run for external trigger accounting (not a source SHA)'
+        type: string
       source_sha:
         description: 'Reviewed full application commit SHA (empty = approved feed-refresh source)'
         type: string
@@ -15,6 +23,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 # Shared with all app/feed deployments. Never interrupt an atomic upload.
 concurrency:
@@ -23,7 +32,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.STATIC_AUTOMATION_ENABLED == 'true')
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.STATIC_AUTOMATION_ENABLED == 'true') && (!inputs.feed_refresh || (vars.STATIC_EXTERNAL_TRIGGER_ENABLED == 'true' && vars.STATIC_AUTOMATION_ENABLED == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: ${{ github.event_name == 'schedule' && 'static-production' || inputs.publish && 'static-publication' || 'static-validation' }}
@@ -44,6 +53,11 @@ jobs:
         with:
           path: tooling
           persist-credentials: false
+      - name: Bound external requests before producer work
+        if: inputs.feed_refresh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tooling/scripts/static_ops/external_trigger_gate.py
       - name: Validate static publication identity independently of optional usage
         id: source
         run: |
@@ -63,27 +77,26 @@ jobs:
       - name: Install trusted producer dependencies
         run: |
           python -m pip install 'setuptools>=69' wheel tooling/vendor/jma_gpv_weather-0.5.0-py3-none-any.whl './tooling[test]'
-      - name: Check for a newer complete MSM Run before scheduled heavy work
+      - name: Check for a newer complete MSM Run before any feed renewal
         id: preflight
-        if: github.event_name == 'schedule'
         run: |
           set -euo pipefail
           python3 tooling/scripts/static_ops/preflight_feed.py --origin "$STATIC_ORIGIN" --github-output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-node@v4
-        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
+        if: steps.preflight.outputs.proceed == 'true'
         with:
           node-version: '24'
       - name: Build candidate sandbox
-        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
+        if: steps.preflight.outputs.proceed == 'true'
         run: docker build -f tooling/scripts/static_ops/Dockerfile.build --tag autonavlog-static-build tooling
       - name: Restore rolling feed and generate fresh catalog
-        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
+        if: steps.preflight.outputs.proceed == 'true'
         run: |
           python3 tooling/scripts/static_ops/operations.py restore --origin "$STATIC_ORIGIN" --output "$RUNNER_TEMP/feed"
           PYTHONPATH=tooling/src python3 tooling/scripts/static_ops/refresh_feed.py --producer tooling/scripts/prepare_msm_feed.py --output "$RUNNER_TEMP/feed" --cache "$RUNNER_TEMP/msm-cache" > "$RUNNER_TEMP/feed-report.json"
           python3 tooling/scripts/static_ops/validate_feed.py "$RUNNER_TEMP/feed" "$RUNNER_TEMP/feed-report.json" >> "$GITHUB_STEP_SUMMARY"
       - name: Build and test candidate in isolation without provider credentials
-        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
+        if: steps.preflight.outputs.proceed == 'true'
         run: |
           docker run --rm \
             --mount type=bind,source="$GITHUB_WORKSPACE/app",target=/app \
@@ -111,25 +124,25 @@ jobs:
               npm --prefix web run test:static
             '
       - name: Validate candidate using independent tooling after Production Browser E2E
-        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
+        if: steps.preflight.outputs.proceed == 'true'
         run: |
           python3 tooling/scripts/static_ops/publication_gate.py --app app
           python3 tooling/scripts/static_ops/validate_feed.py app/web/dist-static/weather/msm "$RUNNER_TEMP/feed-report.json" >> "$GITHUB_STEP_SUMMARY"
       - name: Record build identity
-        if: github.event_name != 'schedule' || steps.preflight.outputs.proceed == 'true'
+        if: steps.preflight.outputs.proceed == 'true'
         run: |
           sha256sum app/web/dist-static/release.json >> "$GITHUB_STEP_SUMMARY"
           node tooling/web/scripts/check-static.mjs app/web/dist-static >> "$GITHUB_STEP_SUMMARY"
       - name: Install independent upload CLI
-        if: (github.event_name == 'schedule' && steps.preflight.outputs.proceed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.publish)
+        if: steps.preflight.outputs.proceed == 'true' && (github.event_name == 'schedule' || inputs.publish)
         run: npm --prefix tooling/services/taf-proxy ci
       - name: Repeat publication gates and stage isolated static upload
-        if: (github.event_name == 'schedule' && steps.preflight.outputs.proceed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.publish)
+        if: steps.preflight.outputs.proceed == 'true' && (github.event_name == 'schedule' || inputs.publish)
         run: |
           python3 tooling/scripts/static_ops/publication_gate.py --app app --stage "$RUNNER_TEMP/static-upload"
           python3 tooling/scripts/static_ops/validate_feed.py "$RUNNER_TEMP/static-upload/dist-static/weather/msm" "$RUNNER_TEMP/feed-report.json" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload static files only (TAF Worker is independent)
-        if: (github.event_name == 'schedule' && steps.preflight.outputs.proceed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.publish)
+        if: steps.preflight.outputs.proceed == 'true' && (github.event_name == 'schedule' || inputs.publish)
         working-directory: ${{ runner.temp }}/static-upload
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
@@ -137,9 +150,10 @@ jobs:
           EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
         run: |
           python3 "$GITHUB_WORKSPACE/tooling/scripts/static_ops/publication_gate.py" --verify-context "$PWD" --project
+          python3 "$GITHUB_WORKSPACE/tooling/scripts/static_ops/preflight_feed.py" --origin "$STATIC_ORIGIN" --candidate dist-static/weather/msm/catalog.json
           "$GITHUB_WORKSPACE/tooling/services/taf-proxy/node_modules/.bin/wrangler" pages deploy dist-static --project-name navmate --branch main --commit-hash "$EXPECTED_SOURCE"
       - name: Verify canonical deployment and fresh catalog
-        if: (github.event_name == 'schedule' && steps.preflight.outputs.proceed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.publish)
+        if: steps.preflight.outputs.proceed == 'true' && (github.event_name == 'schedule' || inputs.publish)
         env:
           EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
         run: |

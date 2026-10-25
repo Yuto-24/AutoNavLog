@@ -170,10 +170,11 @@ def test_collection_shell_preserves_exit_and_redacted_summary(tmp_path, step, ex
 
 
 def test_hourly_preflight_precedes_all_heavy_work_and_preserves_serialization():
+    """Every event uses preflight before heavy work under the shared publication lock."""
     assert "cron: '23 * * * *'" in PRODUCTION
     assert "group: static-production\n  cancel-in-progress: false" in PRODUCTION
     preflight = next(step for step in steps(PRODUCTION) if "id: preflight" in step)
-    assert "if: github.event_name == 'schedule'" in preflight
+    assert "if:" not in preflight
     assert "set -euo pipefail" in preflight
     assert (PRODUCTION.index("Install trusted producer dependencies")
             < PRODUCTION.index("id: preflight"))
@@ -186,10 +187,14 @@ def test_hourly_preflight_precedes_all_heavy_work_and_preserves_serialization():
     ("schedule", "false", False, False, False),
     ("schedule", "", False, False, False),
     ("schedule", "unknown", False, False, False),
-    ("workflow_dispatch", "", False, True, False),
-    ("workflow_dispatch", "", True, True, True),
+    ("workflow_dispatch", "", False, False, False),
+    ("workflow_dispatch", "", True, False, False),
+    ("workflow_dispatch", "false", True, False, False),
+    ("workflow_dispatch", "true", False, True, False),
+    ("workflow_dispatch", "true", True, True, True),
 ])
 def test_preflight_event_matrix(event, proceed, publish, build, upload):
+    """Build and upload require a positive preflight for schedule and dispatch alike."""
     workflow_steps = steps(PRODUCTION)
     boundary = next(i for i, step in enumerate(workflow_steps) if "id: preflight" in step)
     heavy = workflow_steps[boundary + 1:]
@@ -207,3 +212,16 @@ def test_preflight_event_matrix(event, proceed, publish, build, upload):
             i for i, candidate in enumerate(workflow_steps)
             if "Install independent upload CLI" in candidate)
         assert bool(eval(expression, {"__builtins__": {}})) == (upload if is_upload else build)
+
+
+def test_external_path_preserves_approval_identity_and_final_recheck():
+    """External refresh keeps opt-ins, approval, approved identity and the final upload gate."""
+    assert "STATIC_EXTERNAL_TRIGGER_ENABLED == 'true'" in PRODUCTION
+    assert "vars.STATIC_AUTOMATION_ENABLED == 'true'" in PRODUCTION
+    assert "inputs.publish && 'static-publication'" in PRODUCTION
+    assert "ref: ${{ steps.source.outputs.sha }}" in PRODUCTION
+    assert "external_trigger_gate.py" in PRODUCTION
+    upload = next(step for step in steps(PRODUCTION) if "pages deploy" in step)
+    assert (upload.index("--verify-context") < upload.index("--candidate")
+            < upload.index("pages deploy"))
+    assert "--candidate dist-static/weather/msm/catalog.json" in upload

@@ -280,3 +280,23 @@ jobs:
             /tmp/migration-harness.log
             /tmp/autonavlog-firestore-tests
             firestore-debug.log
+
+  msm-trigger:
+    needs: release-sources
+    if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/msm-trigger/package-lock.json
+      - run: npm --prefix services/msm-trigger ci
+      - run: npm --prefix services/msm-trigger run typecheck
+      - run: npm --prefix services/msm-trigger run check
+      - run: npm --prefix services/msm-trigger test
