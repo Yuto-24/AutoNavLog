@@ -24,7 +24,9 @@ interface Asset { run: string; file: string; bytes: number; sha256: string }
 interface Catalog { schema_version: number; generated_at: string; expires_at: string; listings: Record<string, string>; assets: Asset[] }
 interface Release { commit: string; dirty: boolean; files: Record<string, { bytes: number; sha256: string }> }
 class Fault extends Error {}
+/** Raise a redacted fault code when a required invariant is not established. */
 function requireThat(value: unknown, code: string): asserts value { if (!value) throw new Fault(code); }
+/** Validate a real UTC MSM Run on a three-hour boundary and return its epoch time. */
 function runTime(run: string): number {
   requireThat(/^\d{14}$/.test(run), "INVALID_RUN");
   const iso = `${run.slice(0,4)}-${run.slice(4,6)}-${run.slice(6,8)}T${run.slice(8,10)}:${run.slice(10,12)}:${run.slice(12,14)}Z`;
@@ -33,6 +35,7 @@ function runTime(run: string): number {
   return time;
 }
 // No retries here: ambiguous POSTs consume a slot before sending, then reconcile next tick.
+/** Fetch once with bounded time and body size; never retry an ambiguous dispatch POST. */
 async function request(url: string, fetcher: typeof fetch, options: RequestInit = {}, limit = 1024 * 1024): Promise<{ response: Response; bytes: Uint8Array }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
@@ -52,7 +55,9 @@ async function request(url: string, fetcher: typeof fetch, options: RequestInit 
     return { response, bytes };
   } finally { clearTimeout(timeout); }
 }
+/** Decode metadata bytes for subsequent JSON or listing validation. */
 const decode = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
+/** Verify catalog lifecycle and release inventory; return metadata, not payload acceptance. */
 async function canonical(fetcher: typeof fetch, now: number) {
   const { bytes } = await request(`${ORIGIN}/weather/msm/catalog.json`, fetcher, { cache: "no-store" });
   const catalog: Catalog = JSON.parse(decode(bytes));
@@ -74,6 +79,7 @@ async function canonical(fetcher: typeof fetch, now: number) {
   }
   return { run: catalog.assets.map(a => a.run).sort().at(-1)!, expires, commit: release.commit };
 }
+/** Find the newest advertised Run without claiming source completeness or acquiring forecasts. */
 async function advertised(fetcher: typeof fetch, now: number): Promise<string> {
   const runs = new Set<string>();
   for (const time of [now - 24 * HOUR, now]) {
@@ -85,6 +91,7 @@ async function advertised(fetcher: typeof fetch, now: number): Promise<string> {
   }
   return [...runs].sort().at(-1)!;
 }
+/** Read bounded, complete Actions history; reject malformed or truncated evidence. */
 async function githubRuns(fetcher: typeof fetch, headers: Record<string,string>, query: string): Promise<Run[]> {
   const { bytes } = await request(`${API}/runs?per_page=100&${query}`, fetcher, { headers });
   const value = JSON.parse(decode(bytes));
@@ -95,6 +102,7 @@ async function githubRuns(fetcher: typeof fetch, headers: Record<string,string>,
     Number.isFinite(Date.parse(run.created_at)) && typeof run.display_title === "string", "UNKNOWN_ACTIONS");
   return value.workflow_runs;
 }
+/** Validate saved counters and pending observation; reset only the daily budget on date rollover. */
 function stateFrom(raw: string | null, day: string): State {
   if (raw === null) return { day, attempts: 0, lastAttempt: 0, target: "", targetAttempts: 0 };
   const s: State = JSON.parse(raw);
@@ -106,6 +114,7 @@ function stateFrom(raw: string | null, day: string): State {
   if (s.day !== day) { s.day = day; s.attempts = 0; }
   return s;
 }
+/** Observe publication and budgets, then optionally reserve an attempt before dispatching once. */
 export async function tick(env: Env, fetcher: typeof fetch = fetch, now = Date.now()) {
   requireThat(env.MODE === "observe" || env.MODE === "dispatch", "INVALID_MODE");
   const day = new Date(now).toISOString().slice(0,10);
@@ -159,7 +168,9 @@ export async function tick(env: Env, fetcher: typeof fetch = fetch, now = Date.n
   return result("DISPATCH_ACCEPTED");
 }
 export default {
+  /** Keep the Worker HTTP entrypoint closed; only scheduled events perform checks. */
   async fetch() { return new Response("Not found", { status: 404 }); },
+  /** Run a scheduled check with redacted errors and an optional liveness-only heartbeat. */
   async scheduled(_event: unknown, env: Env) {
     let result;
     try { result = await tick(env); }

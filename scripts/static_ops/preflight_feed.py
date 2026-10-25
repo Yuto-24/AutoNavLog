@@ -21,6 +21,7 @@ from scripts.static_ops.refresh_feed import PUBLICATION_GENERATION_HOURS  # noqa
 
 
 def preflight(origin: str, now: datetime | None = None) -> dict:
+    """Read canonical and upstream metadata; admit only a newer complete Run or a healthy no-op."""
     started = now or datetime.now(UTC)
     catalog = WeatherCatalog.model_validate_json(fetch(
         origin.rstrip("/") + "/weather/msm/catalog.json", 8 * 1024 * 1024))
@@ -106,6 +107,7 @@ def require_newer_candidate(origin: str, candidate: Path, now: datetime | None =
 
 
 def main() -> None:
+    """Emit discovery outputs or enforce the final newer-candidate check before upload."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--origin", required=True)
     parser.add_argument("--github-output", type=Path)

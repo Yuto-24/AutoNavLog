@@ -159,6 +159,7 @@ def test_noop_rejects_incomplete_published_listings_even_when_upstream_is_comple
 
 
 def test_preupload_rechecks_live_run_and_rejects_same_run_or_regression(source, tmp_path):
+    """Only a candidate newer than the latest canonical Run may reach upload."""
     candidate = tmp_path / "catalog.json"
     proposed = json.loads(json.dumps(source["catalog"]))
     proposed["assets"][0]["run"] = "20261013030000"
@@ -175,6 +176,7 @@ def test_preupload_rechecks_live_run_and_rejects_same_run_or_regression(source, 
 
 
 def test_preupload_fetch_failure_cannot_publish(source, tmp_path, monkeypatch):
+    """An unavailable canonical catalog prevents the final publication verdict."""
     monkeypatch.setattr(gate, "fetch", lambda *a: (_ for _ in ()).throw(TimeoutError()))
     with pytest.raises(TimeoutError):
         gate.require_newer_candidate("https://canonical.test", tmp_path / "catalog.json", NOW)

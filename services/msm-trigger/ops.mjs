@@ -9,12 +9,14 @@ const stateFile = resolve(stateDir, 'operator.json');
 const configFile = resolve(stateDir, 'wrangler.json');
 const template = JSON.parse(readFileSync(resolve(root, 'wrangler.jsonc')));
 const title = 'autonavlog-msm-trigger-state';
+/** Build a deployment config from validated IDs; default to observe with no Cron. */
 export function configuration(state, mode = 'observe', cron = false) {
   if (!/^[a-f0-9]{32}$/.test(state.account_id) || !/^[a-f0-9]{32}$/.test(state.namespace_id)) throw Error('Run ensure-kv first');
   return { ...template, main: resolve(root, template.main), account_id: state.account_id,
     vars: { MODE: mode }, triggers: { crons: cron ? ['*/15 * * * *'] : [] },
     kv_namespaces: [{ binding: 'STATE', id: state.namespace_id }] };
 }
+/** Validate every inventory page before reusing or creating the single named KV namespace. */
 export async function ensureNamespace(call) {
   const found = [];
   const seen = new Set();
@@ -41,6 +43,7 @@ export async function ensureNamespace(call) {
   if (!/^[a-f0-9]{32}$/.test(created.result?.id)) throw Error('Namespace creation unconfirmed; rerun inventory');
   return created.result.id;
 }
+/** Remove only pending observation, retaining attempt counters and cooldown. */
 export function abandonPending(value) {
   if (!value || !Number.isSafeInteger(value.attempts) || value.attempts < 0 ||
       !Number.isSafeInteger(value.targetAttempts) || value.targetAttempts < 0 ||
@@ -50,6 +53,7 @@ export function abandonPending(value) {
   delete copy.pending;
   return copy;
 }
+/** Run the pinned CLI with the staged config and stop on any unsuccessful command. */
 function wrangler(args, { capture = false } = {}) {
   const result = spawnSync(resolve(root, 'node_modules/.bin/wrangler'), [...args, '--config', configFile], {
     cwd: root, env: { ...process.env, WRANGLER_SEND_METRICS: 'false' }, encoding: 'utf8',
@@ -58,6 +62,7 @@ function wrangler(args, { capture = false } = {}) {
   if (result.status !== 0) throw Error('Wrangler failed; no subsequent operation performed');
   return capture ? JSON.parse(result.stdout) : undefined;
 }
+/** Execute one explicit operator action, keeping Secret staging and activation separate. */
 async function main() {
   const [command, name] = process.argv.slice(2);
   if (command === 'plan') {

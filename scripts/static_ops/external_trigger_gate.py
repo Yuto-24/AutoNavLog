@@ -16,6 +16,7 @@ API = "https://api.github.com/repos/Yuto-24/AutoNavLog/actions/workflows/static-
 
 
 def validate(event: dict, env: dict, runs: list[dict], now: datetime) -> None:
+    """Reject unsafe feed inputs or exhausted Actions budgets after publication serialization."""
     inputs = event.get("inputs", {})
     target = inputs.get("observed_run", "")
     if (inputs.get("feed_refresh") not in (True, "true")
@@ -45,6 +46,7 @@ def validate(event: dict, env: dict, runs: list[dict], now: datetime) -> None:
 
 
 def main() -> None:
+    """Fetch bounded Actions history and fail closed without exposing provider response details."""
     try:
         env = os.environ
         event = json.loads(open(env["GITHUB_EVENT_PATH"]).read())

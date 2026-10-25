@@ -170,6 +170,7 @@ def test_collection_shell_preserves_exit_and_redacted_summary(tmp_path, step, ex
 
 
 def test_hourly_preflight_precedes_all_heavy_work_and_preserves_serialization():
+    """Every event uses preflight before heavy work under the shared publication lock."""
     assert "cron: '23 * * * *'" in PRODUCTION
     assert "group: static-production\n  cancel-in-progress: false" in PRODUCTION
     preflight = next(step for step in steps(PRODUCTION) if "id: preflight" in step)
@@ -193,6 +194,7 @@ def test_hourly_preflight_precedes_all_heavy_work_and_preserves_serialization():
     ("workflow_dispatch", "true", True, True, True),
 ])
 def test_preflight_event_matrix(event, proceed, publish, build, upload):
+    """Build and upload require a positive preflight for schedule and dispatch alike."""
     workflow_steps = steps(PRODUCTION)
     boundary = next(i for i, step in enumerate(workflow_steps) if "id: preflight" in step)
     heavy = workflow_steps[boundary + 1:]
@@ -213,6 +215,7 @@ def test_preflight_event_matrix(event, proceed, publish, build, upload):
 
 
 def test_external_path_preserves_approval_identity_and_final_recheck():
+    """External refresh keeps opt-ins, approval, approved identity and the final upload gate."""
     assert "STATIC_EXTERNAL_TRIGGER_ENABLED == 'true'" in PRODUCTION
     assert "vars.STATIC_AUTOMATION_ENABLED == 'true'" in PRODUCTION
     assert "inputs.publish && 'static-publication'" in PRODUCTION

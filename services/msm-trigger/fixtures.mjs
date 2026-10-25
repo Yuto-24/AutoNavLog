@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { tick, ORIGIN, API, UPSTREAM } from './worker.ts';
 export const NOW = Date.parse('2026-10-25T09:00:00Z');
 export const OLD = '20261025000000', NEW = '20261025030000';
+/** Create isolated catalog, Actions, KV and fetch fixtures without live provider access. */
 export function fixture(mode = 'dispatch') {
   const s = { now: NOW, data: null, posts: [], calls: [], active: [], recent: [], latest: NEW, error: null, failKV: false,
     catalog: { schema_version: 1, generated_at: '2026-10-25T06:00:00Z', expires_at: '2026-10-25T12:00:00Z',
