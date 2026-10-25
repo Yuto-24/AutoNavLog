@@ -17,12 +17,23 @@ export function configuration(state, mode = 'observe', cron = false) {
 }
 export async function ensureNamespace(call) {
   const found = [];
+  const seen = new Set();
+  let total;
   for (let page = 1; ; page++) {
-    const response = await call('GET', `/storage/kv/namespaces?per_page=100&page=${page}`);
-    if (!Array.isArray(response.result) || !Number.isInteger(response.result_info?.total_pages)) throw Error('Unknown namespace inventory');
-    found.push(...response.result.filter(item => item.title === title));
-    if (page >= response.result_info.total_pages) break;
-    if (page >= 100) throw Error('Namespace inventory exceeds budget');
+    const response = await call('GET', `/storage/kv/namespaces?per_page=100&order=id&direction=asc&page=${page}`);
+    const info = response.result_info;
+    if (!Array.isArray(response.result) || !Number.isSafeInteger(info?.total_count) || info.total_count < 0 ||
+        info.page !== page || info.per_page !== 100 || info.count !== response.result.length ||
+        info.count !== Math.min(100, Math.max(0, info.total_count - (page - 1) * 100))) throw Error('Unknown namespace inventory');
+    if (total !== undefined && total !== info.total_count) throw Error('Namespace inventory changed; retry inventory');
+    total = info.total_count;
+    if (total > 10_000) throw Error('Namespace inventory exceeds budget');
+    for (const item of response.result) {
+      if (!/^[a-f0-9]{32}$/.test(item?.id ?? '') || typeof item.title !== 'string' || seen.has(item.id)) throw Error('Unknown namespace inventory');
+      seen.add(item.id);
+      if (item.title === title) found.push(item);
+    }
+    if (page * 100 >= total) break;
   }
   if (found.length > 1) throw Error('Ambiguous namespace title; do not create another');
   if (found.length === 1) return found[0].id;
