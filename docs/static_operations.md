@@ -1265,3 +1265,12 @@ Workers dashboard/API read. Compare those settings with `services/taf-proxy` and
 reuse the Pages token to discover Workers privileges. A separately approved TAF
 rollback uses a recorded eligible Worker version; it does not roll back connected
 resources. See [Workers rollback limitations](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/).
+
+## External MSM trigger supplement (#287)
+
+[MSM external trigger runbook](msm_external_trigger.md) documents the opt-in Worker,
+credential-free tests, independent request/publication checks, staged CLI operations,
+free-tier estimates and activation acceptance. All feed renewal dispatches now share
+the new-complete-Run preflight with schedule and repeat the newer-than-canonical check
+immediately before upload. Existing app identity, six-hour lifetime, publication
+approval and shared concurrency remain mandatory. Worker code delivery is not activation.
