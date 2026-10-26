@@ -181,6 +181,8 @@ jobs:
           cache-dependency-path: services/taf-proxy/package-lock.json
       - run: npm --prefix services/taf-proxy ci
       - run: npm --prefix services/taf-proxy test
+        env:
+          MINIFLARE_ASSERT_BODIES_CONSUMED: "true"
       - run: npm --prefix services/taf-proxy run check
 
   local-browser:
@@ -239,7 +241,8 @@ jobs:
     if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    # Keep browser dependencies on the established image during ubuntu-latest migrations.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
