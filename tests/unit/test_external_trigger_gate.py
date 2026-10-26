@@ -14,7 +14,7 @@ ENV = {"GITHUB_RUN_ID": "100", "GITHUB_RUN_ATTEMPT": "1"}
 def run(id=100, age=0, target=TARGET):
     """Build an external-request history entry relative to the fixed test clock."""
     return {"id": id, "created_at": (NOW - timedelta(minutes=age)).isoformat(),
-            "display_title": "msm-fallback/" + target}
+            "display_title": "msm-fallback/" + target, "status": "completed"}
 
 
 def test_admits_single_request():
@@ -102,3 +102,23 @@ def test_bounded_history_rejects_truncation_and_duplicates(monkeypatch):
         monkeypatch.setattr(gate, "build_opener", lambda *_: Opener())
         with pytest.raises(ValueError, match="Incomplete"):
             gate.read_list(Request("https://example.test"), "workflow_runs", "total_count")
+
+
+@pytest.mark.parametrize("status", ["waiting", "pending", "queued", "requested", "in_progress"])
+def test_later_lock_waiter_does_not_abort_the_current_publication(status):
+    """A successor waits behind this workflow's shared lock and cannot invalidate its gate."""
+    from scripts.static_ops.external_trigger_gate import preceding_active
+    later = {**run(101, -1, "20261025000000"), "status": status}
+    validate(EVENT, ENV, [run(), later], NOW)
+    assert not preceding_active([later], 100, NOW)
+    assert preceding_active([{**later, "created_at": (NOW - timedelta(days=3)).isoformat()}],
+                            100, NOW)
+
+
+def test_unknown_active_metadata_is_never_treated_as_a_later_waiter():
+    """Missing or unknown statuses cannot establish safe request ordering."""
+    from scripts.static_ops.external_trigger_gate import preceding_active
+    with pytest.raises(ValueError, match="Unknown"):
+        preceding_active([{**run(101, -1), "status": "unexpected"}], 100, NOW)
+    with pytest.raises(KeyError):
+        preceding_active([{"id": 101, "created_at": NOW.isoformat()}], 100, NOW)

@@ -17,6 +17,18 @@ PREFIXES = ("msm-fallback/", "msm-request/")
 API = "https://api.github.com/repos/Yuto-24/AutoNavLog/actions/workflows/static-production.yml/runs"
 
 
+def preceding_active(runs: list[dict], own_id: int, created: datetime) -> bool:
+    """Ignore later lock waiters while retaining earlier active and approval blockers."""
+    for run in runs:
+        status = run["status"]
+        if status not in ("completed", "queued", "in_progress", "waiting", "pending", "requested"):
+            raise ValueError("Unknown Actions status")
+        timestamp = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
+        if run["id"] != own_id and status != "completed" and timestamp <= created:
+            return True
+    return False
+
+
 def validate(event: dict, env: dict, runs: list[dict], now: datetime) -> None:
     """Reject unsafe feed inputs or exhausted Actions budgets after publication serialization."""
     inputs = event.get("inputs", {})
@@ -48,9 +60,8 @@ def validate(event: dict, env: dict, runs: list[dict], now: datetime) -> None:
         raise ValueError("External per-Run heavy-work limit reached")
     if request and any(run["display_title"] == "msm-request/" + request_id for run in others):
         raise ValueError("Duplicate external request")
-    for run in runs:
-        if run["id"] != own_id and run.get("status", "completed") != "completed":
-            raise ValueError("Another publication is active or awaiting approval")
+    if preceding_active(runs, own_id, created):
+        raise ValueError("Another publication is active or awaiting approval")
     for run in others:
         timestamp = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
         if timestamp <= created and created - timestamp < timedelta(minutes=90):
@@ -119,7 +130,8 @@ def main() -> None:
                     now - timedelta(days=1))
         runs = history({"created": ">=" + since.isoformat()})
         for status in ("queued", "in_progress", "waiting", "pending", "requested"):
-            if any(run["id"] != int(env["GITHUB_RUN_ID"]) for run in history({"status": status})):
+            if preceding_active(history({"status": status}), int(env["GITHUB_RUN_ID"]),
+                                own_start):
                 raise ValueError("Another publication is active or awaiting approval")
         validate(event, env, runs, now)
         if args.detected_run:

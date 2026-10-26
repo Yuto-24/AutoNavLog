@@ -45,6 +45,8 @@ preflightのSHAをproducerへ渡し、承認変化があればidentity gateで�
 
 1. boundedな完全な履歴と全active状態を照合し、自分以外の実行中・承認待ち、日次8、90分、
    重複request ID、rerun、任意SHA指定を拒否する。不明/切詰め/通信失敗は停止する。
+   Actions内のgateでは現在Run以前に作られた未完了Runを拒否し、共有lockの後ろで待つ
+   後続Runを理由に現在の公開を中止しない。Workerの発行前検査では全active状態を止める。
 2. canonical release・catalogの実bytes/hash、全asset inventoryと全payload bytes/hashを検証する。
    hintがinventoryにあるdeploymentではcatalogのRun・日時・commitとhintを照合する。
    hintを持たない旧deploymentは移行元として認めるが、Workerによる欠落起動は認めない。
