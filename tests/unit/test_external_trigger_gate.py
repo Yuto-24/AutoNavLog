@@ -48,3 +48,57 @@ def test_daily_and_per_run_caps():
     with pytest.raises(ValueError, match="per-Run"):
         validate(EVENT, ENV, [run(), run(98, 120), run(99, 240)], NOW)
     validate(EVENT, ENV, [run(), run(99, 120)], NOW)
+
+
+def test_request_identity_is_not_an_observed_forecast_run():
+    """New requests carry an opaque ID and retain accounting for no-op executions."""
+    event = {"inputs": {"feed_refresh": "true", "publish": "true", "request_id": "1792929600000"}}
+    own = {**run(), "display_title": "msm-request/1792929600000", "status": "in_progress"}
+    validate(event, ENV, [own], NOW)
+    for extra in ({"observed_run": TARGET}, {"request_id": TARGET}, {"request_id": "bad"}):
+        with pytest.raises(ValueError):
+            validate({"inputs": {**event["inputs"], **extra}}, ENV, [own], NOW)
+    with pytest.raises(ValueError, match="Duplicate"):
+        validate(event, ENV, [own, {**own, "id": 99}], NOW)
+    noops = [{**run(i, 120), "display_title": "msm-request/" + str(i)} for i in range(8)]
+    with pytest.raises(ValueError, match="daily"):
+        validate(event, ENV, [own, *noops], NOW)
+
+
+@pytest.mark.parametrize("status", ["waiting", "pending", "queued", "requested", "in_progress"])
+def test_actions_rechecks_active_and_approval_states(status):
+    """A competing run must block work even if Worker KV was stale."""
+    with pytest.raises(ValueError, match="active"):
+        validate(EVENT, ENV, [run(), {**run(99, 120), "status": status}], NOW)
+
+
+def test_detected_run_attempts_are_durable_and_separate_from_request_count():
+    """Actual discovery job names bound retries, including failures and legacy requests."""
+    from scripts.static_ops.external_trigger_gate import detected_limit
+    rows = [run(), {**run(98, 120), "display_title": "msm-request/one"},
+            {**run(99, 240), "display_title": "msm-request/two"}]
+    def jobs(run_id):
+        return [{"name": "msm-detected/" + TARGET}]
+    with pytest.raises(ValueError, match="per-Run"):
+        detected_limit(TARGET, rows, 100, jobs)
+    detected_limit(TARGET, rows[:2], 100, jobs)
+    detected_limit(TARGET, rows, 100, lambda _: [{"name": "preflight"}])
+    with pytest.raises(TimeoutError):
+        detected_limit(TARGET, rows, 100, lambda _: (_ for _ in ()).throw(TimeoutError()))
+
+
+def test_bounded_history_rejects_truncation_and_duplicates(monkeypatch):
+    """Incomplete evidence cannot replenish the independent Actions budget."""
+    import io
+    import json
+    from urllib.request import Request
+
+    from scripts.static_ops import external_trigger_gate as gate
+    for value in ({"total_count": 101, "workflow_runs": []},
+                  {"total_count": 2, "workflow_runs": [run(), run()]}):
+        class Opener:
+            def open(self, *args, captured=value, **kwargs):
+                return io.BytesIO(json.dumps(captured).encode())
+        monkeypatch.setattr(gate, "build_opener", lambda *_: Opener())
+        with pytest.raises(ValueError, match="Incomplete"):
+            gate.read_list(Request("https://example.test"), "workflow_runs", "total_count")

@@ -5,7 +5,32 @@
   "compatibility_date": "2026-10-19",
   "workers_dev": false,
   "preview_urls": false,
-  "triggers": { "crons": [] },
-  "vars": { "MODE": "observe" },
-  "kv_namespaces": [{ "binding": "STATE", "id": "00000000000000000000000000000000" }]
+  "triggers": {
+    "crons": []
+  },
+  "vars": {
+    "MODE": "observe"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "STATE",
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "REQUEST_GATE",
+        "class_name": "RequestGate"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "request-gate-v1",
+      "new_sqlite_classes": [
+        "RequestGate"
+      ]
+    }
+  ]
 }

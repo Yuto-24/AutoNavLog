@@ -1,17 +1,18 @@
 // Metadata-only fallback. Completeness, decoding and publication belong to Actions.
 export const ORIGIN = "https://navmate.yuto24.com";
 export const API = "https://api.github.com/repos/Yuto-24/AutoNavLog/actions/workflows/static-production.yml";
-export const UPSTREAM = "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original";
+export const FRESHNESS = `${ORIGIN}/weather/msm/freshness.json`;
+export const FRESHNESS_LIMIT = 2048;
 export const COOLDOWN = 90 * 60_000;
 export const DAILY_LIMIT = 8;
-export const RUN_LIMIT = 2;
 const HOUR = 3600_000;
 const KEY = "trigger-v1";
-const PREFIX = "msm-fallback/";
+const PREFIXES = ["msm-fallback/", "msm-request/"];
 export interface Env {
   MODE: string;
   STATE: { get(key: string): Promise<string | null>; put(key: string, value: string): Promise<void> };
   GITHUB_TOKEN?: string;
+  REQUEST_GATE?: { idFromName(name: string): unknown; get(id: unknown): { fetch(req: Request): Promise<Response> } };
   HEARTBEAT_URL?: string;
 }
 interface State {
@@ -20,14 +21,11 @@ interface State {
   pending?: { after: string; target: string; at: number; commit: string };
 }
 interface Run { id: number; status: string; conclusion: string | null; created_at: string; display_title: string }
-interface Asset { run: string; file: string; bytes: number; sha256: string }
-interface Catalog { schema_version: number; generated_at: string; expires_at: string; listings: Record<string, string>; assets: Asset[] }
-interface Release { commit: string; dirty: boolean; files: Record<string, { bytes: number; sha256: string }> }
+interface Freshness { schema_version: number; run: string; generated_at: string; expires_at: string; app_commit: string }
 const targets = {
-  canonical_catalog: "navmate.yuto24.com", canonical_release: "navmate.yuto24.com",
+  canonical_freshness: "navmate.yuto24.com",
   github_queued: "api.github.com", github_in_progress: "api.github.com", github_waiting: "api.github.com",
   github_pending: "api.github.com", github_requested: "api.github.com", github_recent: "api.github.com",
-  upstream_previous: "database.rish.kyoto-u.ac.jp", upstream_today: "database.rish.kyoto-u.ac.jp",
   dispatch: "api.github.com", heartbeat: "hc-ping.com",
 } as const;
 type Stage = keyof typeof targets;
@@ -79,50 +77,15 @@ async function request(stage: Stage, url: string, fetcher: typeof fetch, diagnos
 }
 /** Decode metadata bytes for subsequent JSON or listing validation. */
 const decode = (bytes: Uint8Array): string => decoder.decode(bytes);
-/** Verify catalog lifecycle and release inventory; return metadata, not payload acceptance. */
-async function canonical(fetcher: typeof fetch, now: number, diagnose: Diagnose) {
-  const { bytes } = await request("canonical_catalog", `${ORIGIN}/weather/msm/catalog.json`, fetcher, diagnose, { cache: "no-store" });
-  const catalog: Catalog = JSON.parse(decode(bytes));
-  const release: Release = JSON.parse(decode((await request("canonical_release", `${ORIGIN}/release.json`, fetcher, diagnose, { cache: "no-store" })).bytes));
-  const generated = Date.parse(catalog.generated_at), expires = Date.parse(catalog.expires_at);
-  requireThat(catalog.schema_version === 1 && catalog.listings && typeof catalog.listings === "object" &&
-    !Array.isArray(catalog.listings) && Object.values(catalog.listings).every(v => typeof v === "string") &&
-    Object.values(catalog.listings).some(v => /\S/.test(v)) && Array.isArray(catalog.assets) && catalog.assets.length > 0 &&
-    Number.isFinite(generated) && generated <= now && expires - generated === 6 * HOUR, "INVALID_CATALOG");
-  requireThat(/^[a-f0-9]{40}$/.test(release.commit) && release.dirty === false, "INVALID_RELEASE");
-  const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>)), b => b.toString(16).padStart(2,"0")).join("");
-  const recorded = release.files?.["weather/msm/catalog.json"];
-  requireThat(recorded?.bytes === bytes.length && recorded?.sha256 === digest, "CATALOG_RELEASE_MISMATCH");
-  let latest = "";
-  for (const asset of catalog.assets) {
-    requireThat(typeof asset.run === "string" && runTime(asset.run) <= generated && /^[a-f0-9]{64}$/.test(asset.sha256) &&
-      asset.file === `${asset.sha256}.npz` && Number.isSafeInteger(asset.bytes) && asset.bytes > 0, "INVALID_ASSET");
-    const file = release.files?.[`weather/msm/${asset.file}`];
-    requireThat(file?.bytes === asset.bytes && file?.sha256 === asset.sha256, "ASSET_RELEASE_MISMATCH");
-    if (asset.run > latest) latest = asset.run;
-  }
-  return { run: latest, expires, commit: release.commit };
-}
-/** Find the newest advertised Run without claiming source completeness or acquiring forecasts. */
-async function advertised(fetcher: typeof fetch, now: number, diagnose: Diagnose): Promise<string> {
-  const runs = new Set<string>();
-  let latest = "";
-  for (const time of [now - 24 * HOUR, now]) {
-    const day = new Date(time).toISOString().slice(0,10).replaceAll("-", "/");
-    const stage = time === now ? "upstream_today" : "upstream_previous";
-    const { bytes } = await request(stage, `${UPSTREAM}/${day}/`, fetcher, diagnose, {}, 256 * 1024);
-    let found = false;
-    for (const match of decode(bytes).matchAll(/Z__C_RJTD_(\d{14})_MSM_GPV_Rjp_(?:Lsurf|L-pall)_FH[\d-]+_grib2\.bin/g)) {
-      found = true;
-      // Each Run appears in many forecast filenames. Validate its timestamp only once.
-      if (!runs.has(match[1])) {
-        requireThat(runTime(match[1]) <= now, "FUTURE_RUN"); runs.add(match[1]);
-        if (match[1] > latest) latest = match[1];
-      }
-    }
-    requireThat(found, "UNKNOWN_LISTING");
-  }
-  return latest;
+/** Read a small untrusted scheduling hint. This never establishes publication success. */
+async function freshness(fetcher: typeof fetch, now: number, diagnose: Diagnose) {
+  const { bytes } = await request("canonical_freshness", FRESHNESS, fetcher, diagnose, { cache: "no-store" }, FRESHNESS_LIMIT);
+  const value: Freshness = JSON.parse(decode(bytes));
+  const generated = Date.parse(value.generated_at), expires = Date.parse(value.expires_at);
+  requireThat(value.schema_version === 1 && typeof value.run === "string" &&
+    runTime(value.run) <= generated && Number.isFinite(generated) && generated <= now &&
+    expires - generated === 6 * HOUR && /^[a-f0-9]{40}$/.test(value.app_commit), "INVALID_FRESHNESS");
+  return { run: value.run, expires };
 }
 /** Read bounded, complete Actions history; reject malformed or truncated evidence. */
 async function githubRuns(fetcher: typeof fetch, headers: Record<string,string>, query: string, stage: Stage, diagnose: Diagnose): Promise<Run[]> {
@@ -130,7 +93,8 @@ async function githubRuns(fetcher: typeof fetch, headers: Record<string,string>,
   const value = JSON.parse(decode(bytes));
   // Truncated or malformed history is unknown, never evidence of inactivity.
   requireThat(Number.isSafeInteger(value.total_count) && value.total_count >= 0 && value.total_count <= 100 &&
-    Array.isArray(value.workflow_runs) && value.workflow_runs.length === value.total_count, "UNKNOWN_ACTIONS");
+    Array.isArray(value.workflow_runs) && value.workflow_runs.length === value.total_count &&
+    new Set(value.workflow_runs.map((r: Run) => r.id)).size === value.total_count, "UNKNOWN_ACTIONS");
   for (const run of value.workflow_runs) requireThat(Number.isSafeInteger(run.id) && typeof run.status === "string" &&
     Number.isFinite(Date.parse(run.created_at)) && typeof run.display_title === "string", "UNKNOWN_ACTIONS");
   return value.workflow_runs;
@@ -152,21 +116,13 @@ export async function tick(env: Env, fetcher: typeof fetch = fetch, now = Date.n
   requireThat(env.MODE === "observe" || env.MODE === "dispatch", "INVALID_MODE");
   const day = new Date(now).toISOString().slice(0,10);
   const state = stateFrom(await env.STATE.get(KEY), day);
-  const published = await canonical(fetcher, now, diagnose);
-  const base = { publication: state.pending ? "UNCONFIRMED" : "NONE", published_run: published.run,
-    advertised_run: null as string | null, upstream: "NOT_CHECKED", expired: published.expires <= now };
-  const result = (status: string) => ({ status, ...base });
-  // Canonical proof is sufficient even if a later upstream request or Actions API is down.
-  if (state.pending && published.run > state.pending.after && published.run >= state.pending.target &&
-      published.expires > now && published.commit === state.pending.commit) {
-    delete state.pending;
-    await env.STATE.put(KEY, JSON.stringify(state));
-    base.publication = "OBSERVED";
-    return result("PUBLICATION_OBSERVED");
-  }
-  if (state.pending) requireThat(published.commit === state.pending.commit, "APP_CHANGED");
-  // A verified fresh catalog gives schedule priority, without claiming upstream was checked.
-  if (!state.pending && published.expires - now > 3 * HOUR) return result("FRESH");
+  const hint = await freshness(fetcher, now, diagnose);
+  const result = (status: string) => ({ status, publication: "NOT_VERIFIED", hint_run: hint.run,
+    advertised_run: null, upstream: "NOT_CHECKED", expired: hint.expires <= now });
+  // Missing/invalid hints throw before GitHub access. Fresh hints give schedule priority.
+  if (hint.expires - now > 3 * HOUR) return result("FRESH");
+  if (now - state.lastAttempt < COOLDOWN) return result("COOLDOWN");
+  if (state.attempts >= DAILY_LIMIT) return result("DAILY_LIMIT");
   const headers: Record<string,string> = { Accept: "application/vnd.github+json", "User-Agent": "AutoNavLog-MSM-trigger", "X-GitHub-Api-Version": "2026-03-10" };
   if (env.GITHUB_TOKEN) headers.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
   // Unfiltered active query catches old waiting approvals as well as queued executions.
@@ -175,34 +131,27 @@ export async function tick(env: Env, fetcher: typeof fetch = fetch, now = Date.n
   }
   const recent = await githubRuns(fetcher, headers, `created=${encodeURIComponent(">=" + new Date(now - 24 * HOUR).toISOString())}`, "github_recent", diagnose);
   requireThat(recent.every(r => ["completed","queued","in_progress","waiting","pending","requested"].includes(r.status)), "UNKNOWN_ACTIONS");
-  const pendingRuns = state.pending ? recent.filter(r => r.display_title === PREFIX + state.pending!.target && Date.parse(r.created_at) >= state.pending!.at - 60_000) : [];
-  base.publication = !state.pending ? "NONE" : pendingRuns.some(r => r.status === "completed" && r.conclusion !== "success") ? "FAILED" : "UNCONFIRMED";
   if (recent.some(r => r.status !== "completed")) return result("IN_FLIGHT");
-  const external = recent.filter(r => r.display_title.startsWith(PREFIX));
+  const external = recent.filter(r => PREFIXES.some(prefix => r.display_title.startsWith(prefix)));
   const lastGitHub = Math.max(0, ...external.map(r => Date.parse(r.created_at)));
-  if (state.pending && now - state.pending.at < COOLDOWN) return result("AWAITING_PUBLICATION");
-  // Schedule may publish an intermediate Run below pending.target. Freshness still blocks a retry.
-  if (published.expires - now > 3 * HOUR) return result("FRESH");
   if (now - Math.max(state.lastAttempt, lastGitHub) < COOLDOWN) return result("COOLDOWN");
-  if (state.attempts >= DAILY_LIMIT || external.filter(r => r.created_at.startsWith(day)).length >= DAILY_LIMIT) return result("DAILY_LIMIT");
-  const target = await advertised(fetcher, now, diagnose);
-  base.advertised_run = target; base.upstream = "ADVERTISED";
-  if (target <= published.run) {
-    requireThat(target === published.run && published.expires - now >= 2 * HOUR, "NO_NEW_RUN_UNHEALTHY");
-    return result("NO_UPDATE");
-  }
-  if ((state.target === target && state.targetAttempts >= RUN_LIMIT) ||
-      external.filter(r => r.display_title === PREFIX + target).length >= RUN_LIMIT) return result("RUN_LIMIT");
-  if (env.MODE === "observe") return result(state.pending ? "PUBLICATION_UNCONFIRMED" : "WOULD_DISPATCH");
+  if (external.filter(r => r.created_at.startsWith(day)).length >= DAILY_LIMIT) return result("DAILY_LIMIT");
+  if (env.MODE === "observe") return result("WOULD_REQUEST");
   requireThat(env.GITHUB_TOKEN, "AUTH_REQUIRED");
-  state.attempts++; state.lastAttempt = now;
-  state.targetAttempts = state.target === target ? state.targetAttempts + 1 : 1;
-  state.target = target;
-  state.pending = { after: published.run, target, at: now, commit: published.commit };
-  await env.STATE.put(KEY, JSON.stringify(state)); // Failure stops before POST; KV is not a mutex.
-  await request("dispatch", `${API}/dispatches`, fetcher, diagnose, { method: "POST", headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ ref: "main", inputs: { feed_refresh: true, observed_run: target, publish: true } }) });
-  return result("DISPATCH_ACCEPTED");
+  requireThat(env.REQUEST_GATE, "SERIAL_GATE_REQUIRED");
+  const gate = env.REQUEST_GATE.get(env.REQUEST_GATE.idFromName("fallback-requests-v1"));
+  const response = await gate.fetch(new Request("https://request-gate/reserve", { method: "POST",
+    body: JSON.stringify({ day, attempts: Math.max(state.attempts, external.filter(r => r.created_at.startsWith(day)).length),
+      lastAttempt: Math.max(state.lastAttempt, lastGitHub) }) }));
+  requireThat(response.ok, "REQUEST_GATE_FAILED");
+  const reserved = await response.json() as { status: string; attempts: number; lastAttempt: number };
+  requireThat(["DISPATCH_ACCEPTED", "COOLDOWN", "DAILY_LIMIT"].includes(reserved.status), "INVALID_GATE_RESPONSE");
+  if (reserved.status === "DISPATCH_ACCEPTED") {
+    state.attempts = reserved.attempts; state.lastAttempt = reserved.lastAttempt;
+    // Retain old observed-Run/pending evidence. The DO ledger survives stale or failed KV writes.
+    await env.STATE.put(KEY, JSON.stringify(state));
+  }
+  return result(reserved.status);
 }
 export default {
   /** Keep the Worker HTTP entrypoint closed; only scheduled events perform checks. */

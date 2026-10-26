@@ -10,6 +10,7 @@ test('workerd: scheduled module, native KV and outbound mock; no live dispatch',
   const script = readFileSync(new URL('dist/entrypoint.js', import.meta.url), 'utf8');
   const mf = new Miniflare(convertV4MiniflareOptions({
     modules: true, script: `Date.now = () => ${NOW};\n${script}`, compatibilityDate: '2026-10-19', kvNamespaces: ['STATE'],
+    durableObjects: { REQUEST_GATE: { className: 'RequestGate', useSQLite: true } },
     bindings: { MODE: 'dispatch', GITHUB_TOKEN: 'fixture-only' }, unsafeTriggerHandlers: true,
     outboundService: async request => s.fetch(request.url, { method: request.method, body: request.method === 'POST' ? await request.text() : undefined }),
   }));
@@ -17,10 +18,18 @@ test('workerd: scheduled module, native KV and outbound mock; no live dispatch',
     const response = await mf.dispatchFetch('http://worker.test/cdn-cgi/local/scheduled');
     assert.equal(response.status, 200);
     assert.equal(s.posts.length, 1);
-    assert.ok(JSON.parse(await (await mf.getKVNamespace('STATE')).get('trigger-v1')).pending);
+    assert.equal(JSON.parse(await (await mf.getKVNamespace('STATE')).get('trigger-v1')).attempts, 1);
     assert.equal((await mf.dispatchFetch('http://worker.test/cdn-cgi/local/scheduled')).status, 200);
     assert.equal(s.posts.length, 1); // Native KV retains cooldown between scheduled invocations.
-    assert.ok(s.calls.some(c => c.url.endsWith('/release.json')));
+    // Even a missing/stale KV mirror cannot bypass native SQLite reservations.
+    await (await mf.getKVNamespace('STATE')).delete('trigger-v1');
+    const raced = await Promise.all([
+      mf.dispatchFetch('http://worker.test/cdn-cgi/local/scheduled'),
+      mf.dispatchFetch('http://worker.test/cdn-cgi/local/scheduled'),
+    ]);
+    assert.ok(raced.every(r => r.status === 200)); assert.equal(s.posts.length, 1);
+    assert.ok(s.calls.some(c => c.url.endsWith('/freshness.json')));
+    assert.ok(s.calls.every(c => !c.url.endsWith('/release.json') && !c.url.endsWith('/catalog.json')));
     assert.equal((await mf.dispatchFetch('http://worker.test/')).status, 404);
   } finally { await mf.dispose(); }
 });

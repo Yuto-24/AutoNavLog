@@ -13,8 +13,12 @@ from pathlib import Path
 from urllib.request import Request, build_opener
 
 try:
+    from .freshness import NAME as FRESHNESS_NAME
+    from .freshness import check as check_freshness
     from .operations import NoRedirect, release
 except ImportError:
+    from freshness import NAME as FRESHNESS_NAME
+    from freshness import check as check_freshness
     from operations import NoRedirect, release
 
 ORIGIN = "https://navmate.yuto24.com"
@@ -131,6 +135,8 @@ def check_static(dist: Path) -> None:
         if files.get("local/" + name, {}).get("sha256") != manifest["sha256"][name]:
             raise ValueError("Local asset hash mismatch")
     catalog = json.loads((dist / "weather/msm/catalog.json").read_text())
+    if FRESHNESS_NAME in files:
+        check_freshness((dist / FRESHNESS_NAME).read_bytes(), catalog, candidate)
     expires = datetime.fromisoformat(catalog["expires_at"].replace("Z", "+00:00"))
     if expires.tzinfo is None or expires <= datetime.now(UTC) or not catalog["assets"]:
         raise ValueError("MSM catalog expired/empty")
