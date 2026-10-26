@@ -24,12 +24,33 @@ for (const width of [1100, 1440]) {
     await mixed.click();
     await expect(strip(page)).toHaveCount(0);
     await expect(vrep(page)).toBeVisible();
+    const vrepSymbol = () => vrep(page).locator(".map-candidate-symbol");
+    const airportSymbol = () => airport(page).locator(".map-candidate-symbol");
+    await expect(vrepSymbol()).toHaveCSS("width", "16px");
+    await expect(vrepSymbol()).toHaveCSS("height", "16px");
+    await expect(airportSymbol()).toHaveCSS("width", "18px");
+    await expect(airportSymbol()).toHaveCSS("height", "18px");
+    await expect(vrepSymbol()).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    await expect(airportSymbol()).toHaveCSS("background-color", "rgb(255, 255, 255)");
     await vrep(page).click();
     await expect(strip(page)).toHaveCount(0); // VREP cannot be FROM.
     await airport(page).click();
+    await expect(airportSymbol()).toHaveCSS("background-color", "rgb(23, 59, 94)");
     await vrep(page).click();
-    await vrep(page).click(); // Same physical marker, distinct occurrence.
+    // The transparent target outside the visible 16 px symbol still selects it.
+    const hitArea = (await vrep(page).boundingBox())!;
+    expect(hitArea.width).toBe(28);
+    await page.mouse.click(hitArea.x + 2, hitArea.y + hitArea.height / 2);
     await expect(strip(page).locator("li")).toHaveCount(3);
+    await expect(vrepSymbol()).toHaveCSS("background-color", "rgb(12, 124, 120)");
+    await expect(vrep(page).locator(".vrep-inner-ring")).toHaveCSS("border-top-color", "rgb(255, 255, 255)");
+    // Removing one occurrence keeps the symbol filled; removing the last resets it.
+    await strip(page).locator("li").last().getByRole("button").click();
+    await expect(vrepSymbol()).toHaveCSS("background-color", "rgb(12, 124, 120)");
+    await strip(page).locator("li").last().getByRole("button").click();
+    await expect(vrepSymbol()).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    await vrep(page).click();
+    await vrep(page).click();
     await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeDisabled();
     const marker = (await vrep(page).boundingBox())!;
     await page.mouse.click(marker.x + marker.width / 2 + 22, marker.y + marker.height / 2 + 22);
@@ -52,6 +73,8 @@ for (const width of [1100, 1440]) {
     await expect(strip(page).locator("li")).toHaveCount(5);
     await page.reload();
     await expect(strip(page).locator("li")).toHaveCount(5, { timeout: 90_000 });
+    await expect(vrepSymbol()).toHaveCSS("background-color", "rgb(12, 124, 120)");
+    await expect(airportSymbol()).toHaveCSS("background-color", "rgb(23, 59, 94)");
     await airport(page).click();
     await expect(strip(page).locator("li")).toHaveCount(6);
     await page.locator(".route-workspace").screenshot({ path: info.outputPath(`vrep-draft-${width}.png`) });
@@ -85,6 +108,7 @@ for (const width of [1100, 1440]) {
     page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button", { name: "新規", exact: true }).click();
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await expect(page.locator(".airport-draft-marker.is-selected, .vrep-draft-marker.is-selected")).toHaveCount(0);
     await page.getByLabel("保存済み", { exact: true }).selectOption(savedId);
     await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
     await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();

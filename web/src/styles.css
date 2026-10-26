@@ -1681,7 +1681,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .app-workspace.is-route-building { grid-template-columns: minmax(180px, 220px) minmax(0, 1fr); }
 .route-workspace.is-route-building .map-frame { height: min(65vh, 720px); min-height: 420px; }
 .route-workspace.is-route-building .route-table-scroll { display: none; }
-.airport-draft-marker { color: white; background: #173b5e; border: 2px solid white; border-radius: 50%; text-align: center; font-size: 19px; line-height: 24px; }
+.airport-draft-marker { --candidate-color: #173b5e; }
 .airport-draft-marker:focus-visible { outline: 3px solid #0c7c78; outline-offset: 3px; }
 .map-input-rail { padding: 16px; }
 .map-input-rail p, .map-route-controls p { font-size: 13px; }
@@ -1695,8 +1695,13 @@ tbody tr:last-child td { border-bottom: 0; }
   .route-workspace.is-route-building .map-frame { height: 60vh; min-height: 360px; }
 }
 
-/* All creation candidates have a white fill; only the outline identifies their role. */
-.airport-draft-marker { color: #173b5e; background: white; border-color: #173b5e; }
-.vrep-draft-marker { color: #0c7c78; background: white; border: 2px solid #0c7c78; border-radius: 5px; text-align: center; font-size: 21px; line-height: 22px; }
+/* Compact symbols leave the map visible; the transparent marker retains its hit area. */
+.vrep-draft-marker { --candidate-color: #0c7c78; }
+.airport-draft-marker, .vrep-draft-marker { display: flex; align-items: center; justify-content: center; background: transparent; border: 0; }
+.map-candidate-symbol { display: flex; align-items: center; justify-content: center; color: var(--candidate-color); background: white; border: 1.5px solid var(--candidate-color); border-radius: 50%; }
+.airport-draft-marker .map-candidate-symbol { width: 18px; height: 18px; font-size: 12px; line-height: 15px; }
+.vrep-draft-marker .map-candidate-symbol { width: 16px; height: 16px; }
+.vrep-inner-ring { width: 7px; height: 7px; border: 1px solid currentColor; border-radius: 50%; }
+.is-selected > .map-candidate-symbol { color: white; background: var(--candidate-color); }
 .candidate-cluster { color: #334155; background: white; border: 2px solid #64748b; border-radius: 50%; text-align: center; line-height: 28px; font-weight: 700; }
 .vrep-draft-marker:focus-visible, .candidate-cluster:focus-visible { outline: 3px solid #0c7c78; outline-offset: 3px; }

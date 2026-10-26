@@ -5,8 +5,18 @@ import { divIcon } from "leaflet";
 import type { AirportOption } from "../types";
 import { canConfirmMapDraft, type MapRoutePoint } from "../mapRouteDraft";
 
-const airportIcon = divIcon({ className: "airport-draft-marker", html: '<span aria-hidden="true">✈</span>', iconSize: [28, 28], iconAnchor: [14, 14] });
-const vrepIcon = divIcon({ className: "vrep-draft-marker", html: '<span aria-hidden="true">◇</span>', iconSize: [26, 26], iconAnchor: [13, 13] });
+function candidateIcon(kind: "airport" | "vrep", selected: boolean) {
+  return divIcon({
+    className: `${kind}-draft-marker${selected ? " is-selected" : ""}`,
+    html: `<span class="map-candidate-symbol" aria-hidden="true">${kind === "airport" ? "✈" : '<span class="vrep-inner-ring"></span>'}</span>`,
+    // Keep a usable hit area around the smaller, centered map symbol.
+    iconSize: [28, 28], iconAnchor: [14, 14],
+  });
+}
+const candidateIcons = {
+  airport: { unselected: candidateIcon("airport", false), selected: candidateIcon("airport", true) },
+  vrep: { unselected: candidateIcon("vrep", false), selected: candidateIcon("vrep", true) },
+};
 export interface MapRouteBuilderProps {
   points: MapRoutePoint[];
   airports: AirportOption[];
@@ -51,7 +61,8 @@ export function MapDraftLayers({ points, airports, busy, onAirport, onReference,
   const renderPoint = (candidate: Candidate) => {
     const { airport, reference } = candidate;
     const title = airport ? `空港 ${airport.icao} ${airport.name}` : `VREP ${reference!.name} ${reference!.name_ja}`;
-    return <Marker key={candidate.id} icon={airport ? airportIcon : vrepIcon}
+    const icon = candidateIcons[airport ? "airport" : "vrep"][selectedIds.has(candidate.id) ? "selected" : "unselected"];
+    return <Marker key={candidate.id} icon={icon}
       position={[candidate.latitude, candidate.longitude]} title={title}
       bubblingMouseEvents={false} eventHandlers={{ click: () => {
         if (busy || points.length >= 500) return;
