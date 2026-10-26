@@ -41,6 +41,7 @@ COPY --from=frontend /build/web/dist ./src/autonavlog/web/static
 FROM python-base AS test
 
 COPY tests ./tests
+COPY docs/reference/vrep-169-confirmed-source.md ./docs/reference/vrep-169-confirmed-source.md
 COPY scripts ./scripts
 COPY VERSION CHANGELOG.md KNOWN_ISSUES.md Dockerfile .dockerignore ./
 COPY web/package.json web/package-lock.json ./web/

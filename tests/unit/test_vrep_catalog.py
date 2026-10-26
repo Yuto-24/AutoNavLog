@@ -1,5 +1,6 @@
 """The approved 115-row catalog is reproducible from its published inputs."""
 import json
+import runpy
 from collections import Counter
 from pathlib import Path
 
@@ -30,3 +31,10 @@ def test_vrep_scope_provenance_and_derived_coordinates():
         )
         assert round(result["lat2"], 6) == snapshot.latitude_deg
         assert round(result["lon2"], 6) == snapshot.longitude_deg
+
+
+def test_committed_catalog_matches_confirmed_source():
+    """Catch source transcription changes that have not regenerated the catalog."""
+    generator = runpy.run_path(str(ROOT / "scripts/reference/build_vrep_catalog.py"))
+    committed = json.loads((ROOT / "data/reference/vrep.json").read_text())
+    assert committed == generator["catalog"]()
