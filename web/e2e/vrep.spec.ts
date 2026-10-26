@@ -7,6 +7,16 @@ const airport = (page: Page) => page.locator('.airport-draft-marker[title^="ç©ºæ
 const vrep = (page: Page) => page.locator('.vrep-draft-marker[title^="VREP HITOTSUBA "]');
 const snapshot = (page: Page) => page.evaluate(() => JSON.parse(sessionStorage.getItem("autonavlog.working-session.v1")!));
 
+async function expectConcentricVrep(page: Page) {
+  const outer = (await vrep(page).locator(".map-candidate-symbol").boundingBox())!;
+  const inner = (await vrep(page).locator(".vrep-inner-ring").boundingBox())!;
+  expect(inner.x + inner.width / 2).toBeCloseTo(outer.x + outer.width / 2, 5);
+  expect(inner.y + inner.height / 2).toBeCloseTo(outer.y + outer.height / 2, 5);
+  // Match pixel alignment so odd/even diameter rounding does not skew the rings.
+  expect(inner.x - outer.x).toBe(Math.round(inner.x - outer.x));
+  expect(inner.y - outer.y).toBe(Math.round(inner.y - outer.y));
+}
+
 for (const width of [1100, 1440]) {
   test(`VREP mixed clusters, repeated selections, arbitrary point and saved snapshots at ${width}px`, async ({ page }, info) => {
     test.setTimeout(180_000);
@@ -28,6 +38,7 @@ for (const width of [1100, 1440]) {
     const airportSymbol = () => airport(page).locator(".map-candidate-symbol");
     await expect(vrepSymbol()).toHaveCSS("width", "20px");
     await expect(vrepSymbol()).toHaveCSS("height", "20px");
+    await expectConcentricVrep(page);
     await expect(airportSymbol()).toHaveCSS("width", "28px");
     await expect(airportSymbol()).toHaveCSS("height", "28px");
     await expect(airportSymbol()).toHaveCSS("border-top-width", "2px");
@@ -45,6 +56,7 @@ for (const width of [1100, 1440]) {
     await expect(strip(page).locator("li")).toHaveCount(3);
     await expect(vrepSymbol()).toHaveCSS("background-color", "rgb(12, 124, 120)");
     await expect(vrep(page).locator(".vrep-inner-ring")).toHaveCSS("border-top-color", "rgb(255, 255, 255)");
+    await expectConcentricVrep(page);
     // Removing one occurrence keeps the symbol filled; removing the last resets it.
     await strip(page).locator("li").last().getByRole("button").click();
     await expect(vrepSymbol()).toHaveCSS("background-color", "rgb(12, 124, 120)");
