@@ -1,5 +1,6 @@
 # MSM補完起動: 軽量WorkerとActions検証
 
+目的は2026年10月末までのNavMate新環境の提供開始。PR #290はWorkerの軽量化と実行可否の確認に限定する。
 Related #287 / PR #290。アプリ本体、承認済みSHA、TTL、配信origin、TLSとアクセス保護は変更しない。
 Workerは起動の候補を判定し、Actionsが公開可否と公開後の証拠を確認する。
 
@@ -18,7 +19,8 @@ schema、UTCの3時間境界Run、生成日時、6時間の期限、commit形式
 残り3時間超なら `FRESH` として終了し、上流は `NOT_CHECKED` のまま。
 残り3時間以下（有効な古い/期限切れhintを含む）の場合、KVの要求回数・90分間隔と
 GitHubのactive 5状態（古い承認待ちを含む）・直近24時間履歴で要求を抑制する。
-上限8要求/UTC日。空振り、失敗、受付不明も枠を消費する。POST前にSQLite Durable Objectへ永続予約し、自動retryしない。
+8要求/UTC日の抑制を維持する。空振り、失敗、受付不明も枠を消費する。
+POST前にKVへ要求数と時刻を記録し、書込失敗なら送信しない。POSTは自動retryしない。
 旧 `msm-fallback/` と新 `msm-request/` の両方を会計する。
 
 欠落404、SPA HTML、JSON不正、schema不正、過大、取得失敗はUNKNOWNで停止する。
@@ -26,12 +28,15 @@ GitHubのactive 5状態（古い承認待ちを含む）・直近24時間履歴�
 `request_id` は起動要求のID（現在時刻のミリ秒文字列）であり予報Runではない。
 新Workerは `observed_run` を送らず、実Runの発見を装わない。
 `DISPATCH_ACCEPTED` は受付だけ。`publication: NOT_VERIFIED` で、hintの更新から公開成功を宣言しない。
-単一の `RequestGate`（固定名 `fallback-requests-v1`）がPOSTを直列化する。
-SQLite storageの永続予約後に最大10秒のPOSTを1回だけ実行し、受付不明・失敗でも枠を戻さない。
-90分＋最大送信時間の保守的な間隔と、UTC日8件＋rolling 24時間8件の厳しい方を適用する。
-日跨ぎ、再起動、古いKV、重複tickでもDO台帳が上限を守る。KV書込失敗でもDO予約は残る。
-DO binding欠落・台帳不正・storage障害ではPOSTしない。observeではDOへ予約しない。
 同じWorkerの既存Secretを使用し、新しいSecret・権限は要求しない。
+KVと履歴の当日件数の大きい方を引き継ぎ、POST前に1件加算する。90分に最大送信時間10秒を
+加えた保守間隔を記録する。日跨ぎでも最終要求時刻と旧target/pending記録を保持する。
+
+KVは結果整合性であり、分散lockではない。古いread・同時tickによる要求の重複や
+厳密な8件上限、rolling 24時間の8件保証はこの構成で保証しない。
+Actions側のconcurrency・履歴・同Run上限・再公開防止を維持する。
+追加していたDOによる厳密な要求予約は後述の後続事項へ分離し、binding・export・migrationを
+今回の配置構成から除く。回数制限を全面撤去する変更ではない。
 
 Workerからcatalog/release取得、catalog SHA-256、全asset inventory照合、上流listing解析、
 予報Run発見、canonical公開完了の判定を取り除いた。
@@ -71,12 +76,12 @@ preflightのSHAをproducerへ渡し、承認変化があればidentity gateで�
    同じdeploymentにhintを含める。新Runがなければ待つ。同Runを再公開して移行しない。
 3. canonical catalog/release/payload/hintが同じ候補と一致することをActionsで確認する。
    404や古いhint、catalogとの不一致がある場合はWorkerを有効化しない。
-4. 以下の限定observe実測を別途承認後に行う。CPU・共有枠等の受入後までdispatchを許可しない。
+4. 以下の限定observe実測を別途承認後に行う。CPUと当該経路の実行可否の確認後までdispatchを許可しない。
+   アカウント全体の無料枠・課金監視は#281であり、今回の公開条件にはしない。
    旧KVの要求数・Run数・pendingは移行時に消去しない。
-5. 本番配置の承認にはSQLite DO namespace追加（`request-gate-v1` migration）も明示する。
-   このPRは宣言とローカル試験だけ。旧Workerをobserve・Cron空で停止し、伝播・実行終了を待つ。
-   初回台帳は既存KVとGitHub履歴の大きい方でseedする。旧版とdispatchを並行稼働させない。
-   台帳は以後消去・再作成しない。rollback時も新旧dispatchを同時に有効化しない。
+5. 既存Workerをobserve・Cron空で停止した状態から、伝播・進行中実行終了を確認して移行する。
+   既存KVとSecretを再利用し、旧版とdispatchを並行稼働させない。
+   DO namespace追加・migrationは不要。rollbackでも新旧dispatchを同時に有効化しない。
 
 ## 実測履歴と次の限定実測
 
@@ -85,14 +90,17 @@ CPU超過が直接の停止理由と確定したものではない。
 17daa313の限定observe再実測はFRESHでCPU 17ms（provider集計17.232ms）、wall 348ms。
 canonical catalog 733,586 bytes / release 29,909 bytesはともに200。
 GitHub・上流未到達で526は再現せず、過去の原因解決を証明しない。
-最終読取2026-10-26 18:33 JSTはMODE=observe、Cron空、外部opt-in未設定。
+18:33 JSTの停止証拠に加え、2026-10-26 20:33 JSTに既存OAuthで管理APIを再取得し、
+MODE=observe・Cron空・停止version `62d08cdc-e151-4240-9b35-68e7dcc51109` を確認した。
+401調査・復旧の確認範囲は [read-back記録](evidence/issue-123/msm-worker-readback-2026-10-26.md) を参照。
 停止後追加tickは観測上0だが約2分のtail欠測がある。このPRでは本番設定を操作しない。
 
 次の実測も**別途承認後のみ**:
 
 1. 対象を既存Worker・既存KV・固定commitに限定し、observe配置、Cron反映待ち最大15分＋
    観測最大30分・最大2tick、停止とread-backまでを一組にする。opt-inは無効、実dispatchなし。
-2. 先にhint付き公開の証拠と設定・アプリSHA・無料plan/共有使用量をread-onlyで確認する。
+2. 先にhint付き公開の証拠と設定・承認済みアプリSHAをread-onlyで確認する。
+   共有無料枠・課金監視の完了は前提にしない（#281）。CPU制限と経路の測定は残す。
    hint欠落なら欠落経路の確認だけとし、更新候補経路の受入とはしない。
 3. Cloudflare tailとprovider CPU集計で各tickのCPU/wall/outcomeを取得する。
    固定stage/hostname/status/read bytesだけを記録し、token/header/本文/Secret URLを出さない。
@@ -100,7 +108,7 @@ GitHub・上流未到達で526は再現せず、過去の原因解決を証明�
 4. 最初のUNKNOWN、HTTP/IO/BODY_LIMIT、exceededCpu、CPU 10ms超過、想定外設定、期限または
    2tick到達で停止し、MODE=observe・Cron空をread-backする。停止伝播と遅着ログも確認する。
 5. FRESH・期限切れ・GitHub到達・欠落は異なる経路として記録する。実Runやpendingを捏造せず、
-   未測定経路は未受入。少数サンプルだけでCPU 10ms以内や無料枠適合を宣言しない。
+   未測定経路は未受入。少数サンプルだけで未測定経路も含めたCPU 10ms以内を宣言しない。
    526は同じ接続先の段階別証拠を得るまで未解決。接続先変更やTLS緩和で回避しない。
 
 #273が天気障害・復旧通知を担当する。任意heartbeatは検査完了のlivenessだけで、公開成功ではない。
@@ -203,17 +211,23 @@ Actionsはpreflight最大10分＋producer最大45分、最大8要求なら440 ru
 Public repoの標準runner以外を認めない既存identity gateを維持する。
 
 Free CPU 10msは実測による別gate。ローカルテスト、bundleサイズ、HTTP回数から合格と宣言しない。
-実アカウントの共有使用量、無料plan、Pages Direct Upload制限、保存枠、課金状態は別途確認が必要。
-要求の直列化はFreeでも利用できるSQLite Durable Objectを使用する（legacy KV-backed DOは使わない）。
-日次最大8予約、通常各予約で台帳1 read＋1 write、初回/旧counter取り込み時は追加write、最大10秒の外部POST。重複/拒否もDO readを消費する。
-Workers・KV・DOの共有枠を個別に確認する。Free planでDO上限に達した場合は失敗で停止し、
-有料planへ切り替えない。新namespaceの実配置、provider CPU/課金集計はこのPRでは未実施。
+アカウント全体の共有使用量・無料枠・Pages保存枠・課金監視は既存#281に分離済み。
+未確認をゼロや適合済みに読み替えないが、#281の完了や定期手入力reportを今回の公開条件に戻さない。
+有料planへの変更はこのPRに含めない。
+
+## 後続: 厳密な起動回数管理（今回の配置条件にしない）
+
+追加していた `RequestGate` のDO永続予約・直列化は後続へ分離する。
+設計資料は旧commit `70f91aeb` の `services/msm-trigger/request-gate.ts` とテストを参照できる。
+今回の構成・bundleにDOは含まれず、namespace追加・migration・DO移行受入は不要。
+
+後続で扱うのは古いKV、重複tick、並行要求、再起動、日跨ぎ、受付不明時の厳密な上限、
+既存KV/履歴の取り込み、永続台帳、rollbackの検証。必要なresource・認証・権限変更は操作前に明示する。
+この分離によってKVの回数記録・90分間隔・8要求/UTC日の抑制やActions側の再公開防止は外さない。
 
 
 公式資料:
 
-- [Durable Objects pricing / FreeはSQLiteのみ](https://developers.cloudflare.com/durable-objects/platform/pricing/)
-- [Durable Objects storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)
 - [GitHub workflow jobs metadata](https://docs.github.com/en/rest/actions/workflow-jobs)
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
@@ -227,10 +241,12 @@ Workers・KV・DOの共有枠を個別に確認する。Free planでDO上限に�
 ## 有効化までの残作業と受入
 
 1. PRのCI・独立レビュー後、別途merge承認。
-2. 対象accountの無料plan/共有枠、必要な管理権限、既存環境保護と承認済みアプリSHAを読み取り確認。
-3. 上記の権限・期限を説明してtoken作成/Secret登録の承認。登録済みcredentialを使える場合は再作成しない。
+2. 対象Worker/KV・既存認証・既存環境保護と承認済みアプリSHAを読み取り確認。
+   共有無料枠・課金監視の完了は#281へ分離し、今回の条件に戻さない。
+3. 既存credentialで進める。新しいtoken発行・Secret登録・権限変更が必要なら、
+   操作と必要性を示して停止する。通常のOAuth refreshと新規credentialの作成を区別する。
 4. Worker observe配置・Cron監視段階を個別承認し、設定read-back、CPU/応答サイズ、
-   upstream HTTPS到達、GitHub履歴API、KV、非dispatchを確認。任意heartbeatは別承認。
+   hint HTTPS到達、GitHub履歴API、KV、非dispatchを確認。上流listingはActions側で確認する。任意heartbeatは別承認。
 5. GitHub opt-in、dispatch mode、Cron有効化を個別承認して実施。必要なら既存environmentの承認操作。
 6. schedule欠落を補完した実Run、catalog期限・全payload整合性・アプリcommit不変、
    旧期限を跨ぐ継続更新を記録し#123へ戻す。ここまではfixture試験では代用できない。

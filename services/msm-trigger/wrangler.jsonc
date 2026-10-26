@@ -16,21 +16,5 @@
       "binding": "STATE",
       "id": "00000000000000000000000000000000"
     }
-  ],
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "REQUEST_GATE",
-        "class_name": "RequestGate"
-      }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "request-gate-v1",
-      "new_sqlite_classes": [
-        "RequestGate"
-      ]
-    }
   ]
 }

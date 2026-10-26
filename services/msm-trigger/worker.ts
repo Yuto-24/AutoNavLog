@@ -12,7 +12,6 @@ export interface Env {
   MODE: string;
   STATE: { get(key: string): Promise<string | null>; put(key: string, value: string): Promise<void> };
   GITHUB_TOKEN?: string;
-  REQUEST_GATE?: { idFromName(name: string): unknown; get(id: unknown): { fetch(req: Request): Promise<Response> } };
   HEARTBEAT_URL?: string;
 }
 interface State {
@@ -114,6 +113,7 @@ function stateFrom(raw: string | null, day: string): State {
 /** Observe publication and budgets, then optionally reserve an attempt before dispatching once. */
 export async function tick(env: Env, fetcher: typeof fetch = fetch, now = Date.now(), diagnose: Diagnose = noDiagnostics) {
   requireThat(env.MODE === "observe" || env.MODE === "dispatch", "INVALID_MODE");
+  const started = Date.now();
   const day = new Date(now).toISOString().slice(0,10);
   const state = stateFrom(await env.STATE.get(KEY), day);
   const hint = await freshness(fetcher, now, diagnose);
@@ -138,20 +138,22 @@ export async function tick(env: Env, fetcher: typeof fetch = fetch, now = Date.n
   if (external.filter(r => r.created_at.startsWith(day)).length >= DAILY_LIMIT) return result("DAILY_LIMIT");
   if (env.MODE === "observe") return result("WOULD_REQUEST");
   requireThat(env.GITHUB_TOKEN, "AUTH_REQUIRED");
-  requireThat(env.REQUEST_GATE, "SERIAL_GATE_REQUIRED");
-  const gate = env.REQUEST_GATE.get(env.REQUEST_GATE.idFromName("fallback-requests-v1"));
-  const response = await gate.fetch(new Request("https://request-gate/reserve", { method: "POST",
-    body: JSON.stringify({ day, attempts: Math.max(state.attempts, external.filter(r => r.created_at.startsWith(day)).length),
-      lastAttempt: Math.max(state.lastAttempt, lastGitHub) }) }));
-  requireThat(response.ok, "REQUEST_GATE_FAILED");
-  const reserved = await response.json() as { status: string; attempts: number; lastAttempt: number };
-  requireThat(["DISPATCH_ACCEPTED", "COOLDOWN", "DAILY_LIMIT"].includes(reserved.status), "INVALID_GATE_RESPONSE");
-  if (reserved.status === "DISPATCH_ACCEPTED") {
-    state.attempts = reserved.attempts; state.lastAttempt = reserved.lastAttempt;
-    // Retain old observed-Run/pending evidence. The DO ledger survives stale or failed KV writes.
-    await env.STATE.put(KEY, JSON.stringify(state));
-  }
-  return result(reserved.status);
+  // KV records attempts before sending, but is not a distributed lock. Strict
+  // concurrent admission belongs to a follow-up, not this deployment.
+  state.attempts = Math.max(state.attempts, external.filter(r => r.created_at.startsWith(day)).length) + 1;
+  const reservationStarted = Date.now();
+  const attemptAt = now + (reservationStarted - started);
+  requireThat(new Date(attemptAt).toISOString().slice(0,10) === day, "STATE_DAY_CHANGED");
+  state.lastAttempt = attemptAt + 10_000;
+  // Preserve legacy target/pending evidence; failed or ambiguous POSTs keep the slot.
+  await env.STATE.put(KEY, JSON.stringify(state));
+  requireThat(Date.now() - reservationStarted <= 10_000, "RESERVATION_EXPIRED");
+  const { response } = await request("dispatch", `${API}/dispatches`, fetcher, diagnose, {
+    method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ ref: "main", inputs: { feed_refresh: true, request_id: String(now), publish: true } }),
+  });
+  requireThat(response.status === 204, "DISPATCH_UNCONFIRMED");
+  return result("DISPATCH_ACCEPTED");
 }
 export default {
   /** Keep the Worker HTTP entrypoint closed; only scheduled events perform checks. */

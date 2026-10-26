@@ -65,10 +65,10 @@ test('GitHub cooldown survives KV loss; pending legacy evidence and counters are
   s.data = JSON.stringify(previous); await s.tick();
   assert.deepEqual(JSON.parse(s.data).pending, previous.pending); assert.equal(JSON.parse(s.data).attempts, 2);
 });
-test('durable write failure prevents POST; ambiguous POST reserves a slot without immediate retry', async () => {
-  const s = fixture(); s.failGate = true; await assert.rejects(s.tick()); assert.equal(s.posts.length, 0);
-  s.failGate = false; s.error = url => { if (url.endsWith('dispatches')) throw Error('lost'); };
-  await assert.rejects(s.tick()); assert.equal(s.ledger.attempts, 1);
+test('KV write failure prevents POST; ambiguous POST reserves a slot without immediate retry', async () => {
+  const s = fixture(); s.failKV = true; await assert.rejects(s.tick()); assert.equal(s.posts.length, 0);
+  s.failKV = false; s.error = url => { if (url.endsWith('dispatches')) throw Error('lost'); };
+  await assert.rejects(s.tick()); assert.equal(JSON.parse(s.data).attempts, 1);
   s.error = null; assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(s.posts.length, 0);
 });
 test('corrupt state, truncated history and unavailable Actions do not grant requests', async () => {
@@ -77,11 +77,6 @@ test('corrupt state, truncated history and unavailable Actions do not grant requ
   await assert.rejects(s.tick(), /UNKNOWN_ACTIONS/);
   s.error = url => url.startsWith(API) ? new Response('', { status: 503 }) : null;
   await assert.rejects(s.tick(), /HTTP_503/); assert.equal(s.posts.length, 0);
-});
-test('durable gate serializes stale concurrent KV reads before POST', async () => {
-  const s = fixture(); s.env.STATE.get = async () => null;
-  const results = await Promise.all([s.tick(), s.tick()]); assert.equal(s.posts.length, 1);
-  assert.deepEqual(results.map(r => r.status), ['DISPATCH_ACCEPTED', 'COOLDOWN']);
 });
 test('streaming body remains bounded, exact and redirect-free', async () => {
   const s = fixture('observe');
@@ -105,43 +100,55 @@ test('scheduled errors and heartbeat never expose credentials or imply publicati
   } finally { [globalThis.fetch, console.log, Date.now] = saved; }
 });
 
-test('durable ledger survives KV write failure, stale reads, restart and UTC midnight', async () => {
-  const s = fixture(); s.failKV = true;
-  await assert.rejects(s.tick()); assert.equal(s.posts.length, 1); assert.equal(s.data, null);
-  s.failKV = false;
+test('UTC rollover resets daily count but retains cooldown and legacy evidence', async () => {
+  const s = fixture(); s.now = Date.parse('2026-10-25T23:59:59Z');
+  await s.tick(); const previous = JSON.parse(s.data);
+  s.now += 2000;
   assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(s.posts.length, 1);
-  s.now = Date.parse('2026-10-25T23:59:59Z'); s.data = null;
-  assert.equal((await s.tick()).status, 'DISPATCH_ACCEPTED');
-  s.now += 2000; s.data = null;
-  assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(s.posts.length, 2);
-});
-
-test('durable gate caps concurrent requests at eight, counting ambiguous and no-op slots', async () => {
-  const s = fixture(); s.env.STATE.get = async () => null;
-  for (let i = 0; i < 8; i++) {
-    s.now = NOW + i * (COOLDOWN + 10001);
-    const outcomes = await Promise.all([s.tick(), s.tick(), s.tick()]);
-    assert.equal(outcomes.filter(r => r.status === 'DISPATCH_ACCEPTED').length, 1);
-  }
   s.now += COOLDOWN + 10001;
-  assert.equal((await s.tick()).status, 'DAILY_LIMIT'); assert.equal(s.posts.length, 8);
+  await s.tick();
+  assert.equal(JSON.parse(s.data).day, '2026-10-26');
+  assert.equal(JSON.parse(s.data).attempts, 1);
+  assert.ok(JSON.parse(s.data).lastAttempt > previous.lastAttempt);
+});
+test('history restores daily count when KV is missing; accepted no-ops still count', async () => {
+  const s = fixture(); s.recent = Array.from({ length: 7 }, (_, i) => ({
+    ...run('completed', NOW - 2 * 3600_000), id: i }));
+  await s.tick(); assert.equal(JSON.parse(s.data).attempts, 8);
+  s.now += COOLDOWN + 10001;
+  assert.equal((await s.tick()).status, 'DAILY_LIMIT'); assert.equal(s.posts.length, 1);
+});
+for (const status of [200, 401, 403, 429, 500]) test(`unconfirmed POST ${status} keeps KV slot without retry`, async () => {
+  const s = fixture(); let posts = 0;
+  s.error = url => { if (url.endsWith('/dispatches')) { posts++; return new Response(null, { status }); } };
+  await assert.rejects(s.tick()); assert.equal(posts, 1);
+  assert.equal(JSON.parse(s.data).attempts, 1);
+  assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(posts, 1);
+});
+test('stale KV cannot bypass Actions active/cooldown checks, without claiming strict admission', async () => {
+  const s = fixture(); s.env.STATE.get = async () => null;
+  s.active = [run('waiting')];
+  assert.equal((await s.tick()).status, 'IN_FLIGHT');
+  s.active = []; s.recent = [run()];
+  assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(s.posts.length, 0);
 });
 
-test('missing binding and corrupt durable state fail closed before any POST', async () => {
-  const s = fixture(); const binding = s.env.REQUEST_GATE;
-  delete s.env.REQUEST_GATE; await assert.rejects(s.tick(), /SERIAL_GATE_REQUIRED/);
-  s.env.REQUEST_GATE = binding; s.ledger = { day: 'bad' };
-  await assert.rejects(s.tick()); assert.equal(s.posts.length, 0);
+test('slow KV reservation stops before POST and retains the consumed attempt', async () => {
+  const s = fixture(); const clock = Date.now; let elapsed = 0;
+  const put = s.env.STATE.put;
+  Date.now = () => elapsed;
+  s.env.STATE.put = async (...args) => { await put(...args); elapsed += 10001; };
+  try {
+    await assert.rejects(s.tick(), /RESERVATION_EXPIRED/);
+    assert.equal(JSON.parse(s.data).attempts, 1); assert.equal(s.posts.length, 0);
+  } finally { Date.now = clock; }
 });
-
-
-test('legacy seed is persisted before limits and cannot overflow rolling allowance', async () => {
-  const s = fixture();
-  s.ledger = { day: '2026-10-25', attempts: 0, lastAttempt: 0,
-    reservations: Array(7).fill(NOW - 12 * 3600_000) };
-  s.data = JSON.stringify({ day: '2026-10-25', attempts: 2, lastAttempt: 0, target: '', targetAttempts: 0 });
-  assert.equal((await s.tick()).status, 'DAILY_LIMIT'); assert.equal(s.posts.length, 0);
-  // After the rejected migration tick, lost KV cannot erase the imported consumption.
-  s.data = null;
-  assert.equal((await s.tick()).status, 'DAILY_LIMIT'); assert.equal(s.posts.length, 0);
+test('checks crossing UTC midnight do not charge yesterday and send today', async () => {
+  const s = fixture(); s.now = Date.parse('2026-10-25T23:59:59Z');
+  const clock = Date.now; let elapsed = 0; Date.now = () => elapsed;
+  s.error = url => { if (url === FRESHNESS) elapsed += 2000; };
+  try {
+    await assert.rejects(s.tick(), /STATE_DAY_CHANGED/);
+    assert.equal(s.data, null); assert.equal(s.posts.length, 0);
+  } finally { Date.now = clock; }
 });
