@@ -180,6 +180,7 @@ def test_main_requires_live_lock_after_reading_active_history(monkeypatch, tmp_p
             return io.BytesIO(json.dumps({"created_at": NOW.isoformat()}).encode())
     monkeypatch.setattr(gate, "build_opener", lambda *_: Opener())
     calls = []
+    lock_reads = []
     # This older scheduled run is pending on our lock, not publishing in parallel.
     other = {**run(99, 120), "display_title": "static-production", "status": "pending"}
     def history(query):
@@ -189,8 +190,8 @@ def test_main_requires_live_lock_after_reading_active_history(monkeypatch, tmp_p
         return [other] if query["status"] == "pending" else []
     monkeypatch.setattr(gate, "history", history)
     def read_lock(request):
-        assert len(calls) == 6  # All active queries precede the live lock snapshot.
-        assert request.full_url.endswith("/actions/concurrency_groups/static-production")
+        # Record only: main() converts exceptions from this mock into SystemExit.
+        lock_reads.append((len(calls), request.full_url))
         if lock_state == "unavailable":
             raise TimeoutError("private provider details")
         return {"group_name": "static-production", "total_count": 2,
@@ -205,3 +206,10 @@ def test_main_requires_live_lock_after_reading_active_history(monkeypatch, tmp_p
     else:
         with pytest.raises(SystemExit, match="External trigger gate blocked"):
             gate.main()
+    # Keep assertions outside main() so its failure handling cannot swallow them.
+    assert len(calls) == 6
+    assert set(calls[0]) == {"created"}
+    assert calls[1:] == [{"status": status} for status in
+                         ("queued", "in_progress", "waiting", "pending", "requested")]
+    assert lock_reads == [(6, "https://api.github.com/repos/Yuto-24/AutoNavLog/actions/"
+                          "concurrency_groups/static-production")]
