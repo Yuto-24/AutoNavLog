@@ -115,7 +115,7 @@ test('history restores daily count when KV is missing; accepted no-ops still cou
   const s = fixture(); s.recent = Array.from({ length: 7 }, (_, i) => ({
     ...run('completed', NOW - 2 * 3600_000), id: i }));
   await s.tick(); assert.equal(JSON.parse(s.data).attempts, 8);
-  s.now += COOLDOWN + 10001;
+  s.now = JSON.parse(s.data).lastAttempt + COOLDOWN;
   assert.equal((await s.tick()).status, 'DAILY_LIMIT'); assert.equal(s.posts.length, 1);
 });
 for (const status of [200, 401, 403, 429, 500]) test(`unconfirmed POST ${status} keeps KV slot without retry`, async () => {
