@@ -23,13 +23,19 @@ test("workerd: real module, CORS/cache/rate bindings and no redirect forwarding"
     },
   }));
   try {
-    const get = (icao, origin = "https://static.example") => mf.dispatchFetch(`https://proxy.example/taf?icao=${icao}`, {
-      headers: { Origin: origin, "CF-Connecting-IP": "192.0.2.1" },
-    });
+    const get = async (icao, origin = "https://static.example") => {
+      const response = await mf.dispatchFetch(`https://proxy.example/taf?icao=${icao}`, {
+        headers: { Origin: origin, "CF-Connecting-IP": "192.0.2.1" },
+      });
+      // Consume once, immediately: Miniflare wraps an Undici response's stream,
+      // whose original response can be GC'd while a batch waits for other readers.
+      const body = await response.json();
+      return { status: response.status, headers: response.headers, body };
+    };
     const response = await get("RJFM");
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("Access-Control-Allow-Origin"), "https://static.example");
-    assert.deepEqual(await response.json(), [{ icaoId: "RJFM" }]);
+    assert.deepEqual(response.body, [{ icaoId: "RJFM" }]);
     // Drain waitUntil via workerd's cache write before testing the cache hit.
     const cache = await mf.getCaches();
     for (let i = 0; i < 50 && !await cache.default.match("https://proxy.example/taf?icao=RJFM"); i++) {
@@ -39,10 +45,11 @@ test("workerd: real module, CORS/cache/rate bindings and no redirect forwarding"
     assert.equal(calls.length, 1);
     const warm = await Promise.all(Array.from({ length: 100 }, () => get("RJFM")));
     assert.ok(warm.every(response => response.status === 200));
+    for (const response of warm) assert.deepEqual(response.body, [{ icaoId: "RJFM" }]);
     assert.equal(calls.length, 1); // Warm readers do not consume the school-IP miss limit.
     const cold = await Promise.all(Array.from({ length: 100 }, () => get("RJFO")));
     assert.ok(cold.every(response => response.status === 200));
-    for (const response of cold) assert.deepEqual(await response.json(), [{ icaoId: "RJFO" }]);
+    for (const response of cold) assert.deepEqual(response.body, [{ icaoId: "RJFO" }]);
     assert.equal(calls.length, 2); // Native workerd bindings still allow only one station miss.
     assert.equal((await get("RJFM", "https://evil.example")).status, 403);
     assert.equal((await get("RJFK")).status, 502);

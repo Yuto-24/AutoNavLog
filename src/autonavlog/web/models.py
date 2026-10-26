@@ -10,7 +10,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from autonavlog.domain.calculation import CalculationOutcome
 from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.planning import ArrivalAltitudeMode
-from autonavlog.domain.project import FtdWeatherSettings, ManualWind, Project
+from autonavlog.domain.project import (
+    FtdWeatherSettings,
+    ManualWind,
+    Project,
+    ReferencePointSnapshot,
+)
 from autonavlog.importers.kml import KmlImportResult
 from autonavlog.weather.destination_taf import DestinationWindForecast
 
@@ -37,10 +42,24 @@ class ImportRouteRequest(WebRequestModel):
 
 
 class MapRoutePoint(WebRequestModel):
+    reference_snapshot: ReferencePointSnapshot | None = None
     name: str = Field(min_length=1, max_length=100)
     latitude_deg: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude_deg: float = Field(ge=-180, le=180, allow_inf_nan=False)
     airport_id: str | None = Field(default=None, min_length=1, max_length=100)
+
+
+    @model_validator(mode="after")
+    def validate_reference(self) -> MapRoutePoint:
+        snapshot = self.reference_snapshot
+        if snapshot is not None and (
+            self.airport_id is not None
+            or self.name != snapshot.name
+            or self.latitude_deg != snapshot.latitude_deg
+            or self.longitude_deg != snapshot.longitude_deg
+        ):
+            raise ValueError("Reference selection must match its snapshot and cannot be an airport")
+        return self
 
 
 class ConfirmRouteRequest(WebRequestModel):

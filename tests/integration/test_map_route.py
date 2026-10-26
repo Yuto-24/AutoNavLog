@@ -132,7 +132,7 @@ def test_invalid_map_routes_rejected(points):
         ConfirmRouteRequest.model_validate(payload(points))
 
 
-def test_map_route_removes_only_consecutive_duplicates(local):
+def test_map_route_preserves_every_click_including_consecutive_airports(local):
     state = json.loads(local.dispatch("confirmRoute", payload([
         point("FROM", airport="RJFM"), point("repeat", airport="RJFM"),
         point("WP1"), point("WP2"),
@@ -140,11 +140,10 @@ def test_map_route_removes_only_consecutive_duplicates(local):
         point("TO", airport="RJFO"), point("repeat TO", airport="RJFO"),
     ])))
     nodes = state["project"]["route_nodes"]
-    assert [node["name"] for node in nodes] == ["RJFM", "WP1", "RJFO", "RJFM", "RJFO"]
-    assert all(
-        (a["latitude_deg"], a["longitude_deg"]) != (b["latitude_deg"], b["longitude_deg"])
-        for a, b in zip(nodes, nodes[1:], strict=False)
-    )
+    assert [node["name"] for node in nodes] == [
+        "RJFM", "RJFM", "WP1", "WP2", "RJFO", "RJFM", "RJFO", "RJFO",
+    ]
+    assert len({node["id"] for node in nodes}) == 8
 
 
 def test_identical_airports_rejected_before_creating_project(local):
@@ -174,11 +173,65 @@ def test_map_reference_slots_keep_generated_provenance(local):
     assert all(node["source"] != "KML/KMZ Point" for node in nodes)
 
 
-def test_duplicate_destination_coordinate_keeps_airport_identity(local):
+def test_exact_arbitrary_destination_coordinate_does_not_snap_or_drop(local):
     destination = local.app.airports.get("RJFO")
     state = json.loads(local.dispatch("confirmRoute", payload([
         point("FROM", airport="RJFM"),
         point("WP1", float(destination.latitude_deg), float(destination.longitude_deg)),
         point("TO", airport="RJFO"),
     ])))
-    assert [node["name"] for node in state["project"]["route_nodes"]] == ["RJFM", "RJFO"]
+    assert [node["name"] for node in state["project"]["route_nodes"]] == ["RJFM", "WP1", "RJFO"]
+
+
+def reference_point():
+    snapshot = json.loads((ROOT / "data/reference/vrep.json").read_text())[0]
+    return {
+        **point(snapshot["name"], snapshot["latitude_deg"], snapshot["longitude_deg"]),
+        "reference_snapshot": snapshot,
+    }
+
+
+def test_reference_occurrences_snapshots_save_reload_and_master_independence(local):
+    selected = reference_point()
+    state = json.loads(local.dispatch("confirmRoute", payload([
+        point("FROM", airport="RJFC"), selected, selected,
+        point("WP1", 30.5, 130.5), selected, point("TO", airport="RJFG"),
+    ])))
+    nodes = state["project"]["route_nodes"]
+    assert len(nodes) == 6
+    occurrences = [node for node in nodes if node["reference_snapshot"]]
+    assert len({node["id"] for node in occurrences}) == 3
+    assert all(node["reference_snapshot"] == selected["reference_snapshot"] for node in occurrences)
+    # A saved snapshot may be older than today's catalog; hydration must never resolve it anew.
+    recovery = state["workingRecovery"]
+    for node in recovery["project"]["route_nodes"]:
+        if node["reference_snapshot"]:
+            node["reference_snapshot"]["source"]["table_effective_date"] = "2000-01-01"
+    restored = json.loads(local.dispatch("bootstrap", recovery))
+    restored_nodes = restored["project"]["route_nodes"]
+    assert [node["id"] for node in restored_nodes] == [node["id"] for node in nodes]
+    for node in restored_nodes:
+        if node["reference_snapshot"]:
+            assert node["reference_snapshot"]["source"]["table_effective_date"] == "2000-01-01"
+            assert node["latitude_deg"] == selected["latitude_deg"]
+            assert node["longitude_deg"] == selected["longitude_deg"]
+
+
+@pytest.mark.parametrize("change", [
+    {"airport_id": "RJFC"}, {"latitude_deg": 1}, {"name": "wrong"},
+    {"longitude_deg": 1},
+])
+def test_reference_snapshot_mismatch_rejected(change):
+    with pytest.raises(ValueError):
+        ConfirmRouteRequest.model_validate(payload([
+            point("FROM", airport="RJFC"), {**reference_point(), **change},
+            point("TO", airport="RJFG"),
+        ]))
+
+
+def test_reference_cannot_be_an_endpoint():
+    selected = reference_point()
+    for points in ([selected, point("TO", airport="RJFG")],
+                   [point("FROM", airport="RJFC"), selected]):
+        with pytest.raises(ValueError):
+            ConfirmRouteRequest.model_validate(payload(points))
