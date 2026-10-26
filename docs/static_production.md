@@ -166,6 +166,9 @@ Dashboard drag-and-dropのfile上限はWranglerと異なるため、この手順
 明示 SHA の `prepare`（読み取りと隔離 build/test）と、別途公開承認後の `publish` は
 [Static operations の具体例](static_operations.md#wsl-からのアプリ更新-prepare--publish) を使う。
 薄い `scripts/static_ops/app_release.sh` が既存 Python gate を再利用する。
+同じRulesの通常更新はSHA/store/plan確認だけで、公開ツール編集や移行記録は不要。
+Rules差分がある場合だけ、[候補別の互換性検証記録](static_operations.md#rulesが異なる更新だけに必要な検証記録)
+をprepare/publishの `--rules-transition` で指定する。indexes/schema差分は許可しない。
 Firebase / TAF / Legacy migration URL は現行設定を維持し、prepare の成果物をそのまま
 公開せず、定期運用停止・idle 確認後に fresh な成果物を生成する。
 失敗時は変更済み状態を報告して停止し、無条件な再開・自動 rollback を行わない。
