@@ -289,9 +289,11 @@ buildし、静的配信後に`npm --prefix web run test:taf`を実行する（�
 IndexedDB Project / Last Calculation保持を確認する。通常の`test:local`はTAF未設定buildで実行する。
 実upstream smoke、Free tier見積りと本番release gateは[TAF Proxy運用](taf_proxy.md)を参照する。
 
-## Account sync CI runner
+## Browser CI runners
 
-`account-sync`は`ubuntu-24.04`を明示し、`ubuntu-latest`のOS移行でPlaywrightの依存導入が
-急に変わらないようにする。ジョブの20分上限、Chromium / WebKit、Firestore Rules・同期・移行の
-検証は維持する。キャンセル時はcheck annotationと失敗stepを確認する。ブラウザ依存のdownloadで
-timeoutした場合、認証テストは未実行であり、認証失敗やconcurrencyによる中止とは区別する。
+`local-browser`と`account-sync`は`ubuntu-24.04`を明示し、`ubuntu-latest`のOS移行で
+Playwrightの依存導入が急に変わらないようにする。`local-browser`の25分上限、認証・Local保存・
+計算・NAV LOG・ブラウザ受入・TAFの検証と、`account-sync`の20分上限、Firestore Rules・同期・
+移行の検証は維持する。両ジョブでChromium / WebKitを導入する。キャンセル時はcheck annotationと
+失敗stepを確認する。ブラウザ依存のdownloadでtimeoutした場合、後続のテストは未実行であり、
+テスト失敗やconcurrencyによる中止とは区別する。

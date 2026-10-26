@@ -189,7 +189,8 @@ jobs:
     needs: release-sources
     # Missing/failed classification runs the full checks; only proven docs-only changes skip.
     if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
-    runs-on: ubuntu-latest
+    # Keep browser dependencies on the established image during ubuntu-latest migrations.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
