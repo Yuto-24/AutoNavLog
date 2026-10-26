@@ -1,40 +1,86 @@
+import { useMemo, useState } from "react";
+import { clusterCandidates, referencePoints, type ReferencePointSnapshot } from "../referencePoints";
 import { CircleMarker, Marker, Polyline, Tooltip, useMapEvents } from "react-leaflet";
 import { divIcon } from "leaflet";
 import type { AirportOption } from "../types";
 import { canConfirmMapDraft, type MapRoutePoint } from "../mapRouteDraft";
 
 const airportIcon = divIcon({ className: "airport-draft-marker", html: '<span aria-hidden="true">✈</span>', iconSize: [28, 28], iconAnchor: [14, 14] });
+const vrepIcon = divIcon({ className: "vrep-draft-marker", html: '<span aria-hidden="true">◇</span>', iconSize: [26, 26], iconAnchor: [13, 13] });
 export interface MapRouteBuilderProps {
   points: MapRoutePoint[];
   airports: AirportOption[];
   busy: boolean;
   onAirport: (airport: AirportOption) => void;
+  onReference: (reference: ReferencePointSnapshot) => void;
   onPoint: (latitude: number, longitude: number) => void;
   onRemove: (id: string) => void;
   onClear: () => void;
   onConfirm: () => void;
 }
-export function MapDraftLayers({ points, airports, busy, onAirport, onPoint }: MapRouteBuilderProps) {
-  useMapEvents({ click: event => {
-    if (!busy && points.length > 0 && points.length < 500) onPoint(event.latlng.lat, event.latlng.wrap().lng);
-  } });
+export function MapDraftLayers({ points, airports, busy, onAirport, onReference, onPoint }: MapRouteBuilderProps) {
+  const [zoom, setZoom] = useState<number | null>(null);
+  const map = useMapEvents({
+    zoomend: () => setZoom(map.getZoom()),
+    click: event => {
+      if (!busy && points.length > 0 && points.length < 500) onPoint(event.latlng.lat, event.latlng.wrap().lng);
+    },
+  });
+  const currentZoom = zoom ?? map.getZoom();
+  const selectedIds = new Set(points.flatMap(point => point.airport_id ? [`airport:${point.airport_id}`]
+    : point.reference_snapshot ? [point.reference_snapshot.reference_id] : []));
+  type Candidate = { id: string; latitude: number; longitude: number; airport?: AirportOption; reference?: ReferencePointSnapshot };
+  const candidates = useMemo<Candidate[]>(() => [
+    ...airports.map(airport => ({ id: `airport:${airport.id}`, latitude: airport.latitudeDeg, longitude: airport.longitudeDeg, airport })),
+    ...referencePoints.map(reference => ({ id: reference.reference_id, latitude: reference.latitude_deg, longitude: reference.longitude_deg, reference })),
+  ], [airports]);
+  const groups = clusterCandidates(candidates.filter(candidate => !selectedIds.has(candidate.id)).map(candidate => ({
+    ...candidate, ...map.project([candidate.latitude, candidate.longitude], currentZoom),
+  })));
+  // Selected reference markers use the saved selection, even if the master has changed.
+  const selected = new Map<string, Candidate>();
+  for (const point of points) {
+    if (point.reference_snapshot) {
+      const reference = point.reference_snapshot;
+      selected.set(reference.reference_id, { id: reference.reference_id, latitude: point.latitude_deg, longitude: point.longitude_deg, reference });
+    } else if (point.airport_id) {
+      const airport = airports.find(item => item.id === point.airport_id);
+      if (airport) selected.set(`airport:${airport.id}`, { id: `airport:${airport.id}`, latitude: point.latitude_deg, longitude: point.longitude_deg, airport });
+    }
+  }
+  const renderPoint = (candidate: Candidate) => {
+    const { airport, reference } = candidate;
+    const title = airport ? `空港 ${airport.icao} ${airport.name}` : `VREP ${reference!.name} ${reference!.name_ja}`;
+    return <Marker key={candidate.id} icon={airport ? airportIcon : vrepIcon}
+      position={[candidate.latitude, candidate.longitude]} title={title}
+      bubblingMouseEvents={false} eventHandlers={{ click: () => {
+        if (busy || points.length >= 500) return;
+        if (airport) onAirport(airport);
+        else if (points.length > 0 && reference) onReference(reference);
+      } }}>
+      <Tooltip>{airport ? `${airport.icao} ${airport.name}` : `${reference!.name} ${reference!.name_ja}`}</Tooltip>
+    </Marker>;
+  };
   return <>
     {points.length > 1 && <Polyline positions={points.map<[number, number]>(point => [point.latitude_deg, point.longitude_deg])}
       pathOptions={{ color: "#173b5e", weight: 4 }} interactive={false} />}
-    {points.filter(point => !point.airport_id).map(point => <CircleMarker key={point.id}
+    {points.filter(point => !point.airport_id && !point.reference_snapshot).map(point => <CircleMarker key={point.id}
       center={[point.latitude_deg, point.longitude_deg]} radius={6} interactive={false}
       pathOptions={{ color: "#173b5e", fillColor: "white", fillOpacity: 1 }}>
       <Tooltip permanent>{point.name}</Tooltip>
     </CircleMarker>)}
-    {airports.map(airport => <Marker key={airport.id} icon={airportIcon}
-      position={[airport.latitudeDeg, airport.longitudeDeg]} title={`空港 ${airport.icao} ${airport.name}`}
-      bubblingMouseEvents={false} eventHandlers={{ click: () => { if (!busy && points.length < 500) onAirport(airport); } }}>
-      <Tooltip>{airport.icao} {airport.name}</Tooltip>
-    </Marker>)}
+    {groups.map(group => group.length === 1 ? renderPoint(group[0]!) : <Marker key={group.map(point => point.id).join("|")}
+      position={[group.reduce((sum, point) => sum + point.latitude, 0) / group.length, group.reduce((sum, point) => sum + point.longitude, 0) / group.length]}
+      icon={divIcon({ className: "candidate-cluster", html: `<span data-candidates="${group.map(point => point.id).join(" ")}">${group.length}</span>`, iconSize: [32, 32], iconAnchor: [16, 16] })}
+      title={`${group.length}件の地点を拡大`} bubblingMouseEvents={false} eventHandlers={{ click: () => {
+        map.fitBounds(group.map<[number, number]>(point => [point.latitude, point.longitude]), { padding: [45, 45], maxZoom: Math.min(map.getMaxZoom(), currentZoom + 3) });
+      } }} />)}
+    {[...selected.values()].map(renderPoint)}
   </>;
 }
 export function RouteStrip({ points, busy, onRemove, onClear, onConfirm }: MapRouteBuilderProps) {
   return <div className="map-route-controls">
+    <p className="field-hint">AD2のARPから算出した参考位置です。公示座標ではなく精度は保証されません。</p>
     <p>{points.length ? "飛行順に地点を追加し、最後の空港で経路を確定してください。" : "地図上の空港を選んで、出発地（FROM）を設定してください。"}</p>
     {points.length > 0 && <ol className="route-strip" aria-label="経路リスト">
       {points.map((point, index) => <li key={point.id}>

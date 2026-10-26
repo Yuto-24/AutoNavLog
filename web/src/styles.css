@@ -1694,3 +1694,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .app-workspace.is-route-building { grid-template-columns: minmax(0, 1fr); }
   .route-workspace.is-route-building .map-frame { height: 60vh; min-height: 360px; }
 }
+
+/* All creation candidates have a white fill; only the outline identifies their role. */
+.airport-draft-marker { color: #173b5e; background: white; border-color: #173b5e; }
+.vrep-draft-marker { color: #0c7c78; background: white; border: 2px solid #0c7c78; border-radius: 5px; text-align: center; font-size: 21px; line-height: 22px; }
+.candidate-cluster { color: #334155; background: white; border: 2px solid #64748b; border-radius: 50%; text-align: center; line-height: 28px; font-weight: 700; }
+.vrep-draft-marker:focus-visible, .candidate-cluster:focus-visible { outline: 3px solid #0c7c78; outline-offset: 3px; }

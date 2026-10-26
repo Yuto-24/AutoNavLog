@@ -208,7 +208,7 @@ def _matching_user_node_index(
 def _normalize_physical_reference_name(node: RouteNode, name: str) -> None:
     """Normalize a matched physical slot without replacing an explicit Point label."""
 
-    if node.name_source == RouteNodeNameSource.USER or (
+    if node.reference_snapshot is not None or node.name_source == RouteNodeNameSource.USER or (
         node.name_source == RouteNodeNameSource.IMPORTED
         and node.source == "KML/KMZ Point"
     ):

@@ -1,3 +1,4 @@
+import { mapZoom, revealAirport, selectAirport, zoomMapTo } from "./helpers/mapCandidates";
 import { expect, test, type Page } from "@playwright/test";
 import { deferPlanningRender, installPlanningRenderDelay } from "./helpers/planningRender";
 
@@ -21,7 +22,6 @@ async function start(page: Page) {
   await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible({ timeout: 90_000 });
 }
 const strip = (page: Page) => page.getByRole("list", { name: "経路リスト" });
-const airport = (page: Page, icao: string) => page.locator(`.airport-draft-marker[title^="空港 ${icao} "]`);
 async function pick(page: Page, latitude: number, longitude: number) {
   const view = await page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!));
   const frame = (await page.locator(".route-map").boundingBox())!;
@@ -64,8 +64,8 @@ test("Leaflet zoom controls contain long-press styling without blocking map inte
 
   // Prepare the route before panning, while its airport markers are in view.
   await page.getByRole("button", { name: "Zoom out" }).click();
-  await airport(page, "RJFM").click();
-  await airport(page, "RJFK").click();
+  await selectAirport(page, "RJFM");
+  await selectAirport(page, "RJFK");
   const map = page.locator(".route-map");
   await map.scrollIntoViewIfNeeded();
   const mapBounds = (await map.boundingBox())!;
@@ -114,12 +114,12 @@ for (const width of [1100, 1440]) {
     else expect(draftInput.x + draftInput.width).toBeLessThanOrEqual(draftRoute.x + 2);
     const before = await page.locator(".route-map").boundingBox();
     expect(before!.height).toBeGreaterThan(500);
+    await revealAirport(page, "RJFM");
     const viewport = await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"));
-    await airport(page, "RJFM").click();
+    await selectAirport(page, "RJFM");
     await expect(strip(page).locator("li")).toHaveCount(1);
     expect(await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(viewport);
-    await page.getByRole("button", { name: "Zoom out" }).click();
-    await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).zoom)).toBe(8);
+    await zoomMapTo(page, 8);
     await page.getByRole("button", { name: "Zoom out" }).click();
     await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).zoom)).toBe(7);
     await pick(page, 32.115635, 130.337678);
@@ -132,7 +132,7 @@ for (const width of [1100, 1440]) {
     await page.reload();
     await expect(page.getByText("NavMateを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
     await expect(strip(page).locator("li")).toHaveCount(4, { timeout: 90_000 });
-    await airport(page, "RJFS").click();
+    await selectAirport(page, "RJFS");
     await expect(strip(page).locator("li")).toHaveCount(5);
     if (local) await deferPlanningRender(page);
     await page.getByRole("button", { name: "経路を確定", exact: true }).click();
@@ -174,8 +174,8 @@ for (const width of [1100, 1440]) {
     await page.getByRole("button", { name: "新規", exact: true }).click();
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible({ timeout: 90_000 });
     expect(await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(savedView);
-    await airport(page, "RJFM").click();
-    await page.getByRole("button", { name: "Zoom in" }).click();
+    await selectAirport(page, "RJFM");
+    await zoomMapTo(page, (await mapZoom(page)) + 1);
     await page.getByLabel("保存済み", { exact: true }).selectOption(projectId);
     page.once("dialog", dialog => dialog.dismiss());
     await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
@@ -216,11 +216,12 @@ for (const width of [1100, 1440]) {
 
 test("repeated airport occurrence removal, clear and new-work cancellation", async ({ page }) => {
   await start(page);
-  await airport(page, "RJFM").click();
+  await selectAirport(page, "RJFM");
+  await zoomMapTo(page, 9);
   await pick(page, 31.98, 131.3);
-  await airport(page, "RJFM").click();
+  await selectAirport(page, "RJFM");
   await pick(page, 32.01, 131.3);
-  await airport(page, "RJFM").click();
+  await selectAirport(page, "RJFM");
   await expect(strip(page).locator("li")).toHaveCount(5);
   await page.getByRole("button", { name: "3番目のRJFMを削除" }).click();
   await expect(strip(page).locator("li")).toHaveCount(4);
@@ -244,9 +245,9 @@ test("direct airport route survives failed local persistence and can be saved", 
   const initialView = await page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!));
   expect(initialView.latitude).toBeCloseTo(31.8772, 2);
   expect(initialView.longitude).toBeCloseTo(131.4486, 2);
-  await airport(page, "RJFM").click();
+  await selectAirport(page, "RJFM");
   await page.getByRole("button", { name: "Zoom out" }).click();
-  await airport(page, "RJFK").click();
+  await selectAirport(page, "RJFK");
   await expect(strip(page).locator("li")).toHaveCount(2);
   await page.evaluate(() => {
     const put = IDBObjectStore.prototype.put;

@@ -13,6 +13,7 @@ COPY web/package.json web/package-lock.json ./web/
 RUN npm --prefix web ci
 COPY VERSION CHANGELOG.md KNOWN_ISSUES.md ./
 COPY web ./web
+COPY data/reference/vrep.json ./data/reference/vrep.json
 RUN npm --prefix web run build
 
 

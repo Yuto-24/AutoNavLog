@@ -41,7 +41,40 @@ class Airport(DomainModel):
     source_revision: str
 
 
+class ReferencePointSource(DomainModel):
+    url: str = Field(max_length=500)
+    filename: str = Field(max_length=100)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    table_pdf_page: int = Field(ge=1)
+    table_page: str = Field(max_length=100)
+    table_effective_date: date
+    arp_pdf_page: int = Field(ge=1)
+    arp_effective_date: date
+    arp_latitude_dms: str = Field(max_length=20)
+    arp_longitude_dms: str = Field(max_length=20)
+    arp_latitude_deg: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    arp_longitude_deg: float = Field(ge=-180, le=180, allow_inf_nan=False)
+
+
+class ReferencePointSnapshot(DomainModel):
+    """Selection-time reference data, never refreshed implicitly from a master."""
+
+    reference_id: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=100)
+    name_ja: str = Field(max_length=100)
+    kind: Literal["ROUTE_POINT", "VISUAL_REPORTING_POINT"]
+    airport_icao: str = Field(pattern=r"^[A-Z]{4}$")
+    latitude_deg: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude_deg: float = Field(ge=-180, le=180, allow_inf_nan=False)
+    bearing_true_deg: float = Field(ge=0, le=360, allow_inf_nan=False)
+    distance_nm: float = Field(gt=0, allow_inf_nan=False)
+    note: str = Field(max_length=1000)
+    derivation: str = Field(min_length=1, max_length=500)
+    source: ReferencePointSource
+
+
 class RouteNode(DomainModel):
+    reference_snapshot: ReferencePointSnapshot | None = None
     id: UUID = Field(default_factory=uuid4)
     sequence: int = Field(ge=0)
     name: str = Field(min_length=1)

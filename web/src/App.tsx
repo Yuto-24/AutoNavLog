@@ -1,3 +1,4 @@
+import type { ReferencePointSnapshot } from "./referencePoints";
 import { canConfirmMapDraft, nextWaypointName, type MapRoutePoint } from "./mapRouteDraft";
 import { AccountSyncControl } from "./components/AccountSyncControl";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
@@ -1563,6 +1564,11 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     onAirport: (airport: WebState["airports"][number]) => setMapRouteDraft(current => [...current, {
       id: crypto.randomUUID(), name: airport.icao, airport_id: airport.id,
       latitude_deg: airport.latitudeDeg, longitude_deg: airport.longitudeDeg,
+    }]),
+    onReference: (reference: ReferencePointSnapshot) => setMapRouteDraft(current => current.length === 0 || current.length >= 500 ? current : [...current, {
+      id: crypto.randomUUID(), name: reference.name, airport_id: null,
+      latitude_deg: reference.latitude_deg, longitude_deg: reference.longitude_deg,
+      reference_snapshot: structuredClone(reference),
     }]),
     onPoint: (latitude: number, longitude: number) => setMapRouteDraft(current => [...current, {
       id: crypto.randomUUID(), name: nextWaypointName(current), airport_id: null,

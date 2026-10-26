@@ -703,7 +703,7 @@ export function RouteWorkspace({
             </CircleMarker>
           ))}
           {nodes.map((node, index) => {
-            const isVrep = node.role === "VISUAL_REPORTING_POINT";
+            const isVrep = node.role === "VISUAL_REPORTING_POINT" || node.reference_snapshot?.kind === "VISUAL_REPORTING_POINT";
             const isAirport = node.role === "AIRPORT" || node.role === "DESTINATION";
             return (
               <CircleMarker

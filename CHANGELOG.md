@@ -2,6 +2,20 @@
 
 NavMate のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 2.1.0
+
+### 利用者向け
+
+#### 追加
+
+- 地図上で登録済みのVREPを選択し、経路に直接追加できる機能を追加しました。
+
+### 開発者向け
+
+- #169: Add the approved 115 derived VREP positions for 16 of the 17 scoped airports; Kanoya has no entries in the supplied AD2. Keep raw bearings, distances, ARPs and source provenance in the repository catalog.
+- Cluster unselected airports and VREPs together during new route creation. Preserve selected occurrences and selection-time reference snapshots through Project persistence; never refresh saved coordinates from the catalog.
+- Confirmed-route re-edit acceptance remains dependent on unmerged #175 / #283. No integration of #282 / #283 and no production deployment are included.
+
 ## 2.0.0
 
 ### 利用者向け
