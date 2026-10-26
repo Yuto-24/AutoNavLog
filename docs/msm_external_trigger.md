@@ -23,6 +23,15 @@ source SHAを渡す経路はない。
    UTC日8要求未満、同じ広告Runへの要求2回未満ならdispatch。
    `observe`では `WOULD_DISPATCH` を記録するだけ。
 
+取得は安全な停止条件までに限定する。全bytes/hash・release/asset inventoryを検査した後、
+pendingの実公開完了を確認できれば、GitHub履歴や上流障害に妨げられず
+`PUBLICATION_OBSERVED`とする。pendingがなくcatalog残存が3時間超なら`FRESH`で終了。
+それ以外はactive状態を順番に確認し、最初の実行中を確認した時点で`IN_FLIGHT`にする。
+直近履歴での実行中、待機、cooldown、日次上限も上流取得前に停止できる。
+これらの終了では`upstream: NOT_CHECKED`、`advertised_run: null`を明記し、
+上流確認済みの`NO_UPDATE`とは区別する。`NO_UPDATE`は従来どおり実listingと健康な
+canonicalの同一Run確認が必要。pendingのcanonical検査とアプリcommit照合は省略しない。
+
 WorkerはKVを各tickで1readし、dispatch直前／公開確認時だけ1writeする。
 POSTの応答を失っても先に保存した試行枠を消費し、直ちに再送しない。
 KVは結果整合性であり、同時tickが2つのPOSTを発行する可能性は残る。
@@ -56,9 +65,70 @@ concurrency `static-production` / `cancel-in-progress: false` は既存公開と
   scheduleが同じ更新を先に完了した場合も復旧観測であり、Workerの因果的成功とはしない。
 - `UNKNOWN`/`PUBLICATION_UNCONFIRMED`/`RUN_LIMIT`/`DAILY_LIMIT`: 成功扱いしない。
 
-WorkerはNPZ本体をダウンロード・decodeしない。既存workflowのcanonical検証と
-`operations.py monitor`が全payload検証を担う。Workerの観測だけで完全な公開受入とはしない。
+WorkerはNPZ本体をダウンロード・decodeしない。全payloadのbytes/hash/decode/coverageは
+既存workflowの`validate_feed.py`が検査する。`operations.py monitor`はcanonical catalogの
+鮮度検査であり、全payload検証の代用ではない。Workerの観測だけで完全な公開受入とはしない。
 取得不能や公開途中のcatalog/release不一致は失敗し、次tickで再観測する。
+
+## 実測不合格の切り分けと診断（2026-10-26 JST）
+
+PR #288の初回observe Cron（version `518f631b-01c8-40e6-bec6-29a733fbd3d8`、
+2026-10-25 23:30 UTC）は`HTTP_526`、`outcome: exception`だった。
+traceのCPUは38ms、wallは3300ms、1件のみ。`exceededCpu`ではなく、
+38msが実行終了の直接原因だったとは確認できない。Freeの10msに対する受入は不合格だが、
+wall時間をCPUに換算したり、1件から代表的なp95を推定したりしない。
+
+既存traceのstackはscheduled handlerの共通catchだけで、接続先・段階・応答サイズはない。
+保存されたCron専用analyticsにも行がなく、CLI logにも追加の段階情報はない。
+当時はobserve、heartbeat未設定、dispatch試行記録なしなので、526はGET経路のいずれか。
+canonical catalog/release、GitHubの5 active状態＋直近履歴、上流2日分の10箇所が候補で、
+**取得元が原因と確定できない**。ローカルの上流HTTPSも証明書検証に失敗したことは別証拠であり、
+そのまま過去のWorkerの接続先特定には使わない。
+
+request診断は`stage`・`target`・`status`・`bytes`の4項目だけを出す。
+`stage`は`canonical_catalog` / `canonical_release` / `github_queued` /
+`github_in_progress` / `github_waiting` / `github_pending` / `github_requested` /
+`github_recent` / `upstream_previous` / `upstream_today` / `dispatch` / `heartbeat`。
+`target`はコードに固定したhostnameで、Secretのheartbeat URLも`hc-ping.com`とのみ記録する。
+URL、query、認証header、応答本文、native errorのmessageは診断に含めない。
+`status`はHTTP status、または`IO_ERROR` / `BODY_LIMIT`。`bytes`は実際に読んだ本文bytesで、
+不成功HTTP応答の本文は読まないため、その`bytes: 0`は応答本文の長さ0を意味しない。
+例えば`upstream_previous / database.rish.kyoto-u.ac.jp / 526 / 0`なら、初めてその接続先を
+特定できる。526でもHTTPS検証を弱めたり、HTTPへ変更したり、別経路で拒否を回避したりしない。
+
+保存済みcatalogは670,264 bytes、releaseは29,093 bytes。catalogのlisting文字列だけで
+636,005文字あり、本文read/decode、JSON解析、全bytesのSHA-256は引き続き必要。
+過去listing 2件のファイル名は168一致に対しRunは12種類だったため、同じRunの時刻解析を
+Setで一度にし、match配列と最新Run探索のsortを省いた。1chunkの本文の再コピーも省く。
+ローカルNode・通信なし・同じ記録データと空のActions履歴の50回比較では、warm CPUの
+p50は2.025msから1.667ms、p95は3.895msから3.126msだった。これは一回の比較結果であり、
+実ネットワーク、Cloudflare CPU、診断log出力の負荷、cold invocationを保証しない。
+過去38msの内訳、実GitHub履歴の応答量、Cloudflareでのhash/解析の個別CPUは未確定。
+
+### 承認後の監視再実測手順（この修正PRでは実行しない）
+
+1. 修正commitを固定し、対象を既存`autonavlog-msm-trigger`と既存STATE KVに限定する。
+   observe配置、Cron反映待ち最大15分＋観測最大30分（2 tickまで）、停止を一組の承認対象として示す。
+   GitHub opt-inは無効のまま。Secret・権限・有料planの変更は含めない。
+2. 既存`.state/operator.json`とremote KV binding・MODE・Cron・Secret名・アプリcommit・opt-inを
+   read-onlyで照合する。リソースを作り直さず、pendingや試行数を削除しない。
+3. 承認された修正commitの`deploy-observe`、read-back、`observe-cron`を実行する。
+   `wrangler tail --format json`で段階別の取得成否・サイズと、Cloudflareの
+   `cpuTime` / `wallTime` / `outcome`を取得する。Cron専用analyticsの`cpuTimeUs`はµsなので
+   msへ換算する。ローカル測定値や起動時間を代用しない。
+4. 最初のUNKNOWN、HTTP/IO/BODY_LIMIT、`exceededCpu`、CPU 10ms超過、想定外設定・アプリ変更、
+   または観測期限・2 tick到達で`stop`し、MODE=observe・Cron空をread-backする。
+   停止伝播中もobserveと無効opt-inを維持し、dispatchしない。
+5. サンプル数・各tickの経路・CPU p50/p95/max・wall・終了理由・全取得bytesを併記する。
+   `FRESH`だけを測って上流経路の合格とはしない。実Run・pendingのない状態を捏造せず、
+   未測定の経路と共有無料枠は未確定として残す。2件以内の切り分け試験だけで本番受入完了にしない。
+   本番dispatchや実公開確認は別の承認・受入段階のまま。
+
+なお、これでも10msに収まらない場合の**未実装の案**は、WorkerをActions実行状況・遅延・
+cooldown・回数上限だけの軽い起動判定にし、catalogの全bytes/hash検査・上流Run探索を
+Actionsの軽量preflightへ移す構成。実Runが見つかった場合だけ既存producerへ進め、
+無条件の周期dispatchや架空Runを使わない。canonical公開完了検証もActions側に残す必要があり、
+Workerの`PUBLICATION_OBSERVED`との責務が変わるため、大きな設計変更として着手前に確認する。
 
 #273は独立した天気データ障害／復旧の通知・重複抑制を担当する。
 このWorkerは利用者への天気通知を送らず、構造化logと任意のliveness heartbeatだけ。
