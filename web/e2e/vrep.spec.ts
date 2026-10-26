@@ -26,8 +26,8 @@ for (const width of [1100, 1440]) {
     await expect(vrep(page)).toBeVisible();
     const vrepSymbol = () => vrep(page).locator(".map-candidate-symbol");
     const airportSymbol = () => airport(page).locator(".map-candidate-symbol");
-    await expect(vrepSymbol()).toHaveCSS("width", "16px");
-    await expect(vrepSymbol()).toHaveCSS("height", "16px");
+    await expect(vrepSymbol()).toHaveCSS("width", "20px");
+    await expect(vrepSymbol()).toHaveCSS("height", "20px");
     await expect(airportSymbol()).toHaveCSS("width", "28px");
     await expect(airportSymbol()).toHaveCSS("height", "28px");
     await expect(airportSymbol()).toHaveCSS("border-top-width", "2px");
@@ -38,7 +38,7 @@ for (const width of [1100, 1440]) {
     await airport(page).click();
     await expect(airportSymbol()).toHaveCSS("background-color", "rgb(23, 59, 94)");
     await vrep(page).click();
-    // The transparent target outside the visible 16 px symbol still selects it.
+    // The transparent target outside the visible 20 px symbol still selects it.
     const hitArea = (await vrep(page).boundingBox())!;
     expect(hitArea.width).toBe(28);
     await page.mouse.click(hitArea.x + 2, hitArea.y + hitArea.height / 2);
