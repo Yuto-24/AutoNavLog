@@ -28,8 +28,8 @@ for (const width of [1100, 1440]) {
     const airportSymbol = () => airport(page).locator(".map-candidate-symbol");
     await expect(vrepSymbol()).toHaveCSS("width", "16px");
     await expect(vrepSymbol()).toHaveCSS("height", "16px");
-    await expect(airportSymbol()).toHaveCSS("width", "18px");
-    await expect(airportSymbol()).toHaveCSS("height", "18px");
+    await expect(airportSymbol()).toHaveCSS("width", "28px");
+    await expect(airportSymbol()).toHaveCSS("height", "28px");
     await expect(vrepSymbol()).toHaveCSS("background-color", "rgb(255, 255, 255)");
     await expect(airportSymbol()).toHaveCSS("background-color", "rgb(255, 255, 255)");
     await vrep(page).click();
