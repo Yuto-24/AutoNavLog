@@ -17,19 +17,46 @@ PREFIXES = ("msm-fallback/", "msm-request/")
 API = "https://api.github.com/repos/Yuto-24/AutoNavLog/actions/workflows/static-production.yml/runs"
 
 
-def preceding_active(runs: list[dict], own_id: int, created: datetime) -> bool:
-    """Ignore later lock waiters while retaining earlier active and approval blockers."""
+def lock_waiters(value: dict, own_id: int) -> set[int]:
+    """Require this workflow's live lease and identify only confirmed lock waiters."""
+    members = value.get("group_members")
+    count = value.get("total_count")
+    if (value.get("group_name") != "static-production" or type(count) is not int
+            or not 1 <= count <= 100 or not isinstance(members, list) or len(members) != count):
+        raise ValueError("Unknown publication lock")
+    seen = set()
+    waiters = set()
+    for member in members:
+        run_id = member.get("run_id")
+        if (type(run_id) is not int or run_id <= 0 or run_id in seen
+                or member.get("job_id") is not None):
+            raise ValueError("Unknown publication lease")
+        seen.add(run_id)
+        if run_id == own_id:
+            if member.get("status") != "in_progress":
+                raise ValueError("Current workflow does not hold publication lock")
+        elif member.get("status") == "pending":
+            waiters.add(run_id)
+        else:
+            raise ValueError("Another workflow holds publication lock")
+    if own_id not in seen:
+        raise ValueError("Current workflow missing from publication lock")
+    return waiters
+
+
+def conflicting_active(runs: list[dict], own_id: int, waiters: set[int]) -> bool:
+    """Reject active runs unless the live concurrency API confirms they only wait."""
     for run in runs:
         status = run["status"]
         if status not in ("completed", "queued", "in_progress", "waiting", "pending", "requested"):
             raise ValueError("Unknown Actions status")
-        timestamp = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
-        if run["id"] != own_id and status != "completed" and timestamp <= created:
+        if run["id"] != own_id and status != "completed" and run["id"] not in waiters:
             return True
     return False
 
 
-def validate(event: dict, env: dict, runs: list[dict], now: datetime) -> None:
+def validate(event: dict, env: dict, runs: list[dict], now: datetime,
+             waiters: set[int] | None = None) -> None:
     """Reject unsafe feed inputs or exhausted Actions budgets after publication serialization."""
     inputs = event.get("inputs", {})
     target = inputs.get("observed_run", "")
@@ -60,7 +87,7 @@ def validate(event: dict, env: dict, runs: list[dict], now: datetime) -> None:
         raise ValueError("External per-Run heavy-work limit reached")
     if request and any(run["display_title"] == "msm-request/" + request_id for run in others):
         raise ValueError("Duplicate external request")
-    if preceding_active(runs, own_id, created):
+    if conflicting_active(runs, own_id, waiters or set()):
         raise ValueError("Another publication is active or awaiting approval")
     for run in others:
         timestamp = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
@@ -77,13 +104,18 @@ def history(query: dict) -> list[dict]:
     return read_list(request, "workflow_runs", "total_count")
 
 
-def read_list(request: Request, key: str, count: str) -> list[dict]:
-    """Reject truncated, duplicate or oversized evidence rather than granting a budget."""
+def read_json(request: Request) -> dict:
+    """Read one bounded JSON response without redirects or provider-body logging."""
     with build_opener(NoRedirect).open(request, timeout=30) as response:
         raw = response.read(2 * 1024 * 1024 + 1)
     if len(raw) > 2 * 1024 * 1024:
         raise ValueError("History exceeds budget")
-    value = json.loads(raw)
+    return json.loads(raw)
+
+
+def read_list(request: Request, key: str, count: str) -> list[dict]:
+    """Reject truncated, duplicate or oversized evidence rather than granting a budget."""
+    value = read_json(request)
     rows = value[key]
     if (type(value[count]) is not int or not 0 <= value[count] <= 100
             or len(rows) != value[count] or len({row["id"] for row in rows}) != len(rows)):
@@ -128,12 +160,23 @@ def main() -> None:
         own_start = datetime.fromisoformat(json.loads(raw)["created_at"].replace("Z", "+00:00"))
         since = min(own_start.replace(hour=0, minute=0, second=0, microsecond=0),
                     now - timedelta(days=1))
+        own_id = int(env["GITHUB_RUN_ID"])
+        lock_request = Request(API.rsplit("/workflows/", 1)[0]
+                               + "/concurrency_groups/static-production", headers={
+                                   "Authorization": "Bearer " + env["GH_TOKEN"],
+                                   "Accept": "application/vnd.github+json",
+                                   "X-GitHub-Api-Version": "2026-03-10",
+                               })
         runs = history({"created": ">=" + since.isoformat()})
+        active = []
         for status in ("queued", "in_progress", "waiting", "pending", "requested"):
-            if preceding_active(history({"status": status}), int(env["GITHUB_RUN_ID"]),
-                                own_start):
-                raise ValueError("Another publication is active or awaiting approval")
-        validate(event, env, runs, now)
+            active.extend(history({"status": status}))
+        # Read the live queue last so a newly observed waiter is not compared
+        # against an older queue snapshot.
+        waiters = lock_waiters(read_json(lock_request), own_id)
+        if conflicting_active(active, own_id, waiters):
+            raise ValueError("Another publication is active or awaiting approval")
+        validate(event, env, runs, now, waiters)
         if args.detected_run:
             def jobs(run_id):
                 url = API.rsplit("/workflows/", 1)[0] + f"/runs/{run_id}/jobs?per_page=100"

@@ -105,20 +105,103 @@ def test_bounded_history_rejects_truncation_and_duplicates(monkeypatch):
 
 
 @pytest.mark.parametrize("status", ["waiting", "pending", "queued", "requested", "in_progress"])
-def test_later_lock_waiter_does_not_abort_the_current_publication(status):
-    """A successor waits behind this workflow's shared lock and cannot invalidate its gate."""
-    from scripts.static_ops.external_trigger_gate import preceding_active
-    later = {**run(101, -1, "20261025000000"), "status": status}
-    validate(EVENT, ENV, [run(), later], NOW)
-    assert not preceding_active([later], 100, NOW)
-    assert preceding_active([{**later, "created_at": (NOW - timedelta(days=3)).isoformat()}],
-                            100, NOW)
+@pytest.mark.parametrize("age", [-1, 120])
+def test_confirmed_lock_waiter_does_not_abort_current_publication(status, age):
+    """Live lock waiting, not creation order, distinguishes a harmless competitor."""
+    from scripts.static_ops.external_trigger_gate import conflicting_active, lock_waiters
+    other = {**run(101, age, "20261025000000"), "status": status}
+    waiters = lock_waiters({"group_name": "static-production", "total_count": 2,
+                            "group_members": [{"run_id": 100, "status": "in_progress"},
+                                              {"run_id": 101, "status": "pending"}]}, 100)
+    # Exempt only the active check. Actual external requests retain their cooldown.
+    other["display_title"] = "static-production"
+    validate(EVENT, ENV, [run(), other], NOW, waiters)
+    assert not conflicting_active([other], 100, waiters)
+    assert conflicting_active([other], 100, set())
 
 
-def test_unknown_active_metadata_is_never_treated_as_a_later_waiter():
-    """Missing or unknown statuses cannot establish safe request ordering."""
-    from scripts.static_ops.external_trigger_gate import preceding_active
+@pytest.mark.parametrize("change", [
+    {"group_name": "other"}, {"total_count": 0}, {"total_count": 101},
+    {"total_count": True}, {"group_members": []},
+    {"group_members": [{"run_id": 99, "status": "in_progress"}]},
+    {"group_members": [{"run_id": 100, "status": "pending"}]},
+    {"group_members": [{"run_id": 100, "status": "waiting"}]},
+    {"group_members": [{"run_id": 100, "status": "in_progress", "job_id": 123}]},
+    {"group_members": [{"run_id": "100", "status": "in_progress"}]},
+    {"total_count": 2, "group_members": [{"run_id": 100, "status": "in_progress"}] * 2},
+    {"total_count": 2, "group_members": [{"run_id": 100, "status": "in_progress"},
+                                         {"run_id": 99, "status": "in_progress"}]},
+])
+def test_missing_ambiguous_or_unowned_lock_never_grants_admission(change):
+    """Malformed, incomplete or non-owning live evidence must stop the gate."""
+    from scripts.static_ops.external_trigger_gate import lock_waiters
+    value = {"group_name": "static-production", "total_count": 1,
+             "group_members": [{"run_id": 100, "status": "in_progress"}]}
+    with pytest.raises(ValueError):
+        lock_waiters({**value, **change}, 100)
+
+
+def test_lock_waiter_still_consumes_request_budget_and_cooldown():
+    """The active-state exemption does not exempt external request accounting."""
+    with pytest.raises(ValueError, match="cooldown"):
+        validate(EVENT, ENV, [run(), {**run(99, 30), "status": "pending"}], NOW, {99})
+    with pytest.raises(ValueError, match="daily"):
+        validate(EVENT, ENV, [run(), *[run(i, 120, "20261025000000") for i in range(8)]],
+                 NOW, set(range(8)))
+
+
+def test_unknown_active_metadata_is_never_treated_as_a_lock_waiter():
+    """Unknown statuses cannot establish safe activity, even for a known waiter."""
+    from scripts.static_ops.external_trigger_gate import conflicting_active
     with pytest.raises(ValueError, match="Unknown"):
-        preceding_active([{**run(101, -1), "status": "unexpected"}], 100, NOW)
+        conflicting_active([{**run(101, -1), "status": "unexpected"}], 100, {101})
     with pytest.raises(KeyError):
-        preceding_active([{"id": 101, "created_at": NOW.isoformat()}], 100, NOW)
+        conflicting_active([{"id": 101, "created_at": NOW.isoformat()}], 100, {101})
+
+
+@pytest.mark.parametrize("lock_state", ["owned", "missing", "foreign", "unavailable"])
+def test_main_requires_live_lock_after_reading_active_history(monkeypatch, tmp_path, capsys,
+                                                            lock_state):
+    """The command checks the actual lease and keeps failures closed without new permissions."""
+    import io
+    import json
+
+    from scripts.static_ops import external_trigger_gate as gate
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps(EVENT))
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+    monkeypatch.setenv("GITHUB_RUN_ID", "100")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setenv("GH_TOKEN", "fixture-only")
+    monkeypatch.setattr("sys.argv", ["external_trigger_gate.py"])
+
+    class Opener:
+        def open(self, *args, **kwargs):
+            return io.BytesIO(json.dumps({"created_at": NOW.isoformat()}).encode())
+    monkeypatch.setattr(gate, "build_opener", lambda *_: Opener())
+    calls = []
+    # This older scheduled run is pending on our lock, not publishing in parallel.
+    other = {**run(99, 120), "display_title": "static-production", "status": "pending"}
+    def history(query):
+        calls.append(query)
+        if "created" in query:
+            return [run(), other]
+        return [other] if query["status"] == "pending" else []
+    monkeypatch.setattr(gate, "history", history)
+    def read_lock(request):
+        assert len(calls) == 6  # All active queries precede the live lock snapshot.
+        assert request.full_url.endswith("/actions/concurrency_groups/static-production")
+        if lock_state == "unavailable":
+            raise TimeoutError("private provider details")
+        return {"group_name": "static-production", "total_count": 2,
+                "group_members": [{"run_id": 100 if lock_state != "missing" else 101,
+                                   "status": ("in_progress" if lock_state != "foreign"
+                                              else "pending")},
+                                  {"run_id": 99, "status": "pending"}]}
+    monkeypatch.setattr(gate, "read_json", read_lock)
+    if lock_state == "owned":
+        gate.main()
+        assert "EXTERNAL_BUDGET_OK" in capsys.readouterr().out
+    else:
+        with pytest.raises(SystemExit, match="External trigger gate blocked"):
+            gate.main()

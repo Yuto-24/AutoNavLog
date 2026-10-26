@@ -84,3 +84,24 @@ FRESHとGitHub到達経路を別々に記録し、未測定経路を受入済み
 - setup後、既存隔離Compose `autonavlog-wt-6021b5fb` / 41503はhealthy、healthz ok。
   Workerは別runtimeであり、今回の範囲にアプリ再配置は含めない。volumeは保持。
 - 最新HEADのhosted CI・CodeRabbitはPR Conversationで記録し、このローカル結果とは分ける。
+
+
+## CodeRabbitの最新指摘への対応
+
+6c6e559bの自動レビューはMajor 2件。DO直列化復元は今回のユーザー指示と範囲が異なるため、
+明示された後続分離と厳密上限の非保証をスレッドへ回答した。DOは復元しない。
+
+もう1件のActions作成順によるlock待ち誤判定は修正した。履歴と全active状態を読んだ後、
+`GET /repos/Yuto-24/AutoNavLog/actions/concurrency_groups/static-production` で現在Runの
+workflow-level leaseがin_progressであることと、他Runが同groupでpendingであることを確認する。
+確認できた待機Runだけactive競合から除き、日次回数・cooldown・同Run制限からは除かない。
+API失敗・欠落・不完全・job-level lease・別holderは停止する。新規権限は追加せず既存Actions:readを使う。
+
+[公式concurrency API](https://docs.github.com/en/rest/actions/concurrency-groups) の仕様を確認し、
+既存CIの `test-290` groupを既存認証でread-only取得して200、run ID・statusの応答形を確認した。
+本番 `static-production` のlock保持経路は実dispatchせずfixtureで検証した段階であり、
+実運用のlock経路受入を済ませたとは扱わない。
+
+追加修正後の関連Pythonは187件成功、Ruff・release検査・git diff --checkも成功。
+GPT-6 Astra highが4ファイルの追加差分とworkflow呼出箇所をread-onlyで再確認し、
+修正必須の未解決指摘なし。Workerソースは6c6e559bから変更していない。

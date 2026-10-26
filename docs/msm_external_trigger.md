@@ -50,8 +50,10 @@ preflightのSHAをproducerへ渡し、承認変化があればidentity gateで�
 
 1. boundedな完全な履歴と全active状態を照合し、自分以外の実行中・承認待ち、日次8、90分、
    重複request ID、rerun、任意SHA指定を拒否する。不明/切詰め/通信失敗は停止する。
-   Actions内のgateでは現在Run以前に作られた未完了Runを拒否し、共有lockの後ろで待つ
-   後続Runを理由に現在の公開を中止しない。Workerの発行前検査では全active状態を止める。
+   Actions内のgateは履歴・全active状態を取得後、GitHub concurrency APIで現在Runが
+   `static-production` lockを保持することを確認する。同groupでpendingと確認したRunだけを
+   active競合から除外し、作成時刻の前後では待機順を推定しない。group外の承認待ちや
+   不明/欠落/不完全なlock情報は停止する。Workerの発行前検査では全active状態を止める。
 2. canonical release・catalogの実bytes/hash、全asset inventoryと全payload bytes/hashを検証する。
    hintがinventoryにあるdeploymentではcatalogのRun・日時・commitとhintを照合する。
    hintを持たない旧deploymentは移行元として認めるが、Workerによる欠落起動は認めない。
