@@ -67,10 +67,11 @@ are not performed by this candidate. Legacy import remains enabled.
 
 ## Separate production publication gate
 
-The general release path accepts an explicit candidate commit. The existing
-`--rules-transition-v1227` exception only authorizes its original pinned source
-pair and must not be relabeled or bypassed for v2.0.0. Before publication, review
-a candidate-specific transition with evidence for both the old application/new
-Rules and candidate application/new Rules. Verify the actually deployed Rules,
+The general release path accepts an explicit candidate commit. For a Rules change, the generic
+[`--rules-transition` record](static_operations.md#rulesが異なる更新だけに必要な検証記録)
+binds the selected candidate/project/Rules and reviewed evidence for both the old
+application/new Rules and candidate application/new Rules to the prepared plan.
+Reuse the historical v1.22.7 evidence within its verified scope and review/test
+the candidate delta; identical Rules hashes alone do not establish app compatibility. Verify the actually deployed Rules,
 indexes and schema. Keep current fail-closed checks intact; this candidate does
 not authorize a Rules change or establish live production compatibility.

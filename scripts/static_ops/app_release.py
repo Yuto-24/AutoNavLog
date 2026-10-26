@@ -49,18 +49,6 @@ COMPATIBILITY = (
     "firebase/firestore.indexes.json",
     "data/schemas/project.schema.json",
 )
-# Only the emulator-verified v1.20.1 -> v1.22.7 transition is admitted by the opt-in.
-# Owner-crafted generation reuse is tracked separately in #262; Rules stay unchanged.
-RULES_TRANSITION_V1227 = {
-    "current_sha": "a4de2a226dfa205b8be42fb62a710a1b06271ed8",
-    "sha": "e0ad634a8fab2ed48310f48b08c4ec3961cad14b",
-    "project": "navmate-prod",
-    "before_sha256": "f27ee41870413f48b9ac0da609350cac3b3cc3d2d3a4fa0d30772b3312865246",
-    "after_sha256": "574725b83fc0d0bca5df7311b970f97aeaaae068524eb1343bdc3912973757d8",
-    "previous_ruleset": "projects/navmate-prod/rulesets/688d5522-783a-452c-bbaf-7981748d3ef0",
-    "recovery": "forward-fix; no automatic old Rules rollback",
-}
-
 # Owner-confirmed Analytics settings and saved payload: see the dated #266 evidence.
 # Never learn this allowlist from a serving response. Any provider change needs review.
 ROOT_ANALYTICS_INSERTIONS = (
@@ -267,9 +255,9 @@ class Journal:
 
 
 class Operator:
-    def __init__(self, root: Path = ROOT, *, rules_transition_v1227: bool = False):
+    def __init__(self, root: Path = ROOT, *, rules_transition: Path | None = None):
         self.root = root
-        self.rules_transition_v1227 = rules_transition_v1227
+        self.rules_transition = rules_transition
         self.rules_receipt: dict | None = None
         self.env = dict(os.environ)
         self.wrangler = root / "services/taf-proxy/node_modules/.bin/wrangler"
@@ -500,20 +488,89 @@ class Operator:
         require(len(raw) <= 8 * 1024 * 1024, "Rules response too large")
         return json.loads(raw)
 
+    def transition(self, sha: str, current: str, project: str) -> dict | None:
+        """Read operator-reviewed compatibility evidence; hashes bind, not prove, it.
+
+        Re-read on every gate so edits, replacement paths and withdrawn evidence
+        invalidate the prepared snapshot. No version or historical SHA is privileged.
+        """
+        if self.rules_transition is None:
+            return None
+        path = self.rules_transition.resolve()
+        try:
+            raw = path.read_bytes()
+            require(len(raw) <= 1024 * 1024, "Rules transition record too large")
+            record = json.loads(raw)
+        except (OSError, ValueError):
+            raise Blocked("Rules transition record unavailable or invalid") from None
+        require(isinstance(record, dict), "Invalid Rules transition record")
+        require(
+            type(record.get("schema_version")) is int and record["schema_version"] == 1
+            and record.get("sha") == sha
+            and record.get("current_sha") == current
+            and record.get("project") == project,
+            "Rules transition target/current SHA or project mismatch",
+        )
+        require(
+            record.get("recovery") == "forward-fix; no automatic old Rules rollback",
+            "Rules transition recovery must preserve forward-fix",
+        )
+        for key in ("before_sha256", "after_sha256"):
+            require(
+                isinstance(record.get(key), str)
+                and re.fullmatch(r"[0-9a-f]{64}", record[key]),
+                "Invalid Rules transition source hash",
+            )
+        require(
+            record["before_sha256"] != record["after_sha256"],
+            "Same Rules update needs no transition record",
+        )
+        # These entries are reviewed attestations, not an inference from Rules hashes.
+        # The referenced files contain test results, reused evidence and delta review.
+        checks = record.get("compatibility", {})
+        require(isinstance(checks, dict), "Invalid application compatibility records")
+        evidence = {}
+        for role, commit in (("current", current), ("candidate", sha)):
+            check = checks.get(role, {})
+            require(isinstance(check, dict), "Invalid application compatibility record")
+            require(
+                check.get("sha") == commit
+                and check.get("project") == project
+                and check.get("rules_sha256") == record["after_sha256"]
+                and check.get("result") == "PASS"
+                and all(isinstance(check.get(key), str) and check[key].strip()
+                        for key in ("reviewed_by", "summary")),
+                "Reviewed current/candidate application compatibility required",
+            )
+            reference = check.get("record", {})
+            require(isinstance(reference, dict), "Invalid compatibility evidence reference")
+            require(
+                isinstance(reference.get("path"), str) and reference["path"].strip()
+                and isinstance(reference.get("sha256"), str)
+                and re.fullmatch(r"[0-9a-f]{64}", reference["sha256"]),
+                "Compatibility evidence file and SHA-256 required",
+            )
+            source = (path.parent / reference["path"]).resolve()
+            try:
+                content = source.read_bytes()
+            except OSError:
+                raise Blocked("Compatibility evidence unavailable") from None
+            require(
+                0 < len(content) <= 8 * 1024 * 1024
+                and content.strip()
+                and digest(content) == reference["sha256"],
+                "Compatibility evidence missing or hash mismatch",
+            )
+            evidence[role] = {"path": str(source), "sha256": digest(content)}
+        require(
+            digest(self.rules_source(current).encode("utf-8")) == record["before_sha256"]
+            and digest(self.rules_source(sha).encode("utf-8")) == record["after_sha256"],
+            "Pinned before/after Rules source hash mismatch",
+        )
+        return {"path": str(path), "sha256": digest(raw), "record": record, "evidence": evidence}
+
     def compatibility(self, sha: str, current: str, variables: dict) -> str:
-        transition = RULES_TRANSITION_V1227 if self.rules_transition_v1227 else None
-        if transition:
-            require(
-                sha == transition["sha"]
-                and current == transition["current_sha"]
-                and variables["VITE_FIREBASE_PROJECT_ID"] == transition["project"],
-                "Only the pinned navmate-prod v1.22.7 Rules transition is supported",
-            )
-            require(
-                digest(self.rules_source(current).encode("utf-8")) == transition["before_sha256"]
-                and digest(self.rules_source(sha).encode("utf-8")) == transition["after_sha256"],
-                "Pinned before/after Rules source hash mismatch",
-            )
+        transition = self.transition(sha, current, variables["VITE_FIREBASE_PROJECT_ID"])
         for path in COMPATIBILITY:
             if transition and path == "firebase/firestore.rules":
                 continue  # Both exact sources were checked above; other contracts remain identical.
@@ -536,7 +593,8 @@ class Operator:
         if transition:
             require(
                 files[0].get("name") == "firebase/firestore.rules"
-                and digest(files[0]["content"].encode("utf-8")) == transition["after_sha256"],
+                and digest(files[0]["content"].encode("utf-8"))
+                == transition["record"]["after_sha256"],
                 "Pinned candidate Rules must already be deployed; no automatic Rules deploy",
             )
         require(
@@ -588,10 +646,10 @@ class Operator:
         require(
             variables["STATIC_AUTOMATION_ENABLED"] in ("true", "false"), "Unknown automation state"
         )
-        if self.rules_transition_v1227:
+        if self.rules_transition is not None:
             require(
                 variables["STATIC_AUTOMATION_ENABLED"] == "false",
-                "Pause recurring publication before the pinned Rules transition",
+                "Pause recurring publication before the reviewed Rules transition",
             )
         require(
             self.env.get("CLOUDFLARE_API_TOKEN"), "Existing Pages upload authentication unavailable"
@@ -938,12 +996,9 @@ def main() -> int:
         "--reviewed-plan-sha256", help="Publish authorization must cover this exact prepare plan"
     )
     parser.add_argument(
-        "--rules-transition-v1227",
-        action="store_true",
-        help=(
-            "Only the pinned navmate-prod v1.20.1 -> v1.22.7 Rules transition; "
-            "Rules must already match"
-        ),
+        "--rules-transition",
+        type=Path,
+        help="Reviewed candidate-specific compatibility record; live Rules must already match",
     )
     args = parser.parse_args()
     store = args.store.resolve()
@@ -971,7 +1026,7 @@ def main() -> int:
         journal = Journal(report, args.mode, args.sha)
         success = False
         try:
-            operator = Operator(rules_transition_v1227=args.rules_transition_v1227)
+            operator = Operator(rules_transition=args.rules_transition)
             if args.mode == "prepare":
                 prepare(operator, args.sha, args.current_sha, store, journal)
                 journal.value["plan_sha256"] = digest((store / "plan.json").read_bytes())

@@ -20,6 +20,39 @@ from tests.unit.test_static_publication_gate import fixture_artifact
 OLD, NEW = "a" * 40, "b" * 40
 
 
+# Historical validation remains a fixture, never a production allowlist.
+HISTORICAL_TRANSITION = {
+    "current_sha": "a4de2a226dfa205b8be42fb62a710a1b06271ed8",
+    "sha": "e0ad634a8fab2ed48310f48b08c4ec3961cad14b",
+    "project": "navmate-prod",
+    "before_sha256": "f27ee41870413f48b9ac0da609350cac3b3cc3d2d3a4fa0d30772b3312865246",
+    "after_sha256": "574725b83fc0d0bca5df7311b970f97aeaaae068524eb1343bdc3912973757d8",
+    "recovery": "forward-fix; no automatic old Rules rollback",
+}
+
+
+def transition_record(path, *, sha=NEW, current=OLD, project="navmate-prod",
+                      before="old", after="new"):
+    record = {
+        "schema_version": 1, "sha": sha, "current_sha": current, "project": project,
+        "before_sha256": app.digest(before.encode()),
+        "after_sha256": app.digest(after.encode()),
+        "recovery": "forward-fix; no automatic old Rules rollback",
+        "compatibility": {},
+    }
+    for role, commit in (("current", current), ("candidate", sha)):
+        evidence = path.parent / (role + "-compatibility.md")
+        evidence.write_text("Synthetic reviewed SDK results and delta review for " + commit)
+        record["compatibility"][role] = {
+            "sha": commit, "project": project, "rules_sha256": record["after_sha256"],
+            "result": "PASS", "reviewed_by": "synthetic-independent-reviewer",
+            "summary": "Synthetic tests and scoped delta review passed",
+            "record": {"path": evidence.name, "sha256": app.digest(evidence.read_bytes())},
+        }
+    app.write_json(path, record)
+    return record
+
+
 class SimulatedOperator(app.Operator):
     def __init__(self, root, *, automation="true"):
         super().__init__(root)
@@ -1075,12 +1108,15 @@ def test_real_pre_upload_failures_leave_remote_production_unchanged(prepared, mo
 @pytest.fixture
 def pinned_rules_operator(tmp_path):
     """Exact historical Rules bytes; no network, credentials or production writes."""
-    transition = app.RULES_TRANSITION_V1227
-    operator = app.Operator(tmp_path, rules_transition_v1227=True)
+    transition = HISTORICAL_TRANSITION
+    record_path = tmp_path / "transition.json"
+    operator = app.Operator(tmp_path, rules_transition=record_path)
     old = (app.ROOT / "tests/fixtures/firestore-v1201.rules").read_bytes().decode("utf-8")
     new = (app.ROOT / "tests/fixtures/firestore-v1227.rules").read_bytes().decode("utf-8")
     assert app.digest(old.encode()) == transition["before_sha256"]
     assert app.digest(new.encode()) == transition["after_sha256"]
+    transition_record(record_path, sha=transition["sha"], current=transition["current_sha"],
+                      before=old, after=new)
     sources = {transition["current_sha"]: old, transition["sha"]: new}
     operator.rules_source = lambda sha: sources[sha]
     operator.git = lambda *args: (
@@ -1104,7 +1140,7 @@ def pinned_rules_operator(tmp_path):
 
 
 def pinned_compatibility(operator, *, sha=None, current=None, project="navmate-prod"):
-    transition = app.RULES_TRANSITION_V1227
+    transition = HISTORICAL_TRANSITION
     return operator.compatibility(
         sha or transition["sha"],
         current or transition["current_sha"],
@@ -1114,15 +1150,16 @@ def pinned_compatibility(operator, *, sha=None, current=None, project="navmate-p
 
 def test_exact_v1227_transition_requires_explicit_opt_in(pinned_rules_operator):
     operator, _, _, calls = pinned_rules_operator
-    operator.rules_transition_v1227 = False
+    path = operator.rules_transition
+    operator.rules_transition = None
     with pytest.raises(app.Blocked, match="migration required"):
         pinned_compatibility(operator)
     assert calls == []
-    operator.rules_transition_v1227 = True
+    operator.rules_transition = path
     assert pinned_compatibility(operator)
     receipt = operator.rules_receipt
-    assert receipt["transition"] == app.RULES_TRANSITION_V1227
-    assert receipt["source_sha256"] == app.RULES_TRANSITION_V1227["after_sha256"]
+    assert receipt["transition"]["record"] == json.loads(path.read_text())
+    assert receipt["source_sha256"] == HISTORICAL_TRANSITION["after_sha256"]
     assert receipt["deployment"] == "external; this script only reads Rules"
     assert len(calls) == 3 and calls[0] == calls[2]
 
@@ -1131,8 +1168,8 @@ def test_exact_v1227_transition_requires_explicit_opt_in(pinned_rules_operator):
 def test_transition_opt_in_cannot_admit_other_release_or_project(pinned_rules_operator, change):
     operator, _, _, calls = pinned_rules_operator
     scope = dict(
-        sha=app.RULES_TRANSITION_V1227["sha"],
-        current=app.RULES_TRANSITION_V1227["current_sha"],
+        sha=HISTORICAL_TRANSITION["sha"],
+        current=HISTORICAL_TRANSITION["current_sha"],
         project="navmate-prod",
     )
     if change in scope:
@@ -1141,7 +1178,7 @@ def test_transition_opt_in_cannot_admit_other_release_or_project(pinned_rules_op
         scope["sha"], scope["current"] = scope["current"], scope["sha"]
     else:
         scope["current"] = scope["sha"]
-    with pytest.raises(app.Blocked, match="Only the pinned"):
+    with pytest.raises(app.Blocked, match="SHA or project mismatch"):
         pinned_compatibility(operator, **scope)
     assert calls == []
 
@@ -1150,7 +1187,7 @@ def test_transition_opt_in_cannot_admit_other_release_or_project(pinned_rules_op
 @pytest.mark.parametrize("change", ["content", "whitespace", "crlf"])
 def test_transition_rejects_changed_source_bytes(pinned_rules_operator, source, change):
     operator, sources, _, calls = pinned_rules_operator
-    sha = app.RULES_TRANSITION_V1227[source]
+    sha = HISTORICAL_TRANSITION[source]
     raw = sources[sha]
     sources[sha] = raw + ("// changed\n" if change == "content" else "\n")
     if change == "crlf":
@@ -1165,7 +1202,7 @@ def test_pinned_transition_still_rejects_index_or_schema_changes(pinned_rules_op
     operator, _, _, calls = pinned_rules_operator
     original = operator.git
     operator.git = lambda *args: (
-        "changed" if args[-1] == f"{app.RULES_TRANSITION_V1227['sha']}:{path}" else original(*args)
+        "changed" if args[-1] == f"{HISTORICAL_TRANSITION['sha']}:{path}" else original(*args)
     )
     with pytest.raises(app.Blocked, match="migration required"):
         pinned_compatibility(operator)
@@ -1180,7 +1217,7 @@ def test_transition_requires_already_deployed_exact_rules_and_stable_release(
     pinned_rules_operator, change
 ):
     operator, sources, release, calls = pinned_rules_operator
-    new = sources[app.RULES_TRANSITION_V1227["sha"]]
+    new = sources[HISTORICAL_TRANSITION["sha"]]
 
     def rules_get(path):
         calls.append(path)
@@ -1192,7 +1229,7 @@ def test_transition_requires_already_deployed_exact_rules_and_stable_release(
                 value["updateTime"] = "changed"
             return value
         content = (
-            sources[app.RULES_TRANSITION_V1227["current_sha"]] if change == "old-rules" else new
+            sources[HISTORICAL_TRANSITION["current_sha"]] if change == "old-rules" else new
         )
         if change == "extra-whitespace":
             content += "\n"
@@ -1218,7 +1255,7 @@ def test_real_snapshot_requires_transition_schedule_already_paused(
     pinned_rules_operator, monkeypatch, automation, legacy
 ):
     operator, _, _, _ = pinned_rules_operator
-    transition = app.RULES_TRANSITION_V1227
+    transition = HISTORICAL_TRANSITION
     variables = {
         **{name: "public" for name in gate.CONFIGURATION},
         "STATIC_ORIGIN": gate.ORIGIN,
@@ -1259,7 +1296,7 @@ def test_real_snapshot_requires_transition_schedule_already_paused(
     else:
         value = operator.snapshot(transition["sha"], transition["current_sha"])
         assert value["rules_receipt"]["release"]["rulesetName"].endswith("/new-ruleset")
-        assert value["rules_receipt"]["transition"] == transition
+        assert value["rules_receipt"]["transition"]["record"]["sha"] == transition["sha"]
         mismatched = app.public_configuration(variables)
         if legacy:
             mismatched.pop("VITE_LEGACY_MIGRATION_URL")
@@ -1287,9 +1324,9 @@ def test_prepare_and_publish_record_external_rules_and_keep_recurring_paused(tmp
     store.mkdir(mode=0o700)
     operator = SimulatedOperator(tmp_path / "tooling", automation="false")
     operator.state["rules_receipt"] = {
-        "transition": copy.deepcopy(app.RULES_TRANSITION_V1227),
+        "transition": copy.deepcopy(HISTORICAL_TRANSITION),
         "release": {"rulesetName": "projects/navmate-prod/rulesets/new"},
-        "source_sha256": app.RULES_TRANSITION_V1227["after_sha256"],
+        "source_sha256": HISTORICAL_TRANSITION["after_sha256"],
         "deployment": "external; this script only reads Rules",
     }
     journal = app.Journal(store / "prepare-status.json", "prepare", NEW)
@@ -1304,7 +1341,7 @@ def test_prepare_and_publish_record_external_rules_and_keep_recurring_paused(tmp
 
 def test_transition_receipt_drift_before_publish_blocks_all_mutations(prepared):
     operator, store, _ = prepared
-    operator.state["rules_receipt"] = {"transition": app.RULES_TRANSITION_V1227}
+    operator.state["rules_receipt"] = {"transition": HISTORICAL_TRANSITION}
     with pytest.raises(app.Blocked, match="changed"):
         run_publish(prepared)
     assert "pause" not in operator.calls and operator.uploaded is None
@@ -1318,3 +1355,193 @@ def test_transition_rules_drift_after_upload_keeps_old_approval_and_stops(prepar
     assert operator.state["variables"]["STATIC_APPROVED_SHA"] == OLD
     assert operator.workflow_state == "disabled_manually"
     assert operator.state["variables"]["STATIC_AUTOMATION_ENABLED"] == "false"
+
+
+def reviewed_operator(tmp_path, *, sha=NEW, current=OLD):
+    """Real compatibility gates inside the simulated prepare/publish lifecycle."""
+    operator = SimulatedOperator(tmp_path / "tooling", automation="false")
+    operator.state["variables"]["STATIC_APPROVED_SHA"] = current
+    operator.state["variables"]["VITE_FIREBASE_PROJECT_ID"] = "navmate-prod"
+    operator.state["target"]["commit"] = current
+    operator.rules_transition = tmp_path / "transition.json"
+    transition_record(operator.rules_transition, sha=sha, current=current)
+    operator.sources = {current: "old", sha: "new"}
+    operator.rules_source = lambda commit: operator.sources[commit]
+    operator.git = lambda *args: (
+        operator.sources[args[-1].split(":")[0]]
+        if args[-1].endswith(".rules") else "same-contract"
+    )
+    operator.rules_get = lambda path: (
+        {"rulesetName": "projects/navmate-prod/rulesets/new"}
+        if "/releases/" in path
+        else {"source": {"files": [{"name": "firebase/firestore.rules", "content": "new"}]}}
+    )
+    operator.compatibility = lambda *args: app.Operator.compatibility(operator, *args)
+    simulated_snapshot = operator.snapshot
+
+    def snapshot(sha, current, *, paused=False):
+        operator.state["rules_digest"] = operator.compatibility(
+            sha, current, operator.state["variables"]
+        )
+        operator.state["rules_receipt"] = operator.rules_receipt
+        return simulated_snapshot(sha, current, paused=paused)
+
+    operator.snapshot = snapshot
+    return operator
+
+
+@pytest.mark.parametrize("sha,current", [(NEW, OLD), ("1" * 40, "2" * 40)])
+def test_arbitrary_reviewed_candidate_and_following_normal_update(tmp_path, sha, current):
+    operator = reviewed_operator(tmp_path, sha=sha, current=current)
+    store = tmp_path / "migration"
+    store.mkdir()
+    app.prepare(operator, sha, current, store, app.Journal(store / "prepare.json", "prepare", sha))
+    receipt = json.loads((store / "plan.json").read_text())["snapshot"]["rules_receipt"]
+    assert receipt["transition"]["record"]["sha"] == sha
+    app.publish(operator, sha, current, store, app.digest((store / "plan.json").read_bytes()),
+                app.Journal(store / "publish.json", "publish", sha))
+    assert operator.state["variables"]["STATIC_APPROVED_SHA"] == sha
+    assert operator.state["variables"]["STATIC_AUTOMATION_ENABLED"] == "false"
+    # Once deployed app and next app share Rules, no record/opt-in/tool edit is needed.
+    next_sha = "3" * 40
+    operator.rules_transition = None
+    operator.sources[next_sha] = "new"
+    operator.state["variables"]["STATIC_AUTOMATION_ENABLED"] = "true"
+    follow = tmp_path / "normal"
+    follow.mkdir()
+    app.prepare(operator, next_sha, sha, follow,
+                app.Journal(follow / "prepare.json", "prepare", next_sha))
+    app.publish(operator, next_sha, sha, follow, app.digest((follow / "plan.json").read_bytes()),
+                app.Journal(follow / "publish.json", "publish", next_sha))
+    assert operator.state["variables"]["STATIC_APPROVED_SHA"] == next_sha
+    assert operator.state["variables"]["STATIC_AUTOMATION_ENABLED"] == "true"
+    assert operator.rules_receipt["transition"] is None
+
+
+@pytest.mark.parametrize("role", ["current", "candidate"])
+@pytest.mark.parametrize("change", ["missing", "unverified", "sha", "project", "rules", "file",
+                                    "hash", "reviewer", "summary"])
+def test_hashes_alone_do_not_admit_unverified_or_mismatched_applications(tmp_path, role, change):
+    operator = reviewed_operator(tmp_path)
+    path = operator.rules_transition
+    record = json.loads(path.read_text())
+    check = record["compatibility"][role]
+    if change == "missing":
+        del record["compatibility"][role]
+    elif change == "unverified":
+        check["result"] = "NOT_RUN"
+    elif change in ("sha", "project"):
+        check[change] = "wrong"
+    elif change == "rules":
+        check["rules_sha256"] = "0" * 64
+    elif change == "file":
+        (path.parent / check["record"]["path"]).unlink()
+    elif change == "hash":
+        check["record"]["sha256"] = "0" * 64
+    elif change == "reviewer":
+        check["reviewed_by"] = ""
+    else:
+        check["summary"] = ""
+    app.write_json(path, record)
+    store = tmp_path / "store"
+    store.mkdir()
+    with pytest.raises((app.Blocked, FileNotFoundError)):
+        app.prepare(operator, NEW, OLD, store, app.Journal(store / "prepare.json", "prepare", NEW))
+    assert not (store / "plan.json").exists() and operator.uploaded is None
+
+
+@pytest.mark.parametrize("change", ["record", "record-path", "evidence", "evidence-path",
+                                    "remove-input", "sha", "project", "rules"])
+def test_transition_or_evidence_replacement_after_prepare_blocks_before_mutation(tmp_path, change):
+    operator = reviewed_operator(tmp_path)
+    store = tmp_path / "store"
+    store.mkdir()
+    app.prepare(operator, NEW, OLD, store, app.Journal(store / "prepare.json", "prepare", NEW))
+    reviewed = app.digest((store / "plan.json").read_bytes())
+    operator.calls.clear()
+    path = operator.rules_transition
+    record = json.loads(path.read_text())
+    if change == "record":
+        # Even a semantically equivalent reformat is different reviewed input.
+        path.write_text(json.dumps(record))
+    elif change == "record-path":
+        operator.rules_transition = tmp_path / "replacement.json"
+        operator.rules_transition.write_bytes(path.read_bytes())
+    elif change == "evidence":
+        evidence = path.parent / record["compatibility"]["candidate"]["record"]["path"]
+        evidence.write_text("replacement results")
+        # Updating both record and hash still cannot alter the reviewed plan.
+        record["compatibility"]["candidate"]["record"]["sha256"] = app.digest(evidence.read_bytes())
+        app.write_json(path, record)
+    elif change == "evidence-path":
+        evidence = path.parent / record["compatibility"]["candidate"]["record"]["path"]
+        replacement = tmp_path / "other.md"
+        replacement.write_bytes(evidence.read_bytes())
+        record["compatibility"]["candidate"]["record"]["path"] = replacement.name
+        app.write_json(path, record)
+    elif change == "remove-input":
+        operator.rules_transition = None
+    elif change == "sha":
+        record["sha"] = "c" * 40
+        app.write_json(path, record)
+    elif change == "project":
+        operator.state["variables"]["VITE_FIREBASE_PROJECT_ID"] = "other-project"
+    else:
+        operator.sources[NEW] = "changed"
+    with pytest.raises(app.Blocked):
+        app.publish(operator, NEW, OLD, store, reviewed,
+                    app.Journal(store / "publish.json", "publish", NEW))
+    assert "pause" not in operator.calls and operator.uploaded is None
+
+
+def test_evidence_drift_during_fresh_build_blocks_upload(tmp_path):
+    operator = reviewed_operator(tmp_path)
+    store = tmp_path / "store"
+    store.mkdir()
+    app.prepare(operator, NEW, OLD, store, app.Journal(store / "prepare.json", "prepare", NEW))
+    build = operator.build
+
+    def replace_after_build(sha, snapshot, destination):
+        result = build(sha, snapshot, destination)
+        if destination.name == "fresh":
+            (tmp_path / "candidate-compatibility.md").write_text("withdrawn")
+        return result
+
+    operator.build = replace_after_build
+    with pytest.raises(app.Blocked, match="evidence"):
+        app.publish(operator, NEW, OLD, store, app.digest((store / "plan.json").read_bytes()),
+                    app.Journal(store / "publish.json", "publish", NEW))
+    assert operator.uploaded is None and operator.workflow_state == "disabled_manually"
+    assert operator.state["variables"]["STATIC_APPROVED_SHA"] == OLD
+
+
+@pytest.mark.parametrize("change", ["invalid-json", "invalid-object", "missing-record",
+                                    "schema-version", "recovery", "same-rules",
+                                    "before-hash", "after-hash", "compatibility-type"])
+def test_invalid_or_incomplete_transition_records_fail_closed(tmp_path, change):
+    operator = reviewed_operator(tmp_path)
+    path = operator.rules_transition
+    record = json.loads(path.read_text())
+    if change == "invalid-json":
+        path.write_text("{")
+    elif change == "missing-record":
+        path.unlink()
+    elif change == "invalid-object":
+        app.write_json(path, [])
+    else:
+        if change == "schema-version":
+            record["schema_version"] = 2
+        elif change == "recovery":
+            record["recovery"] = "automatically restore old Rules"
+        elif change == "same-rules":
+            record["before_sha256"] = record["after_sha256"]
+        elif change == "before-hash":
+            record["before_sha256"] = "not-a-hash"
+        elif change == "after-hash":
+            record["after_sha256"] = "0" * 64
+        else:
+            record["compatibility"] = []
+        app.write_json(path, record)
+    with pytest.raises(app.Blocked):
+        operator.compatibility(NEW, OLD, operator.state["variables"])
+    assert operator.rules_receipt is None and operator.uploaded is None
