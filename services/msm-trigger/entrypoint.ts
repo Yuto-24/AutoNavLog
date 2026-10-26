@@ -1,2 +1,2 @@
-// Only the scheduled/fetch handler is a deployed Worker entrypoint.
+// Public HTTP stays closed; only scheduled checks run.
 export { default } from "./worker.ts";

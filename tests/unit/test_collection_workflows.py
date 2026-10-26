@@ -174,7 +174,7 @@ def test_hourly_preflight_precedes_all_heavy_work_and_preserves_serialization():
     assert "cron: '23 * * * *'" in PRODUCTION
     assert "group: static-production\n  cancel-in-progress: false" in PRODUCTION
     preflight = next(step for step in steps(PRODUCTION) if "id: preflight" in step)
-    assert "if:" not in preflight
+    assert re.search(r"^        if:", preflight, re.MULTILINE) is None
     assert "set -euo pipefail" in preflight
     assert (PRODUCTION.index("Install trusted producer dependencies")
             < PRODUCTION.index("id: preflight"))
@@ -197,7 +197,8 @@ def test_preflight_event_matrix(event, proceed, publish, build, upload):
     """Build and upload require a positive preflight for schedule and dispatch alike."""
     workflow_steps = steps(PRODUCTION)
     boundary = next(i for i, step in enumerate(workflow_steps) if "id: preflight" in step)
-    heavy = workflow_steps[boundary + 1:]
+    heavy = [step for step in workflow_steps[boundary + 1:]
+             if "needs.preflight.outputs.proceed" in step]
     assert len(heavy) == 10
     for step in heavy:
         condition = re.search(r"^        if: (.+)$", step, re.MULTILINE)
@@ -205,7 +206,7 @@ def test_preflight_event_matrix(event, proceed, publish, build, upload):
         expression = condition[1]
         assert "always()" not in expression  # implicit success() must still stop on failure
         expression = expression.replace("github.event_name", repr(event))
-        expression = expression.replace("steps.preflight.outputs.proceed", repr(proceed))
+        expression = expression.replace("needs.preflight.outputs.proceed", repr(proceed))
         expression = expression.replace("inputs.publish", repr(publish))
         expression = expression.replace("&&", "and").replace("||", "or")
         is_upload = workflow_steps.index(step) >= next(
@@ -225,3 +226,14 @@ def test_external_path_preserves_approval_identity_and_final_recheck():
     assert (upload.index("--verify-context") < upload.index("--candidate")
             < upload.index("pages deploy"))
     assert "--candidate dist-static/weather/msm/catalog.json" in upload
+
+
+def test_freshness_lives_in_tooling_and_detected_run_is_recorded_in_actions():
+    """Legacy approved app can publish the hint; discovery and request identity stay distinct."""
+    assert "name: msm-detected/${{ needs.preflight.outputs.upstream_run }}" in PRODUCTION
+    assert "request_id:" in PRODUCTION
+    assert "freshness.py --dist app/web/dist-static" in PRODUCTION
+    assert PRODUCTION.index("freshness.py --dist") < PRODUCTION.index("--stage")
+    assert "--detected-run" in PRODUCTION
+    assert "needs: preflight" in PRODUCTION
+    assert "if: needs.preflight.outputs.proceed == 'true'" in PRODUCTION

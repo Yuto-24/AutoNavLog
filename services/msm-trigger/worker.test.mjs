@@ -1,128 +1,154 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { tick, ORIGIN, API, UPSTREAM, COOLDOWN } from './worker.ts';
-import { fixture, NOW, OLD, NEW } from './fixtures.mjs';
-const run = (status = 'completed', conclusion = 'success', time = NOW) => ({ id: 1, status, conclusion, created_at: new Date(time).toISOString(), display_title: 'msm-fallback/' + NEW });
-test('normal renewal: acceptance is not publication, later canonical Run/hash/lifetime confirms', async () => {
-  const s = fixture(); assert.equal((await s.tick()).status, 'DISPATCH_ACCEPTED');
-  assert.deepEqual(s.posts, [{ ref: 'main', inputs: { feed_refresh: true, observed_run: NEW, publish: true } }]);
-  assert.equal((await s.tick()).status, 'AWAITING_PUBLICATION');
-  s.catalog.assets[0].run = NEW;
-  assert.equal((await s.tick()).status, 'PUBLICATION_OBSERVED');
-  assert.equal((await s.tick()).status, 'NO_UPDATE'); assert.equal(s.posts.length, 1);
+import worker, { tick, API, FRESHNESS, FRESHNESS_LIMIT, COOLDOWN } from './worker.ts';
+import { fixture, NOW } from './fixtures.mjs';
+const run = (status = 'completed', time = NOW) => ({ id: 1, status, conclusion: 'success', created_at: new Date(time).toISOString(), display_title: 'msm-request/' + time });
+test('request IDs are separate from observed Runs; acceptance never proves publication', async () => {
+  const s = fixture(); const result = await s.tick();
+  assert.equal(result.status, 'DISPATCH_ACCEPTED'); assert.equal(result.publication, 'NOT_VERIFIED');
+  assert.deepEqual(s.posts, [{ ref: 'main', inputs: { feed_refresh: true, request_id: String(NOW), publish: true } }]);
+  assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(s.posts.length, 1);
+  assert.ok(s.calls.every(c => c.url === FRESHNESS || c.url.startsWith(API)));
 });
-test('observe requires no credential and cannot POST; HTTP never triggers work', async () => {
+test('fresh path reads one small hint, without GitHub, catalog, release or upstream', async () => {
+  const s = fixture(); s.now--;
+  assert.equal((await s.tick()).status, 'FRESH'); assert.equal(s.calls.length, 1);
+  assert.equal(s.data, null); assert.equal(s.posts.length, 0);
+});
+test('observe requires no credential, never writes or posts; HTTP entry stays closed', async () => {
   const s = fixture('observe'); delete s.env.GITHUB_TOKEN;
-  assert.equal((await s.tick()).status, 'WOULD_DISPATCH'); assert.equal(s.posts.length, 0);
-  assert.equal(s.data, null); assert.equal((await worker.fetch()).status, 404);
+  assert.equal((await s.tick()).status, 'WOULD_REQUEST'); assert.equal(s.data, null);
+  assert.equal(s.posts.length, 0); assert.equal((await worker.fetch()).status, 404);
 });
-test('fresh catalog gives schedule first chance; same Run cannot renew TTL', async () => {
-  const s = fixture(); s.now -= 1;
-  assert.equal((await s.tick()).status, 'FRESH'); s.latest = OLD;
-  assert.equal((await s.tick()).status, 'NO_UPDATE'); assert.equal(s.posts.length, 0);
-});
-for (const status of ['queued','in_progress','waiting','pending','requested']) test(`old ${status} execution blocks fallback`, async () => {
-  const s = fixture(); s.active = [run(status, null, NOW - 3 * 86400_000)];
+for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) test(`old ${status} blocks a request`, async () => {
+  const s = fixture(); s.active = [run(status, NOW - 3 * 86400_000)];
   assert.equal((await s.tick()).status, 'IN_FLIGHT'); assert.equal(s.posts.length, 0);
 });
-for (const code of [401,403,429,500,503]) test(`GitHub ${code} fails closed without dispatch`, async () => {
-  const s = fixture(); s.error = url => url.startsWith(API) ? new Response('sensitive', { status: code }) : null;
-  await assert.rejects(s.tick(), new RegExp(`HTTP_${code}`)); assert.equal(s.posts.length, 0);
+for (const status of [302,401,403,429,500,503,526]) test(`HTTP ${status} fails closed with redacted stage diagnostics`, async () => {
+  const s = fixture(); const diagnostics = [];
+  s.error = url => url === FRESHNESS ? new Response('private-token', { status }) : null;
+  await assert.rejects(tick(s.env, s.fetch, s.now, d => diagnostics.push(d)), new RegExp(`HTTP_${status}`));
+  assert.deepEqual(diagnostics, [{ stage: 'canonical_freshness', target: 'navmate.yuto24.com', status, bytes: 0 }]);
+  assert.equal(s.posts.length, 0);
 });
-test('upstream timeout, unrecognized listing and malformed catalog are not healthy no-ops', async () => {
-  const s = fixture(); s.error = url => { if (url.startsWith(UPSTREAM)) throw new DOMException('secret', 'TimeoutError'); };
-  await assert.rejects(s.tick(), /secret/); assert.equal(s.posts.length, 0);
-  s.error = url => url.startsWith(UPSTREAM) ? new Response('<html>maintenance</html>') : null;
-  await assert.rejects(s.tick(), /UNKNOWN_LISTING/);
-  s.error = url => url.endsWith('catalog.json') ? new Response('{') : null;
-  await assert.rejects(s.tick());
+for (const change of [{ schema_version: 2 }, { run: '20261025040000' }, { run: '20261025120000' },
+  { app_commit: 'bad' }, { expires_at: '2026-10-26T12:00:00Z' }, { generated_at: 'bad' }]) test(`invalid hint ${JSON.stringify(change)} never requests`, async () => {
+  const s = fixture(); Object.assign(s.hint, change);
+  await assert.rejects(s.tick()); assert.equal(s.calls.length, 1); assert.equal(s.posts.length, 0);
 });
-test('expired catalog recovers through newer Run only', async () => {
-  const s = fixture(); s.catalog.generated_at = '2026-10-25T00:00:00Z'; s.catalog.expires_at = '2026-10-25T06:00:00Z';
+test('migration: missing, HTML, malformed, oversize and failed hints cannot create request storms', async () => {
+  for (const response of [() => new Response('', { status: 404 }), () => new Response('<html>SPA</html>'),
+    () => new Response('{'), () => new Response('x'.repeat(FRESHNESS_LIMIT + 1))]) {
+    const s = fixture(); s.error = response;
+    for (let i = 0; i < 10; i++) { s.now += 900000; await assert.rejects(s.tick()); }
+    assert.equal(s.posts.length, 0); assert.equal(s.data, null);
+  }
+  const s = fixture(); s.error = () => { throw new Error('private timeout'); };
+  await assert.rejects(s.tick()); assert.equal(s.posts.length, 0);
+});
+test('expired valid hint allows bounded checks, without claiming an upstream Run exists', async () => {
+  const s = fixture(); s.hint.generated_at = '2026-10-25T00:00:00Z'; s.hint.expires_at = '2026-10-25T06:00:00Z';
   assert.equal((await s.tick()).status, 'DISPATCH_ACCEPTED');
-  s.data = null; s.latest = OLD;
-  await assert.rejects(s.tick(), /NO_NEW_RUN_UNHEALTHY/); assert.equal(s.posts.length, 1);
+  assert.equal((await s.tick()).upstream, 'NOT_CHECKED');
 });
-test('public GitHub success alone is not success; failed publication is recorded and retries bounded', async () => {
-  const s = fixture(); await s.tick(); s.recent = [run('completed','failure')];
-  let result = await s.tick(); assert.equal(result.publication, 'FAILED'); assert.equal(result.status, 'AWAITING_PUBLICATION');
-  s.now += COOLDOWN; assert.equal((await s.tick()).status, 'DISPATCH_ACCEPTED');
-  s.now += COOLDOWN; assert.equal((await s.tick()).status, 'RUN_LIMIT'); assert.equal(s.posts.length, 2);
-});
-test('expiry, catalog/release mismatch and app change never confirm a pending publication', async () => {
-  const s = fixture(); await s.tick(); s.catalog.assets[0].run = NEW; s.mismatch = true;
-  await assert.rejects(s.tick(), /CATALOG_RELEASE_MISMATCH/);
-  s.mismatch = false; s.commit = 'c'.repeat(40); await assert.rejects(s.tick(), /APP_CHANGED/);
-  s.commit = 'b'.repeat(40); s.now += 6 * 3600_000;
-  await assert.rejects(s.tick(), /NO_NEW_RUN_UNHEALTHY/);
-});
-test('KV failure prevents POST; ambiguous POST consumes budget and is not retried immediately', async () => {
-  const s = fixture(); s.failKV = true; await assert.rejects(s.tick()); assert.equal(s.posts.length, 0);
-  s.failKV = false; s.error = url => { if (url.endsWith('dispatches')) throw Error('connection lost'); };
-  await assert.rejects(s.tick()); assert.equal(JSON.parse(s.data).attempts, 1);
-  s.error = null; assert.equal((await s.tick()).status, 'AWAITING_PUBLICATION'); assert.equal(s.posts.length, 0);
-});
-test('daily limit uses KV and GitHub evidence even when KV is stale', async () => {
-  const s = fixture(); s.recent = Array.from({ length: 8 }, (_, i) => ({ ...run('completed','failure', NOW - 2 * 3600_000), id: i, display_title: 'msm-fallback/20261024000000' }));
+test('no-op requests still consume daily budget; GitHub history and legacy requests count', async () => {
+  const s = fixture(); s.recent = Array.from({ length: 8 }, (_, i) => ({ ...run('completed', NOW - 2 * 3600_000), id: i,
+    display_title: i % 2 ? 'msm-fallback/20261024000000' : 'msm-request/' + i }));
   assert.equal((await s.tick()).status, 'DAILY_LIMIT');
   s.recent = []; s.data = JSON.stringify({ day: '2026-10-25', attempts: 8, lastAttempt: 0, target: '', targetAttempts: 0 });
   assert.equal((await s.tick()).status, 'DAILY_LIMIT'); assert.equal(s.posts.length, 0);
 });
-test('GitHub cooldown and per-Run cap protect against lost KV counters', async () => {
+test('GitHub cooldown survives KV loss; pending legacy evidence and counters are retained', async () => {
   const s = fixture(); s.recent = [run()]; assert.equal((await s.tick()).status, 'COOLDOWN');
-  s.now += COOLDOWN; s.recent.push({ ...run(), id: 2 });
-  assert.equal((await s.tick()).status, 'RUN_LIMIT');
+  s.recent = []; const previous = { day: '2026-10-25', attempts: 1, lastAttempt: NOW - COOLDOWN,
+    target: '20261025030000', targetAttempts: 1, pending: { after: '20261025000000', target: '20261025030000', at: NOW - COOLDOWN, commit: 'b'.repeat(40) } };
+  s.data = JSON.stringify(previous); await s.tick();
+  assert.deepEqual(JSON.parse(s.data).pending, previous.pending); assert.equal(JSON.parse(s.data).attempts, 2);
 });
-test('unknown/truncated execution history and corrupt KV stop checks', async () => {
+test('KV write failure prevents POST; ambiguous POST reserves a slot without immediate retry', async () => {
+  const s = fixture(); s.failKV = true; await assert.rejects(s.tick()); assert.equal(s.posts.length, 0);
+  s.failKV = false; s.error = url => { if (url.endsWith('dispatches')) throw Error('lost'); };
+  await assert.rejects(s.tick()); assert.equal(JSON.parse(s.data).attempts, 1);
+  s.error = null; assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(s.posts.length, 0);
+});
+test('corrupt state, truncated history and unavailable Actions do not grant requests', async () => {
   const s = fixture(); s.data = '{}'; await assert.rejects(s.tick(), /INVALID_STATE/);
   s.data = null; s.error = url => url.includes('/runs?') ? Response.json({ total_count: 101, workflow_runs: [] }) : null;
-  await assert.rejects(s.tick(), /UNKNOWN_ACTIONS/); assert.equal(s.posts.length, 0);
+  await assert.rejects(s.tick(), /UNKNOWN_ACTIONS/);
+  s.error = url => url.startsWith(API) ? new Response('', { status: 503 }) : null;
+  await assert.rejects(s.tick(), /HTTP_503/); assert.equal(s.posts.length, 0);
 });
-test('concurrent stale KV ticks can both request; no claim of KV locking', async () => {
-  const s = fixture(); s.env.STATE.get = async () => null;
-  const results = await Promise.all([s.tick(), s.tick()]);
-  assert.ok(results.every(r => r.status === 'DISPATCH_ACCEPTED'));
-  assert.equal(s.posts.length, 2); // Python tests cover serialized start and final same-Run refusal.
-});
-test('response body budgets and redirect policy apply to every fetch', async () => {
-  const s = fixture(); await s.tick(); assert.ok(s.calls.every(c => c.options.redirect === 'manual'));
-  s.error = url => url.endsWith('catalog.json') ? new Response('x'.repeat(1024 * 1024 + 1)) : null;
-  await assert.rejects(s.tick(), /BODY_LIMIT/);
-});
-
-test('operator abandonment after legitimate app update restores observation without resetting budget', async () => {
-  const { abandonPending } = await import('./ops.mjs');
-  const s = fixture(); await s.tick(); s.commit = 'c'.repeat(40);
-  await assert.rejects(s.tick(), /APP_CHANGED/);
-  const before = JSON.parse(s.data);
-  s.data = JSON.stringify(abandonPending(before));
-  assert.equal((await s.tick()).status, 'COOLDOWN');
-  s.now += COOLDOWN; s.env.MODE = 'observe';
-  assert.equal((await s.tick()).status, 'WOULD_DISPATCH');
-  assert.equal(JSON.parse(s.data).attempts, 1); assert.equal(s.posts.length, 1);
-});
-
-test('redirect responses fail closed and missing catalog listings are unknown', async () => {
-  const s = fixture(); s.error = url => url.startsWith(API) ? new Response(null, { status: 302, headers: { Location: 'https://unexpected.test/' } }) : null;
-  await assert.rejects(s.tick(), /HTTP_302/); assert.equal(s.posts.length, 0);
-  s.error = null; s.catalog.listings = {};
-  await assert.rejects(s.tick(), /INVALID_CATALOG/);
-});
-test('optional heartbeat signals liveness only; native errors and secret URLs are never logged', async () => {
+test('streaming body remains bounded, exact and redirect-free', async () => {
   const s = fixture('observe');
-  const realFetch = globalThis.fetch, realLog = console.log, realNow = Date.now;
-  const logs = []; let pings = 0;
-  const heartbeat = 'https://hc-ping.com/00000000-0000-0000-0000-000000000000';
-  s.env.HEARTBEAT_URL = heartbeat;
+  s.error = url => {
+    if (url !== FRESHNESS) return null;
+    const bytes = new TextEncoder().encode(JSON.stringify(s.hint));
+    return new Response(new ReadableStream({ start(c) { c.enqueue(bytes.subarray(0, 10)); c.enqueue(bytes.subarray(10)); c.close(); } }));
+  };
+  assert.equal((await s.tick()).status, 'WOULD_REQUEST'); assert.ok(s.calls.every(c => c.options.redirect === 'manual'));
+});
+test('scheduled errors and heartbeat never expose credentials or imply publication success', async () => {
+  const s = fixture('observe'); const saved = [globalThis.fetch, console.log, Date.now]; const logs = [];
+  const heartbeat = 'https://hc-ping.com/00000000-0000-0000-0000-000000000000'; s.env.HEARTBEAT_URL = heartbeat;
+  let pings = 0;
   globalThis.fetch = (url, options) => { if (url === heartbeat) { pings++; return Promise.resolve(new Response('OK')); } return s.fetch(url, options); };
   console.log = value => logs.push(value); Date.now = () => NOW;
   try {
-    await worker.scheduled({}, s.env);
-    assert.equal(pings, 1); assert.equal(s.posts.length, 0);
-    s.error = () => { throw Error('fixture-private-token'); };
-    await assert.rejects(worker.scheduled({}, s.env), /check failed/);
-    assert.equal(pings, 1);
-    assert.ok(logs.every(line => !line.includes('fixture-private-token') && !line.includes(heartbeat)));
-    s.error = null; await worker.scheduled({}, s.env); assert.equal(pings, 2);
-  } finally { globalThis.fetch = realFetch; console.log = realLog; Date.now = realNow; }
+    await worker.scheduled({}, s.env); assert.equal(pings, 1);
+    s.error = () => { throw Error('private-token'); }; await assert.rejects(worker.scheduled({}, s.env), /check failed/);
+    assert.equal(pings, 1); assert.ok(logs.every(line => !line.includes('private-token') && !line.includes(heartbeat)));
+  } finally { [globalThis.fetch, console.log, Date.now] = saved; }
+});
+
+test('UTC rollover resets daily count but retains cooldown and legacy evidence', async () => {
+  const s = fixture(); s.now = Date.parse('2026-10-25T23:59:59Z');
+  await s.tick(); const previous = JSON.parse(s.data);
+  s.now += 2000;
+  assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(s.posts.length, 1);
+  s.now += COOLDOWN + 10001;
+  await s.tick();
+  assert.equal(JSON.parse(s.data).day, '2026-10-26');
+  assert.equal(JSON.parse(s.data).attempts, 1);
+  assert.ok(JSON.parse(s.data).lastAttempt > previous.lastAttempt);
+});
+test('history restores daily count when KV is missing; accepted no-ops still count', async () => {
+  const s = fixture(); s.recent = Array.from({ length: 7 }, (_, i) => ({
+    ...run('completed', NOW - 2 * 3600_000), id: i }));
+  await s.tick(); assert.equal(JSON.parse(s.data).attempts, 8);
+  s.now = JSON.parse(s.data).lastAttempt + COOLDOWN;
+  assert.equal((await s.tick()).status, 'DAILY_LIMIT'); assert.equal(s.posts.length, 1);
+});
+for (const status of [200, 401, 403, 429, 500]) test(`unconfirmed POST ${status} keeps KV slot without retry`, async () => {
+  const s = fixture(); let posts = 0;
+  s.error = url => { if (url.endsWith('/dispatches')) { posts++; return new Response(null, { status }); } };
+  await assert.rejects(s.tick()); assert.equal(posts, 1);
+  assert.equal(JSON.parse(s.data).attempts, 1);
+  assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(posts, 1);
+});
+test('stale KV cannot bypass Actions active/cooldown checks, without claiming strict admission', async () => {
+  const s = fixture(); s.env.STATE.get = async () => null;
+  s.active = [run('waiting')];
+  assert.equal((await s.tick()).status, 'IN_FLIGHT');
+  s.active = []; s.recent = [run()];
+  assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(s.posts.length, 0);
+});
+
+test('slow KV reservation stops before POST and retains the consumed attempt', async () => {
+  const s = fixture(); const clock = Date.now; let elapsed = 0;
+  const put = s.env.STATE.put;
+  Date.now = () => elapsed;
+  s.env.STATE.put = async (...args) => { await put(...args); elapsed += 10001; };
+  try {
+    await assert.rejects(s.tick(), /RESERVATION_EXPIRED/);
+    assert.equal(JSON.parse(s.data).attempts, 1); assert.equal(s.posts.length, 0);
+  } finally { Date.now = clock; }
+});
+test('checks crossing UTC midnight do not charge yesterday and send today', async () => {
+  const s = fixture(); s.now = Date.parse('2026-10-25T23:59:59Z');
+  const clock = Date.now; let elapsed = 0; Date.now = () => elapsed;
+  s.error = url => { if (url === FRESHNESS) elapsed += 2000; };
+  try {
+    await assert.rejects(s.tick(), /STATE_DAY_CHANGED/);
+    assert.equal(s.data, null); assert.equal(s.posts.length, 0);
+  } finally { Date.now = clock; }
 });

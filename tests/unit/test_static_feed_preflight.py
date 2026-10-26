@@ -180,3 +180,19 @@ def test_preupload_fetch_failure_cannot_publish(source, tmp_path, monkeypatch):
     monkeypatch.setattr(gate, "fetch", lambda *a: (_ for _ in ()).throw(TimeoutError()))
     with pytest.raises(TimeoutError):
         gate.require_newer_candidate("https://canonical.test", tmp_path / "catalog.json", NOW)
+
+
+def test_admitted_detected_run_is_pinned_before_payload_and_upload(source, tmp_path):
+    """An approval delay cannot silently change the Run recorded for retry accounting."""
+    with pytest.raises(ValueError, match="changed since admission"):
+        prepare_msm_feed.produce(tmp_path, tmp_path / "cache", NOW, 25,
+                                 prepare_msm_feed.Bounds(), expected_run="20261013000000")
+    proposed = json.loads(json.dumps(source["catalog"]))
+    proposed["assets"][0]["run"] = "20261013030000"
+    candidate = tmp_path / "candidate.json"
+    candidate.write_text(json.dumps(proposed))
+    with pytest.raises(ValueError, match="admitted detected"):
+        gate.require_newer_candidate("https://canonical.test", candidate, NOW,
+                                     expected_run="20261013000000")
+    assert gate.require_newer_candidate("https://canonical.test", candidate, NOW,
+                                       expected_run="20261013030000")["status"] == "NEWER_CANDIDATE"

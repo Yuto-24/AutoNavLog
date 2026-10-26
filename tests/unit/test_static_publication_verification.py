@@ -331,10 +331,12 @@ def test_workflow_only_monitors_after_identity_success(tmp_path, identity_ok):
             "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
             "CALL_LOG": str(tmp_path / "calls"),
             "IDENTITY_EXIT": "0" if identity_ok else "1",
+            "EXPECTED_SOURCE": "a" * 40,
         },
     )
     assert (result.returncode == 0) == identity_ok
     calls = (tmp_path / "calls").read_text().splitlines()
     assert calls == ["tooling/scripts/static_ops/wait_for_candidate.py"] + (
-        ["tooling/scripts/static_ops/operations.py"] if identity_ok else []
+        ["tooling/scripts/static_ops/freshness.py",
+         "tooling/scripts/static_ops/operations.py"] if identity_ok else []
     )

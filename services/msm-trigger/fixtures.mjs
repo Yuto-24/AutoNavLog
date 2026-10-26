@@ -1,30 +1,20 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { tick, ORIGIN, API, UPSTREAM } from './worker.ts';
+import { tick, FRESHNESS, API } from './worker.ts';
 export const NOW = Date.parse('2026-10-25T09:00:00Z');
-export const OLD = '20261025000000', NEW = '20261025030000';
-/** Create isolated catalog, Actions, KV and fetch fixtures without live provider access. */
+export const OLD = '20261025000000';
+/** Isolated scheduling hint, Actions history and KV; every outbound request is mocked. */
 export function fixture(mode = 'dispatch') {
-  const s = { now: NOW, data: null, posts: [], calls: [], active: [], recent: [], latest: NEW, error: null, failKV: false,
-    catalog: { schema_version: 1, generated_at: '2026-10-25T06:00:00Z', expires_at: '2026-10-25T12:00:00Z',
-      listings: { [UPSTREAM + '/2026/10/25']: `Z__C_RJTD_${OLD}_MSM_GPV_Rjp_Lsurf_FH00-15_grib2.bin` },
-      assets: [{ run: OLD, sha256: 'a'.repeat(64), file: 'a'.repeat(64) + '.npz', bytes: 100 }] }, commit: 'b'.repeat(40), mismatch: false };
-  s.env = { MODE: mode, GITHUB_TOKEN: 'test-only-never-live', STATE: {
+  const s = { now: NOW, data: null, posts: [], calls: [], active: [], recent: [], error: null, failKV: false,
+    hint: { schema_version: 1, run: OLD, generated_at: '2026-10-25T06:00:00Z',
+      expires_at: '2026-10-25T12:00:00Z', app_commit: 'b'.repeat(40) } };
+  s.env = { MODE: mode, GITHUB_TOKEN: 'fixture-only', STATE: {
     get: async () => s.data,
-    put: async (_k, value) => { if (s.failKV) throw Error('private detail'); s.data = value; },
+    put: async (_k, value) => { if (s.failKV) throw Error('private'); s.data = value; },
   } };
   s.fetch = async (url, options = {}) => {
     url = String(url); s.calls.push({ url, options });
     if (s.error) { const result = s.error(url, options); if (result) return result; }
-    if (url === `${ORIGIN}/weather/msm/catalog.json`) return Response.json(s.catalog);
-    if (url === `${ORIGIN}/release.json`) {
-      const bytes = Buffer.from(JSON.stringify(s.catalog));
-      return Response.json({ commit: s.commit, dirty: false, files: {
-        'weather/msm/catalog.json': { bytes: bytes.length, sha256: s.mismatch ? 'bad' : createHash('sha256').update(bytes).digest('hex') },
-        ...Object.fromEntries(s.catalog.assets.map(a => ['weather/msm/' + a.file, { bytes: a.bytes, sha256: a.sha256 }])),
-      } });
-    }
-    if (url.startsWith(UPSTREAM)) return new Response(`Z__C_RJTD_${s.latest}_MSM_GPV_Rjp_Lsurf_FH00-15_grib2.bin`);
+    if (url === FRESHNESS) return Response.json(s.hint);
     if (url.includes('/runs?')) {
       const status = new URL(url).searchParams.get('status');
       const runs = status ? s.active.filter(r => r.status === status) : s.recent;

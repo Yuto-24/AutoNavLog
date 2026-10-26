@@ -79,7 +79,8 @@ def preflight(origin: str, now: datetime | None = None) -> dict:
             "weather_seconds_remaining": remaining, "current_catalog_expired": remaining <= 0}
 
 
-def require_newer_candidate(origin: str, candidate: Path, now: datetime | None = None) -> dict:
+def require_newer_candidate(origin: str, candidate: Path, now: datetime | None = None,
+                            expected_run: str | None = None) -> dict:
     """Run inside shared publication concurrency immediately before upload.
 
     Existing publication/validate_feed gates validate identity, bytes, coverage and
@@ -99,6 +100,8 @@ def require_newer_candidate(origin: str, candidate: Path, now: datetime | None =
                 raise ValueError("Invalid Run before publication")
     previous = max(asset.run for asset in published.assets)
     newest = max(asset.run for asset in proposed.assets)
+    if expected_run and newest != expected_run:
+        raise ValueError("Candidate differs from admitted detected Run")
     if newest <= previous:
         raise ValueError("Canonical already has this or a newer Run; no timestamp-only renewal")
     if proposed.expires_at <= checked:
@@ -112,15 +115,19 @@ def main() -> None:
     parser.add_argument("--origin", required=True)
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--candidate", type=Path)
+    parser.add_argument("--expected-run")
     args = parser.parse_args()
     if args.candidate:
-        print(json.dumps(require_newer_candidate(args.origin, args.candidate), indent=2))
+        report = require_newer_candidate(
+            args.origin, args.candidate, expected_run=args.expected_run)
+        print(json.dumps(report, indent=2))
         return
     if args.github_output is None:
         parser.error("--github-output is required for discovery")
     report = preflight(args.origin)
     # Only a complete successful verdict may enable heavy work or a healthy no-op.
     with args.github_output.open("a") as output:
+        output.write(f"upstream_run={report['upstream_run']}\n")
         output.write(f"proceed={str(report['proceed']).lower()}\n")
     print(json.dumps(report, indent=2))
 

@@ -50,6 +50,7 @@ test('configuration defaults to stopped observe and keeps namespace identity', (
   const state = { account_id: 'a'.repeat(32), namespace_id: 'b'.repeat(32) };
   const config = configuration(state);
   assert.equal(config.vars.MODE, 'observe'); assert.deepEqual(config.triggers.crons, []);
+  assert.equal(config.durable_objects, undefined); assert.equal(config.migrations, undefined);
   assert.equal(config.workers_dev, false); assert.equal(config.preview_urls, false);
   assert.deepEqual(configuration(state, 'dispatch', true).triggers.crons, ['*/15 * * * *']);
   assert.deepEqual(configuration(state, 'dispatch', true).kv_namespaces, config.kv_namespaces);

@@ -1,74 +1,120 @@
-# MSM更新の外部起動補完 (#287)
+# MSM補完起動: 軽量WorkerとActions検証
 
-この変更は運用toolingのみ（`Release: not-required`）。アプリのVERSION、計算、
-Firestore Rules、公開済みアプリを変更しない。mainにあるv2の公開承認でもない。
-外部の登録・Secret作成・配置・Cron・実dispatchは、このPRの検証では行わない。
+目的は2026年10月末までのNavMate新環境の提供開始。PR #290はWorkerの軽量化と実行可否の確認に限定する。
+Related #287 / PR #290。アプリ本体、承認済みSHA、TTL、配信origin、TLSとアクセス保護は変更しない。
+Workerは起動の候補を判定し、Actionsが公開可否と公開後の証拠を確認する。
 
-## 責務と起動条件
+## 鮮度ファイルと起動判断
 
-`services/msm-trigger` の専用Workerは15分間隔（UTC `*/15 * * * *`）。
-GitHub schedule（毎時23分）を優先し、以下の条件で既存 `static-production.yml` を
-`main` / `feed_refresh=true` / `publish=true` / `observed_run=<Run>` で起動する。
-source SHAを渡す経路はない。
+公開toolingは承認済みアプリのbuild/test後、`weather/msm/freshness.json`を追加し、
+`release.json`のinventoryへ実bytes/hashを登録する。catalogと同じPages deploymentに載せる。
+アプリcheckoutのソースやcommitは変更しない。既存の承認SHAの古いbuild scriptでも移行できる。
 
-1. canonical catalogとreleaseを取得し、6時間寿命、Run時刻、catalogの実bytes/SHA-256、
-   全assetのrelease inventoryとの一致を確認。期限切れも検査できるが正常とはしない。
-2. GitHubのqueued/in_progress/waiting/pending/requestedをそれぞれ取得。
-   作成時刻で限定せず、前日以前の承認待ちも止める。直近24時間の履歴も確認。
-   未知・切り詰め・取得不能・認証失敗は停止する（自動POST再試行なし）。
-3. 京都大学の当日と前日のlistingから広告されているMSM Runを確認。
-   Workerは完全性を判定せず、予報ファイルを取得・変換しない。
-   空listing、404、timeout、不正時刻は「更新不要」にしない。
-4. 新しい広告Runがあり、catalog残存が3時間以下、実行中なし、90分cooldown経過、
-   UTC日8要求未満、同じ広告Runへの要求2回未満ならdispatch。
-   `observe`では `WOULD_DISPATCH` を記録するだけ。
+schema 1は `run`（catalog assets中の実在する最新Run）、`generated_at`、`expires_at`、
+`app_commit` を持つ。生成・期限はcatalogから転記し、6時間のTTLを更新・延長しない。
+2,048 bytes以内で、架空のRunや「次に来るはずのRun」を記録しない。
 
-WorkerはKVを各tickで1readし、dispatch直前／公開確認時だけ1writeする。
-POSTの応答を失っても先に保存した試行枠を消費し、直ちに再送しない。
-KVは結果整合性であり、同時tickが2つのPOSTを発行する可能性は残る。
-GitHub履歴もcooldown・回数判定に使用し、GitHubの共有concurrency取得後に
-`external_trigger_gate.py` が同じ上限を独立して再確認する。外部runのrerunは拒否。
-上限は正常運用の要求・重い処理の制限であり、分散KVでPOST数の厳密な上限を保証しない。
-悪意あるActions:write credentialの乱用を防ぐ権限境界でもない。
+Workerはこの1ファイルをno-store、HTTPS、redirect拒否、10秒、2,048 bytes上限で読む。
+schema、UTCの3時間境界Run、生成日時、6時間の期限、commit形式を確認するだけ。
+残り3時間超なら `FRESH` として終了し、上流は `NOT_CHECKED` のまま。
+残り3時間以下（有効な古い/期限切れhintを含む）の場合、KVの要求回数・90分間隔と
+GitHubのactive 5状態（古い承認待ちを含む）・直近24時間履歴で要求を抑制する。
+8要求/UTC日の抑制を維持する。空振り、失敗、受付不明も枠を消費する。
+POST前にKVへ要求数と時刻を記録し、書込失敗なら送信しない。POSTは自動retryしない。
+旧 `msm-fallback/` と新 `msm-request/` の両方を会計する。
 
-すべてのfeed renewal（schedule・外部・従来の手動dispatch・build-only）が
-`preflight_feed.py` で**25時間分の新しい完全Run**を検査する。
-NO_NEW_RUNは健康なcatalogと完全な既存Runが確認できた場合だけ。
-外部Run文字列は会計用のヒントであり、取得Runを強制するものではない。
-既存restore・生成後の新Run検査・coverage/hash/bytes・承認済みSHAと公開設定・
-独立build/E2E・公開前のPages検査を維持し、upload直前にもcanonicalを再取得して
-候補の最新Runが厳密に新しいことを検査する。同じ予報の生成日時・期限だけは更新しない。
-concurrency `static-production` / `cancel-in-progress: false` は既存公開と共有。
+欠落404、SPA HTML、JSON不正、schema不正、過大、取得失敗はUNKNOWNで停止する。
+欠落を期限切れに読み替えて起動せず、次tickでもPOSTしない。
+`request_id` は起動要求のID（現在時刻のミリ秒文字列）であり予報Runではない。
+新Workerは `observed_run` を送らず、実Runの発見を装わない。
+`DISPATCH_ACCEPTED` は受付だけ。`publication: NOT_VERIFIED` で、hintの更新から公開成功を宣言しない。
+同じWorkerの既存Secretを使用し、新しいSecret・権限は要求しない。
+KVと履歴の当日件数の大きい方を引き継ぎ、POST前に1件加算する。90分に最大送信時間10秒を
+加えた保守間隔を記録する。日跨ぎでも最終要求時刻と旧target/pending記録を保持する。
 
-外部dispatchには `STATIC_AUTOMATION_ENABLED=true` に加えて
-`STATIC_EXTERNAL_TRIGGER_ENABLED=true` が必要（未設定は無効）。
-外部dispatchは既存 `static-publication` environmentの承認を維持する。
-承認待ちは次のdispatchを止める。承認保護が設定されていれば人による承認が必要で、
-このPRは無人化を理由にそのgateを変更しない。
+KVは結果整合性であり、分散lockではない。古いread・同時tickによる要求の重複や
+厳密な8件上限、rolling 24時間の8件保証はこの構成で保証しない。
+Actions側のconcurrency・履歴・同Run上限・再公開防止を維持する。
+追加していたDOによる厳密な要求予約は後述の後続事項へ分離し、binding・export・migrationを
+今回の配置構成から除く。回数制限を全面撤去する変更ではない。
 
-## 受付・公開・監視の区別
+Workerからcatalog/release取得、catalog SHA-256、全asset inventory照合、上流listing解析、
+予報Run発見、canonical公開完了の判定を取り除いた。
 
-- `DISPATCH_ACCEPTED`: HTTP受付のみ。GitHubが成功でも公開確認の代用にしない。
-- `AWAITING_PUBLICATION`: 受付不明／受付済みのRunを待機。
-- `publication: FAILED`: 対応するGitHub実行が失敗。cooldown後の再試行も上限内だけ。
-- `PUBLICATION_OBSERVED`: canonicalのRunが前回より新しく、要求Run以上、有効期限内、
-  同じアプリcommit、catalog実bytes/hashとrelease/asset inventoryが一致。
-  scheduleが同じ更新を先に完了した場合も復旧観測であり、Workerの因果的成功とはしない。
-- `UNKNOWN`/`PUBLICATION_UNCONFIRMED`/`RUN_LIMIT`/`DAILY_LIMIT`: 成功扱いしない。
+## Actions側の境界
 
-WorkerはNPZ本体をダウンロード・decodeしない。既存workflowのcanonical検証と
-`operations.py monitor`が全payload検証を担う。Workerの観測だけで完全な公開受入とはしない。
-取得不能や公開途中のcatalog/release不一致は失敗し、次tickで再観測する。
+workflow concurrency `static-production` / `cancel-in-progress: false` を共有する。
+既存opt-in、`static-publication`等の承認environment、承認済みアプリSHA固定を維持する。
+preflightとproducerは同じ保護environmentを使うため、設定によっては各jobに承認が必要となる。
+preflightのSHAをproducerへ渡し、承認変化があればidentity gateで停止する。
 
-#273は独立した天気データ障害／復旧の通知・重複抑制を担当する。
-このWorkerは利用者への天気通知を送らず、構造化logと任意のliveness heartbeatだけ。
-`HEARTBEAT_URL`をSecretとして設定すると、チェック完了時だけHealthchecksへpingする。
-これは「Workerが検査を完了した」意味で、dispatchや天気更新成功の通知ではない。
-失敗時はpingせず、同じCloudflare全体の停止は外部heartbeat欠落で検出する。
-サービス登録は行わない。[Healthchecks Free](https://healthchecks.io/)は20check、
-クレジットカード不要と確認した。既存check数と通知先の利用条件は未確認。
-導入する場合は別途承認後に15分周期＋十分なgraceで1checkを登録し、
-通知先と欠落・復旧通知を試験する。天気の障害をこちらにも登録して二重通知にしない。
+1. boundedな完全な履歴と全active状態を照合し、自分以外の実行中・承認待ち、日次8、90分、
+   重複request ID、rerun、任意SHA指定を拒否する。不明/切詰め/通信失敗は停止する。
+   Actions内のgateは履歴・全active状態を取得後、GitHub concurrency APIで現在Runが
+   `static-production` lockを保持することを確認する。同groupでpendingと確認したRunだけを
+   active競合から除外し、作成時刻の前後では待機順を推定しない。group外の承認待ちや
+   不明/欠落/不完全なlock情報は停止する。Workerの発行前検査では全active状態を止める。
+2. canonical release・catalogの実bytes/hash、全asset inventoryと全payload bytes/hashを検証する。
+   hintがinventoryにあるdeploymentではcatalogのRun・日時・commitとhintを照合する。
+   hintを持たない旧deploymentは移行元として認めるが、Workerによる欠落起動は認めない。
+3. 既存 `preflight_feed.py` で25時間を満たす新しい完全な予報Runを発見する。
+   新Runなしは健康な既存catalog・完全な予報だけNO_NEW_RUN。それ以外は不明/失敗。
+4. 検出した実Runをjob名 `msm-detected/<Run>` としてActionsの履歴へ記録する。
+   起動要求のrun-name `msm-request/<request_id>` と区別する。旧observed_run要求も会計する。
+   先行する同Runの検出履歴が2件ならproducer前に停止し、失敗も含める。
+   検出Run時刻まで遡って履歴を読み、日跨ぎでRun制限を解除しない。
+   producerのlisting発見直後・payload生成前とupload直前に検出Run一致を検査し、
+   承認待ち中のRun変化が会計を迂回しない。
+   履歴・jobsの欠落/切詰め/取得失敗では上限判定を通さない。
+5. 必要な場合だけ既存restore・生成・全payload decode/coverage・独立build/E2E・公開gateへ進む。
+   upload直前にcanonicalとcandidateのRunを比較し、同じ予報の再公開・期限だけの更新を拒否する。
+   upload後はcandidate identity、canonical、鮮度一致と全payloadを検査する。
+
+## 既存公開からの移行（このPRでは実行しない）
+
+1. このtoolingをmergeする承認と、既存の公開手順で**新しい完全なRun**を公開する承認を別途得る。
+   Workerはobserve・Cron停止、外部opt-in無効のまま。SecretやKVを再作成しない。
+2. 既存scheduleまたは個別承認されたfeed公開で、承認済みアプリcommitを固定したまま
+   同じdeploymentにhintを含める。新Runがなければ待つ。同Runを再公開して移行しない。
+3. canonical catalog/release/payload/hintが同じ候補と一致することをActionsで確認する。
+   404や古いhint、catalogとの不一致がある場合はWorkerを有効化しない。
+4. 以下の限定observe実測を別途承認後に行う。CPUと当該経路の実行可否の確認後までdispatchを許可しない。
+   アカウント全体の無料枠・課金監視は#281であり、今回の公開条件にはしない。
+   旧KVの要求数・Run数・pendingは移行時に消去しない。
+5. 既存Workerをobserve・Cron空で停止した状態から、伝播・進行中実行終了を確認して移行する。
+   既存KVとSecretを再利用し、旧版とdispatchを並行稼働させない。
+   DO namespace追加・migrationは不要。rollbackでも新旧dispatchを同時に有効化しない。
+
+## 実測履歴と次の限定実測
+
+旧526は接続先不明・未解決。初回traceはCPU 38ms / wall 3300ms、outcome exceptionで、
+CPU超過が直接の停止理由と確定したものではない。
+17daa313の限定observe再実測はFRESHでCPU 17ms（provider集計17.232ms）、wall 348ms。
+canonical catalog 733,586 bytes / release 29,909 bytesはともに200。
+GitHub・上流未到達で526は再現せず、過去の原因解決を証明しない。
+18:33 JSTの停止証拠に加え、2026-10-26 20:33 JSTに既存OAuthで管理APIを再取得し、
+MODE=observe・Cron空・停止version `62d08cdc-e151-4240-9b35-68e7dcc51109` を確認した。
+401調査・復旧の確認範囲は [read-back記録](evidence/issue-123/msm-worker-readback-2026-10-26.md) を参照。
+停止後追加tickは観測上0だが約2分のtail欠測がある。このPRでは本番設定を操作しない。
+
+次の実測も**別途承認後のみ**:
+
+1. 対象を既存Worker・既存KV・固定commitに限定し、observe配置、Cron反映待ち最大15分＋
+   観測最大30分・最大2tick、停止とread-backまでを一組にする。opt-inは無効、実dispatchなし。
+2. 先にhint付き公開の証拠と設定・承認済みアプリSHAをread-onlyで確認する。
+   共有無料枠・課金監視の完了は前提にしない（#281）。CPU制限と経路の測定は残す。
+   hint欠落なら欠落経路の確認だけとし、更新候補経路の受入とはしない。
+3. Cloudflare tailとprovider CPU集計で各tickのCPU/wall/outcomeを取得する。
+   固定stage/hostname/status/read bytesだけを記録し、token/header/本文/Secret URLを出さない。
+   新stageは `canonical_freshness`、GitHub 5 active状態・recent、dispatch、heartbeat。
+4. 最初のUNKNOWN、HTTP/IO/BODY_LIMIT、exceededCpu、CPU 10ms超過、想定外設定、期限または
+   2tick到達で停止し、MODE=observe・Cron空をread-backする。停止伝播と遅着ログも確認する。
+5. FRESH・期限切れ・GitHub到達・欠落は異なる経路として記録する。実Runやpendingを捏造せず、
+   未測定経路は未受入。少数サンプルだけで未測定経路も含めたCPU 10ms以内を宣言しない。
+   526は同じ接続先の段階別証拠を得るまで未解決。接続先変更やTLS緩和で回避しない。
+
+#273が天気障害・復旧通知を担当する。任意heartbeatは検査完了のlivenessだけで、公開成功ではない。
+新たなサービス登録・課金変更は含めない。
 
 ## CLI（通常設定のコピーは不要）
 
@@ -137,18 +183,10 @@ Cronの追加・変更・削除は伝播に最大15分かかりうる。
 namespace作成応答を失った場合も `ensure-kv` を再実行すればinventoryから再利用する。
 `.state`を失った場合はensure-kvから再構成し、observe配置で安全な状態を確立する。
 
-pendingの間に別途承認されたアプリ更新が行われた場合は`APP_CHANGED`で停止する。
-旧要求を成功にしないため、自動で基準commitを変えない。復旧の明示承認後、GitHub側opt-inを
-閉じて`stop`し、Cron停止の伝播と進行中実行の終了を確認してから次を実行する。
-
-```sh
-npm --prefix services/msm-trigger run ops -- abandon-pending
-```
-
-古いpending観測だけを除去し、日次・同Runの試行数とcooldownを保持する（再実行可能）。
-KVの結果整合性によるread-back遅延を考慮して少なくとも60秒待ち、`observe-cron`で再確認し、
-新しい承認済みアプリSHAとcanonical一致を確認した後に、有効化の各段階へ進む。
-これは過去の試行を成功に変更する操作でも、同Run2回上限を解除する操作でもない。
+旧Workerのpendingは新Workerでも成功扱いせず保持する。旧pendingを整理する必要がある場合だけ、
+別途承認のうえCron停止・進行中実行終了を確認して `abandon-pending` を実行する。
+この操作は日次・同Runの旧カウンタとcooldownを保持する。新Workerは公開確認を行わず、
+Actionsのcanonical検証と実公開後の検証を証拠とする。KVは厳密lockではない。
 
 ## 権限・Secretの承認対象
 
@@ -164,25 +202,35 @@ KVの結果整合性によるread-back遅延を考慮して少なくとも60秒�
 GitHub App installation tokenを使う場合は有効期限が短いため外部発行機構が必要となり、
 この実装はPAT更新を基本とする。長期App秘密鍵の新規管理を暗黙に追加しない。
 
-## 無料枠見積もり（2026-10-25 JST公式資料確認）
+## 無料枠と未受入の境界
 
-| 資源 | 追加使用量・上限との比較 |
-| --- | --- |
-| Workers | 96 Cron/日、最大2,976/月（31日）。Freeは100,000 requests/日、CPU **10ms/Cron**、50 subrequests、Cron 5/account。既存TAF等と共有。通常10 HTTP subrequests/tick、dispatch/heartbeat込み最大12＋KV操作で50以下 |
-| KV | 通常96 reads/日、writesはdispatch最大8＋公開確認最大8 = 16/日を想定。重複tick分は増える。Freeは100,000 reads/日、1,000 writes・delete・list/日、保存1GB。単一の小さな状態key、管理CLIの操作も合算 |
-| Pages | 通常MSMは3時間ごと8Run/日、同Run再公開禁止でscheduleと補完を合わせ約248回/月。補完の重い試行上限8/日も最大248/月、これを別に248公開追加する計算ではない。失敗後のretryは実際の新Run公開に至った時だけ数える。アプリ公開等は別途加算 |
-| Pages制限 | Freeの500 builds/月はGit buildの枠。Direct Uploadのdeployment数をそのままbuild数に置き換えない。既存仕様の20,000 files、25MiB/fileを維持。実accountの全project利用量・rate limitは未確認 |
-| Actions | public repo標準ubuntu-latestは無料。最大8補完試行/日×45分=360 runner分/日が保守的上界。no-new-runや上限拒否は重いbuild前に終了。新artifact/upload/cacheを追加しないため、この公開workflowによる永続保存増分は0。CIのnpm cache・既存failure artifactsは別途共有利用量に加算 |
-| 保存枠 | GitHub Freeのartifact/Packages共有枠500MB、cacheはrepo単位10GB。保持期間・所有者全体の現在/積算使用量は未確認で、無料実行分から保存無料を推定しない |
+15分tickは起動判断だけ。無条件dispatchをしない。Workerの通常FRESH経路は鮮度ファイル1取得、
+更新候補経路は鮮度1＋GitHub active 5状態＋履歴1、dispatchと任意heartbeatを含め最大9 HTTP取得。
+鮮度ファイルは2,048 bytes、GitHub各応答は1 MiBで停止する。KVはtickごと1 read、
+要求予約時1 write（方針上最大8/日）。既存TAF、管理操作、重複tickも共有枠に加算する。
+Actionsはpreflight最大10分＋producer最大45分、最大8要求なら440 runner分/日が保守的上界。
+空振りも要求枠を消費し、永続artifact/cacheを追加しない。実Run記録は既存Actions jobs metadata。
+Public repoの標準runner以外を認めない既存identity gateを維持する。
 
-10msを実機保証するため、承認後のobserve CronでCloudflare CPU p50/p95/max、
-CPU超過失敗、実catalog/listing/historyサイズを確認する。localhostのwall timeやNode CPU測定は
-Cloudflare課金CPUの代用にならない。Workerはcatalog/release各1MiB、listing各256KiBで停止し、
-未知・超過を更新成功にはしない。上限内に収まらなければdispatchを有効化せず設計を見直す。
-実accountの共有残量・無料plan・支払/自動課金状態、provider側のDirect Upload制限も未検証。
-無料枠の数値から既存利用量をゼロとは扱わない。#281の包括的quota収集完成は前提に追加しない。
+Free CPU 10msは実測による別gate。ローカルテスト、bundleサイズ、HTTP回数から合格と宣言しない。
+アカウント全体の共有使用量・無料枠・Pages保存枠・課金監視は既存#281に分離済み。
+未確認をゼロや適合済みに読み替えないが、#281の完了や定期手入力reportを今回の公開条件に戻さない。
+有料planへの変更はこのPRに含めない。
+
+## 後続: 厳密な起動回数管理（今回の配置条件にしない）
+
+追加していた `RequestGate` のDO永続予約・直列化は後続へ分離する。
+設計資料は旧commit `70f91aeb` の `services/msm-trigger/request-gate.ts` とテストを参照できる。
+今回の構成・bundleにDOは含まれず、namespace追加・migration・DO移行受入は不要。
+
+後続で扱うのは古いKV、重複tick、並行要求、再起動、日跨ぎ、受付不明時の厳密な上限、
+既存KV/履歴の取り込み、永続台帳、rollbackの検証。必要なresource・認証・権限変更は操作前に明示する。
+この分離によってKVの回数記録・90分間隔・8要求/UTC日の抑制やActions側の再公開防止は外さない。
+
 
 公式資料:
+
+- [GitHub workflow jobs metadata](https://docs.github.com/en/rest/actions/workflow-jobs)
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
 - [Cron管理・伝播](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
@@ -195,10 +243,12 @@ Cloudflare課金CPUの代用にならない。Workerはcatalog/release各1MiB、
 ## 有効化までの残作業と受入
 
 1. PRのCI・独立レビュー後、別途merge承認。
-2. 対象accountの無料plan/共有枠、必要な管理権限、既存環境保護と承認済みアプリSHAを読み取り確認。
-3. 上記の権限・期限を説明してtoken作成/Secret登録の承認。登録済みcredentialを使える場合は再作成しない。
+2. 対象Worker/KV・既存認証・既存環境保護と承認済みアプリSHAを読み取り確認。
+   共有無料枠・課金監視の完了は#281へ分離し、今回の条件に戻さない。
+3. 既存credentialで進める。新しいtoken発行・Secret登録・権限変更が必要なら、
+   操作と必要性を示して停止する。通常のOAuth refreshと新規credentialの作成を区別する。
 4. Worker observe配置・Cron監視段階を個別承認し、設定read-back、CPU/応答サイズ、
-   upstream HTTPS到達、GitHub履歴API、KV、非dispatchを確認。任意heartbeatは別承認。
+   hint HTTPS到達、GitHub履歴API、KV、非dispatchを確認。上流listingはActions側で確認する。任意heartbeatは別承認。
 5. GitHub opt-in、dispatch mode、Cron有効化を個別承認して実施。必要なら既存environmentの承認操作。
 6. schedule欠落を補完した実Run、catalog期限・全payload整合性・アプリcommit不変、
    旧期限を跨ぐ継続更新を記録し#123へ戻す。ここまではfixture試験では代用できない。

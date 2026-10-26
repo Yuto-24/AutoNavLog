@@ -17,10 +17,11 @@ test('workerd: scheduled module, native KV and outbound mock; no live dispatch',
     const response = await mf.dispatchFetch('http://worker.test/cdn-cgi/local/scheduled');
     assert.equal(response.status, 200);
     assert.equal(s.posts.length, 1);
-    assert.ok(JSON.parse(await (await mf.getKVNamespace('STATE')).get('trigger-v1')).pending);
+    assert.equal(JSON.parse(await (await mf.getKVNamespace('STATE')).get('trigger-v1')).attempts, 1);
     assert.equal((await mf.dispatchFetch('http://worker.test/cdn-cgi/local/scheduled')).status, 200);
     assert.equal(s.posts.length, 1); // Native KV retains cooldown between scheduled invocations.
-    assert.ok(s.calls.some(c => c.url.endsWith('/release.json')));
+    assert.ok(s.calls.some(c => c.url.endsWith('/freshness.json')));
+    assert.ok(s.calls.every(c => !c.url.endsWith('/release.json') && !c.url.endsWith('/catalog.json')));
     assert.equal((await mf.dispatchFetch('http://worker.test/')).status, 404);
   } finally { await mf.dispose(); }
 });
