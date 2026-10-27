@@ -1,0 +1,52 @@
+name: ci-timing-diagnostic
+on:
+  push:
+    branches: [codex/ci-timing-diagnostic-20261027]
+permissions:
+  contents: read
+jobs:
+  representative-timing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: python -m pip install 'setuptools>=69' wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl '.[test]'
+      - run: npm --prefix web ci
+      - run: npm --prefix web exec -- playwright install --with-deps chromium
+        timeout-minutes: 5
+      - name: Add temporary timing probes to the runner workspace
+        run: python scripts/diagnostics/instrument_browser_timing.py
+      - run: npm --prefix web run build:local
+        env:
+          AUTONAVLOG_TEST_FIXTURES: '1'
+      - name: Measure auth switching and reload
+        working-directory: web
+        run: npx playwright test --config playwright.timing-auth.config.ts --grep 'anonymous workflow, account switch, logout, reauthentication and cross-tab closure'
+      - name: Measure Local map calculation and repeated restoration
+        if: '!cancelled()'
+        run: |
+          python -m http.server 4174 --bind 127.0.0.1 --directory web/dist-local > /tmp/ci-timing-http.log 2>&1 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4174/ >/dev/null
+          cd web
+          npx playwright test --config playwright.timing-local.config.ts --grep 'MAP to Planning and NAV LOG, reload, save and reopen at 1100px'
+      - name: Measure real SDK emulator synchronization and deletion
+        if: '!cancelled()'
+        run: >-
+          npx --yes firebase-tools@15.10.1 emulators:exec --only firestore --project demo-autonavlog-sync
+          'cd web && npx playwright test --config playwright.timing-sync.config.ts --project chromium --grep "real SDK: fresh device|account deletion drains Remote"'
