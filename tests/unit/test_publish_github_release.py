@@ -58,6 +58,8 @@ def scenario(tmp_path, monkeypatch):
     )
 
     def api(path):
+        if "/releases?" in path:
+            return []
         if "/git/ref/tags/" in path:
             return {"object": {"type": "commit", "sha": state.tag}} if state.tag else None
         assert "/releases/tags/" in path
@@ -183,3 +185,42 @@ def test_peel_annotated_tag(monkeypatch):
     monkeypatch.setattr(publisher, "api", lambda _: next(values))
     assert publisher.tag_commit("owner/repo", "v2.0.0") == "commit"
 
+
+@pytest.mark.parametrize("kind", ["draft", "prerelease"])
+def test_collision_on_later_page_stops_publication(scenario, monkeypatch, kind):
+    calls = []
+    harmless = {"tag_name": "v1.0.0", "draft": False, "prerelease": False}
+    collision = {"tag_name": "v2.1.0", "draft": False, "prerelease": False, kind: True}
+
+    def api(path):
+        calls.append(path)
+        return [harmless] * 100 if path.endswith("page=1") else [collision]
+
+    monkeypatch.setattr(publisher, "api", api)
+    with pytest.raises(ValueError, match="collision"):
+        scenario.publish()
+    assert calls == [
+        "repos/owner/repo/releases?per_page=100&page=1",
+        "repos/owner/repo/releases?per_page=100&page=2",
+    ]
+    assert not any(call[0] == "gh" for call in scenario.calls)
+
+
+def test_collision_listing_must_succeed(scenario, monkeypatch):
+    monkeypatch.setattr(publisher, "api", lambda _: None)
+    with pytest.raises(ValueError, match="could not inspect"):
+        scenario.publish()
+    assert not any(call[0] == "gh" for call in scenario.calls)
+
+
+def test_collision_scan_checks_all_pages_and_ignores_other_tags(monkeypatch):
+    calls = []
+    harmless = {"tag_name": "v1.0.0", "draft": True, "prerelease": False}
+
+    def api(path):
+        calls.append(path)
+        return [harmless] * 100 if path.endswith("page=1") else []
+
+    monkeypatch.setattr(publisher, "api", api)
+    publisher.check_release_collisions("owner/repo", "v2.1.0")
+    assert len(calls) == 2

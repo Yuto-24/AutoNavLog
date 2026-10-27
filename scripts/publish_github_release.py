@@ -16,7 +16,7 @@ def run(*args: str) -> str:
     return subprocess.check_output(args, text=True).strip()
 
 
-def api(path: str) -> dict | None:
+def api(path: str) -> dict | list | None:
     result = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=False)
     if result.returncode:
         # Only an explicit missing resource is absence; auth/network/server errors fail closed.
@@ -67,6 +67,22 @@ def tag_commit(repository: str, tag: str) -> str | None:
     raise ValueError(f"{tag} does not resolve to a commit")
 
 
+def check_release_collisions(repository: str, tag: str) -> None:
+    # The tag lookup only returns published releases. The write-scoped workflow
+    # token can also see drafts through the list endpoint; inspect every page.
+    page = 1
+    while True:
+        releases = api(f"repos/{repository}/releases?per_page=100&page={page}")
+        if not isinstance(releases, list):
+            raise ValueError("could not inspect all releases for draft collisions")
+        for release in releases:
+            if release["tag_name"] == tag and (release["draft"] or release["prerelease"]):
+                raise ValueError(f"{tag} has a draft/prerelease collision")
+        if len(releases) < 100:
+            return
+        page += 1
+
+
 def publish(root: Path, ref: str, sha: str, repository: str) -> None:
     version = validate_sources(root)
     product, latest = release_line(ref, version)
@@ -74,6 +90,7 @@ def publish(root: Path, ref: str, sha: str, repository: str) -> None:
         raise ValueError("checkout HEAD does not match the triggering commit")
     tag = f"v{version}"
     notes = release_notes((root / "CHANGELOG.md").read_text(encoding="utf-8"), version)
+    check_release_collisions(repository, tag)
     commit = tag_commit(repository, tag)
     release = api(f"repos/{repository}/releases/tags/{tag}")
     if release is not None and commit is None:
