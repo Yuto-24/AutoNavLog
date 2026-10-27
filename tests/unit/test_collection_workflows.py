@@ -131,6 +131,7 @@ def test_publication_is_independent_and_uses_trusted_gates_and_isolated_upload()
     assert 'source="$GITHUB_WORKSPACE/app",target=/app' in candidate_step
     assert 'source="$RUNNER_TEMP/feed",target=/feed,readonly' in candidate_step
     assert "--env AUTONAVLOG_MSM_FEED=/feed" in candidate_step
+    assert '--env ARTIFACT_UID="$(id -u)" --env ARTIFACT_GID="$(id -g)"' in candidate_step
     assert "--env GITHUB" not in candidate_step
     assert "target=/tooling" not in candidate_step
     assert "docker.sock" not in candidate_step
