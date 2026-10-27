@@ -2,7 +2,7 @@
 
 ## ドキュメント変更時の CI
 
-`test.yml` は PR と main への push で起動し、`release-sources` を常に実行します。
+`test.yml` は PR と main / release/1.x への push で起動し、`release-sources` を常に実行します。
 Python 3.12 上で変更判定とソース契約のテスト、VERSION / CHANGELOG と PR の Release 契約を
 確認します。このジョブには Docker build やアプリの依存関係のインストールは不要です。
 
