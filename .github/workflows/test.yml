@@ -35,6 +35,10 @@ jobs:
           python-version: '3.12'
       - name: Install workflow dependencies from the tooling checkout and import the producer
         run: python tooling/tests/integration/check_static_tooling_install.py
+      - name: Build credential-free artifact handoff test image
+        run: docker build -f tooling/scripts/static_ops/Dockerfile.build --tag autonavlog-static-build tooling
+      - name: Verify Docker outputs can be extended by the nonroot runner
+        run: python tooling/tests/integration/check_static_artifact_handoff.py
 
   release-sources:
     runs-on: ubuntu-latest

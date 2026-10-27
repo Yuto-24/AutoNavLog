@@ -166,6 +166,7 @@ jobs:
             --env VITE_TAF_PROXY_URL --env VITE_LEGACY_MIGRATION_URL \
             --env AUTONAVLOG_MSM_FEED=/feed \
             --env AUTONAVLOG_REFERENCE_PYTHON=python3 \
+            --env ARTIFACT_UID="$(id -u)" --env ARTIFACT_GID="$(id -g)" \
             autonavlog-static-build sh -eu -c '
               git config --global --add safe.directory /app
               python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
@@ -182,6 +183,12 @@ jobs:
               trap "kill $server_pid" EXIT
               curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4121/ >/dev/null
               npm --prefix web run test:static
+              # Only these outputs need host-side writes; payloads remain read-only to the runner.
+              set -- web/dist-static/release.json web/dist-static/weather/msm
+              if [ -f web/dist-static/weather/msm/freshness.json ]; then
+                set -- "$@" web/dist-static/weather/msm/freshness.json
+              fi
+              chown --no-dereference "$ARTIFACT_UID:$ARTIFACT_GID" "$@"
             '
       - name: Include deployment-local freshness hint without changing the approved app
         run: python3 tooling/scripts/static_ops/freshness.py --dist app/web/dist-static

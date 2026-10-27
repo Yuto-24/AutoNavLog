@@ -246,3 +246,41 @@ def test_existing_pages_env_is_allowed_without_disclosing_or_mutating_it(name, k
         with pytest.raises(ValueError):
             gate.verify_project({**project, key: value})
     assert capsys.readouterr() == ("", "")
+
+
+@pytest.mark.parametrize("mutation", ["extra", "missing", "hash", "size", "hint"])
+def test_extended_freshness_inventory_is_complete_and_rejects_tampering(
+    tmp_path, approved, mutation
+):
+    from scripts.static_ops import freshness
+
+    _, _, canonical = approved
+    dist = fixture_artifact(tmp_path, canonical)
+    catalog_path = dist / "weather/msm/catalog.json"
+    catalog = json.loads(catalog_path.read_bytes())
+    expires = datetime.fromisoformat(catalog["expires_at"])
+    generated = expires - timedelta(hours=6)
+    run = generated.replace(hour=generated.hour // 3 * 3, minute=0, second=0)
+    catalog.update(schema_version=1, generated_at=generated.isoformat())
+    catalog["assets"][0]["run"] = run.strftime("%Y%m%d%H%M%S")
+    raw = json.dumps(catalog).encode()
+    catalog_path.write_bytes(raw)
+    release_path = dist / "release.json"
+    release = json.loads(release_path.read_bytes())
+    release["files"]["weather/msm/catalog.json"] = {
+        "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+    release_path.write_text(json.dumps(release))
+    freshness.write(dist)
+    gate.artifact(tmp_path, canonical)
+    release = json.loads(release_path.read_bytes())
+    if mutation == "extra":
+        (dist / "extra.txt").write_bytes(b"unrecorded")
+    elif mutation == "missing":
+        next((dist / "weather/msm").glob("*.npz")).unlink()
+    elif mutation in {"hash", "size"}:
+        release["files"][freshness.NAME]["sha256" if mutation == "hash" else "bytes"] = "bad"
+        release_path.write_text(json.dumps(release))
+    else:
+        (dist / freshness.NAME).write_bytes(b"{}")
+    with pytest.raises(ValueError, match="inventory mismatch"):
+        gate.artifact(tmp_path, canonical)
