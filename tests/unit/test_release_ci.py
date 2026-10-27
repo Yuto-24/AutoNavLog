@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+NOTES = "\n## Pending release notes\nNone: release-policy change only.\n"
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 spec = importlib.util.spec_from_file_location(
@@ -21,7 +23,10 @@ def test_push_checks_sources_without_git(monkeypatch):
 
 def test_contract_requires_exact_marker_and_reason():
     assert validator.parse_contract("Release: required\n") == "required"
-    assert validator.parse_contract("Release: not-required\nReason: docs only\n") == "not-required"
+    assert (
+        validator.parse_contract("Release: not-required\nReason: docs only\n" + NOTES)
+        == "not-required"
+    )
     for body in (
         "",
         "Release: required\nRelease: not-required\nReason: x",
@@ -47,7 +52,7 @@ def test_not_required_accepts_product_changes(monkeypatch, changed):
         validator, "git", lambda _, *args: "base" if args[0] == "merge-base" else changed
     )
     monkeypatch.setattr(validator, "base_version", lambda *_: "1.0.0")
-    validator.validate(ROOT, "base", "Release: not-required\nReason: normal feature/fix PR")
+    validator.validate(ROOT, "base", "Release: not-required\nReason: normal feature/fix PR" + NOTES)
 
 
 def test_required_needs_newer_changed_version_and_changelog(monkeypatch):
@@ -80,7 +85,9 @@ def test_contract_rejects_inconsistent_release(monkeypatch, current, changed, co
         validator, "git", lambda _, *args: "ancestor" if args[0] == "merge-base" else changed
     )
     with pytest.raises(ValueError, match=error):
-        validator.validate(ROOT, "base", f"Release: {contract}\nReason: repository maintenance")
+        validator.validate(
+            ROOT, "base", f"Release: {contract}\nReason: repository maintenance" + NOTES
+        )
 
 
 def test_not_required_accepts_docs_tests_and_artifact_neutral_ci(monkeypatch):
@@ -90,7 +97,9 @@ def test_not_required_accepts_docs_tests_and_artifact_neutral_ci(monkeypatch):
     monkeypatch.setattr(
         validator, "git", lambda _, *args: "ancestor" if args[0] == "merge-base" else changed
     )
-    validator.validate(ROOT, "base", "Release: not-required\nReason: repository maintenance")
+    validator.validate(
+        ROOT, "base", "Release: not-required\nReason: repository maintenance" + NOTES
+    )
 
 
 def test_compares_version_to_current_base_not_common_ancestor(monkeypatch):
@@ -164,3 +173,44 @@ def test_changelog_rejects_invalid_structures_and_version_sources(tmp_path):
         (tmp_path / "VERSION").write_text(value)
         with pytest.raises(ValueError):
             validator.validate_sources(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "notes",
+    [
+        "",
+        "## Pending release notes\n",
+        "## Pending release notes\n<!-- fill this -->\n",
+        "## Pending release notes\n### Heading only\n",
+        "## Pending release notes\n\n## Other\nNot release notes",
+        "## Pending release notes\n# Tests\nPassed pytest",
+        "## Pending release notes\n  ## Tests\nPassed pytest",
+        "## Pending release notes\n<!-- placeholder\n",
+    ],
+)
+def test_non_release_requires_visible_pending_notes(notes):
+    with pytest.raises(ValueError, match="Pending release notes"):
+        validator.parse_contract("Release: not-required\nReason: normal development\n" + notes)
+
+
+@pytest.mark.parametrize(
+    "notes",
+    [
+        "None",
+        "該当なし",
+        "- New feature",
+        "- 不具合を修正",
+        "### Fixes\n- Correct route calculation",
+    ],
+)
+def test_non_release_accepts_notes_or_explicit_none(notes):
+    body = "Release: not-required\nReason: normal development\n## Pending release notes\n" + notes
+    assert validator.parse_contract(body) == "not-required"
+
+
+def test_non_release_accepts_browser_crlf_body():
+    body = (
+        "Release: not-required\r\nReason: normal development\r\n"
+        "## Pending release notes\r\nNone\r\n"
+    )
+    assert validator.parse_contract(body) == "not-required"
