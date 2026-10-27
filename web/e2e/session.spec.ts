@@ -7,7 +7,19 @@ const isLocal = () => test.info().config.metadata.applicationMode === "local";
 const snapshot = (page: Page) => page.evaluate(k => JSON.parse(sessionStorage.getItem(k)!), key);
 
 test.beforeEach(async ({ context }) => {
-  if (isLocal()) await context.route("**/api/**", route => route.abort());
+  if (isLocal()) {
+    await context.route("**/api/**", route => route.abort());
+    await context.addInitScript(() => {
+      const Original = Worker;
+      (window as any).runtimeCount = 0;
+      window.Worker = class extends Original {
+        constructor(url: string | URL, options?: WorkerOptions) {
+          super(url, options);
+          (window as any).runtimeCount++;
+        }
+      };
+    });
+  }
 });
 async function open(page: Page) {
   await page.goto("/");
@@ -94,10 +106,25 @@ test("new discards recovery; new tabs including opener clones never inherit work
   await expect(second.getByLabel("TGL", { exact: true })).toHaveValue("7");
   await page.reload();
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("3");
-  page.once("dialog", dialog => dialog.accept());
+  // Cancel preserves current inputs; accepting repeatedly resets UI and Python work,
+  // but neither reloads the document nor creates another same-account runtime.
+  page.once("dialog", dialog => dialog.dismiss());
   await page.getByRole("button", { name: "新規", exact: true }).click();
-  await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
-  await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("0");
+  await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("3");
+  const runtimeCount = await page.evaluate(() => (window as any).runtimeCount);
+  if (isLocal()) await page.evaluate(() => { (window as any).sameWorkDocument = true; });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt === 0) page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
+    await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("0");
+    expect((await snapshot(page)).working.project).toBeNull();
+    if (isLocal()) {
+      expect(await page.evaluate(() => (window as any).sameWorkDocument)).toBe(true);
+      expect(await page.evaluate(() => (window as any).runtimeCount)).toBe(runtimeCount);
+    }
+  }
   await page.reload();
   expect((await snapshot(page)).working.project).toBeNull();
   await expect(second.getByLabel("TGL", { exact: true })).toHaveValue("7");

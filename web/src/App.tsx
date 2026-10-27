@@ -1,3 +1,4 @@
+import { localMode } from "./executionMode";
 import type { ReferencePointSnapshot } from "./referencePoints";
 import { canConfirmMapDraft, nextWaypointName, type MapRoutePoint } from "./mapRouteDraft";
 import { AccountSyncControl } from "./components/AccountSyncControl";
@@ -88,7 +89,9 @@ function patternRequestBasis(next: WebState): string | null {
   ].join("|");
 }
 
-function App({ application, platform, FileInput }: { application: AutoNavLogApplication; platform: PlatformCapabilities; FileInput: ComponentType<FileInputProps> }) {
+type AppProps = { application: AutoNavLogApplication; platform: PlatformCapabilities; FileInput: ComponentType<FileInputProps> };
+
+function App({ application, platform, FileInput, onNewWork }: AppProps & { onNewWork?: () => void }) {
   const [informationState] = useState(() => createInformationState(platform.persistence.values));
   const { hasUnreadInformation, hasUnreadKnownIssues, markInformationSeen } = informationState;
   const [recovery] = useState(() => readSession(platform.session));
@@ -100,6 +103,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const latestSession = useRef<ApplicationSession | null>(null);
   const restoredPattern = useRef<string | null>(null);
   const lifecycle = useRef(0);
+  const mounted = useRef(true);
   const restoredCandidate = useRef<string | null>(null);
   const [kmzOpen, setKmzOpen] = useState(false);
   const [state, setState] = useState<WebState | null>(null);
@@ -373,6 +377,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
 
   useEffect(() => {
     let active = true;
+    mounted.current = true;
     lifecycle.current += 1;
     const bootstrap = async () => {
       let restored = recovery.session;
@@ -419,7 +424,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     void bootstrap().catch((reason: unknown) => {
       if (active) setError(reason instanceof Error ? reason.message : "起動に失敗しました。");
     });
-    return () => { active = false; lifecycle.current += 1; };
+    return () => { active = false; mounted.current = false; lifecycle.current += 1; };
   }, [application, bootstrapAttempt]);
 
   useLayoutEffect(() => {
@@ -1476,7 +1481,8 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       { fallbackError: "新規作業を開始できませんでした。" },
     );
     if (reset) {
-      window.location.reload();
+      if (onNewWork) onNewWork();
+      else window.location.reload();
     }
   };
 
@@ -1586,14 +1592,21 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           setState(current => current ? { ...current, savedProjects: next.savedProjects, storageWarning: next.storageWarning } : current);
         }).catch(() => {});
       }} onResolved={async id => {
+        if (!mounted.current || sessionDiscarded.current) return;
+        const epoch = lifecycle.current;
         cancelPendingRecalculation();
         await discardPendingDraftAutosave();
+        if (sessionDiscarded.current || epoch !== lifecycle.current) return;
         const next = await application.refreshProjects?.();
+        if (sessionDiscarded.current || epoch !== lifecycle.current) return;
         if (next?.savedProjects.some(project => project.id === id)) {
-          applyState(await application.loadProject(id), { syncCalculationInputs: true });
+          const loaded = await application.loadProject(id);
+          if (!sessionDiscarded.current && epoch === lifecycle.current) applyState(loaded, { syncCalculationInputs: true });
         } else {
           await application.newWork();
-          applyState(await application.bootstrap(), { syncCalculationInputs: true });
+          if (sessionDiscarded.current || epoch !== lifecycle.current) return;
+          const blank = await application.bootstrap();
+          if (!sessionDiscarded.current && epoch === lifecycle.current) applyState(blank, { syncCalculationInputs: true });
         }
       }} />
       <Header
@@ -1904,4 +1917,10 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   );
 }
 
-export default App;
+export default function ApplicationWorkspace(props: AppProps) {
+  const [generation, setGeneration] = useState(0);
+  // Remount every UI draft/ref and invalidate pending component callbacks, without
+  // replacing the same-account Application. Legacy retains its page-reload boundary.
+  return <App key={generation} {...props}
+    onNewWork={localMode ? () => setGeneration(value => value + 1) : undefined} />;
+}

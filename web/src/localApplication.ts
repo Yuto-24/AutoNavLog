@@ -201,8 +201,9 @@ export class LocalApplication implements AutoNavLogApplication {
   }
   async newWork() {
     await this.serial(async () => {
-      this.client?.dispose();
-      this.client = undefined;
+      // The queue drains previous writes before replacing Python work. Account disposal
+      // still terminates the worker; only this same-account boundary retains Pyodide.
+      if (this.client) await this.request("newWork");
       this.tokens.clear();
       this.listedTokens.clear();
     });

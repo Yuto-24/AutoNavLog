@@ -143,8 +143,11 @@ input generations and autosave guards still reject superseded edits; action resu
 not canonicalize input edited while they were in flight.
 
 Explicit new work drains/discards pending autosave, clears only this tab's recovery,
-then resets the Adapter and reloads. If storage refuses removal, it reports the failure
-before disposing the working runtime; a failed Adapter reset restores the recovery copy. It does not delete saved Projects, Last Calculation, another
+then resets the Adapter. Local replaces the complete Python Application (including its
+transient storage, forecast providers and session) and remounts the UI while retaining
+the initialized interpreter within the same account. Legacy still reloads. Account
+changes still dispose the Worker. If storage refuses removal, it reports the failure
+before resetting work; a failed Adapter reset restores the recovery copy. It does not delete saved Projects, Last Calculation, another
 tab, or #124 data. Malformed/version-incompatible UI snapshots or invalid Application
 recovery start a safe blank session with a visible recovery-failure notice. Connection
 failures keep the retry screen and the recovery data, rather than silently losing work.

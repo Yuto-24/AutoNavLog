@@ -271,3 +271,57 @@ for (const operation of ["resolve", "import"] as const) test("draft guard preced
   await expect(page.locator(".account-sync-dialog")).not.toBeVisible();
   await expect(page.getByRole("alert").filter({ hasText: "Projectの再読み込みに失敗しました" })).toBeVisible();
 });
+
+test("New rejects a delayed sync-resolution continuation in the retained runtime", async ({ browser, page, context }) => {
+  await backend(context);
+  const subject = `new-work-${crypto.randomUUID()}`;
+  await start(page, subject); await create(page, "Reset race");
+  const other = await browser.newContext(); await backend(other);
+  const second = await other.newPage();
+  try {
+    await start(second, subject); await open(second, "Reset race");
+    await other.setOffline(true);
+    await second.getByLabel("FUEL gal", { exact: true }).fill("78");
+    await expect.poll(() => second.evaluate(async () =>
+      (await (window as any).authTest.contexts.at(-1).refreshProjects()).project?.total_usable_fuel_gal)).toBe(78);
+    await page.getByLabel("FUEL gal", { exact: true }).fill("76");
+    await expect.poll(() => page.evaluate(async () => {
+      const rows = await (window as any).authTest.contexts.at(-1).repository.rows();
+      return rows.some((row: any) => row.draft.total_usable_fuel_gal === 76 && !row.sync.dirty);
+    })).toBe(true);
+    await other.setOffline(false);
+    await expect(second.getByRole("dialog", { name: "他の端末の変更と競合しています" })).toBeVisible();
+    await second.evaluate(() => {
+      const app = (window as any).authTest.contexts.at(-1);
+      const resolve = app.sync.resolve.bind(app.sync);
+      const refresh = app.refreshProjects.bind(app);
+      let hold = false;
+      const releases: (() => void)[] = [];
+      app.sync.resolve = async (...args: any[]) => { const id = await resolve(...args); hold = true; return id; };
+      app.refreshProjects = async () => {
+        const result = await refresh();
+        if (hold) {
+          await new Promise<void>(release => {
+            releases.push(release);
+            (window as any).releaseResolvedRefresh = () => {
+              hold = false;
+              for (const pending of releases) pending();
+            };
+          });
+        }
+        return result;
+      };
+    });
+    await second.getByRole("button", { name: "両方残す", exact: true }).click();
+    await expect.poll(() => second.evaluate(() => typeof (window as any).releaseResolvedRefresh)).toBe("function");
+    second.once("dialog", dialog => dialog.accept());
+    await second.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(second.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await second.evaluate(() => (window as any).releaseResolvedRefresh());
+    const blank = await second.evaluate(async () => (window as any).authTest.contexts.at(-1).refreshProjects());
+    expect(blank.project).toBeNull();
+    expect(blank.outcome).toBeNull();
+    await expect(second.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await expect(second.locator("#saved-project option")).toHaveCount(3);
+  } finally { await other.close(); }
+});
