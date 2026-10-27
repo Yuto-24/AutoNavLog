@@ -1,10 +1,16 @@
 ## Release contract
 
-Release: required
+Release: not-required
+Reason: Ordinary development PR; release metadata is finalized separately.
 
-<!-- Release不要の場合は上の行を `Release: not-required` に変更し、理由を記入してください。 -->
-<!-- Reason: docsのみの変更 -->
+<!-- Explicit release-preparation PRs only: use `Release: required`, remove Reason,
+     increment VERSION and add the finalized CHANGELOG.md section.
+     Ordinary feature/fix PRs leave VERSION and CHANGELOG.md unchanged. -->
 
 ## Summary
 
 <!-- 変更内容と確認方法を記入してください。 -->
+
+## Pending release notes
+
+<!-- Summarize user-visible changes here for the later release-preparation PR. -->
