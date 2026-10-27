@@ -150,6 +150,13 @@ def test_missing_execution_observation_is_not_reported_as_worker_failure(outcome
     assert assess_cpu({**TICK, "outcome": outcome}, provider()) == {"status": "UNKNOWN"}
 
 
+@pytest.mark.parametrize("outcome", [None, "unknown", True])
+def test_missing_outcome_cannot_hide_proven_cpu_excess(outcome):
+    tick = {**TICK, "outcome": outcome}
+    assert assess_cpu(tick, provider(cpu=10_913))["status"] == "OVER_LIMIT"
+    assert assess_cpu({**tick, "cpuTime": 11}, {})["status"] == "OVER_LIMIT"
+
+
 @pytest.mark.parametrize(
     "key,value",
     [

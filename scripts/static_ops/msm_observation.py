@@ -68,9 +68,7 @@ def cpu_window(tick: dict, receipt: dict) -> tuple[str, str]:
 def assess_cpu(tick: dict, response: dict) -> dict:
     """Keep observer UNKNOWN separate from execution failure and proven CPU excess."""
     outcome = tick.get("outcome")
-    if not isinstance(outcome, str) or outcome == "unknown":
-        return {"status": "UNKNOWN"}
-    if outcome != "ok":
+    if isinstance(outcome, str) and outcome not in ("ok", "unknown"):
         return {"status": "WORKER_FAILED"}
     tail = tick.get("cpuTime")
     if type(tail) in (int, float) and math.isfinite(tail) and tail > 10:
@@ -100,7 +98,7 @@ def assess_cpu(tick: dict, response: dict) -> dict:
             count += requests
             if requests and cpu > CPU_LIMIT_US:
                 return {"status": "OVER_LIMIT", "provider_max_us": cpu}
-        if count != 1 or len(rows) != 1 or rows[0]["max"]["cpuTime"] <= 0:
+        if outcome != "ok" or count != 1 or len(rows) != 1 or rows[0]["max"]["cpuTime"] <= 0:
             return {"status": "UNKNOWN"}
         return {"status": "WITHIN_LIMIT", "provider_max_us": rows[0]["max"]["cpuTime"]}
     except (KeyError, TypeError, IndexError):
