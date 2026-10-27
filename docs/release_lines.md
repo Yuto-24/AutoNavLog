@@ -9,7 +9,8 @@
 
 Ordinary feature/fix PRs use `Release: not-required` and a `Reason:` line on either
 branch. Keep `VERSION` and `CHANGELOG.md` unchanged, including published notes.
-Collect pending user-visible changes in the PR body's Pending release notes section.
+Collect pending user-visible changes in the PR body's `## Pending release notes` section.
+CI requires visible notes or an explicit `None`; HTML-comment placeholders do not count.
 No Unreleased section or new version is added for each development PR.
 
 Only an explicit release-preparation PR uses `Release: required`: select the next

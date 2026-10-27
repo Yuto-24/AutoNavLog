@@ -34,7 +34,8 @@ def base_version(root: Path, commit: str) -> str:
 
 
 def parse_contract(body: str) -> str:
-    lines = re.sub(r"<!--[\s\S]*?-->", "", body).splitlines()
+    visible = re.sub(r"<!--[\s\S]*?(?:-->|\Z)", "", body).replace("\r\n", "\n")
+    lines = visible.splitlines()
     markers = [
         line.strip()
         for line in lines
@@ -49,6 +50,19 @@ def parse_contract(body: str) -> str:
         re.fullmatch(r"Reason: \S.*", line.strip()) for line in lines
     ):
         raise ValueError("Release: not-required requires a Reason: line")
+    if kind == "not-required":
+        notes = re.search(
+            r"^## Pending release notes[ \t]*\n(.*?)(?=^ {0,3}#{1,2}(?:[ \t]|$)|\Z)",
+            visible,
+            re.MULTILINE | re.DOTALL,
+        )
+        if notes is None or not any(
+            re.search(r"\w", line) and not line.lstrip().startswith("#")
+            for line in notes[1].splitlines()
+        ):
+            raise ValueError(
+                "Release: not-required requires Pending release notes or an explicit None"
+            )
     return kind
 
 
