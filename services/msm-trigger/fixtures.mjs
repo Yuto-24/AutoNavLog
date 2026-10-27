@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { tick, FRESHNESS, API } from './worker.ts';
 export const NOW = Date.parse('2026-10-25T09:00:00Z');
 export const OLD = '20261025000000';
+export const DISPATCH_RUN = {
+  workflow_run_id: 123,
+  run_url: 'https://api.github.com/repos/Yuto-24/AutoNavLog/actions/runs/123',
+  html_url: 'https://github.com/Yuto-24/AutoNavLog/actions/runs/123',
+};
 /** Isolated scheduling hint, Actions history and KV; every outbound request is mocked. */
 export function fixture(mode = 'dispatch') {
   const s = { now: NOW, data: null, posts: [], calls: [], active: [], recent: [], error: null, failKV: false,
@@ -22,7 +27,7 @@ export function fixture(mode = 'dispatch') {
     }
     assert.equal(url, `${API}/dispatches`); assert.equal(options.method, 'POST');
     s.posts.push(JSON.parse(options.body));
-    return new Response(null, { status: 204 });
+    return Response.json(DISPATCH_RUN);
   };
   s.tick = () => tick(s.env, s.fetch, s.now);
   return s;

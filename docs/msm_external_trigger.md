@@ -28,6 +28,10 @@ POST前にKVへ要求数と時刻を記録し、書込失敗なら送信しな�
 `request_id` は起動要求のID（現在時刻のミリ秒文字列）であり予報Runではない。
 新Workerは `observed_run` を送らず、実Runの発見を装わない。
 `DISPATCH_ACCEPTED` は受付だけ。`publication: NOT_VERIFIED` で、hintの更新から公開成功を宣言しない。
+[GitHub API版 `2026-03-10` のdispatch成功](https://docs.github.com/en/rest/actions/workflows?apiVersion=2026-03-10#create-a-workflow-dispatch-event)はHTTP 200。既存の1 MiB本文上限内でJSONを読み、
+正の整数 `workflow_run_id` と、同じID・対象repoを指す `run_url` / `html_url` を検証する。
+受付結果には `request_id` とこの3項目だけを追加し、Actionsとの対応確認に使う。
+不正・欠落・過大な応答や通信失敗でも予約した要求枠とcooldownを保持し、POSTを自動再送しない。
 同じWorkerの既存Secretを使用し、新しいSecret・権限は要求しない。
 KVと履歴の当日件数の大きい方を引き継ぎ、POST前に1件加算する。90分に最大送信時間10秒を
 加えた保守間隔を記録する。日跨ぎでも最終要求時刻と旧target/pending記録を保持する。

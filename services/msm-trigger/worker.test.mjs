@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import worker, { tick, API, FRESHNESS, FRESHNESS_LIMIT, COOLDOWN } from './worker.ts';
-import { fixture, NOW } from './fixtures.mjs';
+import { fixture, NOW, DISPATCH_RUN } from './fixtures.mjs';
 const run = (status = 'completed', time = NOW) => ({ id: 1, status, conclusion: 'success', created_at: new Date(time).toISOString(), display_title: 'msm-request/' + time });
 test('request IDs are separate from observed Runs; acceptance never proves publication', async () => {
   const s = fixture(); const result = await s.tick();
   assert.equal(result.status, 'DISPATCH_ACCEPTED'); assert.equal(result.publication, 'NOT_VERIFIED');
+  assert.equal(result.request_id, String(NOW));
+  for (const [key, value] of Object.entries(DISPATCH_RUN)) assert.equal(result[key], value);
   assert.deepEqual(s.posts, [{ ref: 'main', inputs: { feed_refresh: true, request_id: String(NOW), publish: true } }]);
   assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(s.posts.length, 1);
   assert.ok(s.calls.every(c => c.url === FRESHNESS || c.url.startsWith(API)));
@@ -118,10 +120,79 @@ test('history restores daily count when KV is missing; accepted no-ops still cou
   s.now = JSON.parse(s.data).lastAttempt + COOLDOWN;
   assert.equal((await s.tick()).status, 'DAILY_LIMIT'); assert.equal(s.posts.length, 1);
 });
-for (const status of [200, 401, 403, 429, 500]) test(`unconfirmed POST ${status} keeps KV slot without retry`, async () => {
+for (const status of [201, 202, 204, 401, 403, 429, 500]) test(`unconfirmed POST ${status} keeps KV slot without retry`, async () => {
   const s = fixture(); let posts = 0;
-  s.error = url => { if (url.endsWith('/dispatches')) { posts++; return new Response(null, { status }); } };
-  await assert.rejects(s.tick()); assert.equal(posts, 1);
+  s.error = url => { if (url.endsWith('/dispatches')) {
+    posts++; return status === 204 ? new Response(null, { status }) : Response.json(DISPATCH_RUN, { status });
+  } };
+  await assert.rejects(s.tick(), new RegExp(status < 300 ? 'DISPATCH_UNCONFIRMED' : `HTTP_${status}`)); assert.equal(posts, 1);
+  assert.equal(JSON.parse(s.data).attempts, 1);
+  assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(posts, 1);
+});
+for (const [name, value] of [
+  ['null', null], ['array', []], ['string', 'private-token'], ['missing fields', {}],
+  ['zero ID', { ...DISPATCH_RUN, workflow_run_id: 0 }],
+  ['negative ID', { ...DISPATCH_RUN, workflow_run_id: -1 }],
+  ['fractional ID', { ...DISPATCH_RUN, workflow_run_id: 1.5 }],
+  ['unsafe ID', { ...DISPATCH_RUN, workflow_run_id: Number.MAX_SAFE_INTEGER + 1 }],
+  ['string ID', { ...DISPATCH_RUN, workflow_run_id: '123' }],
+  ['missing API URL', { ...DISPATCH_RUN, run_url: undefined }],
+  ['missing HTML URL', { ...DISPATCH_RUN, html_url: undefined }],
+  ['foreign API host', { ...DISPATCH_RUN, run_url: 'https://private-token.invalid/actions/runs/123' }],
+  ['foreign repository', { ...DISPATCH_RUN, html_url: 'https://github.com/other/repo/actions/runs/123' }],
+  ['mismatched run ID', { ...DISPATCH_RUN, run_url: DISPATCH_RUN.run_url.replace('/123', '/124') }],
+  ['insecure URL', { ...DISPATCH_RUN, html_url: DISPATCH_RUN.html_url.replace('https:', 'http:') }],
+  ['URL query', { ...DISPATCH_RUN, html_url: DISPATCH_RUN.html_url + '?private-token' }],
+]) test(`HTTP 200 with ${name} fails closed and retains attempt and cooldown`, async () => {
+  const s = fixture(); let posts = 0;
+  s.error = url => { if (url.endsWith('/dispatches')) { posts++; return Response.json(value); } };
+  await assert.rejects(s.tick(), /INVALID_DISPATCH_RESPONSE/);
+  assert.equal(JSON.parse(s.data).attempts, 1);
+  assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(posts, 1);
+});
+test('invalid dispatch JSON remains unconfirmed without retry or response disclosure', async () => {
+  const s = fixture(); const saved = [globalThis.fetch, console.log, Date.now]; const logs = [];
+  let posts = 0;
+  s.error = url => { if (url.endsWith('/dispatches')) { posts++; return new Response('private-token'); } };
+  globalThis.fetch = s.fetch; console.log = value => logs.push(value); Date.now = () => NOW;
+  try {
+    await assert.rejects(worker.scheduled({}, s.env), /check failed/);
+    assert.ok(logs.some(line => JSON.parse(line).status === 'UNKNOWN'));
+    assert.ok(logs.every(line => !line.includes('private-token')));
+    assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(posts, 1);
+    assert.equal(JSON.parse(s.data).attempts, 1);
+  } finally { [globalThis.fetch, console.log, Date.now] = saved; }
+});
+test('streamed HTTP 200 at the body limit exposes only validated run details, not publication claims', async () => {
+  const s = fixture(); const diagnostics = [];
+  const body = JSON.stringify({ ...DISPATCH_RUN, publication: 'VERIFIED', secret: 'private-token' });
+  const raw = new TextEncoder().encode(body.padEnd(1024 * 1024));
+  s.error = url => url.endsWith('/dispatches') ? new Response(new ReadableStream({ start(c) {
+    c.enqueue(raw.subarray(0, 20)); c.enqueue(raw.subarray(20)); c.close();
+  } })) : null;
+  const result = await tick(s.env, s.fetch, s.now, d => diagnostics.push(d));
+  assert.equal(result.status, 'DISPATCH_ACCEPTED'); assert.equal(result.publication, 'NOT_VERIFIED');
+  assert.equal(result.request_id, String(NOW)); assert.equal(result.workflow_run_id, DISPATCH_RUN.workflow_run_id);
+  assert.equal(result.run_url, DISPATCH_RUN.run_url); assert.equal(result.html_url, DISPATCH_RUN.html_url);
+  assert.equal(result.secret, undefined);
+  assert.ok(!JSON.stringify({ result, diagnostics }).includes('private-token'));
+  assert.deepEqual(diagnostics.at(-1), { stage: 'dispatch', target: 'api.github.com', status: 200, bytes: raw.length });
+  assert.equal(s.calls.filter(c => c.options.method === 'POST').length, 1);
+  assert.equal(s.calls.at(-1).options.headers['X-GitHub-Api-Version'], '2026-03-10');
+});
+test('dispatch body limit is preserved and cancels oversized streams without retry', async () => {
+  const s = fixture(); const diagnostics = []; let cancelled = false, posts = 0;
+  s.error = url => {
+    if (!url.endsWith('/dispatches')) return null;
+    posts++;
+    return new Response(new ReadableStream({
+      start(c) { c.enqueue(new Uint8Array(1024 * 1024)); c.enqueue(new Uint8Array(1)); },
+      cancel() { cancelled = true; },
+    }));
+  };
+  await assert.rejects(tick(s.env, s.fetch, s.now, d => diagnostics.push(d)), /BODY_LIMIT/);
+  assert.equal(cancelled, true);
+  assert.deepEqual(diagnostics.at(-1), { stage: 'dispatch', target: 'api.github.com', status: 'BODY_LIMIT', bytes: 1024 * 1024 + 1 });
   assert.equal(JSON.parse(s.data).attempts, 1);
   assert.equal((await s.tick()).status, 'COOLDOWN'); assert.equal(posts, 1);
 });
