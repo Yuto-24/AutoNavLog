@@ -2,7 +2,7 @@ name: test
 
 on:
   push:
-    branches: [main]
+    branches: [main, release/1.x]
   pull_request:
     types: [opened, synchronize, reopened, edited]
 
@@ -54,6 +54,8 @@ jobs:
           python -m pytest --noconftest
           tests/integration/check_ci_changes.py
           tests/unit/test_release_ci.py
+          tests/unit/test_publish_github_release.py
+          tests/integration/check_publish_github_release.py
           tests/unit/test_supported_runtime_contract.py
           tests/unit/test_version.py::test_version_is_the_only_release_version_source
       - name: Determine CI scope
@@ -181,13 +183,16 @@ jobs:
           cache-dependency-path: services/taf-proxy/package-lock.json
       - run: npm --prefix services/taf-proxy ci
       - run: npm --prefix services/taf-proxy test
+        env:
+          MINIFLARE_ASSERT_BODIES_CONSUMED: "true"
       - run: npm --prefix services/taf-proxy run check
 
   local-browser:
     needs: release-sources
     # Missing/failed classification runs the full checks; only proven docs-only changes skip.
     if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
-    runs-on: ubuntu-latest
+    # Keep browser dependencies on the established image during ubuntu-latest migrations.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -239,7 +244,8 @@ jobs:
     if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    # Keep browser dependencies on the established image during ubuntu-latest migrations.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
