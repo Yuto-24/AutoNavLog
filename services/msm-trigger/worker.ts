@@ -174,20 +174,25 @@ export default {
   async fetch() { return new Response("Not found", { status: 404 }); },
   /** Run a scheduled check with redacted errors and an optional liveness-only heartbeat. */
   async scheduled(_event: unknown, env: Env) {
-    let result;
-    const diagnose: Diagnose = record => console.log(JSON.stringify(record));
-    try { result = await tick(env, fetch, Date.now(), diagnose); }
-    catch (error) {
-      // Never expose native errors, request headers, API responses or secret URLs.
-      console.log(JSON.stringify({ status: "UNKNOWN", reason: error instanceof Fault ? error.message : "IO_OR_VALIDATION_FAILED" }));
-      throw new Error("MSM trigger check failed");
-    }
-    console.log(JSON.stringify(result));
-    if (env.HEARTBEAT_URL) {
-      // Liveness only; #273 owns weather incidents and recovery notification deduplication.
-      requireThat(/^https:\/\/hc-ping\.com\/[a-f0-9-]{36}$/.test(env.HEARTBEAT_URL), "INVALID_HEARTBEAT");
-      try { await request("heartbeat", env.HEARTBEAT_URL, fetch, diagnose, {}, 4096); }
-      catch { throw new Error("MSM trigger heartbeat failed"); }
+    let result: Record<string, unknown> = { status: "UNKNOWN" };
+    const diagnostics: Diagnostic[] = [];
+    const diagnose: Diagnose = record => diagnostics.push(record);
+    try {
+      try { result = await tick(env, fetch, Date.now(), diagnose); }
+      catch (error) {
+        // Never expose native errors, request headers, API responses or secret URLs.
+        result = { status: "UNKNOWN", reason: error instanceof Fault ? error.message : "IO_OR_VALIDATION_FAILED" };
+        throw new Error("MSM trigger check failed");
+      }
+      if (env.HEARTBEAT_URL) {
+        // Liveness only; #273 owns weather incidents and recovery notification deduplication.
+        requireThat(/^https:\/\/hc-ping\.com\/[a-f0-9-]{36}$/.test(env.HEARTBEAT_URL), "INVALID_HEARTBEAT");
+        try { await request("heartbeat", env.HEARTBEAT_URL, fetch, diagnose, {}, 4096); }
+        catch { throw new Error("MSM trigger heartbeat failed"); }
+      }
+    } finally {
+      // One log crossing instead of one per HTTP stage. Keep every bounded diagnostic.
+      console.log(JSON.stringify({ ...result, diagnostics }));
     }
   },
 };

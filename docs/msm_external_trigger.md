@@ -42,6 +42,19 @@ Actions側のconcurrency・履歴・同Run上限・再公開防止を維持す�
 追加していたDOによる厳密な要求予約は後述の後続事項へ分離し、binding・export・migrationを
 今回の配置構成から除く。回数制限を全面撤去する変更ではない。
 
+## CPUと実行の観測
+
+scheduled handlerは、結果と全HTTP stageの`diagnostics`配列を1件のJSONログにまとめる。
+本文上限、HTTP検査、要求予約、回数・間隔制限は変更しない。失敗時も取得済みの診断を残す。
+ローカルprofileは比較用であり、10 msの受入にはproviderの実dispatch計測を使う。
+
+`scripts/static_ops/msm_observation.py`は副作用なしで受付・CPUの観測を照合する。
+自然Cronのenqueue時刻と実際の`request_id`時刻は離れうるため、秒数差で受付を否定しない。
+返された実行ID、要求IDを含むrun-name、event、tooling SHA、run attemptを照合する。
+CPU照会の区間はenqueueから実行終了までを含め、対象1件のprovider値で判定する。
+tailの整数値10 msだけを合格にせず、API失敗・欠測・複数件の曖昧な集計はUNKNOWNとする。
+UNKNOWNはWorkerのexceptionと区別し、既知のCPU超過や実行失敗を隠さない。
+
 Workerからcatalog/release取得、catalog SHA-256、全asset inventory照合、上流listing解析、
 予報Run発見、canonical公開完了の判定を取り除いた。
 
