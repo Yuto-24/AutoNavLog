@@ -31,14 +31,23 @@ def test_contract_requires_exact_marker_and_reason():
             validator.parse_contract(body)
 
 
-def test_not_required_rejects_runtime(monkeypatch):
+@pytest.mark.parametrize(
+    "changed",
+    [
+        "web/src/App.tsx",
+        "src/autonavlog/web/app.py",
+        "Dockerfile",
+        "KNOWN_ISSUES.md",
+        "web/package-lock.json",
+    ],
+)
+def test_not_required_accepts_product_changes(monkeypatch, changed):
     monkeypatch.setattr(validator, "validate_sources", lambda _: "1.0.0")
     monkeypatch.setattr(
-        validator, "git", lambda _, *args: "base" if args[0] == "merge-base" else "web/src/App.tsx"
+        validator, "git", lambda _, *args: "base" if args[0] == "merge-base" else changed
     )
     monkeypatch.setattr(validator, "base_version", lambda *_: "1.0.0")
-    with pytest.raises(ValueError, match="production/runtime"):
-        validator.validate(ROOT, "base", "Release: not-required\nReason: docs")
+    validator.validate(ROOT, "base", "Release: not-required\nReason: normal feature/fix PR")
 
 
 def test_required_needs_newer_changed_version_and_changelog(monkeypatch):
@@ -61,6 +70,7 @@ def test_required_needs_newer_changed_version_and_changelog(monkeypatch):
         ("1.1.0", "CHANGELOG.md", "required", "change VERSION and CHANGELOG"),
         ("1.1.0", "VERSION", "not-required", "must not change VERSION"),
         ("1.0.0", "VERSION", "not-required", "must not change VERSION"),
+        ("1.0.0", "CHANGELOG.md", "not-required", "must not change CHANGELOG"),
     ],
 )
 def test_contract_rejects_inconsistent_release(monkeypatch, current, changed, contract, error):
@@ -81,25 +91,6 @@ def test_not_required_accepts_docs_tests_and_artifact_neutral_ci(monkeypatch):
         validator, "git", lambda _, *args: "ancestor" if args[0] == "merge-base" else changed
     )
     validator.validate(ROOT, "base", "Release: not-required\nReason: repository maintenance")
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "src/autonavlog/web/app.py",
-        "web/src/App.tsx",
-        "web/public/icon.svg",
-        "web/index.html",
-        "data/performance/cruise.csv",
-        "vendor/new.whl",
-        "compose.wsl.yaml",
-        "Dockerfile",
-        "web/package-lock.json",
-        "web/vite.config.ts",
-    ],
-)
-def test_definite_runtime_paths(path):
-    assert validator.runtime_path(path)
 
 
 def test_compares_version_to_current_base_not_common_ancestor(monkeypatch):
@@ -173,39 +164,3 @@ def test_changelog_rejects_invalid_structures_and_version_sources(tmp_path):
         (tmp_path / "VERSION").write_text(value)
         with pytest.raises(ValueError):
             validator.validate_sources(tmp_path)
-
-
-@pytest.mark.parametrize(
-    "after",
-    [
-        '# Updated comment\n"""Module documentation."""\nx = 1\n',
-        "x = 1\n",
-    ],
-)
-def test_python_comment_and_docstring_only_changes_are_exempt(monkeypatch, after):
-    before = '# Original comment\n"""Old module documentation."""\nx = 1\n'
-    monkeypatch.setattr(
-        validator, "git", lambda _, *args: after if args[-1].startswith("HEAD:") else before
-    )
-    assert validator.python_documentation_only(ROOT, "base", "src/module.py")
-
-
-@pytest.mark.parametrize(
-    "after, exempt",
-    [
-        ('def f():\n    """New docstring."""\n    return 1\n', True),
-        ('def f():\n    """Old docstring."""\n    return 2\n', False),
-        ("invalid python {", False),
-    ],
-)
-def test_python_docstring_exemption_preserves_code_changes(monkeypatch, after, exempt):
-    before = 'def f():\n    """Old docstring."""\n    return 1\n'
-    monkeypatch.setattr(
-        validator, "git", lambda _, *args: after if args[-1].startswith("HEAD:") else before
-    )
-    assert validator.python_documentation_only(ROOT, "base", "src/module.py") is exempt
-
-
-def test_generator_test_files_are_not_runtime():
-    assert not validator.runtime_path("web/scripts/generate-release-notes.test.mjs")
-    assert validator.runtime_path("web/scripts/generate-release-notes.mjs")

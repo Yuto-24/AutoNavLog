@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import re
 import subprocess
 import tomllib
@@ -32,76 +31,6 @@ def base_version(root: Path, commit: str) -> str:
             raise ValueError("base has no VERSION or legacy package version") from error
     version_tuple(value)
     return value
-
-
-def runtime_path(path: str) -> bool:
-    if path.startswith("web/") and re.search(r"\.(?:test|spec)\.[cm]?[jt]sx?$", path):
-        return False
-    return (
-        path.startswith(("src/", "web/src/", "web/public/", "web/scripts/", "data/", "vendor/"))
-        or path
-        in {
-            "VERSION",
-            "CHANGELOG.md",
-            "KNOWN_ISSUES.md",
-            "Dockerfile",
-            ".dockerignore",
-            "compose.yaml",
-            "docker-compose.yml",
-            "pyproject.toml",
-            "web/package.json",
-            "web/package-lock.json",
-            "web/index.html",
-            "MANIFEST.in",
-            "setup.py",
-            "setup.cfg",
-        }
-        or bool(
-            re.fullmatch(
-                r"(?:compose[.\w-]*\.ya?ml|web/(?:vite|tsconfig|postcss|tailwind).*)", path
-            )
-        )
-    )
-
-
-class _WithoutDocstrings(ast.NodeTransformer):
-    def visit_Module(self, node: ast.Module) -> ast.Module:
-        return self._strip(node)
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
-        return self._strip(node)
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        return self._strip(node)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
-        return self._strip(node)
-
-    def _strip(self, node):
-        self.generic_visit(node)
-        if ast.get_docstring(node, clean=False) is not None:
-            node.body = node.body[1:]
-        return node
-
-
-def python_documentation_only(root: Path, base: str, path: str) -> bool:
-    """Exempt unchanged Python syntax apart from comments and docstrings.
-
-    File creation/deletion and syntax errors are never treated as documentation.
-    Other languages remain subject to file-level classification, without guessing
-    whether a comment-looking line might be inside a string literal.
-    """
-    if not path.endswith(".py"):
-        return False
-    try:
-        before = git(root, "show", f"{base}:{path}")
-        after = git(root, "show", f"HEAD:{path}")
-        trees = [
-            ast.dump(_WithoutDocstrings().visit(ast.parse(source))) for source in (before, after)
-        ]
-    except (subprocess.CalledProcessError, SyntaxError):
-        return False
-    return trees[0] == trees[1]
 
 
 def parse_contract(body: str) -> str:
@@ -141,15 +70,10 @@ def validate(root: Path, base: str | None = None, pr_body: str | None = None) ->
     else:
         if current != previous or "VERSION" in changed:
             raise ValueError("Release: not-required must not change VERSION")
-        runtime = [
-            path
-            for path in changed
-            if runtime_path(path) and not python_documentation_only(root, merge_base, path)
-        ]
-        if runtime:
+        if "CHANGELOG.md" in changed:
             raise ValueError(
-                "Release: not-required cannot include production/runtime changes: "
-                + ", ".join(runtime)
+                "Release: not-required must not change CHANGELOG.md; "
+                "record pending release notes in the PR body"
             )
 
 
