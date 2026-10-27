@@ -2,7 +2,7 @@
 
 ## ドキュメント変更時の CI
 
-`test.yml` は PR と main への push で起動し、`release-sources` を常に実行します。
+`test.yml` は PR と main / release/1.x への push で起動し、`release-sources` を常に実行します。
 Python 3.12 上で変更判定とソース契約のテスト、VERSION / CHANGELOG と PR の Release 契約を
 確認します。このジョブには Docker build やアプリの依存関係のインストールは不要です。
 
@@ -275,6 +275,11 @@ JSON計133件、ローカル保存フォルダのJSON 149件で、role/point_rol
 `npm --prefix services/taf-proxy ci`後に`npm --prefix services/taf-proxy test`と
 `npm --prefix services/taf-proxy run check`を実行する。Node unitに加え、公式workerdで
 module export、CORS、cache、native rate binding、redirect拒否を検証する。
+Miniflareの`dispatchFetch()`応答は到着直後に本文を一度だけ読み、status / headers / 読み取った本文を
+検証用の値として返す。未読Responseを`Promise.all`で集めてから順に読むと、Miniflareが共有する
+Undici側の元ResponseのGCでstreamがcancelされ、最初のJSON読取でも`Body is unusable`になり得る。
+CIでは`MINIFLARE_ASSERT_BODIES_CONSUMED=true`で即時読取を検査する。並列100件の応答内容と
+上流呼出回数の検証を減らしたり、例外を無視したりして回避しない。
 `npm --prefix web run test:application`はBrowser network adapterのquota / timeout / size検査も含む。
 Python `tests/integration/test_local_calculation.py`はTAFの成否による航法値不変を確認する。
 
@@ -283,3 +288,12 @@ buildし、静的配信後に`npm --prefix web run test:taf`を実行する（�
 このsuiteはProxy通信をfixtureへ置換し、成功→quota→timeout→停止→reload→復旧と
 IndexedDB Project / Last Calculation保持を確認する。通常の`test:local`はTAF未設定buildで実行する。
 実upstream smoke、Free tier見積りと本番release gateは[TAF Proxy運用](taf_proxy.md)を参照する。
+
+## Browser CI runners
+
+`local-browser`と`account-sync`は`ubuntu-24.04`を明示し、`ubuntu-latest`のOS移行で
+Playwrightの依存導入が急に変わらないようにする。`local-browser`の25分上限、認証・Local保存・
+計算・NAV LOG・ブラウザ受入・TAFの検証と、`account-sync`の20分上限、Firestore Rules・同期・
+移行の検証は維持する。両ジョブでChromium / WebKitを導入する。キャンセル時はcheck annotationと
+失敗stepを確認する。ブラウザ依存のdownloadでtimeoutした場合、後続のテストは未実行であり、
+テスト失敗やconcurrencyによる中止とは区別する。

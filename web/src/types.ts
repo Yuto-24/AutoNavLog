@@ -54,6 +54,7 @@ export interface ImportState {
 }
 
 export interface RouteNode {
+  reference_snapshot?: import("./referencePoints").ReferencePointSnapshot | null;
   id: string;
   sequence: number;
   name: string;

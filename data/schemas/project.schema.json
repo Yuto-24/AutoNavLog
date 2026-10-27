@@ -192,6 +192,178 @@
       "title": "ProjectStatus",
       "type": "string"
     },
+    "ReferencePointSnapshot": {
+      "additionalProperties": false,
+      "description": "Selection-time reference data, never refreshed implicitly from a master.",
+      "properties": {
+        "airport_icao": {
+          "pattern": "^[A-Z]{4}$",
+          "title": "Airport Icao",
+          "type": "string"
+        },
+        "bearing_true_deg": {
+          "maximum": 360,
+          "minimum": 0,
+          "title": "Bearing True Deg",
+          "type": "number"
+        },
+        "derivation": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Derivation",
+          "type": "string"
+        },
+        "distance_nm": {
+          "exclusiveMinimum": 0,
+          "title": "Distance Nm",
+          "type": "number"
+        },
+        "kind": {
+          "enum": [
+            "ROUTE_POINT",
+            "VISUAL_REPORTING_POINT"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude Deg",
+          "type": "number"
+        },
+        "longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude Deg",
+          "type": "number"
+        },
+        "name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "name_ja": {
+          "maxLength": 100,
+          "title": "Name Ja",
+          "type": "string"
+        },
+        "note": {
+          "maxLength": 1000,
+          "title": "Note",
+          "type": "string"
+        },
+        "reference_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Reference Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ReferencePointSource"
+        }
+      },
+      "required": [
+        "reference_id",
+        "name",
+        "name_ja",
+        "kind",
+        "airport_icao",
+        "latitude_deg",
+        "longitude_deg",
+        "bearing_true_deg",
+        "distance_nm",
+        "note",
+        "derivation",
+        "source"
+      ],
+      "title": "ReferencePointSnapshot",
+      "type": "object"
+    },
+    "ReferencePointSource": {
+      "additionalProperties": false,
+      "properties": {
+        "arp_effective_date": {
+          "format": "date",
+          "title": "Arp Effective Date",
+          "type": "string"
+        },
+        "arp_latitude_deg": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Arp Latitude Deg",
+          "type": "number"
+        },
+        "arp_latitude_dms": {
+          "maxLength": 20,
+          "title": "Arp Latitude Dms",
+          "type": "string"
+        },
+        "arp_longitude_deg": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Arp Longitude Deg",
+          "type": "number"
+        },
+        "arp_longitude_dms": {
+          "maxLength": 20,
+          "title": "Arp Longitude Dms",
+          "type": "string"
+        },
+        "arp_pdf_page": {
+          "minimum": 1,
+          "title": "Arp Pdf Page",
+          "type": "integer"
+        },
+        "filename": {
+          "maxLength": 100,
+          "title": "Filename",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "table_effective_date": {
+          "format": "date",
+          "title": "Table Effective Date",
+          "type": "string"
+        },
+        "table_page": {
+          "maxLength": 100,
+          "title": "Table Page",
+          "type": "string"
+        },
+        "table_pdf_page": {
+          "minimum": 1,
+          "title": "Table Pdf Page",
+          "type": "integer"
+        },
+        "url": {
+          "maxLength": 500,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "filename",
+        "sha256",
+        "table_pdf_page",
+        "table_page",
+        "table_effective_date",
+        "arp_pdf_page",
+        "arp_effective_date",
+        "arp_latitude_dms",
+        "arp_longitude_dms",
+        "arp_latitude_deg",
+        "arp_longitude_deg"
+      ],
+      "title": "ReferencePointSource",
+      "type": "object"
+    },
     "RouteNode": {
       "additionalProperties": false,
       "properties": {
@@ -247,6 +419,17 @@
         "name_source": {
           "$ref": "#/$defs/RouteNodeNameSource",
           "default": "IMPORTED"
+        },
+        "reference_snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReferencePointSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "role": {
           "$ref": "#/$defs/RouteNodeRole"
