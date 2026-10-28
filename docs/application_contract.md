@@ -158,6 +158,15 @@ If presentation or serialization fails, the candidate is closed and the previous
 remains usable. Failure-injection coverage verifies both boundaries and recalculation
 of the retained work; tab recovery is an additional safeguard.
 
+Sync resolution captures the work generation before its asynchronous resolver starts.
+New invalidates waiting resolution/refresh continuations, including when New fails.
+Only the state-changing sync phase and its UI commit share a queue with New: a load
+already in progress commits its matching UI before New can fail, while a paused
+resolver or refresh never locks New. This keeps the displayed Project and the retained
+Application consistent without rejecting New during synchronization.
+While New suppresses recovery writes, rendered work still updates the in-memory
+snapshot so an asynchronous reset failure restores the matching Project on reload.
+
 Verification: shared e2e/session.spec.ts runs against Legacy and production Local
 (npm --prefix web run test:local -- session.spec.ts).
 Local blocks /api/**; KMZ document selection and reload continuation run in both modes.

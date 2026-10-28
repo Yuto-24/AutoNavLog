@@ -5,6 +5,7 @@ import { AccountSyncControl } from "./components/AccountSyncControl";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApplicationError } from "./application";
+import { WorkChangeQueue } from "./workChangeQueue";
 import type { AutoNavLogApplication, UpdateProjectInput } from "./application";
 import { readSession, writeSession, clearSession, RECOVERY_FAILED, emptyCheckPointDraft, projectDraft, restoreProjectDraft } from "./applicationSession";
 import type { ApplicationSession, PendingKmz, NodeNameDraft, VorColumn } from "./applicationSession";
@@ -100,6 +101,8 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   const [nodeNameDraft, setNodeNameDraft] = useState<NodeNameDraft>({ id: null, name: "" });
   const [sessionReady, setSessionReady] = useState(false);
   const sessionDiscarded = useRef(false);
+  const [workChanges] = useState(() => new WorkChangeQueue());
+  const syncResolutionGeneration = useRef(workChanges.capture());
   const latestSession = useRef<ApplicationSession | null>(null);
   const restoredPattern = useRef<string | null>(null);
   const lifecycle = useRef(0);
@@ -443,7 +446,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   }, [state?.outcome]);
 
   useLayoutEffect(() => {
-    if (!sessionReady || !state?.workingRecovery || sessionDiscarded.current) return;
+    if (!sessionReady || !state?.workingRecovery) return;
     const snapshot: ApplicationSession = {
       mapRouteDraft, legacyRouteInput, checkPointDraft, nodeNameDraft, vorColumns,
       version: 1, working: state.workingRecovery, form, altitudeInputs, navLogDrafts,
@@ -451,6 +454,9 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       projectName, selectedProjectId, pendingKmz, selectedKmzDocument,
     };
     latestSession.current = snapshot;
+    // A queued New may suppress storage before this render commits. Keep its
+    // failure recovery aligned with the displayed work even while writes stop.
+    if (sessionDiscarded.current) return;
     if (!writeSession(snapshot, platform.session.storage)) {
       setNotice("作業状態を一時保存できません。再読み込みすると未保存の作業を失う可能性があります。");
     }
@@ -1461,7 +1467,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
     const reset = await runTask(
-      async () => {
+      () => workChanges.reset(async () => {
         await discardPendingDraftAutosave();
         try {
           clearSession(platform.session.storage);
@@ -1477,7 +1483,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           throw reason;
         }
         return true;
-      },
+      }),
       { fallbackError: "新規作業を開始できませんでした。" },
     );
     if (reset) {
@@ -1587,27 +1593,35 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
 
   return (
     <div className="app-shell">
-      <AccountSyncControl sync={application.sync} onBeforeResolve={confirmDiscardMapDraft} onChange={() => {
+      <AccountSyncControl sync={application.sync} onBeforeResolve={() => {
+        if (!confirmDiscardMapDraft()) return false;
+        syncResolutionGeneration.current = workChanges.capture();
+        return true;
+      }} onChange={() => {
         if (application.refreshProjects) void application.refreshProjects().then(next => {
           setState(current => current ? { ...current, savedProjects: next.savedProjects, storageWarning: next.storageWarning } : current);
         }).catch(() => {});
       }} onResolved={async id => {
-        if (!mounted.current || sessionDiscarded.current) return;
         const epoch = lifecycle.current;
+        const generation = syncResolutionGeneration.current;
+        const active = () => mounted.current && !sessionDiscarded.current && epoch === lifecycle.current;
+        if (!active() || !workChanges.isCurrent(generation)) return;
         cancelPendingRecalculation();
         await discardPendingDraftAutosave();
-        if (sessionDiscarded.current || epoch !== lifecycle.current) return;
+        if (!active() || !workChanges.isCurrent(generation)) return;
         const next = await application.refreshProjects?.();
-        if (sessionDiscarded.current || epoch !== lifecycle.current) return;
-        if (next?.savedProjects.some(project => project.id === id)) {
-          const loaded = await application.loadProject(id);
-          if (!sessionDiscarded.current && epoch === lifecycle.current) applyState(loaded, { syncCalculationInputs: true });
-        } else {
-          await application.newWork();
-          if (sessionDiscarded.current || epoch !== lifecycle.current) return;
-          const blank = await application.bootstrap();
-          if (!sessionDiscarded.current && epoch === lifecycle.current) applyState(blank, { syncCalculationInputs: true });
-        }
+        await workChanges.resolve(generation, async () => {
+          if (!active()) return;
+          if (next?.savedProjects.some(project => project.id === id)) {
+            const loaded = await application.loadProject(id);
+            if (active()) applyState(loaded, { syncCalculationInputs: true });
+          } else {
+            await application.newWork();
+            if (!active()) return;
+            const blank = await application.bootstrap();
+            if (active()) applyState(blank, { syncCalculationInputs: true });
+          }
+        });
       }} />
       <Header
         onBeforeAccountChange={confirmDiscardMapDraft}
