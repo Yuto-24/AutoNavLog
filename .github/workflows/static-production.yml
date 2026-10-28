@@ -32,6 +32,7 @@ permissions:
 concurrency:
   group: static-production
   cancel-in-progress: false
+  queue: max
 
 # Forecast-only publication is unattended for every trigger; app-release approval is separate.
 jobs:

@@ -17,3 +17,9 @@ server_pid=$!
 trap 'kill "$server_pid"' EXIT
 curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4121/ >/dev/null
 npm --prefix web run test:static
+# Only the hint directory/inventory need runner writes after the isolated build.
+set -- web/dist-static/release.json web/dist-static/weather/msm
+if [ -f web/dist-static/weather/msm/freshness.json ]; then
+  set -- "$@" web/dist-static/weather/msm/freshness.json
+fi
+chown --no-dereference "$ARTIFACT_UID:$ARTIFACT_GID" "$@"

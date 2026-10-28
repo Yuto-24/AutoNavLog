@@ -22,7 +22,7 @@ from urllib.request import Request, build_opener
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
-from scripts.static_ops import pages_target, probe_providers  # noqa: E402
+from scripts.static_ops import freshness, pages_target, probe_providers  # noqa: E402
 from scripts.static_ops import publication_gate as gate  # noqa: E402
 from scripts.static_ops.operations import (  # noqa: E402
     NoRedirect,
@@ -37,6 +37,7 @@ from scripts.static_ops.validate_feed import validate_feed  # noqa: E402
 
 REPO = "Yuto-24/AutoNavLog"
 WORKFLOW = "static-production.yml"
+APP_WORKFLOW = "static-app-release.yml"
 VARIABLES = (
     *gate.CONFIGURATION,
     "CLOUDFLARE_ACCOUNT_ID",
@@ -239,7 +240,8 @@ class Journal:
     def finish(self, success: bool) -> None:
         self.value["status"] = "OK" if success else "BLOCKED"
         self.value["required_action"] = (
-            "Review plan; publication needs separate authorization"
+            ("Publish under stable-release policy" if self.value.get("authorization")
+             else "Review plan; publication needs separate authorization")
             if success and self.value["mode"] == "prepare"
             else "None"
             if success
@@ -354,12 +356,17 @@ class Operator:
         return self.gh("actions/workflows/" + WORKFLOW)
 
     def idle(self) -> None:
+        # Manual publication must also exclude the unattended app publisher.
+        for workflow in (WORKFLOW, APP_WORKFLOW):
+            self.workflow_idle(workflow)
+
+    def workflow_idle(self, workflow: str) -> None:
         # A single unfiltered inventory cannot lose queued -> waiting transitions
         # between separate status queries. Scan every declared page without an
         # arbitrary historical ceiling; incomplete/changed history fails closed.
         page, count, seen = 1, None, set()
         while True:
-            value = self.gh(f"actions/workflows/{WORKFLOW}/runs?per_page=100&page={page}")
+            value = self.gh(f"actions/workflows/{workflow}/runs?per_page=100&page={page}")
             total, rows = value["total_count"], value["workflow_runs"]
             require(
                 type(total) is int
@@ -575,7 +582,7 @@ class Operator:
             if transition and path == "firebase/firestore.rules":
                 continue  # Both exact sources were checked above; other contracts remain identical.
             require(
-                self.git("show", f"{sha}:{path}") == self.git("show", f"{current}:{path}"),
+                self.source_digest(sha, path) == self.source_digest(current, path),
                 "Rules/indexes/Project schema changed; separately reviewed migration required",
             )
         project = variables["VITE_FIREBASE_PROJECT_ID"]
@@ -587,7 +594,8 @@ class Operator:
         files = ruleset["source"]["files"]
         require(
             len(files) == 1
-            and files[0]["content"].strip() == self.git("show", f"{sha}:firebase/firestore.rules"),
+            and digest(files[0]["content"].encode("utf-8"))
+            == self.source_digest(sha, "firebase/firestore.rules"),
             "Deployed Firestore Rules differ; no automatic Rules deploy",
         )
         if transition:
@@ -612,6 +620,21 @@ class Operator:
             receipt["transition"] = transition
         return fingerprint(receipt)
 
+    def source_digest(self, sha: str, path: str) -> str:
+        """Compare source bytes, including whitespace and line endings."""
+        if path == "firebase/firestore.rules":
+            return digest(self.rules_source(sha).encode("utf-8"))
+        raw = self.git("rev-parse", f"{sha}:{path}")
+        require(re.fullmatch(r"[0-9a-f]{40}", raw), "Compatibility source unavailable")
+        return raw  # Git blob identity includes the exact bytes.
+
+    def source_branch(self, sha: str) -> str:
+        from scripts.release_content import version_tuple
+
+        major = version_tuple(self.git("show", f"{sha}:VERSION"))[0]
+        require(major in (1, 2), "Unsupported release line")
+        return "release/1.x" if major == 1 else "main"
+
     def snapshot(self, sha: str, current: str, *, paused: bool = False) -> dict:
         require(
             re.fullmatch(r"[0-9a-f]{40}", sha) and re.fullmatch(r"[0-9a-f]{40}", current),
@@ -623,14 +646,16 @@ class Operator:
         )
         require(
             self.git("remote", "get-url", "origin")
-            in ("https://github.com/" + REPO + ".git", "git@github.com:" + REPO + ".git"),
+            in ("https://github.com/" + REPO, "https://github.com/" + REPO + ".git",
+                "git@github.com:" + REPO + ".git"),
             "Unexpected repository remote",
         )
-        self.git("fetch", "origin", "main")
+        branch = self.source_branch(sha)
+        self.git("fetch", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}")
         require(
             self.git("rev-parse", sha + "^{commit}") == sha, "Target is not the requested commit"
         )
-        self.git("merge-base", "--is-ancestor", sha, "origin/main")
+        self.git("merge-base", "--is-ancestor", sha, "origin/" + branch)
         variables = self.variables()
         repo = self.gh("")
         require(
@@ -730,6 +755,10 @@ class Operator:
             "AUTONAVLOG_MSM_FEED=/feed",
             "--env",
             "AUTONAVLOG_REFERENCE_PYTHON=python3",
+            "--env",
+            f"ARTIFACT_UID={os.getuid()}",
+            "--env",
+            f"ARTIFACT_GID={os.getgid()}",
             image,
             "sh",
             "-eu",
@@ -747,11 +776,17 @@ class Operator:
             timeout=2700,
         )
         expected = {"commit": sha, "configuration": config}
-        candidate = gate.artifact(app, expected)
+        candidate = self.seal_build(app, expected)
         require(candidate["version"] == snapshot["version"], "Candidate version mismatch")
         gate.upload_context(app, destination / "upload", expected)
         self.validate_build(destination, sha, snapshot)
         return candidate
+
+    def seal_build(self, app: Path, expected: dict) -> dict:
+        # Validate the untrusted tree before any host-side write (including symlinks).
+        gate.artifact(app, expected)
+        freshness.write(app / "web/dist-static")
+        return gate.artifact(app, expected)
 
     def validate_build(self, destination: Path, sha: str, snapshot: dict) -> dict:
         stage = destination / "upload"

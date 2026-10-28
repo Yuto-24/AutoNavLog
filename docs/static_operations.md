@@ -487,7 +487,9 @@ Its timestamps are historical evidence, not current publication authorization.
 
 `scripts/static_ops/app_release.sh` は、既存 Python gate を呼ぶ薄い入口。
 **prepare は provider を変更しない。publish は別途承認後だけ実行する。**
-GitHub の release 作成、main の最新版、MSM-only dispatch はアプリ更新の承認を代用しない。
+以下は個別の手動公開手順。別途有効化する[正式Releaseの自動反映](automatic_app_releases.md)では、
+Rules等が同一の通常更新だけ正式Releaseを公開権限として扱う。Rules変更の個別承認と互換性確認は維持する。
+main の最新版や MSM-only dispatch はアプリ更新の承認を代用しない。
 PR #259 の毎時 MSM 判定と共通 workflow は変更せず、既存の
 `STATIC_AUTOMATION_ENABLED` 停止 → idle 確認 → 公開 → `STATIC_APPROVED_SHA` 切替 → 再開を使う。
 

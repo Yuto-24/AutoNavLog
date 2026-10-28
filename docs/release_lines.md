@@ -51,6 +51,10 @@ The workflow on main alone does not install a workflow on an older release branc
 No v1 branch base, VREP backport, deployment, or release publication is performed by
 this workflow-support PR.
 
-MSM/provider and Pages deployment workflows remain main-only and unchanged. GitHub
-Release publication is not an app deployment, does not update matsu, and does not
-change Pages, credentials, branch protections, or production switches.
+MSM/provider workflows remain main-only. The optional main-based
+`static-app-release.yml` completion bridge accepts stable Releases from both lines
+and uses the same Serverless production target. It is disabled until separately
+configured and activated; ordinary PR merges do not publish the app. See
+[automatic_app_releases.md](automatic_app_releases.md) for monotonic version gates,
+Rules approval boundaries, replay/recovery and first-1.x-publication prerequisites.
+Release creation itself does not change matsu, credentials or production switches.

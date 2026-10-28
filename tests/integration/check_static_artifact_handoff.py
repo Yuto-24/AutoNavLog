@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import UTC, datetime, timedelta
+from itertools import product
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -65,9 +66,13 @@ def check_handoff(image):
     assert os.geteuid() != 0, "Run on a nonroot Actions/host user, never skip this contract"
     workflow = (ROOT / ".github/workflows/static-production.yml").read_text()
     start = workflow.index("              # Only these outputs need host-side writes;")
-    handoff = workflow[start:workflow.index("\n            '\n", start)]
+    feed_handoff = workflow[start:workflow.index("\n            '\n", start)]
+    app_script = (ROOT / "scripts/static_ops/build_app_release.sh").read_text()
+    app_handoff = app_script[app_script.index("# Only the hint directory/inventory"):]
+    handoffs = {"feed": feed_handoff, "app": app_handoff}
     # Execute the actual workflow tail, not an independent copy of its chown logic.
-    for existing_hint in (False, True):
+    for kind, existing_hint in product(handoffs, (False, True)):
+        handoff = handoffs[kind]
         with tempfile.TemporaryDirectory(prefix="static-artifact-handoff-") as temporary:
             workspace = Path(temporary)
             app = workspace / "app"
@@ -115,6 +120,7 @@ def check_handoff(image):
                 freshness.write(dist)  # repeat writes must not renew forecast lifetime
                 assert snapshot(dist) == after
                 print(json.dumps({"status": "OK", "runner_uid": os.getuid(),
+                                  "publication": kind,
                                   "runner_gid": os.getgid(), "build_uid_gid": "0:0",
                                   "build_directory_mode": "0755", "build_file_mode": "0644",
                                   "existing_hint": existing_hint, "inventory": "exact"}))

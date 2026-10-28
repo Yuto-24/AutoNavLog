@@ -676,7 +676,7 @@ def test_real_idle_check_reads_all_completed_hourly_history_without_ceiling(tmp_
 
     operator.gh = gh
     operator.idle()
-    assert len(calls) == 41
+    assert len(calls) == 82  # Feed and app workflows are both excluded for manual publication.
 
 
 def test_queued_to_waiting_transition_cannot_escape_unfiltered_inventory(tmp_path):
@@ -751,10 +751,13 @@ def test_build_container_receives_only_public_configuration(monkeypatch, tmp_pat
     monkeypatch.setattr(app, "validate_feed", lambda *args: {})
     monkeypatch.setattr(gate, "static_sources", lambda *args: None)
     monkeypatch.setattr(gate, "artifact", lambda *args: {"version": "1.0.0"})
+    sealed = []
+    monkeypatch.setattr(app.freshness, "write", lambda dist: sealed.append(dist))
     monkeypatch.setattr(gate, "upload_context", lambda *args: None)
     monkeypatch.setattr(operator, "validate_build", lambda *args: {})
     snapshot = SimulatedOperator(tmp_path).state
     operator.build(NEW, snapshot, tmp_path / "build")
+    assert sealed == [tmp_path / "build/app/web/dist-static"]
     args, kwargs = next(item for item in calls if item[0][:2] == ["docker", "run"])
     assert not any("TOKEN" in value or "SECRET" in value for value in args)
     assert not any("TOKEN" in key for key in kwargs["env"])
@@ -763,12 +766,57 @@ def test_build_container_receives_only_public_configuration(monkeypatch, tmp_pat
     assert "--hours" in next(item[0] for item in calls if "--hours" in item[0])
 
 
+@pytest.mark.parametrize("existing_hint", [False, True])
+def test_app_build_seals_freshness_without_renewing_catalog_or_changing_app(
+    tmp_path, existing_hint
+):
+    source = tmp_path / "app"
+    expected = {"commit": NEW, "configuration": {"public": "config"}}
+    dist = fixture_artifact(source, {**expected, "dirty": False})
+    catalog_path = dist / "weather/msm/catalog.json"
+    catalog = json.loads(catalog_path.read_bytes())
+    generated = datetime.now(UTC)
+    catalog.update(schema_version=1, generated_at=generated.isoformat(),
+                   expires_at=(generated + timedelta(hours=6)).isoformat())
+    for asset in catalog["assets"]:
+        asset["run"] = generated.replace(hour=generated.hour // 3 * 3, minute=0,
+                                          second=0, microsecond=0).strftime("%Y%m%d%H%M%S")
+    catalog_path.write_text(json.dumps(catalog))
+    value = json.loads((dist / "release.json").read_bytes())
+    value["files"]["weather/msm/catalog.json"] = {
+        "bytes": catalog_path.stat().st_size, "sha256": app.digest(catalog_path.read_bytes())}
+    app.write_json(dist / "release.json", value)
+    if existing_hint:
+        app.freshness.write(dist)
+    before = {p.relative_to(dist).as_posix(): p.read_bytes() for p in dist.rglob("*")
+              if p.is_file() and p.name not in ("release.json", "freshness.json")}
+    candidate = app.Operator(tmp_path).seal_build(source, expected)
+    hint = (dist / app.freshness.NAME).read_bytes()
+    app.freshness.check(hint, catalog, candidate)
+    assert json.loads(hint)["app_commit"] == NEW
+    assert candidate["commit"] == NEW and candidate["configuration"] == expected["configuration"]
+    assert before == {name: (dist / name).read_bytes() for name in before}
+    app.Operator(tmp_path).seal_build(source, expected)
+    assert (dist / app.freshness.NAME).read_bytes() == hint
+
+
+def test_untrusted_symlink_is_rejected_before_host_hint_write(tmp_path, monkeypatch):
+    source = tmp_path / "app"
+    expected = {"commit": NEW, "configuration": {}}
+    dist = fixture_artifact(source, {**expected, "dirty": False})
+    (dist / app.freshness.NAME).symlink_to(tmp_path / "outside")
+    monkeypatch.setattr(app.freshness, "write", lambda *args: pytest.fail("Unvalidated host write"))
+    with pytest.raises(ValueError, match="Symlink"):
+        app.Operator(tmp_path).seal_build(source, expected)
+
+
 def test_live_rules_and_source_contract_must_match_without_deploy(tmp_path):
     operator = app.Operator(tmp_path)
     calls = []
     operator.git = lambda *args: (
-        "reviewed-rules" if args[-1].endswith(".rules") else "same-contract"
+        "reviewed-rules" if args[-1].endswith(".rules") else "e" * 40
     )
+    operator.rules_source = lambda sha: "reviewed-rules\n"
 
     def rules_get(path):
         calls.append(path)
@@ -787,14 +835,18 @@ def test_live_rules_and_source_contract_must_match_without_deploy(tmp_path):
 @pytest.mark.parametrize("path", app.COMPATIBILITY)
 def test_rules_indexes_and_project_schema_change_need_separate_review(tmp_path, path):
     operator = app.Operator(tmp_path)
-    operator.git = lambda *args: "changed" if args[-1] == f"{NEW}:{path}" else "old"
+    operator.git = lambda *args: "c" * 40 if args[-1] == f"{NEW}:{path}" else "d" * 40
+    operator.rules_source = lambda sha: (
+        "changed" if path.endswith(".rules") and sha == NEW else "old"
+    )
     with pytest.raises(app.Blocked, match="migration required"):
         operator.compatibility(NEW, OLD, {"VITE_FIREBASE_PROJECT_ID": "navmate-prod"})
 
 
 def test_deployed_rules_change_between_reads_blocks(tmp_path):
     operator = app.Operator(tmp_path)
-    operator.git = lambda *args: "same"
+    operator.git = lambda *args: "e" * 40
+    operator.rules_source = lambda sha: "same"
     replies = iter(
         [
             {"rulesetName": "projects/navmate-prod/rulesets/one"},
@@ -1120,8 +1172,9 @@ def pinned_rules_operator(tmp_path):
     sources = {transition["current_sha"]: old, transition["sha"]: new}
     operator.rules_source = lambda sha: sources[sha]
     operator.git = lambda *args: (
-        sources[args[-1].split(":")[0]].strip() if args[-1].endswith(".rules") else "same-contract"
+        sources[args[-1].split(":")[0]].strip() if args[-1].endswith(".rules") else "e" * 40
     )
+    operator.source_branch = lambda sha: "main"
     release = {
         "name": "projects/navmate-prod/releases/cloud.firestore",
         "rulesetName": "projects/navmate-prod/rulesets/new-ruleset",
@@ -1202,7 +1255,7 @@ def test_pinned_transition_still_rejects_index_or_schema_changes(pinned_rules_op
     operator, _, _, calls = pinned_rules_operator
     original = operator.git
     operator.git = lambda *args: (
-        "changed" if args[-1] == f"{HISTORICAL_TRANSITION['sha']}:{path}" else original(*args)
+        "c" * 40 if args[-1] == f"{HISTORICAL_TRANSITION['sha']}:{path}" else original(*args)
     )
     with pytest.raises(app.Blocked, match="migration required"):
         pinned_compatibility(operator)
@@ -1278,7 +1331,7 @@ def test_real_snapshot_requires_transition_schedule_already_paused(
             return ""
         if args[0] == "remote":
             return "https://github.com/" + app.REPO + ".git"
-        if args[0] == "rev-parse":
+        if args[0] == "rev-parse" and args[1].endswith("^{commit}"):
             return args[1].removesuffix("^{commit}")
         return git(*args)
 
@@ -1369,7 +1422,7 @@ def reviewed_operator(tmp_path, *, sha=NEW, current=OLD):
     operator.rules_source = lambda commit: operator.sources[commit]
     operator.git = lambda *args: (
         operator.sources[args[-1].split(":")[0]]
-        if args[-1].endswith(".rules") else "same-contract"
+        if args[-1].endswith(".rules") else "e" * 40
     )
     operator.rules_get = lambda path: (
         {"rulesetName": "projects/navmate-prod/rulesets/new"}
