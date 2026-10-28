@@ -646,7 +646,8 @@ class Operator:
         )
         require(
             self.git("remote", "get-url", "origin")
-            in ("https://github.com/" + REPO + ".git", "git@github.com:" + REPO + ".git"),
+            in ("https://github.com/" + REPO, "https://github.com/" + REPO + ".git",
+                "git@github.com:" + REPO + ".git"),
             "Unexpected repository remote",
         )
         branch = self.source_branch(sha)

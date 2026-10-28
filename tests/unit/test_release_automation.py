@@ -256,3 +256,26 @@ def test_phase_separation_retains_plan_drift_gate(tmp_path):
     with pytest.raises(app.Blocked, match="changed"):
         auto.execute(op, NEW, OLD, tmp_path, phases=("publish",))
     assert "pause" not in op.calls and "upload" not in op.calls
+
+
+@pytest.mark.parametrize("url,accepted", [
+    ("https://github.com/Yuto-24/AutoNavLog", True),  # actions/checkout HTTPS origin
+    ("https://github.com/Yuto-24/AutoNavLog.git", True),
+    ("git@github.com:Yuto-24/AutoNavLog.git", True),
+    ("https://github.com/other/AutoNavLog", False),
+    ("https://github.com/Yuto-24/AutoNavLog.evil", False),
+    ("https://github.com.evil/Yuto-24/AutoNavLog", False),
+])
+def test_checkout_origin_forms_reach_source_gate_without_remote_reconfiguration(
+    tmp_path, url, accepted
+):
+    op = app.Operator(tmp_path)
+    op.git = lambda *args: url if args[0] == "remote" else ""
+
+    def source_gate(sha):
+        raise LookupError("Reached source gate")
+
+    op.source_branch = source_gate
+    with pytest.raises(LookupError if accepted else app.Blocked,
+                       match="source gate" if accepted else "repository remote"):
+        op.snapshot(NEW, OLD)
