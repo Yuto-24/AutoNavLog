@@ -42,14 +42,29 @@ Actions側のconcurrency・履歴・同Run上限・再公開防止を維持す�
 追加していたDOによる厳密な要求予約は後述の後続事項へ分離し、binding・export・migrationを
 今回の配置構成から除く。回数制限を全面撤去する変更ではない。
 
+## CPUと実行の観測
+
+scheduled handlerは、結果と全HTTP stageの`diagnostics`配列を1件のJSONログにまとめる。
+本文上限、HTTP検査、要求予約、回数・間隔制限は変更しない。失敗時も取得済みの診断を残す。
+ローカルprofileは比較用であり、10 msの受入にはproviderの実dispatch計測を使う。
+
+`scripts/static_ops/msm_observation.py`は副作用なしで受付・CPUの観測を照合する。
+自然Cronのenqueue時刻と実際の`request_id`時刻は離れうるため、秒数差で受付を否定しない。
+返された実行ID、要求IDを含むrun-name、event、tooling SHA、run attemptを照合する。
+CPU照会の区間はenqueueから実行終了までを含め、対象1件のprovider値で判定する。
+tailの整数値10 msだけを合格にせず、API失敗・欠測・複数件の曖昧な集計はUNKNOWNとする。
+UNKNOWNはWorkerのexceptionと区別し、既知のCPU超過や実行失敗を隠さない。
+
 Workerからcatalog/release取得、catalog SHA-256、全asset inventory照合、上流listing解析、
 予報Run発見、canonical公開完了の判定を取り除いた。
 
 ## Actions側の境界
 
 workflow concurrency `static-production` / `cancel-in-progress: false` を共有する。
-既存opt-in、`static-publication`等の承認environment、承認済みアプリSHA固定を維持する。
-preflightとproducerは同じ保護environmentを使うため、設定によっては各jobに承認が必要となる。
+既存opt-inと承認済みアプリSHA固定を維持する。2026-10-28の明示承認に基づき、
+予報のみの公開は手動を含め承認待ちにしない。preflightとproducerはともに既存の
+無人実行用`static-production` environmentを使い、build-onlyは`static-validation`を使う。
+`static-publication`の設定・保護やアプリ更新のreviewed-plan承認経路は変更しない。
 preflightのSHAをproducerへ渡し、承認変化があればidentity gateで停止する。
 
 1. boundedな完全な履歴と全active状態を照合し、自分以外の実行中・承認待ち、日次8、90分、
@@ -68,7 +83,7 @@ preflightのSHAをproducerへ渡し、承認変化があればidentity gateで�
    先行する同Runの検出履歴が2件ならproducer前に停止し、失敗も含める。
    検出Run時刻まで遡って履歴を読み、日跨ぎでRun制限を解除しない。
    producerのlisting発見直後・payload生成前とupload直前に検出Run一致を検査し、
-   承認待ち中のRun変化が会計を迂回しない。
+   待機中のRun変化が会計を迂回しない。
    履歴・jobsの欠落/切詰め/取得失敗では上限判定を通さない。
 5. 必要な場合だけ既存restore・生成・全payload decode/coverage・独立build/E2E・公開gateへ進む。
    upload直前にcanonicalとcandidateのRunを比較し、同じ予報の再公開・期限だけの更新を拒否する。
@@ -76,9 +91,9 @@ preflightのSHAをproducerへ渡し、承認変化があればidentity gateで�
 
 ## 既存公開からの移行（このPRでは実行しない）
 
-1. このtoolingをmergeする承認と、既存の公開手順で**新しい完全なRun**を公開する承認を別途得る。
+1. このtoolingをmergeする承認を別途得る。予報のみの公開に実行ごとの承認は不要。
    Workerはobserve・Cron停止、外部opt-in無効のまま。SecretやKVを再作成しない。
-2. 既存scheduleまたは個別承認されたfeed公開で、承認済みアプリcommitを固定したまま
+2. 既存scheduleまたは手動feed公開で、承認済みアプリcommitを固定したまま
    同じdeploymentにhintを含める。新Runがなければ待つ。同Runを再公開して移行しない。
 3. canonical catalog/release/payload/hintが同じ候補と一致することをActionsで確認する。
    404や古いhint、catalogとの不一致がある場合はWorkerを有効化しない。
@@ -253,11 +268,11 @@ Free CPU 10msは実測による別gate。ローカルテスト、bundleサイズ
    操作と必要性を示して停止する。通常のOAuth refreshと新規credentialの作成を区別する。
 4. Worker observe配置・Cron監視段階を個別承認し、設定read-back、CPU/応答サイズ、
    hint HTTPS到達、GitHub履歴API、KV、非dispatchを確認。上流listingはActions側で確認する。任意heartbeatは別承認。
-5. GitHub opt-in、dispatch mode、Cron有効化を個別承認して実施。必要なら既存environmentの承認操作。
+5. GitHub opt-in、dispatch mode、Cron有効化を個別承認して実施。予報のみの各実行はenvironment承認不要。
 6. schedule欠落を補完した実Run、catalog期限・全payload整合性・アプリcommit不変、
    旧期限を跨ぐ継続更新を記録し#123へ戻す。ここまではfixture試験では代用できない。
 
-人手が必要なのは権限/Secret、公開承認とenvironment承認、初回のprovider確認。
+人手が必要なのは権限/Secretの変更、merge・有効化・アプリ更新の承認、初回のprovider確認。
 通常の15分判定・要求・待機・Run確認に値やコマンドのコピペは不要。
 
 ## 取得元timeoutの別件提案

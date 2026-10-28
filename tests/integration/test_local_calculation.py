@@ -639,3 +639,41 @@ def test_failed_new_work_construction_keeps_previous_work(local, monkeypatch):
     assert json.loads(local.dispatch_response("newWork"))["error"]["code"] == "REQUEST_FAILED"
     assert storage.exists()
     assert json.loads(local.dispatch("state")) == before
+
+
+@pytest.mark.parametrize("failure", ["presentation", "serialization"])
+def test_failed_new_work_response_keeps_previous_work(local, monkeypatch, failure):
+    import autonavlog.local as module
+
+    calculated = calculate(local)
+    before = local.dispatch("state")
+    old_app, old_session, old_weather = local.app, local.session, local.local_weather
+    storage = Path(local._temporary.name)
+    sentinel = storage / "previous-work.txt"
+    sentinel.write_text("previous work")
+    replacements = []
+
+    def replacement(*args, **kwargs):
+        candidate = LocalApplication(*args, **kwargs)
+        replacements.append(candidate)
+        present = candidate.app.present
+
+        def failed(session):
+            if failure == "presentation":
+                raise RuntimeError("presentation failed")
+            state = present(session)
+            state["unserializable"] = object()
+            return state
+
+        monkeypatch.setattr(candidate.app, "present", failed)
+        return candidate
+
+    monkeypatch.setattr(module, "LocalApplication", replacement)
+    assert json.loads(local.dispatch_response("newWork"))["error"]["code"] == "REQUEST_FAILED"
+    assert local.app is old_app
+    assert local.session is old_session
+    assert local.local_weather is old_weather
+    assert sentinel.read_text() == "previous work"
+    assert local.dispatch("state") == before
+    assert not Path(replacements[0]._temporary.name).exists()
+    assert json.loads(local.dispatch("calculate"))["outcome"] == calculated["outcome"]

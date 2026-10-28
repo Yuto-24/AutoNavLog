@@ -114,14 +114,20 @@ class LocalApplication:
             "local-poc", restore_persisted=False, persist_working=False
         )
 
-    def new_work(self) -> None:
+    def new_work(self) -> str:
         """Replace all mutable work while keeping the interpreter and installed packages."""
         replacement = LocalApplication(self._data_root, forecast_fixture=self._forecast_fixture)
+        try:
+            state = replacement.dispatch("state")
+        except Exception:
+            replacement.close()
+            raise
         self._temporary.cleanup()
         self._temporary = replacement._temporary
         self.local_weather = replacement.local_weather
         self.app = replacement.app
         self.session = replacement.session
+        return state
 
     def requires_weather(self) -> bool:
         return bool(
@@ -171,8 +177,7 @@ class LocalApplication:
         """Execute application operations using the existing facade on transient MEMFS."""
         payload = body or {}
         if path == "newWork":
-            self.new_work()
-            return self.dispatch("state")
+            return self.new_work()
         if path == "prepareSyncResolution":
             record = migrate_record(payload["record"])
             last = record.lastCalculation

@@ -152,6 +152,12 @@ tab, or #124 data. Malformed/version-incompatible UI snapshots or invalid Applic
 recovery start a safe blank session with a visible recovery-failure notice. Connection
 failures keep the retry screen and the recovery data, rather than silently losing work.
 
+The Python replacement must produce and serialize its initial state before removing
+the previous transient storage or replacing its Application, session and weather state.
+If presentation or serialization fails, the candidate is closed and the previous work
+remains usable. Failure-injection coverage verifies both boundaries and recalculation
+of the retained work; tab recovery is an additional safeguard.
+
 Verification: shared e2e/session.spec.ts runs against Legacy and production Local
 (npm --prefix web run test:local -- session.spec.ts).
 Local blocks /api/**; KMZ document selection and reload continuation run in both modes.

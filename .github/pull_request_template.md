@@ -13,4 +13,5 @@ Reason: Ordinary development PR; release metadata is finalized separately.
 
 ## Pending release notes
 
-<!-- Summarize user-visible changes here for the later release-preparation PR. -->
+<!-- Required: summarize user-visible changes for the later release-preparation PR,
+     or explicitly write None when there are no pending release notes. -->

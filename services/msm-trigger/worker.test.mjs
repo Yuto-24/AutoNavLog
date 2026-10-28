@@ -101,6 +101,36 @@ test('scheduled errors and heartbeat never expose credentials or imply publicati
     assert.equal(pings, 1); assert.ok(logs.every(line => !line.includes('private-token') && !line.includes(heartbeat)));
   } finally { [globalThis.fetch, console.log, Date.now] = saved; }
 });
+test('scheduled dispatch emits one receipt with all HTTP stages, without changing requests or reservation', async () => {
+  const s = fixture(); const saved = [globalThis.fetch, console.log, Date.now]; const logs = [];
+  globalThis.fetch = s.fetch; console.log = value => logs.push(JSON.parse(value)); Date.now = () => NOW;
+  try {
+    await worker.scheduled({}, s.env);
+    assert.equal(logs.length, 1);
+    assert.equal(logs[0].status, 'DISPATCH_ACCEPTED'); assert.equal(logs[0].publication, 'NOT_VERIFIED');
+    assert.equal(logs[0].request_id, String(NOW)); assert.equal(logs[0].workflow_run_id, DISPATCH_RUN.workflow_run_id);
+    assert.deepEqual(logs[0].diagnostics.map(d => d.stage), ['canonical_freshness', 'github_queued',
+      'github_in_progress', 'github_waiting', 'github_pending', 'github_requested', 'github_recent', 'dispatch']);
+    assert.ok(logs[0].diagnostics.every(d => d.status === 200));
+    assert.equal(s.calls.length, 8); assert.equal(s.posts.length, 1); assert.equal(JSON.parse(s.data).attempts, 1);
+  } finally { [globalThis.fetch, console.log, Date.now] = saved; }
+});
+test('batched error and heartbeat diagnostics remain available on failure', async () => {
+  const s = fixture(); const saved = [globalThis.fetch, console.log, Date.now]; const logs = [];
+  s.env.HEARTBEAT_URL = 'https://hc-ping.com/00000000-0000-0000-0000-000000000000';
+  globalThis.fetch = (url, options) => url === s.env.HEARTBEAT_URL ? Promise.resolve(new Response('private-token', { status: 503 })) : s.fetch(url, options);
+  console.log = value => logs.push(JSON.parse(value)); Date.now = () => NOW;
+  try {
+    await assert.rejects(worker.scheduled({}, s.env), /heartbeat failed/);
+    assert.equal(logs.length, 1); assert.equal(logs[0].status, 'DISPATCH_ACCEPTED');
+    assert.equal(logs[0].diagnostics.at(-1).stage, 'heartbeat'); assert.equal(logs[0].diagnostics.at(-1).status, 503);
+    assert.equal(logs[0].publication, 'NOT_VERIFIED'); assert.ok(!JSON.stringify(logs).includes('private-token'));
+    s.now = NOW; s.data = null; s.error = () => { throw Error('private-token'); }; logs.length = 0;
+    await assert.rejects(worker.scheduled({}, s.env), /check failed/);
+    assert.equal(logs.length, 1); assert.equal(logs[0].status, 'UNKNOWN');
+    assert.equal(logs[0].diagnostics[0].status, 'IO_ERROR'); assert.ok(!JSON.stringify(logs).includes('private-token'));
+  } finally { [globalThis.fetch, console.log, Date.now] = saved; }
+});
 
 test('UTC rollover resets daily count but retains cooldown and legacy evidence', async () => {
   const s = fixture(); s.now = Date.parse('2026-10-25T23:59:59Z');
