@@ -584,3 +584,96 @@ def test_sync_resolution_retains_only_matching_calculation_and_reidentifies_copy
     )
     assert rejected["lastCalculation"] is None
     assert record["lastCalculation"] is not None
+
+
+def test_new_work_replaces_all_mutable_state_and_preserves_recovery(local):
+    calculated = calculate(local)
+    working = calculated["workingRecovery"]
+    old_app, old_session = local.app, local.session
+    old_storage = Path(local._temporary.name)
+    for _ in range(3):
+        state = json.loads(local.dispatch("newWork"))
+        assert state["project"] is None
+        assert state["outcome"] is None
+        assert not state["import"]["candidates"]
+        assert state["workingRecovery"]["last_calculation"] is None
+        assert local.app is not old_app
+        assert local.session is not old_session
+        assert not old_storage.exists()
+        restored = json.loads(local.dispatch("bootstrap", working))
+        assert restored["project"]["id"] == calculated["project"]["id"]
+        assert restored["workingRecovery"]["last_calculation"] == working["last_calculation"]
+        old_app, old_session = local.app, local.session
+        old_storage = Path(local._temporary.name)
+
+
+def test_new_work_replaces_forecast_and_destination_taf_state():
+    local = LocalApplication(ROOT / "data")
+    try:
+        old_weather = local.local_weather
+        old_provider = local.app.destination_wind_provider
+        old_service = local.session.calculation_service
+        local.dispatch("newWork")
+        assert local.local_weather is not old_weather
+        assert local.app.destination_wind_provider is not old_provider
+        assert local.session.calculation_service is not old_service
+        assert not local.requires_weather()
+    finally:
+        local.close()
+
+
+def test_failed_new_work_construction_keeps_previous_work(local, monkeypatch):
+    import autonavlog.local as module
+
+    local.dispatch("importRoute", {
+        "filename": "previous.kml",
+        "kml_text": (ROOT / "tests/fixtures/issue_43_golden.kml").read_text(),
+    })
+    before = json.loads(local.dispatch("state"))
+    storage = Path(local._temporary.name)
+
+    def failed(*args, **kwargs):
+        raise RuntimeError("initialization failed")
+
+    monkeypatch.setattr(module, "LocalApplication", failed)
+    assert json.loads(local.dispatch_response("newWork"))["error"]["code"] == "REQUEST_FAILED"
+    assert storage.exists()
+    assert json.loads(local.dispatch("state")) == before
+
+
+@pytest.mark.parametrize("failure", ["presentation", "serialization"])
+def test_failed_new_work_response_keeps_previous_work(local, monkeypatch, failure):
+    import autonavlog.local as module
+
+    calculated = calculate(local)
+    before = local.dispatch("state")
+    old_app, old_session, old_weather = local.app, local.session, local.local_weather
+    storage = Path(local._temporary.name)
+    sentinel = storage / "previous-work.txt"
+    sentinel.write_text("previous work")
+    replacements = []
+
+    def replacement(*args, **kwargs):
+        candidate = LocalApplication(*args, **kwargs)
+        replacements.append(candidate)
+        present = candidate.app.present
+
+        def failed(session):
+            if failure == "presentation":
+                raise RuntimeError("presentation failed")
+            state = present(session)
+            state["unserializable"] = object()
+            return state
+
+        monkeypatch.setattr(candidate.app, "present", failed)
+        return candidate
+
+    monkeypatch.setattr(module, "LocalApplication", replacement)
+    assert json.loads(local.dispatch_response("newWork"))["error"]["code"] == "REQUEST_FAILED"
+    assert local.app is old_app
+    assert local.session is old_session
+    assert local.local_weather is old_weather
+    assert sentinel.read_text() == "previous work"
+    assert local.dispatch("state") == before
+    assert not Path(replacements[0]._temporary.name).exists()
+    assert json.loads(local.dispatch("calculate"))["outcome"] == calculated["outcome"]

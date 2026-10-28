@@ -75,6 +75,8 @@ class _LocalFacade(AutoNavLogWebApplication):
 
 class LocalApplication:
     def __init__(self, data_root: Path, *, forecast_fixture: Path | None = None) -> None:
+        self._data_root = data_root
+        self._forecast_fixture = forecast_fixture
         self.local_weather = None if forecast_fixture else LocalMsmWeather()
         local_weather = self.local_weather
 
@@ -111,6 +113,21 @@ class LocalApplication:
         self.session = self.app.create_session(
             "local-poc", restore_persisted=False, persist_working=False
         )
+
+    def new_work(self) -> str:
+        """Replace all mutable work while keeping the interpreter and installed packages."""
+        replacement = LocalApplication(self._data_root, forecast_fixture=self._forecast_fixture)
+        try:
+            state = replacement.dispatch("state")
+        except Exception:
+            replacement.close()
+            raise
+        self._temporary.cleanup()
+        self._temporary = replacement._temporary
+        self.local_weather = replacement.local_weather
+        self.app = replacement.app
+        self.session = replacement.session
+        return state
 
     def requires_weather(self) -> bool:
         return bool(
@@ -159,6 +176,8 @@ class LocalApplication:
     def dispatch(self, path: str, body: dict[str, Any] | None = None) -> str:
         """Execute application operations using the existing facade on transient MEMFS."""
         payload = body or {}
+        if path == "newWork":
+            return self.new_work()
         if path == "prepareSyncResolution":
             record = migrate_record(payload["record"])
             last = record.lastCalculation
