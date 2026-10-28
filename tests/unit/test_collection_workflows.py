@@ -216,11 +216,10 @@ def test_preflight_event_matrix(event, proceed, publish, build, upload):
         assert bool(eval(expression, {"__builtins__": {}})) == (upload if is_upload else build)
 
 
-def test_external_path_preserves_approval_identity_and_final_recheck():
-    """External refresh keeps opt-ins, approval, approved identity and the final upload gate."""
+def test_external_path_preserves_approved_identity_and_final_recheck():
+    """External refresh keeps opt-ins, approved identity and the final upload gate."""
     assert "STATIC_EXTERNAL_TRIGGER_ENABLED == 'true'" in PRODUCTION
     assert "vars.STATIC_AUTOMATION_ENABLED == 'true'" in PRODUCTION
-    assert "inputs.publish && 'static-publication'" in PRODUCTION
     assert "ref: ${{ steps.source.outputs.sha }}" in PRODUCTION
     assert "external_trigger_gate.py" in PRODUCTION
     upload = next(step for step in steps(PRODUCTION) if "pages deploy" in step)
@@ -238,3 +237,34 @@ def test_freshness_lives_in_tooling_and_detected_run_is_recorded_in_actions():
     assert "--detected-run" in PRODUCTION
     assert "needs: preflight" in PRODUCTION
     assert "if: needs.preflight.outputs.proceed == 'true'" in PRODUCTION
+
+
+@pytest.mark.parametrize("event,publish,feed_refresh,environment", [
+    ("schedule", False, False, "static-production"),
+    ("workflow_dispatch", True, False, "static-production"),
+    ("workflow_dispatch", True, True, "static-production"),
+    ("workflow_dispatch", False, False, "static-validation"),
+    ("workflow_dispatch", False, True, "static-validation"),
+])
+def test_forecast_publication_environment_is_unattended_for_every_trigger(
+    event, publish, feed_refresh, environment,
+):
+    """Both jobs publish without human approval; build-only retains token isolation."""
+    jobs = dict(re.findall(
+        r"^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)",
+        PRODUCTION.split("jobs:\n", 1)[1], re.MULTILINE | re.DOTALL,
+    ))
+    assert set(jobs) == {"preflight", "build"}
+    for job in jobs.values():
+        expression = re.search(r"^    environment: \$\{\{ (.+) \}\}$", job, re.MULTILINE)
+        assert expression is not None
+        expression = expression[1].replace("github.event_name", repr(event))
+        expression = expression.replace("inputs.publish", repr(publish))
+        expression = expression.replace("inputs.feed_refresh", repr(feed_refresh))
+        expression = expression.replace("&&", "and").replace("||", "or")
+        assert eval(expression, {"__builtins__": {}}) == environment
+    assert "static-publication" not in PRODUCTION
+    assert "app_release.py" not in PRODUCTION
+    assert PRODUCTION.count("secrets.CLOUDFLARE_PAGES_TOKEN") == 1
+    upload = next(step for step in steps(PRODUCTION) if "pages deploy" in step)
+    assert "secrets.CLOUDFLARE_PAGES_TOKEN" in upload
