@@ -8,6 +8,7 @@ def test_workflow_scope():
         source = (ROOT / f".github/workflows/{name}.yml").read_text()
         assert "branches: [main, release/1.x]" in source
     source = (ROOT / ".github/workflows/publish-github-release.yml").read_text()
+    assert "paths: [VERSION]" in source
     assert "fetch-depth: 0" in source
     assert "cancel-in-progress: false" in source
     assert "queue: max" in source

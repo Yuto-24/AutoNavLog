@@ -5,7 +5,20 @@
 | `main` | 2 | `NavMate X.Y.Z` | yes |
 | `release/1.x` | 1 | `AutoNavLog X.Y.Z` | never |
 
-`publish-github-release.yml` validates `VERSION` and `CHANGELOG.md`, then publishes
+## Ordinary development and explicit releases
+
+Ordinary feature/fix PRs use `Release: not-required` and a `Reason:` line on either
+branch. Keep `VERSION` and `CHANGELOG.md` unchanged, including published notes.
+Collect pending user-visible changes in the PR body's `## Pending release notes` section.
+CI requires visible notes or an explicit `None`; HTML-comment placeholders do not count.
+No Unreleased section or new version is added for each development PR.
+
+Only an explicit release-preparation PR uses `Release: required`: select the next
+version, increment `VERSION`, and add finalized notes collected from the included
+PRs as a new CHANGELOG section. Do not rewrite published sections. CI checks this
+separation; a feature/fix does not itself require an immediate GitHub Release.
+
+`publish-github-release.yml` runs only for pushes changing `VERSION`, validates `VERSION` and `CHANGELOG.md`, then publishes
 only the matching line. Tags retain the shared historical `vX.Y.Z` format. Release
 notes contain only the matching CHANGELOG section. CI runs on pushes to both lines;
 PR checks remain enabled for every target branch.
