@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       feed_refresh:
-        description: 'External MSM fallback; requires separate opt-in and publication approval'
+        description: 'External MSM fallback; requires separate opt-in'
         type: boolean
         default: false
       request_id:
@@ -20,7 +20,7 @@ on:
         description: 'Reviewed full application commit SHA (empty = approved feed-refresh source)'
         type: string
       publish:
-        description: 'Publish after production environment approval; false is build/test only'
+        description: 'Publish; false is build/test only'
         type: boolean
         default: false
 
@@ -33,6 +33,7 @@ concurrency:
   group: static-production
   cancel-in-progress: false
 
+# Forecast-only publication is unattended for every trigger; app-release approval is separate.
 jobs:
   preflight:
     outputs:
@@ -42,7 +43,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.STATIC_AUTOMATION_ENABLED == 'true') && (!inputs.feed_refresh || (vars.STATIC_EXTERNAL_TRIGGER_ENABLED == 'true' && vars.STATIC_AUTOMATION_ENABLED == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: ${{ github.event_name == 'schedule' && 'static-production' || inputs.publish && 'static-publication' || 'static-validation' }}
+    environment: ${{ (github.event_name == 'schedule' || inputs.publish) && 'static-production' || 'static-validation' }}
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
@@ -98,7 +99,7 @@ jobs:
     name: msm-detected/${{ needs.preflight.outputs.upstream_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    environment: ${{ github.event_name == 'schedule' && 'static-production' || inputs.publish && 'static-publication' || 'static-validation' }}
+    environment: ${{ (github.event_name == 'schedule' || inputs.publish) && 'static-production' || 'static-validation' }}
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
