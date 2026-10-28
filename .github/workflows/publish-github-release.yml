@@ -3,6 +3,7 @@ name: publish-github-release
 on:
   push:
     branches: [main, release/1.x]
+    paths: [VERSION]
 
 permissions:
   contents: write
