@@ -166,6 +166,8 @@ resolver or refresh never locks New. This keeps the displayed Project and the re
 Application consistent without rejecting New during synchronization.
 While New suppresses recovery writes, rendered work still updates the in-memory
 snapshot so an asynchronous reset failure restores the matching Project on reload.
+Map resize observers disconnect during layout cleanup. Detached or zero-size maps
+must not invalidate and overwrite the viewport that the new workspace restores.
 
 Verification: shared e2e/session.spec.ts runs against Legacy and production Local
 (npm --prefix web run test:local -- session.spec.ts).
