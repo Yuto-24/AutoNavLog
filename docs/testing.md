@@ -333,3 +333,37 @@ Playwright 1.62.1、`CI=1`、子プロセスとHTTP serverを含め`taskset -c 0
 `--reporter=line,json`とrun/suite別の`PLAYWRIGHT_JSON_OUTPUT_FILE`、`--output`を指定すると、
 実行されたfile/title/project、result/retry、suite時間を機械的に比較できる。
 テスト数・結果が一致しない観測を短縮の根拠にしない。
+
+### Browser-job pip cache
+
+`local-browser`と`account-sync`は`setup-python@v5`の`cache: pip`を使用する。
+保存対象は`pip cache dir`のHTTP応答とbuilt wheelで、venvやsite-packagesではない。
+既存の`pip install`はcache hit時も実行し、checkoutの`.`をビルド・導入する。
+依存版は固定していないため、cacheはlockfileやオフライン導入の代わりにはならない。
+
+keyは`pyproject.toml`、vendor wheel、install引数を含む`test.yml`のhashを使う。
+setup-python v5がOS、architecture、Linux distribution/version、解決したPython版を追加する。
+同じ環境では両jobで共有できる。hash変更時には環境prefixでのfallback restoreもあり得るが、
+pipが現在の要件を再評価する。VERSIONやアプリソースをkeyに含める必要はない。
+cache miss/evictionでは通常取得へ戻る。cacheを保存するのは成功jobのpost stepである。
+
+2026-10-29、同じcheckoutと既存installコマンドを使い、WSL / CPython 3.12.3 /
+pip 24.0の新規venvで逐次計測した。専用`PIP_CACHE_DIR`でcold 41.71秒、warm 17.21秒、
+別の空cacheでの消失再現43.33秒。3環境の52 package（pipを含む）の名前・版が一致した。
+最終wheel payload処理開始からアプリwheel build開始までの区間は空cache 10.737秒、
+warm 0.257秒。warmでは外部wheelの再取得0件、cache容量は約107 MiBだった。
+同一パス・同一アプリ版のfixtureでソースを変更し、古いapp wheelがcacheに存在する状態でも
+新しいmarkerが導入された。実checkoutのcold/warmログでもアプリwheelは毎回ビルドされた。
+
+再計測時は新規venvと専用cacheを使い、次の既存コマンドを同じソースで実行する。
+`PIP_LOG`をrun別に指定すると取得区間の時刻を確認できる。
+
+```bash
+python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
+```
+
+cold/warmの`pip list --format=json`、wheel取得ログ、アプリbuildログを照合する。
+GitHub側ではsetup-pythonのrestoreとpost saveを含めて測る。上記ローカル値にはActionsの
+転送・圧縮コストを含まない。通常時のhosted downloadは約2秒の既存観測もあるため、
+この比較からhosted CIの平均短縮や、過去の遅延の再発頻度は主張しない。
+採用目的は約100 MBの外部wheel再取得への依存を減らすことである。
