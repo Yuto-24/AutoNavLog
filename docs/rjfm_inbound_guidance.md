@@ -4,6 +4,27 @@ This is a diagnostic for an RJFM inbound route whose authoritative NAV LOG has a
 
 The solver derives its duration, TAS, wind, UMK, VREP, selected descent rate, and adopted VREP altitude from that completed authoritative profile. The card is transient: it is generated for the current calculation-input fingerprint and is not saved in project UI state. A stale authoritative plan prevents numeric guidance; an unavailable solver/reference produces only a warning diagnostic.
 
+## Inbound route completion (Issue #235, partial)
+
+Before applying the existing profile, route normalization inserts the reference UMK
+immediately after a coordinate-matched OMARU when the RJFM return has a separate
+final VREP and no explicit UMK. KML and MAP confirmation share this normalization,
+as do Local calculation, Legacy calculation, edits and saved-project restoration.
+The existing VREP, its arrival plan and the physical UMK-to-VREP segment remain intact.
+An explicit coordinate-matched UMK is retained, including its user/Point name,
+coordinates and manual inputs. An earlier explicit UMK prevents duplicate insertion
+but does not make an incorrectly ordered route eligible for the profile.
+
+Generated UMK and section identities remain stable on reapplication. If the route
+no longer qualifies, normalization removes the generated point and restores the
+original section altitude/phase and any original OMARU direct-leg geometry overrides.
+While split, both legs use their own geometry rather than the old direct-leg override.
+West-extension guidance remains a separate diagnostic and supplies no route nodes.
+
+The direct OMARU-to-RJFM exception, its single parent NAV LOG row, and its descent
+endpoint altitude/ETE/fuel remain deferred under Issue #235. This partial change
+does not waive the existing VREP requirements or choose the unresolved aviation policy.
+
 ## Sources and current availability
 
 `data/reference/rjfm-inbound-guidance/manifest.json` pins the payload SHA-256 for revision `2026-08-31-rjfm-inbound-west-guidance-v2`. The pack is `AVAILABLE` only after all of the following checks succeed; any mismatch fails closed and the card remains a non-blocking unavailable diagnostic.

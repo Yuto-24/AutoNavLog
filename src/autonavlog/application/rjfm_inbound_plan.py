@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from uuid import uuid4
 
 from autonavlog.application.rjfm_coordinate_matcher import coordinate_matches_reference
 from autonavlog.domain.enums import FlightPhase, RouteNodeNameSource, RouteNodeRole
@@ -16,6 +17,8 @@ from autonavlog.domain.project import NavSection, Project, RouteNode
 TARGET_ALTITUDE_FT_MSL = 4500.0
 RJFM_INPUT_MODE_OMARU_TO_UMK_FIXED = "RJFM_INBOUND_OMARU_TO_UMK_FIXED"
 _ORIGINAL_SECTIONS_METADATA_KEY = "rjfm_inbound_exception_original_sections"
+_SYNTHETIC_UMK_SOURCE = "RJFM_INBOUND_EXCEPTION:"
+_ORIGINAL_GEOMETRY_METADATA_KEY = "rjfm_inbound_exception_original_geometry"
 
 
 @dataclass(frozen=True)
@@ -32,13 +35,14 @@ def apply_rjfm_inbound_exception(
     *,
     adopted_vrep_altitude_ft_msl: int | None = None,
 ) -> RjfmInboundPlan | None:
-    """Apply the physical OMARU→UMK fixed-altitude return policy.
+    """Complete the OMARU→UMK→VREP route and apply the return policy.
 
-    The profile is recognized only from physical coordinates and route order.
-    It never inserts a point or changes any course/distance input.
+    Match coordinates, preserving an explicit downstream UMK and final VREP.
+    Direct returns without a separate VREP await their own descent policy.
     """
 
     _restore_original_sections(project)
+    _reconcile_umk(project, references)
     if project.destination_airport_id.strip().upper() != "RJFM":
         _clear_plan(project)
         return None
@@ -96,6 +100,137 @@ def apply_rjfm_inbound_exception(
     )
     _store_plan(project, plan)
     return plan
+
+
+def _is_synthetic_umk(node: RouteNode) -> bool:
+    return node.source.startswith(_SYNTHETIC_UMK_SOURCE)
+
+
+def _reconcile_umk(project: Project, references: RjfmInboundReferences) -> None:
+    nodes = project.ordered_nodes()
+    sections = project.ordered_sections()
+    if not _sections_link_nodes(sections, nodes):
+        return
+    omaru_index = _matching_index(nodes, references.omaru)
+    vrep_index = _final_vrep_index(nodes)
+    manual_umk_index = next(
+        (
+            index
+            for index, node in enumerate(nodes)
+            if not _is_synthetic_umk(node)
+            and coordinate_matches_reference(
+                node.latitude_deg,
+                node.longitude_deg,
+                references.umk.latitude_deg,
+                references.umk.longitude_deg,
+            )
+        ),
+        None,
+    )
+    needs_umk = (
+        project.destination_airport_id.strip().upper() == "RJFM"
+        and omaru_index is not None
+        and vrep_index is not None
+        and vrep_index > omaru_index
+        and not _is_synthetic_umk(nodes[vrep_index])
+        and manual_umk_index is None
+    )
+    synthetic = [node for node in nodes if _is_synthetic_umk(node)]
+    if (
+        needs_umk
+        and len(synthetic) == 1
+        and omaru_index is not None
+        and nodes[omaru_index + 1].id == synthetic[0].id
+    ):
+        synthetic[0].latitude_deg = references.umk.latitude_deg
+        synthetic[0].longitude_deg = references.umk.longitude_deg
+        synthetic[0].source = f"{_SYNTHETIC_UMK_SOURCE}{references.revision}"
+        return
+
+    _remove_synthetic_umks(project)
+    if not needs_umk:
+        return
+    nodes = project.ordered_nodes()
+    sections = project.ordered_sections()
+    omaru_index = _matching_index(nodes, references.omaru)
+    assert omaru_index is not None
+    predecessor = nodes[omaru_index]
+    remainder = sections[omaru_index]
+    umk = RouteNode(
+        sequence=omaru_index + 1,
+        name="UMK",
+        name_source=RouteNodeNameSource.GENERATED,
+        latitude_deg=references.umk.latitude_deg,
+        longitude_deg=references.umk.longitude_deg,
+        role=RouteNodeRole.ROUTE_POINT,
+        source=f"{_SYNTHETIC_UMK_SOURCE}{references.revision}",
+    )
+    # A manual direct-leg course/distance cannot describe either new segment.
+    # Retain it for removal of the generated point; compute both new geometries.
+    project.metadata[_ORIGINAL_GEOMETRY_METADATA_KEY] = {
+        "node_id": str(predecessor.id),
+        "successor_id": str(remainder.to_node_id),
+        "manual_true_course_deg": predecessor.manual_true_course_deg,
+        "manual_distance_nm": predecessor.manual_distance_nm,
+    }
+    predecessor.manual_true_course_deg = None
+    predecessor.manual_distance_nm = None
+    nodes.insert(omaru_index + 1, umk)
+    for index, node in enumerate(nodes):
+        node.sequence = index
+    project.route_nodes = nodes
+    incoming = remainder.model_copy(
+        deep=True,
+        update={
+            "id": uuid4(),
+            "to_node_id": umk.id,
+        },
+    )
+    remainder.from_node_id = umk.id
+    sections.insert(omaru_index, incoming)
+    for index, section in enumerate(sections):
+        section.sequence = index
+    project.sections = sections
+
+
+def _remove_synthetic_umks(project: Project) -> None:
+    for synthetic in [node for node in project.ordered_nodes() if _is_synthetic_umk(node)]:
+        nodes = project.ordered_nodes()
+        sections = project.ordered_sections()
+        incoming = next((s for s in sections if s.to_node_id == synthetic.id), None)
+        outgoing = next((s for s in sections if s.from_node_id == synthetic.id), None)
+        if incoming is not None and outgoing is not None:
+            outgoing.from_node_id = incoming.from_node_id
+        sections = [
+            section
+            for section in sections
+            if section is not incoming
+            and section.from_node_id != synthetic.id
+            and section.to_node_id != synthetic.id
+        ]
+        for sequence, section in enumerate(sections):
+            section.sequence = sequence
+        project.sections = sections
+        nodes.remove(synthetic)
+        for sequence, node in enumerate(nodes):
+            node.sequence = sequence
+        project.route_nodes = nodes
+    stored = project.metadata.pop(_ORIGINAL_GEOMETRY_METADATA_KEY, None)
+    if isinstance(stored, dict):
+        predecessor = next(
+            (node for node in project.route_nodes if str(node.id) == stored.get("node_id")), None
+        )
+        successor = next(
+            (
+                section.to_node_id
+                for section in project.sections
+                if predecessor is not None and section.from_node_id == predecessor.id
+            ),
+            None,
+        )
+        if predecessor is not None and str(successor) == stored.get("successor_id"):
+            predecessor.manual_true_course_deg = stored.get("manual_true_course_deg")
+            predecessor.manual_distance_nm = stored.get("manual_distance_nm")
 
 
 def rjfm_inbound_plan_matches_project(project: Project, plan: RjfmInboundPlan) -> bool:
@@ -200,11 +335,9 @@ def _final_vrep_index(nodes: list[RouteNode]) -> int | None:
 
 def _normalize_reference_name(node: RouteNode, name: str) -> None:
     if (
-        node.name_source == RouteNodeNameSource.USER
-        or (
-            node.name_source == RouteNodeNameSource.IMPORTED
-            and node.source == "KML/KMZ Point"
-        )
+        node.reference_snapshot is not None
+        or node.name_source == RouteNodeNameSource.USER
+        or (node.name_source == RouteNodeNameSource.IMPORTED and node.source == "KML/KMZ Point")
         or node.name.strip().upper() == name
     ):
         return
