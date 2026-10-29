@@ -122,3 +122,10 @@ def test_nonfinite_values_are_rejected_instead_of_becoming_valid_numbers(value: 
         rounded_dme_nm(value)
     with pytest.raises(ValueError, match="finite"):
         rounded_toat_c(value)
+
+
+def test_rounding_can_make_an_otherwise_solvable_crosswind_unusable() -> None:
+    raw = solve_wind_triangle(10, 100, 101, 100)
+    assert raw.ground_speed_kt == pytest.approx(3.4904812874567)
+    with pytest.raises(WindTriangleError):
+        solve_wind_triangle(10, 100, wind_direction_for_calculation(101, enabled=True), 100)

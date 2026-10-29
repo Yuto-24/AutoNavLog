@@ -24,6 +24,7 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const root = window as any;
     root.localStates = [];
+    root.localCalculationCount = 0;
     const Original = window.Worker;
     root.Worker = class extends Original {
       constructor(url: string | URL, options?: WorkerOptions) {
@@ -36,6 +37,7 @@ test.beforeEach(async ({ page }) => {
         });
       }
       postMessage(message: any, options?: any) {
+        if (message.type === "APPLY" && message.argumentList?.[0]?.value === "calculate") root.localCalculationCount += 1;
         if (root.failLocalCalculation && message.type === "APPLY" &&
             message.argumentList?.[0]?.value === "calculate") {
           // Inject a Python validation exception through the real Comlink/Python path.
@@ -122,11 +124,103 @@ for (const width of [1100, 1440]) {
     await expect(page.locator("vite-error-overlay")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
     await page.screenshot({ path: `/tmp/issue117-local-${width}.png`, fullPage: true });
+    const mode = page.getByRole("switch", { name: "四捨五入モード" });
+    await expect(mode).toHaveAttribute("aria-checked", "false");
+    const beforeToggleCount = await page.evaluate(() => (window as any).localCalculationCount);
+    await mode.evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+    await expect(mode).toBeDisabled();
+    await expect(mode).toHaveAttribute("aria-checked", "true");
+    await expect(mode).toBeEnabled();
+    const rounded = await page.evaluate(() => (window as any).localStates.at(-1));
+    expect(rounded.roundingMode).toBe(true);
+    expect(await page.evaluate(() => (window as any).localCalculationCount)).toBe(beforeToggleCount + 1);
+    expect(rounded.project.sections).toEqual(state.project.sections);
+    expect(rounded.outcome.sections.some((zone: any, index: number) =>
+      zone.ground_speed_kt.automatic_value !== state.outcome.sections[index].ground_speed_kt.automatic_value)).toBe(true);
+    for (const zone of rounded.outcome.sections) {
+      const wind = zone.wind_direction_deg_from;
+      const direction = wind.adopted_source === "MANUAL" ? wind.manual_override : wind.automatic_value;
+      expect(direction === null || direction % 10 === 0).toBe(true);
+    }
+    for (const row of rounded.outcome.display_rows) {
+      if (typeof row.toat.effective_value === "number" && row.toat.text !== null) {
+        expect(row.toat.text).toMatch(/^-?\d+$/);
+        expect(row.toat.text).not.toBe("-0");
+      }
+    }
+    if (width === 1440) {
+      const direction = page.locator('.nav-log-table input[aria-label$="手動風向"]').first();
+      const speed = page.locator('.nav-log-table input[aria-label$="手動風速"]').first();
+      const temperature = page.locator('.nav-log-table input[aria-label$="手動気温"]').first();
+      await direction.fill("5");
+      await speed.fill("21");
+      await temperature.fill("-1.5");
+      await temperature.blur();
+      await expect(mode).toBeEnabled();
+      await expect(direction).toHaveValue("010");
+      await expect(temperature).toHaveValue("-2");
+      await direction.focus();
+      await expect(direction).toHaveValue("5");
+      await direction.blur();
+      await temperature.focus();
+      await expect(temperature).toHaveValue("-1.5");
+      await temperature.blur();
+      const manual = await page.evaluate(() => (window as any).localStates.at(-1));
+      expect(manual.project.sections[0].manual_wind_direction_deg).toBe(5);
+      expect(manual.outcome.sections[0].wind_direction_deg_from.manual_override).toBe(10);
+      expect(manual.outcome.sections[0].temperature_c.manual_override).toBe(-1.5);
+      await direction.fill("");
+      await speed.fill("");
+      await temperature.fill("");
+      await temperature.blur();
+      await expect(mode).toBeEnabled();
+    }
+    for (const cell of await page.locator(".vor-reference-cell").allTextContents()) {
+      const distance = Number(cell.split(" / ")[1]);
+      if (Number.isFinite(distance)) expect(distance * 2).toBe(Math.round(distance * 2));
+    }
+    // Input -> route -> readiness -> NAV LOG placement is already asserted above.
+    // The mode switch stays inside the NAV LOG heading, before its table.
+    const modeBox = await mode.boundingBox();
+    const tableBox = await page.locator(".nav-log-scroll").boundingBox();
+    expect(modeBox!.y + modeBox!.height).toBeLessThanOrEqual(tableBox!.y);
+    await page.getByRole("button", { name: "メッセージを閉じる" }).click();
+    await page.locator(".nav-log-section").screenshot({ path: `/tmp/issue234-on-${width}.png` });
+    await page.locator(".nav-log-heading").screenshot({ path: `/tmp/issue234-control-${width}.png` });
+    await mode.click();
+    await expect(mode).toHaveAttribute("aria-checked", "false");
+    await expect(mode).toBeEnabled();
+    const offAgain = await page.evaluate(() => (window as any).localStates.at(-1));
+    compare(calculationCoreGolden(offAgain), calculationCoreGolden(state));
+    if (width === 1100) {
+      await mode.click();
+      await expect(mode).toHaveAttribute("aria-checked", "true");
+      await expect(mode).toBeEnabled();
+      await page.getByRole("button", { name: "保存", exact: true }).click();
+      await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
+      await expect(mode).toHaveAttribute("aria-checked", "true");
+      await page.getByLabel("保存済み", { exact: true }).selectOption(state.project.id);
+      await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
+      await expect(page.locator(".nav-log-table")).toHaveCount(0);
+      await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+      await expect(mode).toHaveAttribute("aria-checked", "false");
+      await expect(mode).toBeEnabled();
+      await mode.click();
+      await expect(mode).toHaveAttribute("aria-checked", "true");
+      await expect(mode).toBeEnabled();
+      await page.reload();
+      await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+      await expect(page.locator(".nav-log-table")).toHaveCount(0);
+      await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+      await expect(mode).toHaveAttribute("aria-checked", "false");
+      await expect(mode).toBeEnabled();
+    }
     const previousTable = await page.locator(".nav-log-table").innerText();
     await page.evaluate(() => { (window as any).failLocalCalculation = true; });
-    await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+    await mode.click();
     await expect(page.getByRole("alert")).toContainText("入力内容を確認してください。");
     expect(await page.locator(".nav-log-table").innerText()).toBe(previousTable);
+    await expect(mode).toHaveAttribute("aria-checked", "false");
     await page.evaluate(() => { (window as any).failLocalCalculation = false; });
 
     // A real worker crash must reject calculation and preserve the displayed last-good result.

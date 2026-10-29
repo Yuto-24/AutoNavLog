@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { VorColumn } from "../applicationSession";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import { Plus, Trash2 } from "lucide-react";
 
 import {
@@ -98,6 +99,7 @@ function EditableNumberCell({
   step,
   formatter = integer,
   displayPlaceholder,
+  projectedValue,
   required = false,
 }: {
   value: AdoptedValue<number>;
@@ -111,9 +113,11 @@ function EditableNumberCell({
   step: number;
   formatter?: NumberFormatter;
   displayPlaceholder?: string;
+  projectedValue?: string;
   required?: boolean;
 }) {
   const formatted = numberValue(value, formatter);
+  const [editing, setEditing] = useState(false);
   return (
     <td
       className={`nav-log-editable-cell ${error ? "nav-log-invalid-cell" : ""}`}
@@ -129,7 +133,15 @@ function EditableNumberCell({
         aria-label={label}
         aria-invalid={Boolean(error)}
         title={error ?? (required ? "この値は必須です。" : "空欄にすると自動値へ戻ります。")}
-        value={draftValue}
+        value={!editing && draftValue && projectedValue !== undefined ? projectedValue : draftValue}
+        onFocus={(event) => {
+          if (projectedValue !== undefined) {
+            // Changing the shown value invalidates the browser's prior selection.
+            flushSync(() => setEditing(true));
+            event.currentTarget.select();
+          } else setEditing(true);
+        }}
+        onBlur={() => setEditing(false)}
         placeholder={displayPlaceholder ?? formatted.text}
         onChange={(event) => onChange(field, event.target.value)}
       />
@@ -147,6 +159,7 @@ function EditableWindCell({
   label,
   errors,
   displayText,
+  roundingMode,
   onChange,
 }: {
   direction: AdoptedValue<number>;
@@ -156,9 +169,11 @@ function EditableWindCell({
   label: string;
   errors: Partial<Record<NavLogEditableField, string>>;
   displayText?: string;
+  roundingMode?: boolean;
   onChange: (field: NavLogEditableField, value: string) => void;
 }) {
   const invalid = Boolean(errors.windDirection || errors.windSpeed);
+  const [editingDirection, setEditingDirection] = useState(false);
   const automaticDirection = adopted(direction);
   const automaticSpeed = adopted(speed);
   const [displayDirection, displaySpeed] = displayText?.includes("/")
@@ -188,7 +203,14 @@ function EditableWindCell({
             aria-label={`${label} 手動風向`}
             aria-invalid={Boolean(errors.windDirection)}
             title={errors.windDirection ?? "空欄にすると自動値へ戻ります。"}
-            value={directionValue}
+            value={roundingMode && !editingDirection && directionValue && displayDirection !== undefined ? displayDirection : directionValue}
+            onFocus={(event) => {
+              if (roundingMode) {
+                flushSync(() => setEditingDirection(true));
+                event.currentTarget.select();
+              } else setEditingDirection(true);
+            }}
+            onBlur={() => setEditingDirection(false)}
             placeholder={directionPlaceholder}
             onChange={(event) => onChange("windDirection", event.target.value)}
           />
@@ -335,6 +357,7 @@ function isVisibleCell(cell: NavLogDisplayCell): boolean {
 }
 
 function DisplayResultCells({
+  roundingMode,
   row,
   source,
   inputSection,
@@ -344,6 +367,7 @@ function DisplayResultCells({
   editErrors,
   onEdit,
 }: {
+  roundingMode: boolean;
   row: NavLogDisplayRow;
   source?: SectionResult;
   inputSection?: NavSection;
@@ -421,6 +445,7 @@ function DisplayResultCells({
           max={60}
           step={0.1}
           displayPlaceholder={row.toat.text ?? undefined}
+          projectedValue={roundingMode ? row.toat.text ?? undefined : undefined}
           onChange={change}
         />
       ) : (
@@ -450,6 +475,7 @@ function DisplayResultCells({
         <DisplayCell cell={row.wind} />
       ) : (
         <EditableWindCell
+          roundingMode={roundingMode}
           direction={source.wind_direction_deg_from}
           speed={source.wind_speed_kt}
           directionValue={windDraft.windDirectionByPhase[row.phase!] ?? ""}
@@ -568,6 +594,7 @@ function NavLogSummary({
 }
 
 export function NavLogTable({
+  roundingMode = false, roundingDisabled = true, onRoundingChange,
   vorColumns, setVorColumns,
   outcome,
   destinationWind,
@@ -579,6 +606,9 @@ export function NavLogTable({
   editStatus,
   onEdit,
 }: {
+  roundingMode?: boolean;
+  roundingDisabled?: boolean;
+  onRoundingChange?: () => void;
   vorColumns: VorColumn[];
   setVorColumns: Dispatch<SetStateAction<VorColumn[]>>;
   outcome: CalculationOutcome;
@@ -688,6 +718,14 @@ export function NavLogTable({
         <div>
           <h2 id="nav-log-title">NAV LOG</h2>
           <p>入力用の色の欄は直接編集でき、入力を止めてから約0.7秒後に自動再計算されます。</p>
+          <div className="nav-log-rounding-control">
+            <span id="nav-log-rounding-label">四捨五入モード</span>
+            <button type="button" role="switch" aria-checked={roundingMode}
+              aria-labelledby="nav-log-rounding-label" className="secondary-button"
+              disabled={roundingDisabled} onClick={onRoundingChange}>
+              {roundingMode ? "ON" : "OFF"}
+            </button>
+          </div>
         </div>
         <span>予報実行ID: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
@@ -844,6 +882,7 @@ export function NavLogTable({
                           station,
                           row.to_latitude_deg,
                           row.to_longitude_deg,
+                          roundingMode,
                         );
                     return (
                       <td
@@ -872,6 +911,7 @@ export function NavLogTable({
                     {row.to_name}
                   </td>
                   <DisplayResultCells
+                    roundingMode={roundingMode}
                     row={row}
                     source={source}
                     inputSection={inputSection}

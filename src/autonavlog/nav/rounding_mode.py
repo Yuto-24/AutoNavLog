@@ -1,4 +1,4 @@
-"""Unwired numeric helpers for Issue #234's confirmed rounding rules.
+"""Numeric helpers for Issue #234's confirmed rounding rules.
 
 Only wind direction is a calculation input. DME and TOAT results are display
 projections; callers must retain their exact source values for calculations.
