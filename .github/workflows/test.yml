@@ -206,6 +206,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          # Cache pip artifacts; always install the current checkout below.
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            vendor/jma_gpv_weather-0.5.0-py3-none-any.whl
+            .github/workflows/test.yml
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -260,6 +266,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          # Cache pip artifacts; always install the current checkout below.
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            vendor/jma_gpv_weather-0.5.0-py3-none-any.whl
+            .github/workflows/test.yml
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
