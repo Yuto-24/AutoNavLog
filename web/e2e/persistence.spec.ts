@@ -10,7 +10,7 @@ const sessionKey = "autonavlog.working-session.v1";
 const working = (page: Page) => page.evaluate(key => JSON.parse(sessionStorage.getItem(key)!).working, sessionKey);
 async function records(page: Page): Promise<any[]> {
   return page.evaluate(name => new Promise<any[]>((resolve, reject) => {
-    const open = indexedDB.open(name, 1);
+    const open = indexedDB.open(name);
     open.onsuccess = () => {
       const tx = open.result.transaction("projects");
       const read = tx.objectStore("projects").getAll();
@@ -21,7 +21,7 @@ async function records(page: Page): Promise<any[]> {
 }
 async function put(page: Page, rows: any[]) {
   await page.evaluate(({ name, rows }) => new Promise<void>((resolve, reject) => {
-    const open = indexedDB.open(name, 1);
+    const open = indexedDB.open(name);
     open.onsuccess = () => {
       const tx = open.result.transaction("projects", "readwrite");
       for (const row of rows) tx.objectStore("projects").put(row);
@@ -189,7 +189,7 @@ test("migration and corruption are isolated per Project, originals survive faile
   await put(page, [old, corrupt]);
   await page.goto("/");
   await enterImportWorkflow(page); // fresh navigation, explicit selection only
-  await expect(page.getByRole("alert")).toContainText("一部のProject");
+  await expect(page.getByRole("alert")).toContainText("一部のプロジェクト");
   expect((await records(page)).find(row => row.id === corrupt.id)).toEqual(corrupt);
   await page.evaluate(() => {
     const original = IDBObjectStore.prototype.put;
