@@ -297,3 +297,39 @@ Playwrightの依存導入が急に変わらないようにする。`local-browse
 移行の検証は維持する。両ジョブでChromium / WebKitを導入する。キャンセル時はcheck annotationと
 失敗stepを確認する。ブラウザ依存のdownloadでtimeoutした場合、後続のテストは未実行であり、
 テスト失敗やconcurrencyによる中止とは区別する。
+
+### Local browser worker count
+
+`local-browser`のLocal regression、NAV LOG scroll、browser acceptanceだけは、CIの起動引数で
+`--workers=2`を指定する。各suiteは引き続き順番に起動し、同じファイル内のテスト順序を保つ。
+`fullyParallel`、retry、timeout、assertion、選択するテスト、失敗時のtrace/artifactは変更しない。
+認証、TAF、共有Firestore emulatorを使う同期・移行は従来のworker設定を保つ。
+ローカルのPlaywright configの既定値も1 workerのままとする。
+
+2026-10-29、main `3ea6481d9fb02f7893edc3adb89c57d30e7dd40b`の同一Local artifactで、
+1 worker、次に2 workersを逐次計測した。WSL / Node 24.19.0 / Python 3.12.3 /
+Playwright 1.62.1、`CI=1`、子プロセスとHTTP serverを含め`taskset -c 0-3`で4 logical CPUsに
+固定した。重い別検査はこの計測と同時に起動していない。時間は各コマンドの起動から終了までのwall time。
+
+| Suite | Tests | 1 worker | 2 workers |
+| --- | ---: | ---: | ---: |
+| `test:local`の既存CI選択 | 21 | 216.5 s | 124.4 s |
+| `playwright.navlog-scroll.config.ts` | 3 | 23.9 s | 15.7 s |
+| `playwright.browser-acceptance.config.ts` | 6 | 95.7 s | 56.0 s |
+| 合計 | 30 | 336.1 s | 196.1 s |
+
+両方で同じfile/title/projectの30件がretry 0で成功し、skip、unexpected、flakyは0件。
+ソース・依存・ビルド・実行順を固定し、worker数以外にはreport/outputの保存先だけを分けた。
+合計140.1秒（41.7%）短縮した1組のローカル観測であり、hosted CI全体の短縮率や
+異なるrunnerの性能を保証する値ではない。比較元mainの
+[run 40789264289](https://github.com/Yuto-24/AutoNavLog/actions/runs/40789264289)では、
+この3群のPlaywright報告時間は約620秒、`local-browser` job全体は1057秒だった。
+依存導入・認証・TAFは今回の短縮対象外で、hosted CIの成否と実時間はPRで別途確認する。
+
+再計測時は`AUTONAVLOG_TEST_FIXTURES=1 npm --prefix web run build:local`を一度だけ実行し、
+同じ`web/dist-local`を専用HTTP serverで配信する。`AUTONAVLOG_LOCAL_URL`と
+`AUTONAVLOG_REFERENCE_PYTHON`を両方のrunで揃え、上記3コマンドにそれぞれ
+`--workers=1` / `--workers=2`を渡す（`npm run test:local`では引数の前に`--`を置く）。
+`--reporter=line,json`とrun/suite別の`PLAYWRIGHT_JSON_OUTPUT_FILE`、`--output`を指定すると、
+実行されたfile/title/project、result/retry、suite時間を機械的に比較できる。
+テスト数・結果が一致しない観測を短縮の根拠にしない。
