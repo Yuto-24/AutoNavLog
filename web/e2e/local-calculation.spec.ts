@@ -50,7 +50,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-for (const width of [1100, 1440]) {
+for (const width of [390, 1100, 1440]) {
   test(`static FTD Golden, no API fallback, ${width}px`, async ({ page }) => {
     const apiRequests: string[] = [];
     const errors: string[] = [];
@@ -124,12 +124,14 @@ for (const width of [1100, 1440]) {
     await expect(page.locator("vite-error-overlay")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
     await page.screenshot({ path: `/tmp/issue117-local-${width}.png`, fullPage: true });
-    const mode = page.getByRole("switch", { name: "四捨五入モード" });
-    await expect(mode).toHaveAttribute("aria-checked", "false");
+    const mode = page.getByRole("radio", { name: "四捨五入", exact: true });
+    const normal = page.getByRole("radio", { name: "通常", exact: true });
+    await expect(normal).toBeChecked();
+    await expect(mode).not.toBeChecked();
     const beforeToggleCount = await page.evaluate(() => (window as any).localCalculationCount);
-    await mode.evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+    await mode.evaluate((input: HTMLInputElement) => { input.click(); input.click(); });
     await expect(mode).toBeDisabled();
-    await expect(mode).toHaveAttribute("aria-checked", "true");
+    await expect(mode).toBeChecked();
     await expect(mode).toBeEnabled();
     const rounded = await page.evaluate(() => (window as any).localStates.at(-1));
     expect(rounded.roundingMode).toBe(true);
@@ -180,39 +182,48 @@ for (const width of [1100, 1440]) {
       if (Number.isFinite(distance)) expect(distance * 2).toBe(Math.round(distance * 2));
     }
     // Input -> route -> readiness -> NAV LOG placement is already asserted above.
-    // The mode switch stays inside the NAV LOG heading, before its table.
+    // Read the total distance/time first, then the selected calculation mode.
+    const summaryBox = await page.locator(".nav-log-summary").boundingBox();
     const modeBox = await mode.boundingBox();
+    expect(modeBox!.y).toBeGreaterThanOrEqual(summaryBox!.y + summaryBox!.height);
     const tableBox = await page.locator(".nav-log-scroll").boundingBox();
     expect(modeBox!.y + modeBox!.height).toBeLessThanOrEqual(tableBox!.y);
     await page.getByRole("button", { name: "メッセージを閉じる" }).click();
     await page.locator(".nav-log-section").screenshot({ path: `/tmp/issue234-on-${width}.png` });
-    await page.locator(".nav-log-heading").screenshot({ path: `/tmp/issue234-control-${width}.png` });
+    await page.locator(".nav-log-rounding-control").screenshot({ path: `/tmp/issue234-control-${width}.png` });
+    const completedCount = await page.evaluate(() => (window as any).localCalculationCount);
     await mode.click();
-    await expect(mode).toHaveAttribute("aria-checked", "false");
+    expect(await page.evaluate(() => (window as any).localCalculationCount)).toBe(completedCount);
+    await mode.focus();
+    await mode.press("ArrowLeft");
+    await expect(mode).not.toBeChecked();
+    await expect(normal).toBeChecked();
     await expect(mode).toBeEnabled();
     const offAgain = await page.evaluate(() => (window as any).localStates.at(-1));
     compare(calculationCoreGolden(offAgain), calculationCoreGolden(state));
     if (width === 1100) {
       await mode.click();
-      await expect(mode).toHaveAttribute("aria-checked", "true");
+      await expect(mode).toBeChecked();
       await expect(mode).toBeEnabled();
       await page.getByRole("button", { name: "保存", exact: true }).click();
       await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
-      await expect(mode).toHaveAttribute("aria-checked", "true");
+      await expect(mode).toBeChecked();
       await page.getByLabel("保存済み", { exact: true }).selectOption(state.project.id);
       await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
       await expect(page.locator(".nav-log-table")).toHaveCount(0);
       await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
-      await expect(mode).toHaveAttribute("aria-checked", "false");
+      await expect(mode).not.toBeChecked();
+      await expect(normal).toBeChecked();
       await expect(mode).toBeEnabled();
       await mode.click();
-      await expect(mode).toHaveAttribute("aria-checked", "true");
+      await expect(mode).toBeChecked();
       await expect(mode).toBeEnabled();
       await page.reload();
       await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
       await expect(page.locator(".nav-log-table")).toHaveCount(0);
       await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
-      await expect(mode).toHaveAttribute("aria-checked", "false");
+      await expect(mode).not.toBeChecked();
+      await expect(normal).toBeChecked();
       await expect(mode).toBeEnabled();
     }
     const previousTable = await page.locator(".nav-log-table").innerText();
@@ -220,7 +231,8 @@ for (const width of [1100, 1440]) {
     await mode.click();
     await expect(page.getByRole("alert")).toContainText("入力内容を確認してください。");
     expect(await page.locator(".nav-log-table").innerText()).toBe(previousTable);
-    await expect(mode).toHaveAttribute("aria-checked", "false");
+    await expect(mode).not.toBeChecked();
+    await expect(normal).toBeChecked();
     await page.evaluate(() => { (window as any).failLocalCalculation = false; });
 
     // A real worker crash must reject calculation and preserve the displayed last-good result.

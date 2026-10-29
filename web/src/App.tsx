@@ -1778,7 +1778,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           <NavLogTable
             roundingMode={state.roundingMode ?? false}
             roundingDisabled={busy || !calculationInputsAreLocallyCurrent || hasNavLogEditErrors(navLogEditErrors) || (!(state.roundingMode ?? false) && !canCalculate) || navLogEditStatus.kind === "saving"}
-            onRoundingChange={() => void handleCalculate(!(state.roundingMode ?? false))}
+            onRoundingChange={(enabled) => void handleCalculate(enabled)}
             vorColumns={vorColumns}
             setVorColumns={setVorColumns}
             outcome={state.outcome}

@@ -608,7 +608,7 @@ export function NavLogTable({
 }: {
   roundingMode?: boolean;
   roundingDisabled?: boolean;
-  onRoundingChange?: () => void;
+  onRoundingChange?: (enabled: boolean) => void;
   vorColumns: VorColumn[];
   setVorColumns: Dispatch<SetStateAction<VorColumn[]>>;
   outcome: CalculationOutcome;
@@ -718,18 +718,26 @@ export function NavLogTable({
         <div>
           <h2 id="nav-log-title">NAV LOG</h2>
           <p>入力用の色の欄は直接編集でき、入力を止めてから約0.7秒後に自動再計算されます。</p>
-          <div className="nav-log-rounding-control">
-            <span id="nav-log-rounding-label">四捨五入モード</span>
-            <button type="button" role="switch" aria-checked={roundingMode}
-              aria-labelledby="nav-log-rounding-label" className="secondary-button"
-              disabled={roundingDisabled} onClick={onRoundingChange}>
-              {roundingMode ? "ON" : "OFF"}
-            </button>
-          </div>
         </div>
         <span>予報実行ID: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
       <NavLogSummary outcome={outcome} destinationWind={destinationWind} />
+      <div className="nav-log-rounding-control">
+        <span id="nav-log-rounding-label">四捨五入モード</span>
+        <div className="nav-log-rounding-options" role="radiogroup"
+          aria-labelledby="nav-log-rounding-label">
+          <label>
+            <input type="radio" name="nav-log-rounding-mode" checked={!roundingMode}
+              disabled={roundingDisabled} onChange={() => onRoundingChange?.(false)} />
+            通常
+          </label>
+          <label>
+            <input type="radio" name="nav-log-rounding-mode" checked={roundingMode}
+              disabled={roundingDisabled} onChange={() => onRoundingChange?.(true)} />
+            四捨五入
+          </label>
+        </div>
+      </div>
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
         <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>
         <span className="nav-log-readonly-key">読取専用: 航法、距離、時間、燃料などの計算値</span>
