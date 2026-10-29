@@ -1,19 +1,51 @@
 # 変更履歴
 
-AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
+NavMate のRelease履歴です。公開日時はGitHub Releaseを正本とします。
+
+## 2.1.0
+
+### 利用者向け
+
+#### 追加
+
+- 地図上で登録済みのVREPを選択し、経路に直接追加できる機能を追加しました。
+
+#### 改善
+
+- 地図の視認性向上のため、空港とVREPのアイコンを選択状況に応じて白抜き・塗りつぶし表示とし、VREP候補を小さな二重丸に変更しました。
+
+### 開発者向け
+
+- #169: Add the approved 115 derived VREP positions for 16 of the 17 scoped airports; Kanoya has no entries in the supplied AD2. Keep raw bearings, distances, ARPs and source provenance in the repository catalog.
+- Cluster unselected airports and VREPs together during new route creation. Preserve selected occurrences and selection-time reference snapshots through Project persistence; never refresh saved coordinates from the catalog.
+- Confirmed-route re-edit acceptance remains dependent on unmerged #175 / #283. No integration of #282 / #283 and no production deployment are included.
+
+## 2.0.0
+
+### 利用者向け
+
+#### 変更
+
+- AutoNavLog → NavMate
+
+### 開発者向け
+
+- #199 / #187 / #240: Display branding and user-adopted application icon only. Add favicon, Apple touch icon and web manifest; preserve the approved PNG source and deterministic derivatives.
+- Base this release on main 1.22.9. PR #282 / #283 features are explicitly excluded and remain separate unmerged work.
+- Preserve legacy import, persisted identifiers, Project schema, Firebase configuration, production Rules and domain. Production publication remains a separately reviewed gate.
 
 ## 1.22.9
 
 ### 利用者向け
 
-#### 修正
+#### 追加
 
-- 巡航レグの途中で降下を開始する場合、最初の降下区間のTOATが直前と同じ値でも省略せずに表示するよう修正しました。
+- 2026年10月29日有効のAIP地図データ原本ZIPファイル3つを出典およびSHA-256付きで同梱しましたが、地図表示や計算への取り込みはまだ実装されていません。
 
 ### 開発者向け
 
-- EOC後最初のDESCENT Calculation Zoneで、そのphaseの実効TOATを明示します。通常区間のTOAT継承表示と既存のWIND / WCA / MH / GS表示は維持します。
-- 同値・異値、自動・手動気温、未取得、EOC snapと後続区間の継承、および1,100 / 1,440 pxでのブラウザー回帰を追加しました。
+- #279: AIPのKML・Shapefile・Documentsの元ZIPを改変せず登録し、サイズ・SHA-256と出典を記録。MAP向けruntimeの正規化・表示は#149で継続。
+- 地物数はShapefileの5,276件を基準とし、KMLの5,271件との進入管制空域2レイヤーの差分をmanifestと資料に明記。
 
 ## 1.22.8
 

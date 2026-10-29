@@ -1,5 +1,6 @@
 """GET-only Pages target observation; never publication or quota authorization."""
 
+import json
 import re
 from datetime import UTC, datetime
 
@@ -169,8 +170,8 @@ def read_project(client, path):
     return response["result"]
 
 
-def inspect(client, account):
-    """Read project, complete retained deployment list, then project again for observed drift."""
+def inspect(client, account, *, expected_project=None):
+    """Bind an optional prior project read to both inventory reads; reject observed drift."""
     path = f"/client/v4/accounts/{account}/pages/projects/navmate"
     project = read_project(client, path)
     project_id = identifier(project.get("id"))
@@ -225,7 +226,13 @@ def inspect(client, account):
         result["production_in_inventory"] = any(row["id"] == canonical["id"] for row in rows)
     else:
         result["production_in_inventory"] = UNKNOWN
-    result["project_unchanged"] = project == read_project(client, path)
+    # JSON comparison preserves type changes such as false -> 0 that dict equality hides.
+    snapshot = json.dumps(project, sort_keys=True)
+    result["project_unchanged"] = (
+        snapshot == json.dumps(read_project(client, path), sort_keys=True)
+        and (expected_project is None
+             or snapshot == json.dumps(expected_project, sort_keys=True))
+    )
     if not result["project_unchanged"]:
         result["status"] = "pages_target_changed"
         # Absence in an inventory that changed during the read cannot show an idle target.

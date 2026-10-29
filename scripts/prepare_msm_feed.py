@@ -59,6 +59,7 @@ def produce(
     *,
     now: datetime | None = None,
     max_runs: int = 2,
+    expected_run: str | None = None,
 ) -> dict[str, object]:
     started = perf_counter()
     generated = now or datetime.now(UTC)
@@ -66,6 +67,8 @@ def produce(
     client = MsmClient(cache, bounds)
     listings = acquire_listings(client, requirements)
     runs = client.discover_runs(requirements, listings=listings)
+    if expected_run is not None and max(str(RunId(run.run_utc)) for run in runs) != expected_run:
+        raise ValueError("Discovered Run changed since admission; no payload work permitted")
     output.mkdir(parents=True, exist_ok=True)
     assets: dict[str, PreparedAsset] = {}
     retained_listings: dict[str, str] = {}
@@ -160,6 +163,7 @@ def main() -> None:
     parser.add_argument("--start", type=datetime.fromisoformat)
     parser.add_argument("--hours", type=int, default=24)
     parser.add_argument("--max-runs", type=int, default=2)
+    parser.add_argument("--expected-run")
     parser.add_argument(
         "--bounds", type=float, nargs=4, metavar=("LAT_MIN", "LAT_MAX", "LON_MIN", "LON_MAX")
     )
@@ -169,7 +173,8 @@ def main() -> None:
         parser.error("start requires a timezone; hours must be 1–48; max-runs must be 1–32")
     bounds = Bounds(*args.bounds) if args.bounds else Bounds()
     try:
-        report = produce(args.output, args.cache, start, args.hours, bounds, max_runs=args.max_runs)
+        report = produce(args.output, args.cache, start, args.hours, bounds,
+                         max_runs=args.max_runs, expected_run=args.expected_run)
     except Exception as error:
         print(
             json.dumps(

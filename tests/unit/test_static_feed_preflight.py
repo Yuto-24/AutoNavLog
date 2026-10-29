@@ -156,3 +156,43 @@ def test_noop_rejects_incomplete_published_listings_even_when_upstream_is_comple
     source["catalog"]["listings"][DIRECTORY] = listing(0).splitlines()[0]
     with pytest.raises(NoCompatibleRunError):
         gate.preflight("https://canonical.test", NOW)
+
+
+def test_preupload_rechecks_live_run_and_rejects_same_run_or_regression(source, tmp_path):
+    """Only a candidate newer than the latest canonical Run may reach upload."""
+    candidate = tmp_path / "catalog.json"
+    proposed = json.loads(json.dumps(source["catalog"]))
+    proposed["assets"][0]["run"] = "20261013030000"
+    candidate.write_text(json.dumps(proposed))
+    result = gate.require_newer_candidate("https://canonical.test", candidate, NOW)
+    assert result["status"] == "NEWER_CANDIDATE"
+    source["catalog"]["assets"][0]["run"] = "20261013030000"
+    with pytest.raises(ValueError, match="timestamp-only"):
+        gate.require_newer_candidate("https://canonical.test", candidate, NOW)
+    proposed["assets"][0]["run"] = "20261013000000"
+    candidate.write_text(json.dumps(proposed))
+    with pytest.raises(ValueError, match="timestamp-only"):
+        gate.require_newer_candidate("https://canonical.test", candidate, NOW)
+
+
+def test_preupload_fetch_failure_cannot_publish(source, tmp_path, monkeypatch):
+    """An unavailable canonical catalog prevents the final publication verdict."""
+    monkeypatch.setattr(gate, "fetch", lambda *a: (_ for _ in ()).throw(TimeoutError()))
+    with pytest.raises(TimeoutError):
+        gate.require_newer_candidate("https://canonical.test", tmp_path / "catalog.json", NOW)
+
+
+def test_admitted_detected_run_is_pinned_before_payload_and_upload(source, tmp_path):
+    """An approval delay cannot silently change the Run recorded for retry accounting."""
+    with pytest.raises(ValueError, match="changed since admission"):
+        prepare_msm_feed.produce(tmp_path, tmp_path / "cache", NOW, 25,
+                                 prepare_msm_feed.Bounds(), expected_run="20261013000000")
+    proposed = json.loads(json.dumps(source["catalog"]))
+    proposed["assets"][0]["run"] = "20261013030000"
+    candidate = tmp_path / "candidate.json"
+    candidate.write_text(json.dumps(proposed))
+    with pytest.raises(ValueError, match="admitted detected"):
+        gate.require_newer_candidate("https://canonical.test", candidate, NOW,
+                                     expected_run="20261013000000")
+    assert gate.require_newer_candidate("https://canonical.test", candidate, NOW,
+                                       expected_run="20261013030000")["status"] == "NEWER_CANDIDATE"

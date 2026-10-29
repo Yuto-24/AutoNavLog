@@ -61,7 +61,7 @@ for (const width of [1100, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/");
   await enterImportWorkflow(page);
-    await expect(page).toHaveTitle(/AutoNavLog/);
+    await expect(page).toHaveTitle(/NavMate/);
     await expect(page.locator(".brand-subtitle").filter({ hasText: " / Local" })).toBeVisible();
     await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
     await page.getByLabel("気象モード").selectOption("FTD");
@@ -260,7 +260,7 @@ test("Pyodide core: saved Run, UMK, OMARU, inbound, overrides and Check Point", 
     "issue_117_ftd.json", "issue_43_golden.kml", "issue_125_umk.kml",
     "issue_125_omaru.kml", "issue_125_inbound.kml",
   ].map(name => [name, readFileSync(resolve(`../tests/fixtures/${name}`), "utf8")]));
-  await page.goto("/favicon.svg");
+  await page.goto("/favicon-32.png");
   const actual = await page.evaluate(async ({ source, files, cases }) => {
     const workerSource = String.raw`
       importScripts('https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js');

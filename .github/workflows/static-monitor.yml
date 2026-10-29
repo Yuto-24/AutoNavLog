@@ -21,8 +21,26 @@ jobs:
         env:
           STATIC_ORIGIN: ${{ vars.STATIC_ORIGIN }}
         run: python3 scripts/static_ops/operations.py monitor --origin "$STATIC_ORIGIN" >> "$GITHUB_STEP_SUMMARY"
-      - name: Collect and validate current provider evidence even if weather failed
+      - name: Record monitoring scope
         if: always()
+        env:
+          QUOTA_MONITOR_ENABLED: ${{ vars.STATIC_QUOTA_MONITOR_ENABLED }}
+        run: |
+          if [ "$QUOTA_MONITOR_ENABLED" = true ]; then
+            echo 'Provider quota is evaluated in the independent quota-monitor job; catalog success is not quota acceptance.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Provider quota monitoring is deferred to #281. Usage and account billing remain UNKNOWN; this job checks catalog freshness only.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+  quota-monitor:
+    # Follow-up #281: enabling catalog monitoring does not opt into quota collection.
+    if: vars.STATIC_QUOTA_MONITOR_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Collect and validate current provider evidence
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}

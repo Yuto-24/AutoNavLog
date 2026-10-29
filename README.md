@@ -1,6 +1,6 @@
-# AutoNavLog
+# NavMate
 
-AutoNavLog は、航空大学校の宮崎課程 NAV2 で使う航法 LOG の地上準備を支援する、
+NavMate は、航空大学校の宮崎課程 NAV2 で使う航法 LOG の地上準備を支援する、
 SR22 G6 向けの Web アプリです。KML または KMZ の経路を読み込み、NAV LOG の計算結果を
 Web 画面に表示します。
 
@@ -26,6 +26,7 @@ production build、無料枠条件、手動deploy / rollback、公開前のdry-r
 本番への配置・受入は明示的な公開承認後の別gateです。
 
 以下のDocker / server storage / Cloudflare Tunnelの手順は、移行中のLegacy環境用です。
+旧サーバの停止条件と救済用backupは[サーバ廃止の準備](docs/server_retirement.md)を参照してください。
 Local-firstの保存と復元は[Local Persistence](docs/local_persistence.md)と
 [Account Sync](docs/account_sync.md)を参照してください。
 
@@ -356,16 +357,20 @@ docker run --rm autonavlog:test
 docker build --target runtime --tag autonavlog:runtime .
 ```
 
-Release対象PRでは root [`VERSION`](VERSION) と [`CHANGELOG.md`](CHANGELOG.md) を直接更新します。
-`VERSION` はAutoNavLog全体の唯一のVersion原本です。InformationにはCHANGELOGの「利用者向け」と [既知の不具合](KNOWN_ISSUES.md) を表示し、GitHub Release本文には同じVersionの利用者向け・開発者向けを掲載します。
+通常の機能追加・修正 PR は `Release: not-required` と `Reason: <理由>` を記載し、
+root [`VERSION`](VERSION) と [`CHANGELOG.md`](CHANGELOG.md) は変更しません。
+次回リリース向けの変更内容は PR 本文の Pending release notes に記録します。
+明示的なリリース準備 PR だけが `Release: required` を指定し、VERSION を増加させ、
+対象バージョンの CHANGELOG セクションを確定します。公開済みのセクションは変更しません。
+この契約は `main` と `release/1.x` の両方に適用します。
 
-PR本文には `Release: required` を記載します。Release不要の場合は `Release: not-required` と
-`Reason: <理由>` を記載し、`VERSION` は変更しません。docs・test・コメントのみの変更や、配布物を
-変えないCI設定変更などが該当します。UI文言の変更はRelease対象です。
-CIはVersionの増加とCHANGELOGの形式・整合性、および明確なruntime変更を検証します。
-major / minor / patchの選択と、変更の意味に基づくRelease要否は作成者とレビューで判断します。
-mainへのmerge後はGitHub Actionsが `vX.Y.Z` tagとGitHub Releaseを作成します。
-公開日時はGitHub Releaseが保持し、CHANGELOGへ書き戻しません。
+`VERSION` は製品全体の唯一の Version 原本です。Information には CHANGELOG の「利用者向け」と
+[既知の不具合](KNOWN_ISSUES.md) を表示し、GitHub Release 本文には同じ Version の
+利用者向け・開発者向けを掲載します。CI は VERSION / CHANGELOG の形式・整合性と PR 契約を検証します。
+VERSION を変更するリリース準備 PR の merge 後に GitHub Actions が `vX.Y.Z` tag と GitHub Release を
+作成します。通常 PR の merge は新規リリースを作成しません。
+版系列と公開手順は [release_lines.md](docs/release_lines.md) を参照してください。
+公開日時は GitHub Release が保持し、CHANGELOG へ書き戻しません。
 
 `src/autonavlog/version.py` は固定値を持たず、インストール済み Package Metadata から版番号を取得します。Python package metadataはroot `VERSION` から生成します。
 `jma-msm-wind==0.2.1` は別製品の版なので変更しません。

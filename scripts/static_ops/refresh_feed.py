@@ -11,14 +11,15 @@ from pathlib import Path
 PUBLICATION_GENERATION_HOURS = 25
 
 
-def refresh(producer: Path, output: Path, cache: Path) -> dict:
+def refresh(producer: Path, output: Path, cache: Path, expected_run: str | None = None) -> dict:
     previous = output / "catalog.json"
     retained_runs = {asset["run"] for asset in json.loads(previous.read_text())["assets"]} if (
         previous.exists()
     ) else set()
     result = subprocess.run(
         [sys.executable, str(producer), "--output", str(output), "--cache", str(cache),
-         "--hours", str(PUBLICATION_GENERATION_HOURS)],
+         "--hours", str(PUBLICATION_GENERATION_HOURS),
+         *(["--expected-run", expected_run] if expected_run else [])],
         check=False,
         text=True,
         capture_output=True,
@@ -31,6 +32,8 @@ def refresh(producer: Path, output: Path, cache: Path) -> dict:
         raise ValueError(
             "No newly prepared MSM Run; do not publish a renewed retained-only catalog"
         )
+    if expected_run and max(item["run"] for item in report["runs"]) != expected_run:
+        raise ValueError("Producer Run differs from the admitted detected Run")
     if retained_runs and not any(item["run"] > max(retained_runs) for item in report["runs"]):
         raise ValueError("No newer real MSM Run; timestamps alone cannot renew weather")
     return report
@@ -41,5 +44,6 @@ if __name__ == "__main__":
     parser.add_argument("--producer", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
+    parser.add_argument("--expected-run")
     args = parser.parse_args()
-    print(json.dumps(refresh(args.producer, args.output, args.cache), indent=2))
+    print(json.dumps(refresh(args.producer, args.output, args.cache, args.expected_run), indent=2))

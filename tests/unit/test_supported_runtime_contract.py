@@ -30,6 +30,8 @@ def test_backend_ci_runs_only_python_312() -> None:
         "target=/opt/autonavlog/.github/workflows/static-provider-probe.yml,readonly "
         '--mount type=bind,source="$PWD/.github/workflows/static-monitor.yml",'
         "target=/opt/autonavlog/.github/workflows/static-monitor.yml,readonly "
+        '--mount type=bind,source="$PWD/.github/workflows/static-app-release.yml",'
+        "target=/opt/autonavlog/.github/workflows/static-app-release.yml,readonly "
         "autonavlog:test"
     )
     assert command in " ".join(workflow.split())

@@ -78,7 +78,8 @@ async function accountRecords(page: Page) {
   return page.evaluate(async () => {
     const id = (window as any).authTest.state().account.account_id;
     return new Promise<any[]>((resolve, reject) => {
-      const open = indexedDB.open(`autonavlog.projects.${id}`, 1);
+      const open = indexedDB.open(`autonavlog.projects.${id}`);
+      open.onerror = () => reject(open.error);
       open.onsuccess = () => {
         const tx = open.result.transaction("projects"); const read = tx.objectStore("projects").getAll();
         tx.oncomplete = () => { open.result.close(); resolve(read.result); };
@@ -88,6 +89,117 @@ async function accountRecords(page: Page) {
   });
 }
 const savedNames = (page: Page) => page.locator("#saved-project option").allTextContents();
+
+for (const [phase, resetFails] of [["resolve", true], ["refresh", true], ["load", true], ["refresh", false]] as const) {
+  test(`New orders pending sync ${phase} before a ${resetFails ? "failed" : "successful"} reset`, async ({ page, context }, info) => {
+    await backend(context); await start(page);
+    page.on("dialog", dialog => dialog.accept());
+    await saveRoute(page, "Original");
+    const originalId = await page.locator("#saved-project").inputValue();
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await enterImportWorkflow(page);
+    await saveRoute(page, "Resolved");
+    const resolvedId = await page.locator("#saved-project").inputValue();
+    await page.locator("#saved-project").selectOption(originalId);
+    await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
+    await expect(page.getByLabel("プロジェクト", { exact: true })).toHaveValue("Original");
+
+    // Keep the real Local Application, Worker and durable Projects. Pause only the
+    // synchronization boundary, without requiring a remote account or emulator.
+    await page.evaluate(({ phase, resolvedId, resetFails }) => {
+      const app = (window as any).authTest.contexts.at(-1);
+      const refresh = app.refreshProjects.bind(app), load = app.loadProject.bind(app);
+      const reset = app.newWork.bind(app);
+      const listeners = new Set<() => void>();
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      let rejectNew!: () => void;
+      const newGate = new Promise<void>(resolve => { rejectNew = resolve; });
+      let resolving = false;
+      const race = (window as any).syncNewRace = {
+        held: false, newCalls: 0, loadCalls: 0, failNew: resetFails,
+        read: refresh,
+        release: () => release(),
+        rejectNew: () => rejectNew(),
+      };
+      const hold = async () => { race.held = true; await gate; };
+      let status: any = { conflicts: [{ id: resolvedId, name: "Resolved" }], imports: [], undo: [], generation: 1 };
+      app.sync = {
+        getState: () => status,
+        subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
+        resolve: async () => {
+          resolving = true;
+          status = { ...status, conflicts: [], undo: [{ id: "sync-observer", name: "Synchronization" }], generation: 2 };
+          for (const listener of listeners) listener();
+          if (phase === "resolve") await hold();
+          return resolvedId;
+        },
+      };
+      app.refreshProjects = async () => {
+        const state = await refresh();
+        if (resolving && phase === "refresh") await hold();
+        return state;
+      };
+      app.loadProject = async (id: string) => {
+        race.loadCalls++;
+        const state = await load(id);
+        if (phase === "load") await hold();
+        return state;
+      };
+      app.newWork = async () => {
+        race.newCalls++;
+        if (race.failNew) {
+          if (phase === "load") await newGate;
+          throw new Error("Injected New failure");
+        }
+        await reset();
+      };
+    }, { phase, resolvedId, resetFails });
+    // A real UI edit renders the newly attached test synchronization control.
+    await page.getByLabel("プロジェクト", { exact: true }).fill("Original draft");
+    await page.getByRole("button", { name: "両方残す", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).syncNewRace.held)).toBe(true);
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    if (phase === "load") {
+      // A load already changing the Worker must commit its matching UI before New
+      // can fail; otherwise the next save/calculation silently targets another ID.
+      expect(await page.evaluate(async () => {
+        const race = (window as any).syncNewRace;
+        await race.read();
+        return race.newCalls;
+      })).toBe(0);
+    } else if (resetFails) {
+      // New remains available while the non-mutating resolution/refresh is paused.
+      await expect(page.getByRole("alert").filter({ hasText: "Injected New failure" })).toBeVisible();
+    } else {
+      await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    }
+    await page.evaluate(() => (window as any).syncNewRace.release());
+    if (phase === "load") {
+      await expect(page.getByLabel("プロジェクト", { exact: true })).toHaveValue("Resolved");
+      await expect.poll(() => page.evaluate(() => (window as any).syncNewRace.newCalls)).toBe(1);
+      await page.evaluate(() => (window as any).syncNewRace.rejectNew());
+    }
+    await expect(page.getByRole("button", { name: "元に戻す", exact: true })).toBeEnabled();
+    if (resetFails) await expect(page.getByRole("alert").filter({ hasText: "Injected New failure" })).toBeVisible();
+    const expectedId = !resetFails ? null : phase === "load" ? resolvedId : originalId;
+    await expect.poll(() => page.evaluate(async () => (await (window as any).syncNewRace.read()).project?.id ?? null)).toBe(expectedId);
+    await expect(page.locator("#saved-project")).toHaveValue(expectedId ?? "");
+    if (resetFails) await expect(page.getByLabel("プロジェクト", { exact: true })).toHaveValue(phase === "load" ? "Resolved" : "Original draft");
+    expect(await page.evaluate(() => (window as any).syncNewRace.loadCalls)).toBe(phase === "load" ? 1 : 0);
+    await expect(page.locator("#saved-project option")).toHaveCount(3);
+    if (phase === "load") {
+      await page.screenshot({ path: info.outputPath("sync-load-new-failure.png"), fullPage: false });
+      await page.reload();
+      await expect(page.getByLabel("プロジェクト", { exact: true })).toHaveValue("Resolved");
+      await expect(page.locator("#saved-project")).toHaveValue(resolvedId);
+      await page.getByRole("button", { name: "新規", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+      expect((await page.evaluate(() => (window as any).authTest.contexts.at(-1).refreshProjects())).project).toBeNull();
+      await expect(page.locator("#saved-project option")).toHaveCount(3);
+    }
+  });
+}
 
 // Real Firebase SDK REST exchanges are intercepted; no real Google credentials or remote Projects.
 test("anonymous workflow, account switch, logout, reauthentication and cross-tab closure", async ({ page, context }) => {

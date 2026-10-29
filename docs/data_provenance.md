@@ -1,6 +1,6 @@
 # データ来歴
 
-この文書は、AutoNavLogに同梱するデータについて、公開可能な範囲の来歴と制限を記録します。航空大学校の内部運用資料については、参照・検証した事実と採用済みAutoNavLog Policyだけを示し、章節、ページ、原文要約、hashなど原資料の内容を復元しやすくする対応情報は収録しません。詳細は[出典・provenance方針](source_policy.md)を参照してください。
+この文書は、NavMateに同梱するデータについて、公開可能な範囲の来歴と制限を記録します。航空大学校の内部運用資料については、参照・検証した事実と採用済みNavMate Policyだけを示し、章節、ページ、原文要約、hashなど原資料の内容を復元しやすくする対応情報は収録しません。詳細は[出典・provenance方針](source_policy.md)を参照してください。
 
 ## SR22 G6性能データ
 
@@ -11,7 +11,7 @@
 - 上昇原表の節点を再抽出し、同梱CSVとの全行比較を行っています。
 - 巡航原表159行を再抽出し、同梱CSVとの全行比較を行っています。
 - 実行時には`data/performance/manifest.json`のSHA-256で同梱CSVを検証します。
-- POH由来の直接値と、AutoNavLogによる補間・外挿Policyは区別してCalculation metadataへ保持します。
+- POH由来の直接値と、NavMateによる補間・外挿Policyは区別してCalculation metadataへ保持します。
 - `VERIFIED`は転記内容とmanifest整合を示すもので、対象機への適用性、運航承認、校内承認を意味しません。
 
 ## 空港・Route参照データ
@@ -65,7 +65,7 @@ SUCだけに2026-10-01の`effective_cycle`、`source_effective_date`、`source_s
 - AIP等の公開資料から確認したRJFM / RWY / MZEの参照値
 - 国土交通省の公開告示から確認した宮崎特別管制区の参照値
 - 国土交通省・国土地理院が公開する民間訓練試験空域の表示用参照
-- AutoNavLogが採用するUMK / OVER FIELD / OMARUの参照座標と不確実性
+- NavMateが採用するUMK / OVER FIELD / OMARUの参照座標と不確実性
 - RJFM北行き専用Policyと利用者決定に基づく実装値
 
 内部運用資料から確認した情報については、資料を参照して検証した事実だけを記録し、元資料の章節、ページ、ファイルhash、規則との対応表は公開しません。
@@ -91,3 +91,7 @@ MSMの上空風・気温と地上気温にはForecast Run、元URL、source hash
 Projectは入力、手動値、選択した参照データを最新draftとして保存します。明示保存時にはcheckpointを更新します。
 
 最後にBlockerなしで完了したCalculationはProjectごとに1件だけ保持し、計算時Project snapshot、CalculationOutcome、Forecast Run等の来歴とともに保存します。履歴を無制限に蓄積する方式ではありません。
+
+## AIP地図表示用データ（2026-10-29有効）の取込準備
+
+SWIM portalのAIPファイルダウンロードサービスから配布されたKML・Shapefileのレイヤー構成、ハッシュと有効日を[`docs/reference/aip_map_geodata_20261029.md`](reference/aip_map_geodata_20261029.md)および[`data/reference/aip/20261029/source_manifest.json`](../data/reference/aip/20261029/source_manifest.json)へ記録した。元ZIP3個はRepositoryへ改変せず登録済みで、manifestのSHA-256と一致する。MAP向けruntimeデータの正規化・取り込みは未完了。公示訓練空域は`Civil_training_and_testing_areas`を採用し、学校独自の空域境界を二重登録しない。既存のRJFM計算用境界は表示用ソースの登録だけで変更しない。

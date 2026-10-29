@@ -1,4 +1,4 @@
-"""Read catalog/listings only; a scheduled no-op requires positive healthy evidence."""
+"""All feed renewals require new complete Runs; recheck canonical before upload."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from scripts.static_ops.refresh_feed import PUBLICATION_GENERATION_HOURS  # noqa
 
 
 def preflight(origin: str, now: datetime | None = None) -> dict:
+    """Read canonical and upstream metadata; admit only a newer complete Run or a healthy no-op."""
     started = now or datetime.now(UTC)
     catalog = WeatherCatalog.model_validate_json(fetch(
         origin.rstrip("/") + "/weather/msm/catalog.json", 8 * 1024 * 1024))
@@ -78,14 +79,55 @@ def preflight(origin: str, now: datetime | None = None) -> dict:
             "weather_seconds_remaining": remaining, "current_catalog_expired": remaining <= 0}
 
 
+def require_newer_candidate(origin: str, candidate: Path, now: datetime | None = None,
+                            expected_run: str | None = None) -> dict:
+    """Run inside shared publication concurrency immediately before upload.
+
+    Existing publication/validate_feed gates validate identity, bytes, coverage and
+    lifetime. This final canonical read prevents a race from renewing the same Run.
+    """
+    checked = now or datetime.now(UTC)
+    published = WeatherCatalog.model_validate_json(fetch(
+        origin.rstrip("/") + "/weather/msm/catalog.json", 8 * 1024 * 1024))
+    proposed = WeatherCatalog.model_validate_json(candidate.read_text())
+    for catalog in (published, proposed):
+        if (not catalog.assets or catalog.generated_at > checked
+                or catalog.expires_at - catalog.generated_at != timedelta(hours=6)):
+            raise ValueError("Invalid catalog before publication")
+        for asset in catalog.assets:
+            run = datetime.strptime(asset.run, "%Y%m%d%H%M%S").replace(tzinfo=UTC)
+            if run > catalog.generated_at or run.hour % 3 or run.minute or run.second:
+                raise ValueError("Invalid Run before publication")
+    previous = max(asset.run for asset in published.assets)
+    newest = max(asset.run for asset in proposed.assets)
+    if expected_run and newest != expected_run:
+        raise ValueError("Candidate differs from admitted detected Run")
+    if newest <= previous:
+        raise ValueError("Canonical already has this or a newer Run; no timestamp-only renewal")
+    if proposed.expires_at <= checked:
+        raise ValueError("Candidate expired before publication")
+    return {"status": "NEWER_CANDIDATE", "published_run": previous, "candidate_run": newest}
+
+
 def main() -> None:
+    """Emit discovery outputs or enforce the final newer-candidate check before upload."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--origin", required=True)
-    parser.add_argument("--github-output", type=Path, required=True)
+    parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--candidate", type=Path)
+    parser.add_argument("--expected-run")
     args = parser.parse_args()
+    if args.candidate:
+        report = require_newer_candidate(
+            args.origin, args.candidate, expected_run=args.expected_run)
+        print(json.dumps(report, indent=2))
+        return
+    if args.github_output is None:
+        parser.error("--github-output is required for discovery")
     report = preflight(args.origin)
     # Only a complete successful verdict may enable heavy work or a healthy no-op.
     with args.github_output.open("a") as output:
+        output.write(f"upstream_run={report['upstream_run']}\n")
         output.write(f"proceed={str(report['proceed']).lower()}\n")
     print(json.dumps(report, indent=2))
 

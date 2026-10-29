@@ -22,7 +22,7 @@ from urllib.request import Request, build_opener
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
-from scripts.static_ops import pages_target, probe_providers  # noqa: E402
+from scripts.static_ops import freshness, pages_target, probe_providers  # noqa: E402
 from scripts.static_ops import publication_gate as gate  # noqa: E402
 from scripts.static_ops.operations import (  # noqa: E402
     NoRedirect,
@@ -30,12 +30,14 @@ from scripts.static_ops.operations import (  # noqa: E402
     monitor,
     release,
     restore,
+    static_request,
 )
 from scripts.static_ops.refresh_feed import PUBLICATION_GENERATION_HOURS  # noqa: E402
 from scripts.static_ops.validate_feed import validate_feed  # noqa: E402
 
 REPO = "Yuto-24/AutoNavLog"
 WORKFLOW = "static-production.yml"
+APP_WORKFLOW = "static-app-release.yml"
 VARIABLES = (
     *gate.CONFIGURATION,
     "CLOUDFLARE_ACCOUNT_ID",
@@ -48,17 +50,28 @@ COMPATIBILITY = (
     "firebase/firestore.indexes.json",
     "data/schemas/project.schema.json",
 )
-# Only the emulator-verified v1.20.1 -> v1.22.7 transition is admitted by the opt-in.
-# Owner-crafted generation reuse is tracked separately in #262; Rules stay unchanged.
-RULES_TRANSITION_V1227 = {
-    "current_sha": "a4de2a226dfa205b8be42fb62a710a1b06271ed8",
-    "sha": "e0ad634a8fab2ed48310f48b08c4ec3961cad14b",
-    "project": "navmate-prod",
-    "before_sha256": "f27ee41870413f48b9ac0da609350cac3b3cc3d2d3a4fa0d30772b3312865246",
-    "after_sha256": "574725b83fc0d0bca5df7311b970f97aeaaae068524eb1343bdc3912973757d8",
-    "previous_ruleset": "projects/navmate-prod/rulesets/688d5522-783a-452c-bbaf-7981748d3ef0",
-    "recovery": "forward-fix; no automatic old Rules rollback",
-}
+# Owner-confirmed Analytics settings and saved payload: see the dated #266 evidence.
+# Never learn this allowlist from a serving response. Any provider change needs review.
+ROOT_ANALYTICS_INSERTIONS = (
+    (
+        b'<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/'
+        b'v4bc70e2c01a94c73b74392e4234840661791215815920" '
+        b'integrity="sha512-L0ha0OXavK/8okipN9F8BtP84dg9DUhPERbBXzwI6dgTA55d2+yweo3pn5CSFYs45/'
+        b'r8md2+xvUPtTdvTNRfjA==" '
+        b'data-cf-beacon=\'{"version":"2024.11.0","token":"95f71c67cb5a41d3ab040fe18f7bcaa4",'
+        b'"r":1,"spa":2}\' crossorigin="anonymous"></script>\n'
+    ),
+    (
+        b'<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/'
+        b'vce701823e78c4301a35b7e07294d87301792088814092" '
+        b'integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/'
+        b'BikHawapSCaiD2XCmp+Bw==" '
+        b'data-cf-beacon=\'{"version":"2024.11.0","token":"95f71c67cb5a41d3ab040fe18f7bcaa4",'
+        b'"r":1,"spa":2}\' crossorigin="anonymous"></script>\n'
+    ),
+)
+ROOT_HTML_END = b"</body>\n</html>\n"
+SERVING_BYTE_LIMIT = 8 * 1024 * 1024
 
 
 class Blocked(Exception):
@@ -68,6 +81,17 @@ class Blocked(Exception):
 def require(condition: object, message: str) -> None:
     if not condition:
         raise Blocked(message)
+
+
+def public_configuration(variables: dict) -> dict:
+    """Migration URL is optional only when the canonical release agrees it is absent."""
+    required = gate.CONFIGURATION[:-1]
+    require(all(isinstance(variables.get(key), str) and variables[key].strip()
+                for key in required), "Existing public configuration missing")
+    optional = variables.get("VITE_LEGACY_MIGRATION_URL", "")
+    require(isinstance(optional, str) and (not optional or optional.strip()),
+            "Invalid Legacy migration configuration")
+    return {key: variables[key] for key in gate.CONFIGURATION if variables.get(key)}
 
 
 def digest(data: bytes) -> str:
@@ -117,6 +141,66 @@ def write_json(path: Path, value: object) -> None:
     temporary.replace(path)
 
 
+def verify_root_response(response, expected: dict, destination: Path) -> None:
+    """Retain raw HTML; admit only exact inventory or one pinned byte insertion."""
+    raw = response.read(SERVING_BYTE_LIMIT + 1)
+    with (destination / "serving-root.body").open("wb") as stream:
+        os.chmod(stream.name, 0o600)
+        stream.write(raw)
+    raw_identity = {"bytes": len(raw), "sha256": digest(raw)}
+    evidence = {
+        "observed_at": datetime.now(UTC).isoformat(),
+        "url": gate.ORIGIN + "/",
+        "status": response.status,
+        "content_type": response.headers.get("Content-Type"),
+        "cache_control": response.headers.get("Cache-Control"),
+        "etag_present": response.headers.get("ETag") is not None,
+        "etag": response.headers.get("ETag"),
+        "raw": raw_identity,
+        "raw_complete": len(raw) <= SERVING_BYTE_LIMIT,
+        "expected_inventory": expected,
+        "match": None,
+        "insertion_sha256": None,
+        "compared": raw_identity,
+        "result": "BLOCKED",
+    }
+    try:
+        require(len(raw) <= SERVING_BYTE_LIMIT, "Canonical HTML exceeds byte budget")
+        require(
+            response.status == 200
+            and "no-cache" in response.headers.get("Cache-Control", "")
+            and response.headers.get_content_type() == "text/html",
+            "Canonical serving/header verification failed",
+        )
+        compared = raw
+        mode = "exact"
+        if raw_identity != expected:
+            # The two original spaces stay before the script; only script + LF is removed.
+            matches = [
+                insertion for insertion in ROOT_ANALYTICS_INSERTIONS
+                if raw.endswith(b"  " + insertion + ROOT_HTML_END)
+            ]
+            require(
+                len(matches) == 1
+                and sum(raw.count(insertion) for insertion in ROOT_ANALYTICS_INSERTIONS) == 1,
+                "Canonical HTML has no approved insertion at the pinned position",
+            )
+            insertion = matches[0]
+            offset = len(raw) - len(ROOT_HTML_END) - len(insertion)
+            compared = raw[:offset] + raw[offset + len(insertion):]
+            mode = "approved-insertion"
+            evidence["insertion_sha256"] = digest(insertion)
+        evidence["compared"] = {"bytes": len(compared), "sha256": digest(compared)}
+        require(
+            evidence["compared"] == expected,
+            "Canonical HTML/manifest content differs from fresh upload",
+        )
+        evidence["match"] = mode
+        evidence["result"] = "OK"
+    finally:
+        write_json(destination / "serving-root.json", evidence)
+
+
 class Journal:
     def __init__(self, path: Path, mode: str, sha: str):
         self.path = path
@@ -156,7 +240,8 @@ class Journal:
     def finish(self, success: bool) -> None:
         self.value["status"] = "OK" if success else "BLOCKED"
         self.value["required_action"] = (
-            "Review plan; publication needs separate authorization"
+            ("Publish under stable-release policy" if self.value.get("authorization")
+             else "Review plan; publication needs separate authorization")
             if success and self.value["mode"] == "prepare"
             else "None"
             if success
@@ -172,9 +257,12 @@ class Journal:
 
 
 class Operator:
-    def __init__(self, root: Path = ROOT, *, rules_transition_v1227: bool = False):
+    def __init__(self, root: Path = ROOT, *, rules_transition: Path | None = None,
+                 schema_transition: Path | None = None):
         self.root = root
-        self.rules_transition_v1227 = rules_transition_v1227
+        self.rules_transition = rules_transition
+        self.schema_transition = schema_transition
+        self.schema_receipt: dict | None = None
         self.rules_receipt: dict | None = None
         self.env = dict(os.environ)
         self.wrangler = root / "services/taf-proxy/node_modules/.bin/wrangler"
@@ -217,14 +305,27 @@ class Operator:
         return json.loads(output) if output.strip() else None
 
     def variables(self) -> dict:
-        result = {}
-        for name in VARIABLES:
-            item = self.gh("actions/variables/" + name)
-            require(
-                item.get("name") == name and isinstance(item.get("value"), str),
-                "Missing repository variable",
-            )
-            result[name] = item["value"]
+        # Only a complete inventory proves the optional migration setting is absent.
+        # A failed individual GET (including 403/404) is not absence evidence.
+        inventory, page, count = {}, 1, None
+        while True:
+            value = self.gh(f"actions/variables?per_page=100&page={page}")
+            rows, total = value["variables"], value["total_count"]
+            require(type(total) is int and total >= 0 and isinstance(rows, list)
+                    and (count is None or count == total), "Repository inventory changed")
+            count = total
+            for row in rows:
+                require(isinstance(row.get("name"), str) and isinstance(row.get("value"), str)
+                        and row["name"] not in inventory, "Invalid repository variable")
+                inventory[row["name"]] = row["value"]
+            require(len(inventory) <= total, "Invalid repository inventory")
+            if len(inventory) == total:
+                break
+            require(len(rows) == 100 and page < 40, "Incomplete repository inventory")
+            page += 1
+        require(all(name in inventory for name in VARIABLES
+                    if name != "VITE_LEGACY_MIGRATION_URL"), "Missing repository variable")
+        result = {name: inventory.get(name, "") for name in VARIABLES}
         # Environment shadowing could make resumed feed builds use another SHA/config.
         for environment in ("static-production", "static-publication", "static-validation"):
             # Reject environment shadowing using a complete variable inventory.
@@ -258,12 +359,17 @@ class Operator:
         return self.gh("actions/workflows/" + WORKFLOW)
 
     def idle(self) -> None:
+        # Manual publication must also exclude the unattended app publisher.
+        for workflow in (WORKFLOW, APP_WORKFLOW):
+            self.workflow_idle(workflow)
+
+    def workflow_idle(self, workflow: str) -> None:
         # A single unfiltered inventory cannot lose queued -> waiting transitions
         # between separate status queries. Scan every declared page without an
         # arbitrary historical ceiling; incomplete/changed history fails closed.
         page, count, seen = 1, None, set()
         while True:
-            value = self.gh(f"actions/workflows/{WORKFLOW}/runs?per_page=100&page={page}")
+            value = self.gh(f"actions/workflows/{workflow}/runs?per_page=100&page={page}")
             total, rows = value["total_count"], value["workflow_runs"]
             require(
                 type(total) is int
@@ -309,11 +415,27 @@ class Operator:
         path = f"/client/v4/accounts/{variables['CLOUDFLARE_ACCOUNT_ID']}/pages/projects/navmate"
         project = pages_target.read_project(client, path)
         gate.verify_project(project)
-        # Direct Upload only: Git integration could publish despite Actions being disabled.
+        # Wrangler uploads also support Git-linked projects with automatic deploys disabled.
+        # Missing/unknown controls cannot establish that Git builds will stay paused.
+        source = project.get("source")
+        config = source.get("config") if isinstance(source, dict) else None
         require(
-            project.get("source") is None, "Pages Git integration requires operator investigation"
+            "source" in project
+            and (
+                source is None
+                or (
+                    isinstance(source, dict)
+                    and source.get("type") == "github"
+                    and isinstance(config, dict)
+                    and config.get("production_deployments_enabled") is False
+                    and config.get("preview_deployment_setting") == "none"
+                )
+            ),
+            "Pages automatic Git deployments are enabled or unknown",
         )
-        observation = pages_target.inspect(client, variables["CLOUDFLARE_ACCOUNT_ID"])
+        observation = pages_target.inspect(
+            client, variables["CLOUDFLARE_ACCOUNT_ID"], expected_project=project
+        )
         require(
             all(
                 observation.get(name) is True
@@ -376,25 +498,182 @@ class Operator:
         require(len(raw) <= 8 * 1024 * 1024, "Rules response too large")
         return json.loads(raw)
 
+    def transition(self, sha: str, current: str, project: str) -> dict | None:
+        """Read operator-reviewed compatibility evidence; hashes bind, not prove, it.
+
+        Re-read on every gate so edits, replacement paths and withdrawn evidence
+        invalidate the prepared snapshot. No version or historical SHA is privileged.
+        """
+        if self.rules_transition is None:
+            return None
+        path = self.rules_transition.resolve()
+        try:
+            raw = path.read_bytes()
+            require(len(raw) <= 1024 * 1024, "Rules transition record too large")
+            record = json.loads(raw)
+        except (OSError, ValueError):
+            raise Blocked("Rules transition record unavailable or invalid") from None
+        require(isinstance(record, dict), "Invalid Rules transition record")
+        require(
+            type(record.get("schema_version")) is int and record["schema_version"] == 1
+            and record.get("sha") == sha
+            and record.get("current_sha") == current
+            and record.get("project") == project,
+            "Rules transition target/current SHA or project mismatch",
+        )
+        require(
+            record.get("recovery") == "forward-fix; no automatic old Rules rollback",
+            "Rules transition recovery must preserve forward-fix",
+        )
+        for key in ("before_sha256", "after_sha256"):
+            require(
+                isinstance(record.get(key), str)
+                and re.fullmatch(r"[0-9a-f]{64}", record[key]),
+                "Invalid Rules transition source hash",
+            )
+        require(
+            record["before_sha256"] != record["after_sha256"],
+            "Same Rules update needs no transition record",
+        )
+        # These entries are reviewed attestations, not an inference from Rules hashes.
+        # The referenced files contain test results, reused evidence and delta review.
+        checks = record.get("compatibility", {})
+        require(isinstance(checks, dict), "Invalid application compatibility records")
+        evidence = {}
+        for role, commit in (("current", current), ("candidate", sha)):
+            check = checks.get(role, {})
+            require(isinstance(check, dict), "Invalid application compatibility record")
+            require(
+                check.get("sha") == commit
+                and check.get("project") == project
+                and check.get("rules_sha256") == record["after_sha256"]
+                and check.get("result") == "PASS"
+                and all(isinstance(check.get(key), str) and check[key].strip()
+                        for key in ("reviewed_by", "summary")),
+                "Reviewed current/candidate application compatibility required",
+            )
+            reference = check.get("record", {})
+            require(isinstance(reference, dict), "Invalid compatibility evidence reference")
+            require(
+                isinstance(reference.get("path"), str) and reference["path"].strip()
+                and isinstance(reference.get("sha256"), str)
+                and re.fullmatch(r"[0-9a-f]{64}", reference["sha256"]),
+                "Compatibility evidence file and SHA-256 required",
+            )
+            source = (path.parent / reference["path"]).resolve()
+            try:
+                content = source.read_bytes()
+            except OSError:
+                raise Blocked("Compatibility evidence unavailable") from None
+            require(
+                0 < len(content) <= 8 * 1024 * 1024
+                and content.strip()
+                and digest(content) == reference["sha256"],
+                "Compatibility evidence missing or hash mismatch",
+            )
+            evidence[role] = {"path": str(source), "sha256": digest(content)}
+        require(
+            digest(self.rules_source(current).encode("utf-8")) == record["before_sha256"]
+            and digest(self.rules_source(sha).encode("utf-8")) == record["after_sha256"],
+            "Pinned before/after Rules source hash mismatch",
+        )
+        return {"path": str(path), "sha256": digest(raw), "record": record, "evidence": evidence}
+
+    def reviewed_schema(self, sha: str, current: str, variables: dict) -> dict | None:
+        """One-way reference-snapshot transition; never an automatic schema override."""
+        if self.schema_transition is None:
+            return None
+        path = self.schema_transition.resolve()
+        try:
+            raw = path.read_bytes()
+            require(0 < len(raw) <= 1024 * 1024, "Schema transition record too large")
+            record = json.loads(raw)
+        except (OSError, ValueError):
+            raise Blocked("Schema transition record unavailable or invalid") from None
+        require(isinstance(record, dict), "Invalid schema transition record")
+        require(
+            type(record.get("schema_version")) is int and record["schema_version"] == 1
+            and record.get("kind") == "reference-snapshot-writer-fence"
+            and record.get("sha") == sha and record.get("current_sha") == current
+            and record.get("tooling_sha") == self.git("rev-parse", "HEAD")
+            and record.get("project") == variables["VITE_FIREBASE_PROJECT_ID"]
+            and record.get("origin") == gate.ORIGIN
+            and record.get("configuration_digest") == fingerprint(public_configuration(variables))
+            and record.get("direction") == "old-to-new"
+            and record.get("recovery") == "forward-fix; preserve Project data"
+            and type(record.get("database_version")) is int and record["database_version"] == 2,
+            "Schema transition identity, configuration or one-way recovery mismatch",
+        )
+        schema = "data/schemas/project.schema.json"
+        writer = "web/src/localProjectRepository.ts"
+        require(
+            record.get("before_blob") == self.source_digest(current, schema)
+            and record.get("after_blob") == self.source_digest(sha, schema)
+            and record["before_blob"] != record["after_blob"]
+            and record.get("writer_blob") == self.source_digest(sha, writer),
+            "Schema transition source identity mismatch",
+        )
+        try:
+            before = json.loads(self.git("show", f"{current}:{schema}"))
+            after = json.loads(self.git("show", f"{sha}:{schema}"))
+            definitions = after["$defs"]
+            require(isinstance(definitions.pop("ReferencePointSnapshot"), dict)
+                    and isinstance(definitions.pop("ReferencePointSource"), dict),
+                    "Reference snapshot definitions required")
+            addition = definitions["RouteNode"]["properties"].pop("reference_snapshot")
+            require(addition == {"anyOf": [{"$ref": "#/$defs/ReferencePointSnapshot"},
+                                          {"type": "null"}], "default": None}
+                    and before == after,
+                    "Only the reviewed optional reference snapshot is supported")
+        except (KeyError, TypeError, ValueError):
+            raise Blocked("Unsupported Project schema transition") from None
+        source = self.git("show", f"{sha}:{writer}")
+        previous = self.git("show", f"{current}:{writer}")
+        # Presence is a prerequisite, NOT proof of safety. Reviewed browser/SDK
+        # evidence below must cover the complete pinned candidate, including races.
+        require(
+            ", 1)" in previous
+            and "export const LOCAL_DATABASE_VERSION = 2;" in source
+            and ", LOCAL_DATABASE_VERSION)" in source,
+            "Candidate must contain the version-1 to version-2 writer fence",
+        )
+        checks = record.get("checks")
+        require(isinstance(checks, dict), "Schema compatibility evidence required")
+        evidence = {}
+        for role in ("old_to_new", "old_writer_fenced", "storage_sync_roundtrip"):
+            check = checks.get(role)
+            require(isinstance(check, dict) and check.get("result") == "PASS"
+                    and all(isinstance(check.get(key), str) and check[key].strip()
+                            for key in ("reviewed_by", "summary")),
+                    "Reviewed one-way read, writer and browser/SDK evidence required")
+            reference = check.get("record")
+            require(isinstance(reference, dict)
+                    and isinstance(reference.get("path"), str) and reference["path"].strip()
+                    and isinstance(reference.get("sha256"), str)
+                    and re.fullmatch(r"[0-9a-f]{64}", reference["sha256"]),
+                    "Schema evidence file and SHA-256 required")
+            source_path = (path.parent / reference["path"]).resolve()
+            try:
+                content = source_path.read_bytes()
+            except OSError:
+                raise Blocked("Schema compatibility evidence unavailable") from None
+            require(0 < len(content) <= 8 * 1024 * 1024 and content.strip()
+                    and digest(content) == reference["sha256"],
+                    "Schema compatibility evidence changed or missing")
+            evidence[role] = {"path": str(source_path), "sha256": digest(content)}
+        return {"path": str(path), "sha256": digest(raw), "record": record, "evidence": evidence}
+
     def compatibility(self, sha: str, current: str, variables: dict) -> str:
-        transition = RULES_TRANSITION_V1227 if self.rules_transition_v1227 else None
-        if transition:
-            require(
-                sha == transition["sha"]
-                and current == transition["current_sha"]
-                and variables["VITE_FIREBASE_PROJECT_ID"] == transition["project"],
-                "Only the pinned navmate-prod v1.22.7 Rules transition is supported",
-            )
-            require(
-                digest(self.rules_source(current).encode("utf-8")) == transition["before_sha256"]
-                and digest(self.rules_source(sha).encode("utf-8")) == transition["after_sha256"],
-                "Pinned before/after Rules source hash mismatch",
-            )
+        transition = self.transition(sha, current, variables["VITE_FIREBASE_PROJECT_ID"])
+        schema_transition = self.reviewed_schema(sha, current, variables)
+        self.schema_receipt = schema_transition
         for path in COMPATIBILITY:
             if transition and path == "firebase/firestore.rules":
                 continue  # Both exact sources were checked above; other contracts remain identical.
+            if schema_transition and path == "data/schemas/project.schema.json":
+                continue  # Exact sources and reviewed one-way evidence were checked above.
             require(
-                self.git("show", f"{sha}:{path}") == self.git("show", f"{current}:{path}"),
+                self.source_digest(sha, path) == self.source_digest(current, path),
                 "Rules/indexes/Project schema changed; separately reviewed migration required",
             )
         project = variables["VITE_FIREBASE_PROJECT_ID"]
@@ -406,13 +685,15 @@ class Operator:
         files = ruleset["source"]["files"]
         require(
             len(files) == 1
-            and files[0]["content"].strip() == self.git("show", f"{sha}:firebase/firestore.rules"),
+            and digest(files[0]["content"].encode("utf-8"))
+            == self.source_digest(sha, "firebase/firestore.rules"),
             "Deployed Firestore Rules differ; no automatic Rules deploy",
         )
         if transition:
             require(
                 files[0].get("name") == "firebase/firestore.rules"
-                and digest(files[0]["content"].encode("utf-8")) == transition["after_sha256"],
+                and digest(files[0]["content"].encode("utf-8"))
+                == transition["record"]["after_sha256"],
                 "Pinned candidate Rules must already be deployed; no automatic Rules deploy",
             )
         require(
@@ -428,7 +709,24 @@ class Operator:
         receipt = {"release": live, "content": files[0]["content"].strip()}
         if transition:
             receipt["transition"] = transition
+        if schema_transition:
+            receipt["schema_transition"] = schema_transition
         return fingerprint(receipt)
+
+    def source_digest(self, sha: str, path: str) -> str:
+        """Compare source bytes, including whitespace and line endings."""
+        if path == "firebase/firestore.rules":
+            return digest(self.rules_source(sha).encode("utf-8"))
+        raw = self.git("rev-parse", f"{sha}:{path}")
+        require(re.fullmatch(r"[0-9a-f]{40}", raw), "Compatibility source unavailable")
+        return raw  # Git blob identity includes the exact bytes.
+
+    def source_branch(self, sha: str) -> str:
+        from scripts.release_content import version_tuple
+
+        major = version_tuple(self.git("show", f"{sha}:VERSION"))[0]
+        require(major in (1, 2), "Unsupported release line")
+        return "release/1.x" if major == 1 else "main"
 
     def snapshot(self, sha: str, current: str, *, paused: bool = False) -> dict:
         require(
@@ -441,14 +739,16 @@ class Operator:
         )
         require(
             self.git("remote", "get-url", "origin")
-            in ("https://github.com/" + REPO + ".git", "git@github.com:" + REPO + ".git"),
+            in ("https://github.com/" + REPO, "https://github.com/" + REPO + ".git",
+                "git@github.com:" + REPO + ".git"),
             "Unexpected repository remote",
         )
-        self.git("fetch", "origin", "main")
+        branch = self.source_branch(sha)
+        self.git("fetch", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}")
         require(
             self.git("rev-parse", sha + "^{commit}") == sha, "Target is not the requested commit"
         )
-        self.git("merge-base", "--is-ancestor", sha, "origin/main")
+        self.git("merge-base", "--is-ancestor", sha, "origin/" + branch)
         variables = self.variables()
         repo = self.gh("")
         require(
@@ -464,18 +764,15 @@ class Operator:
         require(
             variables["STATIC_AUTOMATION_ENABLED"] in ("true", "false"), "Unknown automation state"
         )
-        if self.rules_transition_v1227:
+        if self.rules_transition is not None or self.schema_transition is not None:
             require(
                 variables["STATIC_AUTOMATION_ENABLED"] == "false",
-                "Pause recurring publication before the pinned Rules transition",
+                "Pause recurring publication before the reviewed contract transition",
             )
         require(
             self.env.get("CLOUDFLARE_API_TOKEN"), "Existing Pages upload authentication unavailable"
         )
-        config = {key: variables[key] for key in gate.CONFIGURATION}
-        require(
-            all(value.strip() for value in config.values()), "Existing public configuration missing"
-        )
+        config = public_configuration(variables)
         canonical = release(gate.ORIGIN, current)
         require(canonical.get("configuration") == config, "Canonical public configuration changed")
         workflow = self.workflow()
@@ -497,6 +794,7 @@ class Operator:
             "target": target,
             "rules_digest": rules,
             "rules_receipt": self.rules_receipt,
+            "schema_receipt": self.schema_receipt,
             "tooling_sha": self.git("rev-parse", "HEAD"),
             "version": self.git("show", f"{sha}:VERSION"),
         }
@@ -533,7 +831,7 @@ class Operator:
             cwd=self.root,
             timeout=1800,
         )
-        config = {key: snapshot["variables"][key] for key in gate.CONFIGURATION}
+        config = public_configuration(snapshot["variables"])
         args = [
             "docker",
             "run",
@@ -551,6 +849,10 @@ class Operator:
             "AUTONAVLOG_MSM_FEED=/feed",
             "--env",
             "AUTONAVLOG_REFERENCE_PYTHON=python3",
+            "--env",
+            f"ARTIFACT_UID={os.getuid()}",
+            "--env",
+            f"ARTIFACT_GID={os.getgid()}",
             image,
             "sh",
             "-eu",
@@ -568,11 +870,17 @@ class Operator:
             timeout=2700,
         )
         expected = {"commit": sha, "configuration": config}
-        candidate = gate.artifact(app, expected)
+        candidate = self.seal_build(app, expected)
         require(candidate["version"] == snapshot["version"], "Candidate version mismatch")
         gate.upload_context(app, destination / "upload", expected)
         self.validate_build(destination, sha, snapshot)
         return candidate
+
+    def seal_build(self, app: Path, expected: dict) -> dict:
+        # Validate the untrusted tree before any host-side write (including symlinks).
+        gate.artifact(app, expected)
+        freshness.write(app / "web/dist-static")
+        return gate.artifact(app, expected)
 
     def validate_build(self, destination: Path, sha: str, snapshot: dict) -> dict:
         stage = destination / "upload"
@@ -582,7 +890,7 @@ class Operator:
             candidate["commit"] == sha
             and candidate["version"] == snapshot["version"]
             and candidate["configuration"]
-            == {key: snapshot["variables"][key] for key in gate.CONFIGURATION},
+            == public_configuration(snapshot["variables"]),
             "Reviewed candidate SHA/version/configuration changed",
         )
         report = json.loads((destination / "feed-report.json").read_text())
@@ -658,11 +966,19 @@ class Operator:
             ("index.html", "text/html"),
             ("local/manifest.json", "application/json"),
         ):
-            request = Request(
-                gate.ORIGIN + ("/" if name == "index.html" else "/" + name),
-                headers={"Cache-Control": "no-cache"},
+            request = static_request(
+                gate.ORIGIN + ("/" if name == "index.html" else "/" + name)
             )
-            with opener.open(request, timeout=30) as response:
+            try:
+                response = opener.open(request, timeout=30)
+            except HTTPError as error:
+                if name != "index.html":
+                    raise
+                response = error  # Retain the bounded error body; the status gate still rejects it.
+            with response:
+                if name == "index.html":
+                    verify_root_response(response, candidate["files"][name], destination)
+                    continue
                 require(
                     response.status == 200
                     and response.headers.get("ETag")
@@ -677,7 +993,7 @@ class Operator:
             )
         missing = gate.ORIGIN + "/local/" + candidate["commit"] + ".missing.whl"
         try:
-            with opener.open(Request(missing), timeout=30):
+            with opener.open(static_request(missing), timeout=30):
                 raise Blocked("Missing canonical asset did not return 404")
         except HTTPError as error:
             require(error.code == 404, "Missing canonical asset did not return 404")
@@ -697,6 +1013,7 @@ def unchanged(before: dict, after: dict, *, paused: bool = False, deployment: bo
 def prepare(operator: Operator, sha: str, current: str, store: Path, journal: Journal) -> dict:
     snapshot = operator.snapshot(sha, current)
     journal.value["rules_receipt"] = snapshot.get("rules_receipt")
+    journal.value["schema_receipt"] = snapshot.get("schema_receipt")
     journal.save()
     journal.stage("build-test")
     operator.build(sha, snapshot, store / "prepared")
@@ -733,6 +1050,7 @@ def publish(
     )
     snapshot = operator.snapshot(sha, current)
     journal.value["rules_receipt"] = snapshot.get("rules_receipt")
+    journal.value["schema_receipt"] = snapshot.get("schema_receipt")
     journal.save()
     unchanged(plan["snapshot"], snapshot)
     require(
@@ -809,12 +1127,13 @@ def main() -> int:
         "--reviewed-plan-sha256", help="Publish authorization must cover this exact prepare plan"
     )
     parser.add_argument(
-        "--rules-transition-v1227",
-        action="store_true",
-        help=(
-            "Only the pinned navmate-prod v1.20.1 -> v1.22.7 Rules transition; "
-            "Rules must already match"
-        ),
+        "--rules-transition",
+        type=Path,
+        help="Reviewed candidate-specific compatibility record; live Rules must already match",
+    )
+    parser.add_argument(
+        "--schema-transition", type=Path,
+        help="Reviewed one-way reference-snapshot/writer-fence record; manual publication only",
     )
     args = parser.parse_args()
     store = args.store.resolve()
@@ -842,7 +1161,8 @@ def main() -> int:
         journal = Journal(report, args.mode, args.sha)
         success = False
         try:
-            operator = Operator(rules_transition_v1227=args.rules_transition_v1227)
+            operator = Operator(rules_transition=args.rules_transition,
+                                schema_transition=args.schema_transition)
             if args.mode == "prepare":
                 prepare(operator, args.sha, args.current_sha, store, journal)
                 journal.value["plan_sha256"] = digest((store / "plan.json").read_bytes())

@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+NOTES = "\n## Pending release notes\nNone: release-policy change only.\n"
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 spec = importlib.util.spec_from_file_location(
@@ -21,7 +23,10 @@ def test_push_checks_sources_without_git(monkeypatch):
 
 def test_contract_requires_exact_marker_and_reason():
     assert validator.parse_contract("Release: required\n") == "required"
-    assert validator.parse_contract("Release: not-required\nReason: docs only\n") == "not-required"
+    assert (
+        validator.parse_contract("Release: not-required\nReason: docs only\n" + NOTES)
+        == "not-required"
+    )
     for body in (
         "",
         "Release: required\nRelease: not-required\nReason: x",
@@ -31,14 +36,23 @@ def test_contract_requires_exact_marker_and_reason():
             validator.parse_contract(body)
 
 
-def test_not_required_rejects_runtime(monkeypatch):
+@pytest.mark.parametrize(
+    "changed",
+    [
+        "web/src/App.tsx",
+        "src/autonavlog/web/app.py",
+        "Dockerfile",
+        "KNOWN_ISSUES.md",
+        "web/package-lock.json",
+    ],
+)
+def test_not_required_accepts_product_changes(monkeypatch, changed):
     monkeypatch.setattr(validator, "validate_sources", lambda _: "1.0.0")
     monkeypatch.setattr(
-        validator, "git", lambda _, *args: "base" if args[0] == "merge-base" else "web/src/App.tsx"
+        validator, "git", lambda _, *args: "base" if args[0] == "merge-base" else changed
     )
     monkeypatch.setattr(validator, "base_version", lambda *_: "1.0.0")
-    with pytest.raises(ValueError, match="production/runtime"):
-        validator.validate(ROOT, "base", "Release: not-required\nReason: docs")
+    validator.validate(ROOT, "base", "Release: not-required\nReason: normal feature/fix PR" + NOTES)
 
 
 def test_required_needs_newer_changed_version_and_changelog(monkeypatch):
@@ -61,6 +75,7 @@ def test_required_needs_newer_changed_version_and_changelog(monkeypatch):
         ("1.1.0", "CHANGELOG.md", "required", "change VERSION and CHANGELOG"),
         ("1.1.0", "VERSION", "not-required", "must not change VERSION"),
         ("1.0.0", "VERSION", "not-required", "must not change VERSION"),
+        ("1.0.0", "CHANGELOG.md", "not-required", "must not change CHANGELOG"),
     ],
 )
 def test_contract_rejects_inconsistent_release(monkeypatch, current, changed, contract, error):
@@ -70,7 +85,9 @@ def test_contract_rejects_inconsistent_release(monkeypatch, current, changed, co
         validator, "git", lambda _, *args: "ancestor" if args[0] == "merge-base" else changed
     )
     with pytest.raises(ValueError, match=error):
-        validator.validate(ROOT, "base", f"Release: {contract}\nReason: repository maintenance")
+        validator.validate(
+            ROOT, "base", f"Release: {contract}\nReason: repository maintenance" + NOTES
+        )
 
 
 def test_not_required_accepts_docs_tests_and_artifact_neutral_ci(monkeypatch):
@@ -80,26 +97,9 @@ def test_not_required_accepts_docs_tests_and_artifact_neutral_ci(monkeypatch):
     monkeypatch.setattr(
         validator, "git", lambda _, *args: "ancestor" if args[0] == "merge-base" else changed
     )
-    validator.validate(ROOT, "base", "Release: not-required\nReason: repository maintenance")
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "src/autonavlog/web/app.py",
-        "web/src/App.tsx",
-        "web/public/icon.svg",
-        "web/index.html",
-        "data/performance/cruise.csv",
-        "vendor/new.whl",
-        "compose.wsl.yaml",
-        "Dockerfile",
-        "web/package-lock.json",
-        "web/vite.config.ts",
-    ],
-)
-def test_definite_runtime_paths(path):
-    assert validator.runtime_path(path)
+    validator.validate(
+        ROOT, "base", "Release: not-required\nReason: repository maintenance" + NOTES
+    )
 
 
 def test_compares_version_to_current_base_not_common_ancestor(monkeypatch):
@@ -176,36 +176,41 @@ def test_changelog_rejects_invalid_structures_and_version_sources(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "after",
+    "notes",
     [
-        '# Updated comment\n"""Module documentation."""\nx = 1\n',
-        "x = 1\n",
+        "",
+        "## Pending release notes\n",
+        "## Pending release notes\n<!-- fill this -->\n",
+        "## Pending release notes\n### Heading only\n",
+        "## Pending release notes\n\n## Other\nNot release notes",
+        "## Pending release notes\n# Tests\nPassed pytest",
+        "## Pending release notes\n  ## Tests\nPassed pytest",
+        "## Pending release notes\n<!-- placeholder\n",
     ],
 )
-def test_python_comment_and_docstring_only_changes_are_exempt(monkeypatch, after):
-    before = '# Original comment\n"""Old module documentation."""\nx = 1\n'
-    monkeypatch.setattr(
-        validator, "git", lambda _, *args: after if args[-1].startswith("HEAD:") else before
-    )
-    assert validator.python_documentation_only(ROOT, "base", "src/module.py")
+def test_non_release_requires_visible_pending_notes(notes):
+    with pytest.raises(ValueError, match="Pending release notes"):
+        validator.parse_contract("Release: not-required\nReason: normal development\n" + notes)
 
 
 @pytest.mark.parametrize(
-    "after, exempt",
+    "notes",
     [
-        ('def f():\n    """New docstring."""\n    return 1\n', True),
-        ('def f():\n    """Old docstring."""\n    return 2\n', False),
-        ("invalid python {", False),
+        "None",
+        "該当なし",
+        "- New feature",
+        "- 不具合を修正",
+        "### Fixes\n- Correct route calculation",
     ],
 )
-def test_python_docstring_exemption_preserves_code_changes(monkeypatch, after, exempt):
-    before = 'def f():\n    """Old docstring."""\n    return 1\n'
-    monkeypatch.setattr(
-        validator, "git", lambda _, *args: after if args[-1].startswith("HEAD:") else before
+def test_non_release_accepts_notes_or_explicit_none(notes):
+    body = "Release: not-required\nReason: normal development\n## Pending release notes\n" + notes
+    assert validator.parse_contract(body) == "not-required"
+
+
+def test_non_release_accepts_browser_crlf_body():
+    body = (
+        "Release: not-required\r\nReason: normal development\r\n"
+        "## Pending release notes\r\nNone\r\n"
     )
-    assert validator.python_documentation_only(ROOT, "base", "src/module.py") is exempt
-
-
-def test_generator_test_files_are_not_runtime():
-    assert not validator.runtime_path("web/scripts/generate-release-notes.test.mjs")
-    assert validator.runtime_path("web/scripts/generate-release-notes.mjs")
+    assert validator.parse_contract(body) == "not-required"

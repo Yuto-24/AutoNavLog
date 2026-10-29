@@ -2,52 +2,28 @@ name: publish-github-release
 
 on:
   push:
-    branches: [main]
+    branches: [main, release/1.x]
+    paths: [VERSION]
 
 permissions:
   contents: write
+
+# Serialize publication across both version lines without cancelling a release.
+concurrency:
+  group: publish-github-release
+  cancel-in-progress: false
+  queue: max
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Validate release sources
-        run: python3 scripts/validate_release.py
-
-      - name: Read application version
-        id: version
-        shell: bash
-        run: |
-          VERSION="$(cat VERSION)"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Publish release when version is new
+      - name: Publish the matching version line
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
-        shell: bash
-        run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "$TAG already exists; nothing to publish."
-            exit 0
-          fi
-
-          awk -v version="$VERSION" '
-            $0 == "## " version { found = 1; next }
-            found && /^## / { exit }
-            found { print }
-          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
-
-          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md"; then
-            echo "CHANGELOG has no notes for $VERSION" >&2
-            exit 1
-          fi
-
-          gh release create "$TAG" \
-            --target "$GITHUB_SHA" \
-            --title "AutoNavLog $VERSION" \
-            --notes-file "$RUNNER_TEMP/release-notes.md"
+        run: python3 scripts/publish_github_release.py

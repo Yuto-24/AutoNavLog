@@ -131,7 +131,8 @@ test("Local uses common operations, real progress milestones, and durable reposi
   await app.deleteProject("id");
   await app.newWork();
   await app.bootstrap();
-  expect([created, disposed]).toEqual([2, 1]);
+  expect([created, disposed]).toEqual([1, 0]);
+  expect(operations.slice(-2)).toEqual(["newWork", "bootstrap"]);
 });
 
 test("Local failure never invokes Legacy or emits successful progress", async () => {
@@ -296,4 +297,54 @@ test("Local route confirmation exposes committed Project after storage failure f
   await app.saveProject("Recovered route");
   expect(stored.draft.id).toBe(project.id);
   expect(stored.checkpoint.name).toBe("Recovered route");
+});
+
+test("same-account new work drains prior requests, reuses one client, and can repeat", async () => {
+  let release!: () => void;
+  let created = 0, disposed = 0;
+  const operations: string[] = [];
+  const app = new LocalApplication(() => ({ list: async () => ({ projects: [], unavailable: [] }) }) as unknown as LocalProjectRepository,
+    () => { created++; return {
+      request: async <T>(operation: string) => {
+        operations.push(operation);
+        if (operation === "importRoute") await new Promise<void>(resolve => { release = resolve; });
+        return state as T;
+      }, dispose: () => { disposed++; },
+    }; });
+  await app.newWork(); // No runtime is created for untouched work.
+  expect(created).toBe(0);
+  const prior = app.importRoute({ filename: "old.kml", kml_text: "old" });
+  const reset = app.newWork();
+  const next = app.bootstrap();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(operations).toEqual(["importRoute"]);
+  release();
+  await Promise.all([prior, reset, next]);
+  await app.newWork();
+  await app.bootstrap();
+  expect(operations).toEqual(["importRoute", "newWork", "bootstrap", "newWork", "bootstrap"]);
+  expect([created, disposed]).toEqual([1, 0]);
+  app.dispose();
+  expect(disposed).toBe(1);
+  await expect(app.newWork()).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
+});
+
+test("account switch interrupts a pending reset without bootstrapping prior work", async () => {
+  let release!: () => void;
+  const operations: string[] = [];
+  const app = new LocalApplication(() => ({ list: async () => ({ projects: [], unavailable: [] }) }) as unknown as LocalProjectRepository,
+    () => ({ request: async <T>(operation: string) => {
+      operations.push(operation);
+      if (operation === "newWork") await new Promise<void>(resolve => { release = resolve; });
+      return state as T;
+    }, dispose() {} }));
+  await app.bootstrap();
+  const reset = app.newWork();
+  const queued = app.bootstrap();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  app.dispose();
+  release();
+  await expect(reset).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
+  await expect(queued).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
+  expect(operations).toEqual(["bootstrap", "newWork"]);
 });

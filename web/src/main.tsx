@@ -15,7 +15,7 @@ import { startApplication } from "./createApplication";
 
 const root = document.getElementById("root");
 if (!root) {
-  throw new Error("AutoNavLog root element is unavailable");
+  throw new Error("NavMate root element is unavailable");
 }
 
 const view = createRoot(root);

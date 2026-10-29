@@ -2,7 +2,7 @@ name: test
 
 on:
   push:
-    branches: [main]
+    branches: [main, release/1.x]
   pull_request:
     types: [opened, synchronize, reopened, edited]
 
@@ -35,6 +35,10 @@ jobs:
           python-version: '3.12'
       - name: Install workflow dependencies from the tooling checkout and import the producer
         run: python tooling/tests/integration/check_static_tooling_install.py
+      - name: Build credential-free artifact handoff test image
+        run: docker build -f tooling/scripts/static_ops/Dockerfile.build --tag autonavlog-static-build tooling
+      - name: Verify Docker outputs can be extended by the nonroot runner
+        run: python tooling/tests/integration/check_static_artifact_handoff.py
 
   release-sources:
     runs-on: ubuntu-latest
@@ -54,6 +58,8 @@ jobs:
           python -m pytest --noconftest
           tests/integration/check_ci_changes.py
           tests/unit/test_release_ci.py
+          tests/unit/test_publish_github_release.py
+          tests/integration/check_publish_github_release.py
           tests/unit/test_supported_runtime_contract.py
           tests/unit/test_version.py::test_version_is_the_only_release_version_source
       - name: Determine CI scope
@@ -86,6 +92,7 @@ jobs:
           docker run --rm
           --mount type=bind,source="$PWD/.github/workflows/static-provider-probe.yml",target=/opt/autonavlog/.github/workflows/static-provider-probe.yml,readonly
           --mount type=bind,source="$PWD/.github/workflows/static-monitor.yml",target=/opt/autonavlog/.github/workflows/static-monitor.yml,readonly
+          --mount type=bind,source="$PWD/.github/workflows/static-app-release.yml",target=/opt/autonavlog/.github/workflows/static-app-release.yml,readonly
           autonavlog:test
 
   runtime:
@@ -181,14 +188,17 @@ jobs:
           cache-dependency-path: services/taf-proxy/package-lock.json
       - run: npm --prefix services/taf-proxy ci
       - run: npm --prefix services/taf-proxy test
+        env:
+          MINIFLARE_ASSERT_BODIES_CONSUMED: "true"
       - run: npm --prefix services/taf-proxy run check
 
   local-browser:
     needs: release-sources
     # Missing/failed classification runs the full checks; only proven docs-only changes skip.
     if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Keep browser dependencies on the established image during ubuntu-latest migrations.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -216,9 +226,10 @@ jobs:
           local_server_pid=$!
           trap 'kill "$local_server_pid"' EXIT
           curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4174/ > /dev/null
-          npm --prefix web run test:local
-          npm --prefix web exec -- playwright test --config web/playwright.navlog-scroll.config.ts
-          npm --prefix web exec -- playwright test --config web/playwright.browser-acceptance.config.ts
+          # Measured with the same artifact and four CPUs; retain per-file ordering.
+          npm --prefix web run test:local -- --workers=2
+          npm --prefix web exec -- playwright test --config web/playwright.navlog-scroll.config.ts --workers=2
+          npm --prefix web exec -- playwright test --config web/playwright.browser-acceptance.config.ts --workers=2
           AUTONAVLOG_TEST_FIXTURES=1 VITE_TAF_PROXY_URL=https://taf.example/taf npm --prefix web run build:local
           npm --prefix web run test:taf
       - uses: actions/upload-artifact@v4
@@ -239,7 +250,8 @@ jobs:
     if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    # Keep browser dependencies on the established image during ubuntu-latest migrations.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -269,7 +281,7 @@ jobs:
           fixture_pid=$!
           trap 'kill "$fixture_pid"' EXIT
           curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8186/healthz > /dev/null
-          npx --yes firebase-tools@15.10.1 emulators:exec --only firestore --project demo-autonavlog-sync "npm --prefix web run test:firestore && npm --prefix web run test:sync && npm --prefix web run test:migration"
+          npx --yes firebase-tools@15.10.1 emulators:exec --only firestore --project demo-autonavlog-sync "npm --prefix web run test:firestore && npm --prefix web run test:storage-upgrade && npm --prefix web run test:sync && npm --prefix web run test:migration"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -279,4 +291,25 @@ jobs:
             /tmp/autonavlog-migration-browser
             /tmp/migration-harness.log
             /tmp/autonavlog-firestore-tests
+            /tmp/autonavlog-storage-upgrade
             firestore-debug.log
+
+  msm-trigger:
+    needs: release-sources
+    if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/msm-trigger/package-lock.json
+      - run: npm --prefix services/msm-trigger ci
+      - run: npm --prefix services/msm-trigger run typecheck
+      - run: npm --prefix services/msm-trigger run check
+      - run: npm --prefix services/msm-trigger test

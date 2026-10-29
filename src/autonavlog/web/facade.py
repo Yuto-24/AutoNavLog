@@ -416,17 +416,11 @@ class AutoNavLogWebApplication:
                             point.name, point.latitude_deg, point.longitude_deg,
                             "MAP", RouteNodeNameSource.GENERATED,
                         ))
-                destination_entry = entries[-1]
-                entries = [
-                    entry for index, entry in enumerate(entries)
-                    if index == 0
-                    or (entry[1], entry[2]) != (entries[index - 1][1], entries[index - 1][2])
-                ]
-                if len(entries) < 2:
+                # Every click is an occurrence, including consecutive visits to one reference.
+                if len({(entry[1], entry[2]) for entry in entries}) < 2:
                     raise WebApplicationError(
                         "ROUTE_INCOMPLETE", "異なる2地点以上で経路を作成してください。"
                     )
-                entries[-1] = destination_entry
                 # MAP labels are generated names, not explicit KML Point Placemarks.
                 explicit_point_names: dict[int, str] = {}
             else:
@@ -513,6 +507,14 @@ class AutoNavLogWebApplication:
                 destination.id,
                 use_penultimate_as_vrep=request.use_penultimate_as_vrep,
             )
+            if request.candidate_kind == "map":
+                for node, point in zip(project.route_nodes, request.map_points, strict=True):
+                    snapshot = point.reference_snapshot
+                    if snapshot is not None:
+                        node.reference_snapshot = snapshot.model_copy(deep=True)
+                        node.name = snapshot.name
+                        node.name_source = RouteNodeNameSource.GENERATED
+                        node.source = f"REFERENCE:{snapshot.reference_id}"
             state = PersistedUiState(
                 reference_data_snapshot=ReferenceDataSnapshot(
                     departure_airport=departure,

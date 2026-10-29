@@ -12,6 +12,19 @@ before activation: publication, retention restore, monitoring and rollback accep
 all target this origin. The historical #121 pages.dev evidence is not new-origin acceptance.
 `STATIC_ORIGIN` remains an operator-owned GitHub variable, not a tracked workflow default.
 
+## Current policy (2026-10-23)
+
+Provider usage and billing collection is deferred to follow-up
+[#281](https://github.com/Yuto-24/AutoNavLog/issues/281). The operator assumes current
+operation fits within free tiers; unattended quota acceptance is no longer a prerequisite
+for #123, #146 or #116. This supersedes the quota prerequisite in the October 4 decision
+and historical investigations below. Missing readings remain UNKNOWN, not measured zero
+or proof of no billing. Periodic manual report renewal is not a replacement requirement.
+
+Catalog freshness, approved publication identity, actual scheduled MSM renewals,
+Auth/Sync/Local and rollback acceptance remain required. Production activation still
+needs explicit authorization; changing this policy does not enable schedules or billing.
+
 ## Ownership and activation
 
 - `publish-github-release.yml` continues to publish VERSION/CHANGELOG GitHub releases.
@@ -37,28 +50,29 @@ Before authorization, review the exact target, SHA, public configuration and pla
 
 After explicit authorization, the operator configures:
 
-1. GitHub `static-production` environment for unattended recurring feed updates,
-   restricted to `main` without required reviewers after explicit recurring-policy
-   approval. Use a separate `static-publication` environment, restricted to `main`
-   with required reviewers, for one-off `publish=true` dispatches. Build-only
-   dispatches use `static-validation`. A pending reviewer on every scheduled run is
-   not unattended operation. Do not silently remove publication protection to
-   unblock a run.
+1. GitHub `static-production` environment for all unattended forecast-only updates,
+   restricted to `main` without required reviewers. Both preflight and build use it
+   for schedules and every `publish=true` dispatch, including the external Worker
+   and manual recovery. Build-only dispatches retain `static-validation`. This
+   forecast-only policy was explicitly authorized on 2026-10-28; it does not authorize
+   app upgrades, configuration changes or new schedule activation. Leave the existing
+   `static-publication` environment and its protection unchanged; this workflow no
+   longer selects it. App releases retain the separate reviewed-plan approval path.
 2. Repository variables `STATIC_ORIGIN=https://navmate.yuto24.com`, `STATIC_APPROVED_SHA`
    (the full canonical production SHA), and the six public `VITE_*` settings documented
    in #121. Keep these in repository variables so build and monitor see the same values;
    do not shadow them with different environment values. No credentials in `VITE_*`.
 3. `CLOUDFLARE_ACCOUNT_ID`; install environment secret `CLOUDFLARE_PAGES_TOKEN` in
-   both `static-production` and `static-publication`, scoped only to Pages edit in
+   `static-production`, scoped only to Pages edit in
    the intended account. Keep #145 Worker credentials and configuration outside
    this workflow. Never expose the Pages token to the application build.
-4. Complete and accept unattended provider collection before enabling monitoring.
-   The monitor calls the native collection gate directly. Missing adapters and
-   unattended Google authentication block healthy usage monitoring, independently
-   of static-only build/publication. Missing usage remains **UNKNOWN**; it is never
-   zero, healthy, or proof of account-wide zero billing. Do not periodically replace
-   `STATIC_QUOTA_REPORT`. Failure-notification receipt was already accepted on 2026-10-03; the
-   remaining gate is healthy current-evidence collection. See the read-only checklist below.
+4. Enable catalog freshness monitoring with `STATIC_MONITOR_ENABLED=true` only after
+   its activation is authorized. Leave `STATIC_QUOTA_MONITOR_ENABLED` unset/false
+   while #281 is deferred. The independent quota job requires its own explicit `true`
+   and later acceptance; catalog success does not establish healthy usage monitoring.
+   Missing usage remains **UNKNOWN**. Do not periodically replace `STATIC_QUOTA_REPORT`.
+   Failure-notification receipt was already accepted on 2026-10-03; reuse that evidence
+   if the notification route is unchanged.
 5. Run build-only dispatch, inspect checks, then an approved publication. Confirm real
    origin/cache/ETag/404 and browser behavior per #121. Only then enable recurring updates.
    Cloudflare automatic Git builds/preview deployments remain disabled; use Direct Upload.
@@ -118,9 +132,13 @@ feed publication rejects configuration drift. All app/feed jobs share a non-canc
 concurrency group. Static identity/source/artifact checks repeat immediately before upload.
 Atomic Pages upload switches payload and catalog together. Post-upload checks compare
 canonical **whole release inventory**, not just the version, and check freshness.
-The post-upload verifier immediately checks canonical `release.json`, then retries failed
-checks after 10 seconds for up to 300 seconds (monotonic deadline). Each check runs the
-unchanged `check_candidate.py --remote` in a child process with at most 30 seconds,
+The post-upload verifier immediately checks canonical `release.json` and reads the actual
+`weather/msm/catalog.json`. Its exact SHA-256 and byte length must match the candidate
+inventory, and the same response must pass the existing MSM freshness monitor checks
+(nonempty assets, at least two hours remaining, no future generation timestamp).
+Publication freshness is evaluated at catalog receipt, including body-read time.
+Failed checks retry after 10 seconds for up to 300 seconds (monotonic deadline).
+Each check runs `check_candidate.py --remote` in a child process with at most 30 seconds,
 clipped to the remaining overall budget; a hung or slowly streaming response cannot
 extend the polling window. Inventory mismatch, HTTP/network errors, invalid JSON and
 other checker failures are retried within that budget. Redirects remain rejected on
@@ -128,10 +146,25 @@ every attempt and are never followed; only exact inventory equality passes. Read
 retain the existing `Cache-Control: no-cache` header, origin and byte budget.
 Deadline expiry fails closed, including a match returned at/after the deadline. Attempt
 diagnostics go to the job log; only successful identity verification enters the summary.
-The fresh MSM monitor runs **after** identity verification succeeds, never on timeout.
+Catalog results include receipt/check timestamps, observed hash/size, generation/expiry,
+seconds remaining and, during candidate verification, expected hash/size and whether they
+match. Mismatch/freshness errors keep these diagnostics on one line in the attempt log.
+The independent MSM monitor still makes a separate request **after** identity and catalog
+verification succeeds, never on timeout; its diagnostics describe that separate response.
+Matching release metadata alone does not establish which catalog that request received.
 These retries do not re-upload, change the approved SHA/configuration gates, or authorize
 another deployment. Failure after upload needs investigation; it does not automatically
 roll production back.
+
+Investigation of [run 38575361551](https://github.com/Yuto-24/AutoNavLog/actions/runs/38575361551)
+on 2026-10-14 found upload completion at 13:57:33 UTC, inventory match on the first attempt,
+and a freshness failure at 13:57:34 UTC. The staged candidate expiry was 19:52:23.600805 UTC
+after generation-age/six-hour-lifetime validation succeeded. Its expiry was therefore
+about 5h55m away. The failed monitor response was not retained, so an old catalog read
+is a hypothesis, not a confirmed incident cause. Regression tests establish the prior
+verification gap: matching release metadata could pass with an old or different actual
+catalog. The additional response checks and diagnostics address that gap without changing
+publication timing, expiry policy, or authorizing recovery publication.
 
 No large build artifacts or raw MSM caches are stored in Actions. Production itself is
 the next retention source; job summaries record release hash and size/freshness report.
@@ -148,10 +181,20 @@ opt-outs, synthetic forecasts, a different application branch or Legacy fallback
 
 ## Quota evidence and monitoring
 
-`static-monitor.yml` calls `collection_gate.py` on each enabled run, even if weather
-failed. It collects current native fragments and checks official limits without an
-operator-report fallback. Incomplete collection remains BLOCKED/UNKNOWN and does not
-establish healthy monitoring, optional-service availability, or account-wide zero billing.
+`static-monitor.yml` has two independent jobs, both restricted to `main`:
+
+| Job | Explicit opt-in variable | Meaning |
+| --- | --- | --- |
+| `monitor` | `STATIC_MONITOR_ENABLED=true` | Public catalog freshness only; no provider credentials or quota collection |
+| `quota-monitor` | `STATIC_QUOTA_MONITOR_ENABLED=true` | Deferred #281 native collection and official-limit checks |
+
+Unset, false or unrecognized values disable the corresponding job. Neither job depends
+on the other. A weather failure does not suppress opted-in quota collection; an absent
+quota opt-in does not fail a fresh catalog check. The catalog summary explicitly reports
+deferred quota monitoring/UNKNOWN when disabled. If quota monitoring is later enabled,
+its incomplete collection still fails the job and workflow, without `continue-on-error`
+or an operator-report fallback. A successful catalog job never establishes healthy quota
+monitoring, optional-service availability or account-wide zero billing.
 
 `static-production.yml` instead calls the independent `publication_gate.py`.
 Google authentication and Workers/Firestore/shared-allowance missing counters do not
@@ -350,14 +393,68 @@ CLOUDFLARE_ACCOUNT_ID=your-account VITE_FIREBASE_PROJECT_ID=your-project \
 python3 scripts/static_ops/operations.py monitor --origin https://navmate.yuto24.com
 ```
 
-After #230 is reviewed/merged and separately authorized, the operator can install the
-validated report and resume #123 acceptance. A clean quota check alone does not authorize
-scheduler activation or deployment. Refresh all period evidence at reset, exercise live
-failure notifications, then complete the scheduled-renewal and rollback gates below.
-The monitor evaluates evidence even when catalog checks fail; absent/skipped runs are not
-healthy readings. At warning/exhaustion, reduce workloads or wait for reset; never upgrade
-automatically. GitHub failure notifications remain the transport, with live receipt still
-an acceptance requirement. Application / calculation / Project schemas are unchanged.
+These manual report commands are diagnostic only; do not install recurring manual
+reports as a #123 requirement. #281 retains current-period collection and notification
+acceptance. Its quota job evaluates evidence independently of catalog success when
+explicitly enabled; absent/skipped collection is not a healthy reading. At warning or
+exhaustion, reduce workloads or wait for reset; never upgrade automatically. GitHub
+failure notifications remain the transport. Application / calculation / Project schemas
+are unchanged.
+
+## MSM-only recovery preparation and one-off publication
+
+Use this path when the approved application still serves correctly but its MSM
+catalog has expired. Keep `STATIC_APPROVED_SHA`, VERSION and the six public
+connection settings unchanged. This is the existing whole-artifact Pages Direct
+Upload path; #270 and #273 are independent follow-up enhancements. The app-release
+wrapper and its Rules-transition approval are unnecessary for a same-app renewal.
+
+Before a same-app forecast recovery:
+
+1. Read canonical `release.json` and catalog; compare the approved SHA, clean
+   source, public settings, catalog hash/bytes and actual expiry. Record each
+   observation time. Check repository/environment variable shadowing and existing
+   publication protection without reading secret values.
+2. Inspect current main, the recovery PR and its independent/CodeRabbit reviews.
+   Ensure the publication verifier checks the **actual catalog response**, not
+   only `release.json` (#264). Do not infer the cause of a past failure when its
+   response was not retained.
+3. Run `static-provider-probe`, selector `cloudflare_pages_target`, with the
+   reviewed execution SHA as described in [#250 observation](#get-only-pages-target-observation-250).
+   Check the canonical successful deployment, fixed project/branch/domain,
+   Functions/configuration, full pagination and absence of concurrent work.
+   Record missing fields as UNKNOWN and resolve material target uncertainty;
+   the diagnostic's intentional exit 1 is not a failed upload.
+4. On reviewed main, dispatch `static-production.yml` with `publish=false` and
+   `source_sha` equal to the full current approved SHA. This performs real MSM
+   generation, static build and production-artifact E2E without exposing the Pages
+   edit token or uploading. Check the run's steps, not just its overall status.
+5. Finish relevant source tests, independent review and PR CI. Report separately
+   what passed, what remains UNKNOWN, and what needs operator approval. Do not
+   change production, merge a PR or enable schedules during preparation.
+
+If recovery requires a tooling PR, merge it only after **explicit merge approval**
+and an acceptable final merge-gate check. Reconfirm the workflow/checker and repeat
+current target/configuration/idle reads, including the full Actions run inventory.
+Keep other operators from uploading during the approved window; GET inventory
+does not provide a remote lock. Resolve target uncertainty or competing work
+before proceeding. Dispatch `static-production.yml` on main with the same full
+approved application SHA and `publish=true`. Forecast-only publication uses the
+unattended `static-production` environment, with no per-run human approval. A new
+feed is generated in that run, so a previous build-only catalog is never promoted
+after expiry.
+
+Verify the canonical inventory and catalog with the bounded same-response
+hash/bytes/freshness check, then the independent monitor. Complete the live-origin
+checks in [Static production](static_production.md#release-acceptance-gate), including
+FORECAST/TAF and Local persistence. Keep recurring publication and monitoring
+disabled until separately authorized. Failure after upload may mean production
+already changed: inspect it and use the existing approved recovery/rollback
+contract, without an automatic retry-upload, rollback or scheduler restart.
+
+The [October 21 preparation audit](evidence/issue-123/msm-recovery-2026-10-21.md)
+records the same-app build, Pages observation and remaining approval boundaries.
+Its timestamps are historical evidence, not current publication authorization.
 
 ## App release and rollback checklist
 
@@ -385,9 +482,14 @@ an acceptance requirement. Application / calculation / Project schemas are uncha
 
 ## WSL からのアプリ更新: prepare / publish
 
+#265 / #266 の後続調査と実行条件は[読取整合性・配信検証の記録](evidence/issue-265-266/2026-10-16-target-serving.md)を参照。
+#267 単独 SHA では prepare を開始せず、後続修正の merge 承認・反映後に最終 tooling SHA を固定し直す。
+
 `scripts/static_ops/app_release.sh` は、既存 Python gate を呼ぶ薄い入口。
 **prepare は provider を変更しない。publish は別途承認後だけ実行する。**
-GitHub の release 作成、main の最新版、MSM-only dispatch はアプリ更新の承認を代用しない。
+以下は個別の手動公開手順。別途有効化する[正式Releaseの自動反映](automatic_app_releases.md)では、
+Rules等が同一の通常更新だけ正式Releaseを公開権限として扱う。Rules変更の個別承認と互換性確認は維持する。
+main の最新版や MSM-only dispatch はアプリ更新の承認を代用しない。
 PR #259 の毎時 MSM 判定と共通 workflow は変更せず、既存の
 `STATIC_AUTOMATION_ENABLED` 停止 → idle 確認 → 公開 → `STATIC_APPROVED_SHA` 切替 → 再開を使う。
 
@@ -403,31 +505,37 @@ Python 3.12 の既存 `.[test]` と vendored MSM library、Node 24、Docker、Gi
 # WSL: review/merge 済み tooling commit の clean checkout で実行。
 # 既存 Python venv を activate 済み。保存先の親だけ事前に用意する。
 mkdir -p "$HOME/autonavlog-releases"
-release_store="$HOME/autonavlog-releases/v1.22.7-$(date -u +%Y%m%dT%H%M%SZ)"
+# レビューで選んだ40桁SHAを指定する。main/latestを自動採用しない。
+candidate_sha=REVIEWED_FULL_CANDIDATE_SHA
+current_sha=CONFIRMED_FULL_CURRENT_SHA
+release_store="$HOME/autonavlog-releases/app-$(date -u +%Y%m%dT%H%M%SZ)"
 scripts/static_ops/app_release.sh prepare \
-  --sha e0ad634a8fab2ed48310f48b08c4ec3961cad14b \
-  --current-sha a4de2a226dfa205b8be42fb62a710a1b06271ed8 \
-  --rules-transition-v1227 \
+  --sha "$candidate_sha" \
+  --current-sha "$current_sha" \
   --store "$release_store"
 # plan.json / prepare-status.json / prepared/upload と検証結果を private に確認。
 sha256sum "$release_store/plan.json"
 ```
 
-上記は **候補 v1.22.7** と **現在 v1.20.1** の明示例で、公開承認ではない。
-この切替では先に別途承認された定期停止・Rules反映と読み取り照合が必要。
-下の「v1.22.7 の Rules / Pages 切替」に従い、automation=false、workflow=active、
-稼働中Rulesが固定候補に一致した後だけ、このprepareを実行する。
-v1.22.8 の merge 後 WebKit 失敗を理由に候補を最新版へ自動置換しない。
+これは **Rulesが同じ通常更新** の例。公開ツールの編集や移行記録は不要で、
+候補/current SHAと新規storeを指定し、prepare結果をレビューしてpublishする。
+Rulesが異なる場合だけ、次節の検証記録と外部Rules反映・停止確認が必要。
 SHA は40桁を必須とし、main に含まれる exact commit / VERSION を確認する。
 Firebase 4設定、TAF URL、Legacy migration URL、account、origin と repository variable を
 canonical release に照合し、environment variable による shadowing も拒否する。
 Migration URL は維持する。受付終了の検討（10/24〜25目安）は別の承認・変更として扱う。
 
 prepare は現在の成功した Pages production ID/commit、完全な deployment inventory と idle、
-Direct Upload の対象、Functions/設定混入、稼働中の Firestore Rules を読み取りで確認する。
+Wrangler で直接公開する対象、Functions/設定混入、稼働中の Firestore Rules を読み取りで確認する。
+ここでの直接公開は公開方法であり、Git 連携のないプロジェクト構成だけを意味しない。
+`source=null`、または GitHub 連携で `production_deployments_enabled=false`（真偽値）と
+`preview_deployment_setting="none"` の両方を明示した構成だけを許可する。欠落・型違い・
+未知の形式は拒否し、非推奨の `deployments_enabled` は条件に使わない。設定変更は行わない。
+これは Cloudflare の [Git 連携で自動配備を停止して Wrangler から公開する手順](https://developers.cloudflare.com/pages/configuration/git-integration/#disable-automatic-deployments)と
+[本番・preview の branch controls](https://developers.cloudflare.com/pages/configuration/branch-build-controls/)に従う。
 通常は候補/current の Rules、indexes、Project schema の同一を必須とする。
-`--rules-transition-v1227` は下記の固定SHA・project・元バイトRules hashだけを例外として
-許可する。indexes / Project schema の同一条件は維持する。他の移行を許可する入力はない。
+`--rules-transition /private/path/transition.json` は次節のレビュー済み記録だけを許可する。
+indexes / Project schema の同一条件は移行時も維持する。
 稼働中 Rules は [release GET](https://firebase.google.com/docs/reference/rules/rest/v1/projects.releases/get)
 と [ruleset GET](https://firebase.google.com/docs/reference/rules/rest/v1/projects.rulesets/get) で確認し、
 候補に一致しない場合は自動 deploy しない。これは実 Google login / Sync の受入を代用しない。
@@ -447,9 +555,8 @@ tooling による独立 inventory/private-material gate が完了してから pl
 # 同じ WSL/tooling commit。レビューで確認した64桁ハッシュを文字列で指定する。
 # この値を publish 時に再計算して自動採用しない。
 scripts/static_ops/app_release.sh publish \
-  --sha e0ad634a8fab2ed48310f48b08c4ec3961cad14b \
-  --current-sha a4de2a226dfa205b8be42fb62a710a1b06271ed8 \
-  --rules-transition-v1227 \
+  --sha "$candidate_sha" \
+  --current-sha "$current_sha" \
   --store "$release_store" \
   --reviewed-plan-sha256 REVIEWED_64_HEX_DIGEST
 ```
@@ -470,14 +577,20 @@ publish は **fresh/** に再生成・再テストし、prepare の dist を upl
 から使い、`pages deploy dist-static --project-name navmate --branch main --commit-hash SHA` を実行。
 Pages の未サポート `--dry-run` / custom `--config` は使わない。TAF Worker deploy は呼ばない。
 正規 URL の release 全 inventory（既存 bounded poll）、freshness、HTML/manifest の内容・
-HTTPS/no redirect/no-cache/ETag/MIME、欠落 asset の404、Pages commit を確認する。
+HTTPS/no redirect/no-cache/MIME、欠落 asset の404、Pages commit を確認する。
+manifest の ETag は必須。root の ETag は有無と値を記録し、本文は候補 inventory の
+bytes/SHA-256 完全一致、または[確認済みの旧版・新版いずれかの解析scriptとLFの単一挿入](evidence/issue-265-266/2026-10-18-two-analytics-versions.md)
+だけを除いた完全一致を要求する。src と integrity の組み替えや両版の同時挿入は拒否する。
+挿入の全bytes・位置を固定し、実応答から許可内容を
+学習しない。Cloudflare が挿入内容を変えた場合は停止し、証拠と許可内容の再確認が必要。
+raw root と比較結果は `serving-root.body` / `serving-root.json` に保持する。
 成功後だけ承認 SHA を更新・read-backし、workflow を enable する。
 開始時に automation が true だった場合だけ true に戻し、元が false なら false を維持する。
 #121 の実 login/Sync、旧タブ、保存データ、plan/billing 等の production acceptance は別途必要。
 
 両段階の `*-status.json` は stage、操作履歴、変更済み/未変更/UNKNOWN を原子的に保存する。
 snapshot / plan / status の `rules_receipt` は外部反映済みRulesのrelease全体・source hash・
-固定移行を記録する。Rules反映はこのscriptのmutationではない。下記の外部操作記録も保管する。
+移行記録全文・元ファイルのpath/hash・互換性証拠のpath/hashを記録する。Rules反映はこのscriptのmutationではない。下記の外部操作記録も保管する。
 `UNKNOWN` は timeout/interruption により server 側が変更済みの可能性がある。
 SIGKILL 等では RUNNING/ATTEMPTED が残るため、成功扱いせず remote state を確認する。
 失敗後の finally で再開したり、自動 rollback したりしない。一度試行した publish の保存先は
@@ -495,12 +608,93 @@ SIGKILL 等では RUNNING/ATTEMPTED が残るため、成功扱いせず remote 
 実行しない。`tests/unit/test_static_app_release.py` は隔離 inventory と provider mock で正常系、
 設定変化、競合、改変/古い成果物、各書き込み前後の失敗、SHA更新・再開失敗を検証する。
 
-## v1.22.7 の Rules / Pages 切替
+## Rulesが異なる更新だけに必要な検証記録
+
+通常更新のprepare/publishへ、両方とも同じ
+`--rules-transition /private/path/transition.json` を追加する。版名による例外はない。
+稼働Rulesは事前に候補と完全一致している必要があり、ツールはRulesを書き換えない。
+automation=false、workflow=activeでprepareし、実受入まではautomation=falseを維持する。
+外部反映は承認済み停止窓で行い、下のRules API・外部操作journal・復旧手順を継続する。
+Rules変更・停止・再開・公開そのものは個別の本番操作承認に従う。
+
+小さなJSON記録をcheckout外に作り、**確認を終えた結果だけ**記入する。次は形式例で、
+placeholderやNOT_RUNのままでは通らない。証拠ファイルはJSONからの相対pathまたは絶対path。
+両アプリ＋新Rulesの互換性について、検証したSHA/project/Rules hash、結果、確認者、
+根拠を明示する。既存検証を再利用する場合は元の記録と適用範囲、候補への追加差分レビュー、
+必要な追加試験と残る制約を証拠ファイルに記す。hash一致はファイル同一性だけを証明し、
+アプリ互換性の証明にはならない。PASSは人が証拠をレビューした結果の宣言であり、
+ツールが試験内容の正しさや確認者の権限を認証する仕組みではない。
+最終公開承認は既存のreviewed-plan-sha256に結び付ける。
+
+```json
+{
+  "schema_version": 1,
+  "current_sha": "CONFIRMED_FULL_CURRENT_SHA",
+  "sha": "REVIEWED_FULL_CANDIDATE_SHA",
+  "project": "TARGET_FIREBASE_PROJECT",
+  "before_sha256": "EXACT_CURRENT_RULES_SHA256",
+  "after_sha256": "EXACT_CANDIDATE_RULES_SHA256",
+  "recovery": "forward-fix; no automatic old Rules rollback",
+  "compatibility": {
+    "current": {
+      "sha": "CONFIRMED_FULL_CURRENT_SHA",
+      "project": "TARGET_FIREBASE_PROJECT",
+      "rules_sha256": "EXACT_CANDIDATE_RULES_SHA256",
+      "result": "NOT_RUN",
+      "reviewed_by": "REVIEWER",
+      "summary": "旧アプリと新Rulesの検証・再利用範囲",
+      "record": {"path": "current-compatibility.md", "sha256": "EVIDENCE_FILE_SHA256"}
+    },
+    "candidate": {
+      "sha": "REVIEWED_FULL_CANDIDATE_SHA",
+      "project": "TARGET_FIREBASE_PROJECT",
+      "rules_sha256": "EXACT_CANDIDATE_RULES_SHA256",
+      "result": "NOT_RUN",
+      "reviewed_by": "REVIEWER",
+      "summary": "候補と新Rulesの追加差分レビュー・必要な検証",
+      "record": {"path": "candidate-compatibility.md", "sha256": "EVIDENCE_FILE_SHA256"}
+    }
+  }
+}
+```
+
+確認完了した項目だけresultを`PASS`にし、実ファイルのSHA-256を記す。
+旧→新Rulesはgit sourceのUTF-8元バイトhashで照合し、indexes/schemaは現行と候補で一致を
+要求する。記録が他候補/project/Rulesを指す、互換性確認が欠ける、証拠ファイルがない・
+hash不一致、未反映のRules、逆移行など未検証の組合せなら停止する。
+同じRulesには移行記録を指定せず通常更新へ進む。
+
+prepareは記録全文・元JSONのpathと元バイトhash・証拠ファイルpath/hashをRules receiptへ
+保存する。publishは同じ入力を読み直し、prepare後のJSONの整形・path変更、証拠差し替え、
+SHA/project/Rulesの変更、移行入力の省略も拒否する。停止後・fresh build後・公開後も
+再確認する。変更した場合は新規storeでprepareし直して再レビューする。
+移行済みアプリから同じRulesの次版へ進む場合、移行入力も公開ツールの修正も不要。
+
+### v1.22.7の検証を再利用する範囲
+
+下の記録は元の対象SHAに対する検証根拠として保持する。現在の候補へ自動的にPASSを
+付与しない。今回、取得したmainの固定候補 `587e4023d2582d85677ac6410b73dfbd0745e9e5` で
+v1.22.7との次のファイルのgit差分がないことを再確認した:
+`firebase/firestore.rules`、`firebase/firestore.indexes.json`、
+`data/schemas/project.schema.json`。
+
+その範囲ではRules境界・indexes・保存schemaの既存根拠を再利用できる。この固定候補では
+`web/src`の差分も直接確認し、App/Header/InformationDialog/mainの名称・起動エラー文言のみで、
+認証・Sync・削除/再登録・Local保存・Legacy adapterの実装に変更がないことを確認した。
+したがって旧アプリ＋同一新Rulesの根拠を再利用し、候補側もこの差分確認を追加根拠にできる。
+未変更のSDK/Emulator 86件を一律に再実行する必要はない。候補別記録にはこの比較結果と
+元検証・制約への参照を残し、別候補で該当実装に差分があればその差分に必要な確認だけを追加する。
+公開前の候補build/CIと既存の実origin受入は継続する。このソース比較とツールのmockテストは、
+実Google認証・本番受入を完了した証拠ではなく、今回PASSの本番用移行記録は作成していない。
+採用候補を変えたら再比較する。
+
+## 過去の検証根拠: v1.22.7 の Rules / Pages 切替
 
 この手順は **実施する対象・回数・停止/再開を別途承認した後だけ** 使用する。
 本PRの実装・mockテスト・レビュー・mergeは本番操作の承認を代用しない。
 固定候補のRulesそのもの、Auth/IAM/indexes/TAF/DNS、旧サーバーと移行URLは変更しない。
-`--rules-transition-v1227` は旧Rulesを自動反映する機能でも、Rules検査を省く機能でもない。
+旧 `--rules-transition-v1227` フラグは廃止した。以下は元の検証対象・外部操作と復旧の記録。
+今後の実行には上の候補別 `--rules-transition` 記録を使い、実対象project/SHA/hashに照合する。
 
 | 固定項目 | 値 |
 | --- | --- |
@@ -513,9 +707,8 @@ SIGKILL 等では RUNNING/ATTEMPTED が残るため、成功扱いせず remote 
 | Pages / origin | `navmate` / `https://navmate.yuto24.com` |
 | 維持する移行URL | `https://navlog.yuto24.com` |
 
-任意のSHA・project・hash・移行manifestを受け取る一般基盤は追加しない。
-例外はこの旧→新の一方向だけ。逆方向、未知の差分、他project、Rulesの空白/改行を含む
-hash違い、indexes/Project schema差分を拒否する。通常の同一Rules更新は既存ルートを使う。
+以下の検証結果が対象とするのは、この旧→新の一方向だけ。他候補へは上の差分確認を記録する。
+Rulesの空白/改行を含むhash違い、indexes/Project schema差分は許可しない。
 
 ### 再利用する検証と残る保証
 
@@ -593,10 +786,10 @@ updateTime、変更後の正確なsource hash、前後release一致を記録す�
 Pagesへ進まず、追加deployを自動実行しない。`app_release` はRules反映を一切行わない。
 
 workflow=active、automation=false、承認SHA=旧SHAで、上のprepare例に
-`--rules-transition-v1227` を付ける。候補Rulesが未反映ならprepareは止まる。
+`--rules-transition /private/path/transition.json` を付ける。候補Rulesが未反映ならprepareは止まる。
 prepareはlive Rulesに加え、旧/新git sourceの元バイトhash、indexes/schema、fresh MSM、
 純静的成果物、build/E2E、独立inventory、Pages target/idleを検証する。
-plan.jsonのsnapshotとprepare-status.jsonへrelease/source hash/固定移行の`rules_receipt`を保存する。
+plan.jsonのsnapshotとprepare-status.jsonへrelease/source hash/検証記録の`rules_receipt`を保存する。
 review済みplan hashを明示して承認する。30分超過・tooling/設定/Rules driftは新規prepareが必要。
 
 ### 4. Pages公開・機械検証・承認SHA更新
@@ -657,17 +850,20 @@ checks, notification delivery, at least two successful scheduled renewals across
 catalog expiry, canonical catalog/payload continuity, and controlled same-origin rollback
 with scheduler paused and saved Local data retained. Update #123 and parent #116 only
 with those results; do not mark the production automation gate complete from local tests.
-Optional Free/Spark/shared-usage acceptance remains a separate UNKNOWN gate until observable.
+Optional Free/Spark/shared-usage acceptance is deferred to #281 and remains UNKNOWN;
+it does not block the above #123 acceptance or #146 retirement.
 It does not authorize paid processing, automatic upgrades or billing activation.
 
-## Unattended collection investigation (#123, 2026-10-03)
+## Unattended collection investigation (historical #123 work, now #281)
 
-The [latest #123 decision](https://github.com/Yuto-24/AutoNavLog/issues/123#issuecomment-5972103619)
-supersedes periodic manual `STATIC_QUOTA_REPORT` renewal as the operating model.
-**Complete unattended collection is not implemented or accepted yet.** The monitor
-calls the collection gate directly, but required native mappings and Google unattended
-authentication remain incomplete. Static-only renewal is now independently gated as above. They must not be activated on the strength of the probe. The schema example and migration commands remain diagnostic tools, not
-an unattended collection solution. September evidence is historical only.
+The [October 4 decision](https://github.com/Yuto-24/AutoNavLog/issues/123#issuecomment-5972103619)
+defined unattended collection instead of periodic manual `STATIC_QUOTA_REPORT` renewal.
+Those quality requirements now belong to #281; the October 23 policy above removes them
+from retirement prerequisites. **Complete unattended collection is not implemented or
+accepted yet.** Only the separately opted-in quota job calls the collection gate.
+Native mappings and Google unattended authentication remain incomplete. Probes and schema
+examples are diagnostic tools, not acceptance or activation authorization. September
+evidence is historical only.
 
 `python3 scripts/static_ops/probe_providers.py` performs bounded, read-only API
 capability probes for Cloudflare, Google and GitHub. It does not read an old report,
@@ -751,9 +947,10 @@ References: [GitHub repository secrets](https://docs.github.com/en/actions/how-t
 API selection, parsing, aggregation, pagination, clock handling and evidence semantics
 are engineering responsibilities, not questions for the operator to answer. The previous
 list of open API questions describes technical investigation; it is not a request that
-the user select an API. No new product decision is currently needed: unattended operation,
+the user select an API. Within follow-up #281, unattended operation,
 zero cost, strict failure on unknown evidence, the outbound exception and publication
-warning behavior are already defined by #123/#230.
+warning behavior retain the requirements originally defined by #123/#230; they are no
+longer prerequisites for catalog monitoring or retirement.
 
 **Operator decisions/approval, when a concrete setup is ready:** authorize the exact
 least-privilege credential/IAM/OIDC/secret changes; later approve live monitor acceptance
@@ -952,14 +1149,15 @@ account query or test run must never renew that timestamp by itself. The four Fi
 fragments have offline integration coverage against the existing schema-v2 validator;
 fixtures do not prove API availability or explicit zero-series coverage on this account.
 
-The full #123 implementation is still incomplete: Cloudflare plan/account-total adapters,
+The full #281 collection implementation is still incomplete: Cloudflare plan/account-total adapters,
 Firestore outbound's current three-surface finding, GitHub accrued SKU/shared allowance
 and billing controls, live limit-verifier acceptance and unattended Google authentication
 remain unverified or unsupported. In-memory report assembly, fixed-status audit output,
-and direct monitor/publication workflow routing are implemented. Final validation uses
+and the independent quota-monitor job are implemented. Final validation uses
 the collection completion time, so a provider reset during collection cannot keep an old
 period valid; original evidence timestamps are preserved. These changes are not
-unattended acceptance. Keep recurring publication disabled.
+unattended acceptance. Keep quota monitoring disabled until its separate acceptance and
+authorization. Recurring publication uses the independent #123 acceptance described above.
 
 The smallest next **read-only access verification**, distinct from permission to create
 credentials, is to run the probe and native collector using existing approved credentials
@@ -986,7 +1184,7 @@ Additional mapping references:
 
 ### Exact next read-only checks (2026-10-04)
 
-The latest connector read still reports remote `main=56d62a5` and #123 comment
+The historical October 4 connector read reported remote `main=56d62a5` and #123 comment
 `5972103619` as the governing unattended-collection decision. The saved local work is
 based on that SHA. GitHub repository metadata reads through the existing connector
 succeeded and confirmed `Yuto-24/AutoNavLog` is public; they did **not** establish billing
@@ -1150,3 +1348,13 @@ Workers dashboard/API read. Compare those settings with `services/taf-proxy` and
 reuse the Pages token to discover Workers privileges. A separately approved TAF
 rollback uses a recorded eligible Worker version; it does not roll back connected
 resources. See [Workers rollback limitations](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/).
+
+## External MSM trigger supplement (#287)
+
+[MSM external trigger runbook](msm_external_trigger.md) documents the opt-in Worker,
+credential-free tests, independent request/publication checks, staged CLI operations,
+free-tier estimates and activation acceptance. All feed renewal dispatches now share
+the new-complete-Run preflight with schedule and repeat the newer-than-canonical check
+immediately before upload. Existing app identity, six-hour lifetime and shared
+concurrency remain mandatory. Forecast-only publication needs no per-run human
+approval; app-release and activation approvals are unchanged. Worker code delivery is not activation.

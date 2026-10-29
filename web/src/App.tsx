@@ -1,8 +1,11 @@
+import { localMode } from "./executionMode";
+import type { ReferencePointSnapshot } from "./referencePoints";
 import { canConfirmMapDraft, nextWaypointName, type MapRoutePoint } from "./mapRouteDraft";
 import { AccountSyncControl } from "./components/AccountSyncControl";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApplicationError } from "./application";
+import { WorkChangeQueue } from "./workChangeQueue";
 import type { AutoNavLogApplication, UpdateProjectInput } from "./application";
 import { readSession, writeSession, clearSession, RECOVERY_FAILED, emptyCheckPointDraft, projectDraft, restoreProjectDraft } from "./applicationSession";
 import type { ApplicationSession, PendingKmz, NodeNameDraft, VorColumn } from "./applicationSession";
@@ -87,7 +90,9 @@ function patternRequestBasis(next: WebState): string | null {
   ].join("|");
 }
 
-function App({ application, platform, FileInput }: { application: AutoNavLogApplication; platform: PlatformCapabilities; FileInput: ComponentType<FileInputProps> }) {
+type AppProps = { application: AutoNavLogApplication; platform: PlatformCapabilities; FileInput: ComponentType<FileInputProps> };
+
+function App({ application, platform, FileInput, onNewWork }: AppProps & { onNewWork?: () => void }) {
   const [informationState] = useState(() => createInformationState(platform.persistence.values));
   const { hasUnreadInformation, hasUnreadKnownIssues, markInformationSeen } = informationState;
   const [recovery] = useState(() => readSession(platform.session));
@@ -96,9 +101,12 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [nodeNameDraft, setNodeNameDraft] = useState<NodeNameDraft>({ id: null, name: "" });
   const [sessionReady, setSessionReady] = useState(false);
   const sessionDiscarded = useRef(false);
+  const [workChanges] = useState(() => new WorkChangeQueue());
+  const syncResolutionGeneration = useRef(workChanges.capture());
   const latestSession = useRef<ApplicationSession | null>(null);
   const restoredPattern = useRef<string | null>(null);
   const lifecycle = useRef(0);
+  const mounted = useRef(true);
   const restoredCandidate = useRef<string | null>(null);
   const [kmzOpen, setKmzOpen] = useState(false);
   const [state, setState] = useState<WebState | null>(null);
@@ -372,6 +380,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
 
   useEffect(() => {
     let active = true;
+    mounted.current = true;
     lifecycle.current += 1;
     const bootstrap = async () => {
       let restored = recovery.session;
@@ -418,7 +427,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     void bootstrap().catch((reason: unknown) => {
       if (active) setError(reason instanceof Error ? reason.message : "起動に失敗しました。");
     });
-    return () => { active = false; lifecycle.current += 1; };
+    return () => { active = false; mounted.current = false; lifecycle.current += 1; };
   }, [application, bootstrapAttempt]);
 
   useLayoutEffect(() => {
@@ -437,7 +446,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   }, [state?.outcome]);
 
   useLayoutEffect(() => {
-    if (!sessionReady || !state?.workingRecovery || sessionDiscarded.current) return;
+    if (!sessionReady || !state?.workingRecovery) return;
     const snapshot: ApplicationSession = {
       mapRouteDraft, legacyRouteInput, checkPointDraft, nodeNameDraft, vorColumns,
       version: 1, working: state.workingRecovery, form, altitudeInputs, navLogDrafts,
@@ -445,6 +454,9 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       projectName, selectedProjectId, pendingKmz, selectedKmzDocument,
     };
     latestSession.current = snapshot;
+    // A queued New may suppress storage before this render commits. Keep its
+    // failure recovery aligned with the displayed work even while writes stop.
+    if (sessionDiscarded.current) return;
     if (!writeSession(snapshot, platform.session.storage)) {
       setNotice("作業状態を一時保存できません。再読み込みすると未保存の作業を失う可能性があります。");
     }
@@ -1455,7 +1467,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
     const reset = await runTask(
-      async () => {
+      () => workChanges.reset(async () => {
         await discardPendingDraftAutosave();
         try {
           clearSession(platform.session.storage);
@@ -1471,11 +1483,12 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           throw reason;
         }
         return true;
-      },
+      }),
       { fallbackError: "新規作業を開始できませんでした。" },
     );
     if (reset) {
-      window.location.reload();
+      if (onNewWork) onNewWork();
+      else window.location.reload();
     }
   };
 
@@ -1488,8 +1501,8 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   if (!state) {
     return (
       <main className="loading-screen">
-        <div className="loading-mark">A</div>
-        <strong>AutoNavLogを起動しています</strong>
+        <div className="loading-mark">N</div>
+        <strong>NavMateを起動しています</strong>
         {error && (
           <>
             <p role="alert">{error}</p>
@@ -1564,6 +1577,11 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       id: crypto.randomUUID(), name: airport.icao, airport_id: airport.id,
       latitude_deg: airport.latitudeDeg, longitude_deg: airport.longitudeDeg,
     }]),
+    onReference: (reference: ReferencePointSnapshot) => setMapRouteDraft(current => current.length === 0 || current.length >= 500 ? current : [...current, {
+      id: crypto.randomUUID(), name: reference.name, airport_id: null,
+      latitude_deg: reference.latitude_deg, longitude_deg: reference.longitude_deg,
+      reference_snapshot: structuredClone(reference),
+    }]),
     onPoint: (latitude: number, longitude: number) => setMapRouteDraft(current => [...current, {
       id: crypto.randomUUID(), name: nextWaypointName(current), airport_id: null,
       latitude_deg: latitude, longitude_deg: longitude,
@@ -1575,20 +1593,35 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
 
   return (
     <div className="app-shell">
-      <AccountSyncControl sync={application.sync} onBeforeResolve={confirmDiscardMapDraft} onChange={() => {
+      <AccountSyncControl sync={application.sync} onBeforeResolve={() => {
+        if (!confirmDiscardMapDraft()) return false;
+        syncResolutionGeneration.current = workChanges.capture();
+        return true;
+      }} onChange={() => {
         if (application.refreshProjects) void application.refreshProjects().then(next => {
           setState(current => current ? { ...current, savedProjects: next.savedProjects, storageWarning: next.storageWarning } : current);
         }).catch(() => {});
       }} onResolved={async id => {
+        const epoch = lifecycle.current;
+        const generation = syncResolutionGeneration.current;
+        const active = () => mounted.current && !sessionDiscarded.current && epoch === lifecycle.current;
+        if (!active() || !workChanges.isCurrent(generation)) return;
         cancelPendingRecalculation();
         await discardPendingDraftAutosave();
+        if (!active() || !workChanges.isCurrent(generation)) return;
         const next = await application.refreshProjects?.();
-        if (next?.savedProjects.some(project => project.id === id)) {
-          applyState(await application.loadProject(id), { syncCalculationInputs: true });
-        } else {
-          await application.newWork();
-          applyState(await application.bootstrap(), { syncCalculationInputs: true });
-        }
+        await workChanges.resolve(generation, async () => {
+          if (!active()) return;
+          if (next?.savedProjects.some(project => project.id === id)) {
+            const loaded = await application.loadProject(id);
+            if (active()) applyState(loaded, { syncCalculationInputs: true });
+          } else {
+            await application.newWork();
+            if (!active()) return;
+            const blank = await application.bootstrap();
+            if (active()) applyState(blank, { syncCalculationInputs: true });
+          }
+        });
       }} />
       <Header
         onBeforeAccountChange={confirmDiscardMapDraft}
@@ -1792,7 +1825,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       )}
 
       <footer className="app-footer">
-        <span>AutoNavLogは非公式の地上準備支援ツールです。</span>
+        <span>NavMateは非公式の地上準備支援ツールです。</span>
         <span>参照 {state.runtime.referenceRevision} / 性能 {state.runtime.performanceRevision}</span>
       </footer>
 
@@ -1898,4 +1931,10 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   );
 }
 
-export default App;
+export default function ApplicationWorkspace(props: AppProps) {
+  const [generation, setGeneration] = useState(0);
+  // Remount every UI draft/ref and invalidate pending component callbacks, without
+  // replacing the same-account Application. Legacy retains its page-reload boundary.
+  return <App key={generation} {...props}
+    onNewWork={localMode ? () => setGeneration(value => value + 1) : undefined} />;
+}
