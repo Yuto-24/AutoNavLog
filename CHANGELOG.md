@@ -2,6 +2,20 @@
 
 AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
+## 1.23.1
+
+### 利用者向け
+
+#### 修正
+
+- 旧タブ書込み防止
+
+### 開発者向け
+
+- #307: Open anonymous/account Project IndexedDB databases at access version 2, including account cleanup, to reject earlier version-1 clients' storage/outbox writes. Preserve existing record bodies without bulk conversion; retain the existing calculation freshness and explicit conflict-resolution policy.
+- Existing transactions finish before upgrade; blocked upgrades preserve records. Remote mutations already in flight remain subject to Rules CAS and SDK updateTime preconditions.
+- Release preparation only: production publication and the separately reviewed schema/Rules transition remain separate operations.
+
 ## 1.23.0
 
 ### 利用者向け
