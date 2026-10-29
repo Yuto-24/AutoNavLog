@@ -18,7 +18,7 @@ function record(id: string, saved = false): LocalProjectRecord {
 }
 async function rawPut(value: unknown) {
   await new Promise<void>((resolve, reject) => {
-    const open = factory.open(LOCAL_DATABASE, 1);
+    const open = factory.open(LOCAL_DATABASE);
     open.onsuccess = () => {
       const tx = open.result.transaction("projects", "readwrite");
       tx.objectStore("projects").put(value);

@@ -65,7 +65,18 @@ There is no automatic cross-tab merge. Account namespaces add the [Account Sync 
 
 ## Schema and corruption isolation
 
-Database layout version 1 creates only the object store. Project payload migration is
+Database layout version 2 preserves the existing object store and every record body.
+It is a one-way writer boundary: earlier clients explicitly opening version 1 fail
+storage/outbox operations after the upgrade. Existing connections close on
+`versionchange`; in-flight transactions finish before the upgrade. A blocked upgrade
+fails without changing records and can be retried after the blocking tab closes.
+The account cleanup path uses the same version. Both 1.x and subsequent 2.x clients
+must retain this access version; it is independent of portable payload schemaVersion.
+Old tabs can retain their ephemeral edits, but must reload onto compatible code to
+resume storage. Remote in-flight mutations still use the existing CAS contract.
+No record conversion, database deletion, reverse reader or rollback is introduced.
+
+Project payload migration is
 per record, outside the database upgrade transaction, so one invalid Project cannot
 block access to the store. Payload schema 2 adds an envelope update timestamp to the
 schema 1 shape (which derives it from `draft.updated_at`). These are the first Local

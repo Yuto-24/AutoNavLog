@@ -3,7 +3,7 @@ import { getAuth, type User } from "firebase/auth";
 import { collection, doc, getDocFromServer, getDocsFromServer, getFirestore, limit, query, runTransaction, writeBatch } from "firebase/firestore";
 import { googleAccount } from "./firebaseAuthProvider";
 import { SESSION_KEY } from "./applicationSession";
-import { LOCAL_DATABASE } from "./localProjectRepository";
+import { LOCAL_DATABASE, LOCAL_DATABASE_VERSION } from "./localProjectRepository";
 
 type AccountRecord = { schema: 1; accountId: string; state: "ACTIVE" | "DELETING" | "DELETED" };
 const subjectOf = (user: User) => {
@@ -115,11 +115,20 @@ export async function removeLocalAccount(accountId: string): Promise<void> {
   // #185 keeps claimed anonymous originals for interrupted import recovery.
   // Once their owner is deleted, they must not remain as hidden local copies.
   await new Promise<void>((resolve, reject) => {
-    const request = indexedDB.open(LOCAL_DATABASE, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore("projects", { keyPath: "id" });
+    const request = indexedDB.open(LOCAL_DATABASE, LOCAL_DATABASE_VERSION);
+    let blocked = false;
+    request.onblocked = () => {
+      blocked = true;
+      reject(new Error("端末内のデータを削除できませんでした。別のタブを閉じて、削除を再試行してください。"));
+    };
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains("projects")) request.result.createObjectStore("projects", { keyPath: "id" });
+    };
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
+      if (blocked) { db.close(); return; }
+      db.onversionchange = () => db.close();
       const tx = db.transaction("projects", "readwrite");
       const cursor = tx.objectStore("projects").openCursor();
       cursor.onsuccess = () => {

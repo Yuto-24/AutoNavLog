@@ -58,3 +58,19 @@ configured and activated; ordinary PR merges do not publish the app. See
 [automatic_app_releases.md](automatic_app_releases.md) for monotonic version gates,
 Rules approval boundaries, replay/recovery and first-1.x-publication prerequisites.
 Release creation itself does not change matsu, credentials or production switches.
+
+## One-way NavMate storage upgrade
+
+The original 1.23.0 commit `000ac6ecd85b18ae060cfb711070252c6c6d5af8` does not
+contain the IndexedDB writer fence. Do not treat that existing tag as the fixed
+publication candidate or move it to a new commit. The ordinary fix is reviewed and
+merged first; a separate release-preparation PR selects the new version/SHA.
+Both release/1.x and main must use DB access version 2 so a later 1.x to 2.x update
+can open the same records. This does not require old clients to read new payloads.
+
+Legacy navlog-to-navmate activation already has its own redirect and server-side
+write gate. It does not retire an old tab on the same navmate origin. The writer
+fence stops those old tabs from automatically tombstoning unreadable new Latest
+records; cloud mutations already in flight remain subject to remote CAS.
+Publication still requires the separately reviewed manual schema/Rules transition
+through current main tooling; automatic/default schema guards remain unchanged.

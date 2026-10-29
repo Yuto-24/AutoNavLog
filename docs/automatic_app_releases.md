@@ -73,7 +73,9 @@ compatibility evidence and the existing separate migration procedure in
 [static_operations.md](static_operations.md#rulesが異なる更新だけに必要な検証記録).
 An environment approval alone does not establish compatibility. Reconcile and
 publish that reviewed transition through the manual path; a replay then sees the
-same canonical version/SHA and skips. Index/schema migrations remain separate.
+same canonical version/SHA and skips. Index migrations remain blocked. A separately reviewed manual one-way schema
+transition is documented in [schema_transition.md](schema_transition.md); the automatic
+route has no schema-transition input.
 
 On pause/upload/verification/approved-SHA failure, keep the existing journal's
 UNKNOWN/CONFIRMED distinctions. There is no unconditional resume or automatic
