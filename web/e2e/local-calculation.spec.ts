@@ -188,6 +188,16 @@ for (const width of [390, 1100, 1440]) {
     expect(modeBox!.y).toBeGreaterThanOrEqual(summaryBox!.y + summaryBox!.height);
     const tableBox = await page.locator(".nav-log-scroll").boundingBox();
     expect(modeBox!.y + modeBox!.height).toBeLessThanOrEqual(tableBox!.y);
+    const controlBox = await page.locator(".nav-log-rounding-control").boundingBox();
+    const addColumnBox = await page.getByRole("button", { name: "VOR/DME列を追加", exact: true }).boundingBox();
+    const navLogBox = await page.locator(".nav-log-section").boundingBox();
+    expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(navLogBox!.x + navLogBox!.width);
+    if (width >= 1100) {
+      expect(Math.abs(controlBox!.y + controlBox!.height / 2 - addColumnBox!.y - addColumnBox!.height / 2)).toBeLessThan(1);
+      expect(controlBox!.x).toBeGreaterThanOrEqual(addColumnBox!.x + addColumnBox!.width);
+    } else {
+      expect(controlBox!.y).toBeGreaterThanOrEqual(addColumnBox!.y + addColumnBox!.height);
+    }
     await page.getByRole("button", { name: "メッセージを閉じる" }).click();
     await page.locator(".nav-log-section").screenshot({ path: `/tmp/issue234-on-${width}.png` });
     await page.locator(".nav-log-rounding-control").screenshot({ path: `/tmp/issue234-control-${width}.png` });

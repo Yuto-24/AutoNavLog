@@ -722,22 +722,6 @@ export function NavLogTable({
         <span>予報実行ID: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
       <NavLogSummary outcome={outcome} destinationWind={destinationWind} />
-      <div className="nav-log-rounding-control">
-        <span id="nav-log-rounding-label">四捨五入モード</span>
-        <div className="nav-log-rounding-options" role="radiogroup"
-          aria-labelledby="nav-log-rounding-label">
-          <label>
-            <input type="radio" name="nav-log-rounding-mode" checked={!roundingMode}
-              disabled={roundingDisabled} onChange={() => onRoundingChange?.(false)} />
-            通常
-          </label>
-          <label>
-            <input type="radio" name="nav-log-rounding-mode" checked={roundingMode}
-              disabled={roundingDisabled} onChange={() => onRoundingChange?.(true)} />
-            四捨五入
-          </label>
-        </div>
-      </div>
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
         <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>
         <span className="nav-log-readonly-key">読取専用: 航法、距離、時間、燃料などの計算値</span>
@@ -745,16 +729,34 @@ export function NavLogTable({
           {editStatus.message}
         </span>
       </div>
-      <div className="nav-log-column-actions">
-        <button
-          className="secondary-button nav-log-add-column-button"
-          type="button"
-          onClick={addVorColumn}
-        >
-          <Plus aria-hidden="true" size={15} />
-          VOR/DME列を追加
-        </button>
-        <span>各列で基準局を選び、不要な列は見出しから削除できます。</span>
+      <div className="nav-log-toolbar">
+        <div className="nav-log-column-actions">
+          <button
+            className="secondary-button nav-log-add-column-button"
+            type="button"
+            onClick={addVorColumn}
+          >
+            <Plus aria-hidden="true" size={15} />
+            VOR/DME列を追加
+          </button>
+          <span>各列で基準局を選び、不要な列は見出しから削除できます。</span>
+        </div>
+        <div className="nav-log-rounding-control">
+          <span id="nav-log-rounding-label">四捨五入モード</span>
+          <div className="nav-log-rounding-options" role="radiogroup"
+            aria-labelledby="nav-log-rounding-label">
+            <label>
+              <input type="radio" name="nav-log-rounding-mode" checked={!roundingMode}
+                disabled={roundingDisabled} onChange={() => onRoundingChange?.(false)} />
+              通常
+            </label>
+            <label>
+              <input type="radio" name="nav-log-rounding-mode" checked={roundingMode}
+                disabled={roundingDisabled} onChange={() => onRoundingChange?.(true)} />
+              四捨五入
+            </label>
+          </div>
+        </div>
       </div>
       <div className="table-scroll nav-log-scroll">
         <div className="nav-log-tables">
