@@ -26,6 +26,7 @@ from autonavlog.domain.project import Airport, Project
 from autonavlog.domain.values import AdoptedValue
 from autonavlog.domain.weather import WeatherResult
 from autonavlog.nav.rounding import round_half_up
+from autonavlog.nav.rounding_mode import rounded_toat_c
 from autonavlog.weather.destination_taf import DestinationWindForecast
 
 
@@ -858,6 +859,7 @@ def build_navlog_display_rows(
     *,
     total_usable_fuel_gal: float,
     run_up_included: bool,
+    rounding_mode: bool = False,
 ) -> list[NavLogDisplayRow]:
     """Build the Golden NAV LOG projection without changing calculation totals."""
 
@@ -1215,4 +1217,11 @@ def build_navlog_display_rows(
             )
         )
 
+    if rounding_mode:
+        for row in rows:
+            # Keep exact effective values and inheritance, including #225's EOC
+            # boundary handling. Only the visible temperature text changes.
+            temperature_value = row.toat.effective_value
+            if row.toat.text is not None and isinstance(temperature_value, (int, float)):
+                row.toat.text = f"{rounded_toat_c(float(temperature_value)):.0f}"
     return rows

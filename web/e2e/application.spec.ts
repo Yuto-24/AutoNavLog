@@ -218,6 +218,7 @@ test("failed durable hydration restores the previous runtime working copy", asyn
           throw new ApplicationError("unavailable reference", "SESSION_RECOVERY_INVALID");
         }
       }
+      if (operation === "refreshSavedWork") current = input.working;
       return { ...state, workingRecovery: current } as T;
     }, dispose() {},
   }));
@@ -347,4 +348,50 @@ test("account switch interrupts a pending reset without bootstrapping prior work
   await expect(reset).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
   await expect(queued).rejects.toMatchObject({ code: "ACCOUNT_CONTEXT_CLOSED" });
   expect(operations).toEqual(["bootstrap", "newWork"]);
+});
+
+test("rounding calculation options cross both adapters without changing Project inputs", async () => {
+  const calls = responses(json({ job_id: "rounding", status: "succeeded", state, progress_percent: 100, progress_message: "done" }));
+  await new LegacyApplication().calculate(undefined, { roundingMode: true });
+  expect(JSON.parse(String(calls[0]!.options!.body))).toEqual({ rounding_mode: true });
+  const requests: [string, unknown][] = [];
+  const app = new LocalApplication(browserPlatform.persistence.createProjectRepository, () => ({
+    request: async <T>(operation: string, input?: unknown) => { requests.push([operation, input]); return state as T; }, dispose() {},
+  }));
+  await app.calculate(undefined, { roundingMode: true });
+  await app.calculate(undefined, { roundingMode: false });
+  expect(requests).toEqual([["calculate", { rounding_mode: true }], ["calculate", { rounding_mode: false }]]);
+});
+
+test("failed Local open rolls back the previous ON result and live mode", async () => {
+  const previous = { version: 1, project: { id: "previous" }, outcome: { id: "rounded" }, destination_wind: null };
+  let runtime = { ...state, project: previous.project, outcome: previous.outcome, workingRecovery: previous, roundingMode: true } as unknown as WebState;
+  const repository = {
+    list: async () => ({ projects: [], unavailable: [] }),
+    read: async () => ({ id: "next", draft: { id: "next" }, lastCalculation: null }),
+    open: async () => { throw new ApplicationError("open failed", "LOCAL_PROJECT_UNAVAILABLE"); },
+  } as unknown as LocalProjectRepository;
+  const app = new LocalApplication(() => repository, () => ({
+    request: async <T>(operation: string, input?: any) => {
+      if (operation === "bootstrap") runtime = { ...runtime, project: input.project, outcome: null, workingRecovery: input, roundingMode: false };
+      if (operation === "refreshSavedWork") runtime = { ...runtime, project: input.working.project, outcome: input.working.outcome, workingRecovery: input.working, roundingMode: input.rounding_mode };
+      return runtime as T;
+    }, dispose() {},
+  }));
+  await expect(app.loadProject("next")).rejects.toMatchObject({ code: "LOCAL_PROJECT_UNAVAILABLE" });
+  expect(await app.refreshProjects()).toMatchObject({ roundingMode: true, outcome: previous.outcome, project: previous.project });
+});
+
+test("Legacy transparent session renewal retains ON without persisting a preference", async () => {
+  const rounded = { ...state, roundingMode: true, workingRecovery: { version: 1, project: null, outcome: null } } as WebState;
+  const calls = responses(json({ state, token: "first" }),
+    json({ job_id: "round", status: "succeeded", state: rounded, progress_percent: 100, progress_message: "done" }),
+    json({}, 401), json({ state: rounded, token: "renewed" }), json(rounded));
+  const app = new LegacyApplication();
+  await app.bootstrap();
+  await app.calculate(undefined, { roundingMode: true });
+  expect(await app.updateAndRecalculate(update)).toEqual(rounded);
+  expect(calls[3]!.path).toBe("/api/application-session?rounding_mode=true");
+  expect(JSON.parse(String(calls[3]!.options!.body))).toEqual(rounded.workingRecovery);
+  expect(calls[2]!.options!.body).toBe(calls[4]!.options!.body);
 });
