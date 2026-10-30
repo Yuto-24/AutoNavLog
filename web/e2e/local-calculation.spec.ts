@@ -144,6 +144,7 @@ for (const width of [1100, 1440]) {
 for (const corrupt of [false, true]) {
   test(`local asset ${corrupt ? "hash mismatch" : "failure"} is visible without API fallback`, async ({ page }) => {
     const apiRequests: string[] = [];
+    let injected = false;
     page.context().on("request", request => {
       if (new URL(request.url()).pathname.startsWith("/api/")) apiRequests.push(request.url());
     });
@@ -152,14 +153,19 @@ for (const corrupt of [false, true]) {
         const response = await route.fetch();
         const bytes = await response.body();
         bytes[bytes.length - 1] ^= 1;
+        injected = true;
         await route.fulfill({ response, body: bytes });
       });
     } else {
-      await page.context().route("**/local/manifest.json", route => route.fulfill({ status: 503, body: "" }));
+      await page.context().route("**/local/manifest.json", route => {
+        injected = true;
+        return route.fulfill({ status: 503, body: "" });
+      });
     }
     await page.goto("/");
-  await enterImportWorkflow(page);
+    // Asset failures can prevent the planning/import UI from starting.
     await expect(page.getByRole("alert")).toContainText("処理を実行できませんでした。画面を再読み込みしてください。");
+    expect(injected).toBe(true);
     expect(apiRequests).toEqual([]);
   });
 }
