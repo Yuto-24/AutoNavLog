@@ -834,25 +834,31 @@ def test_legacy_rounding_jobs_validate_options_and_commit_mode_with_result(local
     asyncio.run(exercise())
 
 
-def test_blocker_during_mode_transition_keeps_previous_mode_and_result(local, monkeypatch):
+@pytest.mark.parametrize("blocker_count", [1, 4])
+def test_blocker_during_mode_transition_keeps_previous_mode_and_result(
+    local, monkeypatch, blocker_count
+):
     from autonavlog.domain.calculation import Issue
     from autonavlog.domain.enums import IssueSeverity
 
     previous = calculate(local)
+    messages = [f"blocked wind triangle {index + 1}" for index in range(blocker_count)]
     blocked = local.session.outcome.model_copy(
         update={
             "issues": [
                 Issue(
                     code="WIND_TRIANGLE_FAILED",
                     severity=IssueSeverity.BLOCKER,
-                    message="crosswind component is greater than or equal to TAS",
+                    message=message,
                 )
+                for message in messages
             ]
         }
     )
     monkeypatch.setattr(local.app, "_calculate_outcome", lambda *args, **kwargs: (blocked, None))
     failed = json.loads(local.dispatch_response("calculate", {"rounding_mode": True}))
     assert failed["error"]["code"] == "CALCULATION_FAILED"
+    assert failed["error"]["message"] == "計算に失敗しました。" + " / ".join(messages[:3])
     current = json.loads(local.dispatch("state"))
     assert current["roundingMode"] is False
     assert current["outcome"] == previous["outcome"]

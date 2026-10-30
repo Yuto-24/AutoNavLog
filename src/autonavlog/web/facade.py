@@ -743,7 +743,10 @@ class AutoNavLogWebApplication:
             if selected_rounding_mode != session.rounding_mode and outcome.blockers:
                 # A failed mode transition must retain the last-good mode/result,
                 # including when rounding makes a previously solvable wind invalid.
-                raise WebApplicationError("CALCULATION_FAILED", "計算に失敗しました。")
+                detail = " / ".join(issue.message for issue in outcome.blockers[:3])
+                raise WebApplicationError(
+                    "CALCULATION_FAILED", f"計算に失敗しました。{detail}"
+                )
             report(90, "計算結果と準備状況を反映しています。")
             materialized = session.readiness_service.record_calculation(
                 calculation_project,
