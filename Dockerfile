@@ -14,6 +14,7 @@ RUN npm --prefix web ci
 COPY VERSION CHANGELOG.md KNOWN_ISSUES.md ./
 COPY web ./web
 COPY data/reference/vrep.json ./data/reference/vrep.json
+COPY data/reference/rjfm/rjfm-reference.json ./data/reference/rjfm/rjfm-reference.json
 RUN npm --prefix web run build
 
 

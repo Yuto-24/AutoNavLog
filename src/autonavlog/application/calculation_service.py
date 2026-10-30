@@ -376,18 +376,14 @@ class CalculationService:
             ):
                 inbound_plan_rejection_reason = "CURRENT_REFERENCE_IDENTITY_UNAVAILABLE"
             elif (
-                rjfm_inbound_plan.reference_revision
-                != self.expected_rjfm_reference_revision
+                rjfm_inbound_plan.reference_revision != self.expected_rjfm_reference_revision
                 or rjfm_inbound_plan.reference_content_fingerprint
                 != self.expected_rjfm_reference_content_fingerprint
             ):
                 inbound_plan_rejection_reason = "REFERENCE_IDENTITY_MISMATCH"
             elif not rjfm_inbound_plan_matches_project(working, rjfm_inbound_plan):
                 inbound_plan_rejection_reason = "ROUTE_INPUT_MISMATCH"
-            elif (
-                rjfm_inbound_plan.adopted_vrep_altitude_ft_msl
-                != arrival_altitude_ft_msl
-            ):
+            elif rjfm_inbound_plan.adopted_vrep_altitude_ft_msl != arrival_altitude_ft_msl:
                 inbound_plan_rejection_reason = "ARRIVAL_ALTITUDE_MISMATCH"
         if rjfm_inbound_plan is not None and inbound_plan_rejection_reason is not None:
             issues.append(
@@ -636,7 +632,7 @@ class CalculationService:
                     None,
                 )
                 final.display_rows = build_navlog_display_rows(
-                    self._navlog_physical_legs(geometries, rjfm_departure_plan),
+                    self._navlog_physical_legs(geometries, rjfm_departure_plan, rjfm_inbound_plan),
                     final.sections,
                     departure,
                     destination,
@@ -730,7 +726,8 @@ class CalculationService:
             ),
             fuel_plan=fuel_plan,
             summary=build_navlog_summary(
-                final.sections, self._navlog_physical_legs(geometries, rjfm_departure_plan),
+                final.sections,
+                self._navlog_physical_legs(geometries, rjfm_departure_plan, rjfm_inbound_plan),
             ),
             issues=issues,
             converged=converged,
@@ -924,11 +921,7 @@ class CalculationService:
         elapsed = 0.0
         offsets = self._route_leg_offsets(geometries)
         for index, geometry in enumerate(geometries):
-            default_seconds = (
-                geometry.distance_nm
-                / ForecastService.estimate_speed_kt
-                * 3600.0
-            )
+            default_seconds = geometry.distance_nm / ForecastService.estimate_speed_kt * 3600.0
             valid_time = previous_times.get(
                 str(geometry.section.id),
                 project.planned_departure_time_jst
@@ -1186,11 +1179,11 @@ class CalculationService:
                             metadata={"phase": phase.value},
                         )
                     )
-                wind_is_required = (
-                    phase != FlightPhase.DESCENT or index == descent_basis_index
-                )
-                if phase != FlightPhase.VISUAL_ARRIVAL and wind_is_required and (
-                    wind_speed is None or (wind_speed > 0 and wind_direction is None)
+                wind_is_required = phase != FlightPhase.DESCENT or index == descent_basis_index
+                if (
+                    phase != FlightPhase.VISUAL_ARRIVAL
+                    and wind_is_required
+                    and (wind_speed is None or (wind_speed > 0 and wind_direction is None))
                 ):
                     issues.append(
                         self._blocker(
@@ -1567,15 +1560,23 @@ class CalculationService:
             return None
         target = arrival_altitude_ft_msl
         if target is None or target >= 4500.0:
-            issues.append(self._blocker(
-                "RJFM_INBOUND_ALTITUDE_DELTA_INVALID",
-                "RJFM帰路のVREP高度は4,500 ft未満である必要があります。",
-                geometries[controlled_end_index].section.id,
-                metadata={"target_altitude_ft_msl": target, "start_altitude_ft_msl": 4500.0},
-            ))
+            issues.append(
+                self._blocker(
+                    "RJFM_INBOUND_ALTITUDE_DELTA_INVALID",
+                    "RJFM帰路のVREP高度は4,500 ft未満である必要があります。",
+                    geometries[controlled_end_index].section.id,
+                    metadata={"target_altitude_ft_msl": target, "start_altitude_ft_msl": 4500.0},
+                )
+            )
             return None
-        basis_index = next((i for i in range(start_index, end_index + 1)
-                            if geometries[i].section.phase == FlightPhase.DESCENT), end_index)
+        basis_index = next(
+            (
+                i
+                for i in range(start_index, end_index + 1)
+                if geometries[i].section.phase == FlightPhase.DESCENT
+            ),
+            end_index,
+        )
         basis = environments[basis_index]
         source = basis.geometry.section
         cruise_cas = self._preview_last_cruise_cas(
@@ -1715,10 +1716,7 @@ class CalculationService:
             )
             cruise_cas = None if provisional is None else provisional[0]
         if section.manual_tas_for_phase(FlightPhase.DESCENT) is None and cruise_cas is None:
-            if (
-                rca_distance_nm is not None
-                and rca_distance_nm >= offsets[descent_index][1] - 1e-9
-            ):
+            if rca_distance_nm is not None and rca_distance_nm >= offsets[descent_index][1] - 1e-9:
                 issues.append(
                     self._blocker(
                         "DESCENT_CRUISE_CAS_SOURCE_UNAVAILABLE",
@@ -2822,12 +2820,9 @@ class CalculationService:
                     }
                 )
 
-            if (
-                rjfm_inbound_plan is not None
-                and section.id in (
-                    rjfm_inbound_plan.controlled_section_ids
-                    or (rjfm_inbound_plan.controlled_section_id,)
-                )
+            if rjfm_inbound_plan is not None and section.id in (
+                rjfm_inbound_plan.controlled_section_ids
+                or (rjfm_inbound_plan.controlled_section_id,)
             ):
                 performance_metadata["rjfm_inbound_fixed_altitude"] = True
 
@@ -3124,7 +3119,7 @@ class CalculationService:
             for result, value in zip(sections, remaining, strict=True)
         ]
         display_rows = build_navlog_display_rows(
-            self._navlog_physical_legs(geometries, rjfm_departure_plan),
+            self._navlog_physical_legs(geometries, rjfm_departure_plan, rjfm_inbound_plan),
             sections,
             departure,
             destination,
@@ -3149,6 +3144,7 @@ class CalculationService:
     def _navlog_physical_legs(
         geometries: list[_Geometry],
         rjfm_departure_plan: RjfmDeparturePlan | None,
+        rjfm_inbound_plan: RjfmInboundPlan | None = None,
     ) -> list[NavLogPhysicalLeg]:
         default = [
             NavLogPhysicalLeg(
@@ -3162,6 +3158,37 @@ class CalculationService:
             )
             for geometry in geometries
         ]
+        if rjfm_inbound_plan is not None:
+            start = next(
+                (
+                    i
+                    for i, g in enumerate(geometries)
+                    if g.start.id == rjfm_inbound_plan.omaru_node_id
+                ),
+                None,
+            )
+            end = next(
+                (i for i, g in enumerate(geometries) if g.end.id == rjfm_inbound_plan.vrep_node_id),
+                None,
+            )
+            if start is not None and end is not None and start < end:
+                grouped = geometries[start : end + 1]
+                parent = NavLogPhysicalLeg(
+                    section_ids=tuple(g.section.id for g in grouped),
+                    phase=grouped[0].section.phase,
+                    start_name=grouped[0].start.name,
+                    start_node_id=grouped[0].start.id,
+                    end_name=grouped[-1].end.name,
+                    end_node_id=grouped[-1].end.id,
+                    adopted_distance_nm=sum(g.distance_nm for g in grouped),
+                    show_child_courses=True,
+                )
+                return [
+                    *CalculationService._navlog_physical_legs(
+                        geometries[:start], rjfm_departure_plan
+                    ),
+                    parent, *default[end + 1 :],
+                ]
         if rjfm_departure_plan is None or not geometries:
             return default
 
@@ -3200,12 +3227,10 @@ class CalculationService:
             end_name=grouped[-1].end.name,
             end_node_id=grouped[-1].end.id,
             adopted_distance_nm=sum(geometry.distance_nm for geometry in grouped),
+            show_child_courses=True,
             summary_true_course_deg=direct.initial_true_course_deg,
             summary_variation_deg_east=variation,
-            summary_magnetic_course_deg=(
-                direct.initial_true_course_deg + variation
-            )
-            % 360.0,
+            summary_magnetic_course_deg=(direct.initial_true_course_deg + variation) % 360.0,
         )
         return [parent, *default[omaru_index + 1 :]]
 

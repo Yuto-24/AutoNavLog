@@ -137,6 +137,14 @@ def test_umk_physical_navlog_groups_rjfm_through_omaru_with_direct_parent_course
     assert {row.section_id for row in children} == set(controlled_section_ids)
     assert all(row.row_type == "CALCULATION_ZONE" for row in children)
     assert any(row.to_name == "UMK/RCA" for row in children)
+    for child in children:
+        source = next(result for result in outcome.sections
+                      if result.sequence == child.source_result_sequence)
+        assert child.tc.state == DisplayCellState.DISPLAY_VALUE
+        assert child.mc.state == DisplayCellState.DISPLAY_VALUE
+        assert child.tc.effective_value == pytest.approx(source.true_course_deg.adopted())
+        assert child.mc.effective_value == pytest.approx(source.magnetic_course_deg.adopted())
+    assert len({child.tc.effective_value for child in children}) >= 2
 
     expected_direct = geodesic_leg(
         working.ordered_nodes()[0].latitude_deg,

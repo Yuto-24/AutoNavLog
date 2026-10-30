@@ -269,3 +269,28 @@ test("direct airport route survives failed local persistence and can be saved", 
   await expect(page.getByText("NavMateを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
   await expect(page.locator(".route-table tbody tr")).toHaveCount(2);
 });
+
+test("Issue 235: click OMARU as a route point and restore the draft", async ({ page }) => {
+  await start(page);
+  await selectAirport(page, "RJFM");
+  await zoomMapTo(page, 9);
+  const marker = page.locator('.vrep-draft-marker[title="小丸"]');
+  for (let attempt = 0; attempt < 12 && !await marker.count(); attempt++) {
+    const cluster = page.locator('.candidate-cluster').filter({ has: page.locator('[data-candidates~="RJFM:OMARU"]') });
+    await cluster.click();
+    await expect(page.locator('.route-map')).not.toHaveClass(/leaflet-zoom-anim/);
+  }
+  await marker.click();
+  await expect(strip(page).locator('li')).toHaveCount(2);
+  await expect(strip(page).locator('li').nth(1)).toContainText('小丸');
+  await page.reload();
+  await expect(strip(page).locator('li')).toHaveCount(2);
+  await expect(strip(page).locator('li').nth(1)).toContainText('小丸');
+  await expect(marker).toHaveCount(1);
+  await marker.click();
+  // Each explicit click is an occurrence, just like existing VREP markers.
+  await expect(strip(page).locator('li')).toHaveCount(3);
+  await expect(page).toHaveTitle(/NavMate/);
+  await expect(page.locator('vite-error-overlay')).toHaveCount(0);
+  await page.screenshot({ path: '/tmp/issue235-omaru-map.png' });
+});

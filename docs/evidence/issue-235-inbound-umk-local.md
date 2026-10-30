@@ -77,3 +77,59 @@ Push, PR creation, CodeRabbit PR review and hosted CI were not performed, as
 requested. No merge, production publication, scheduler, permission or primary
 runtime change occurred. Local Compose health and fixture/WASM results do not
 establish Static Web production acceptance or physical-device/browser acceptance.
+
+## 2026-10-31: parent/child presentation and clickable OMARU followup
+
+Continued from `7107a36d` in the same branch/worktree, retaining its UMK
+completion and explicit-input protection. The inbound OMARU-to-final-VREP span
+now has one parent; physical source section IDs and all calculation zones remain.
+Both exception parents explicitly display adopted child TC/MC. Inbound parent
+TC/MC are blank rather than presenting one segment as the entire route.
+Mixed cruise/operational-descent ETE sums the displayed child durations while
+retaining the once-rounded operational-descent allocation. Intermediate physical
+endpoint altitudes remain visible. No manual course override was introduced.
+
+The draft map uses the existing bundled OMARU coordinate and the user-provided
+label 小丸. It adds an ordinary MAP point without inventing AIP provenance or a
+VREP snapshot. Explicit repeated clicks remain separate occurrences. Docker's
+frontend stage now copies the imported existing reference JSON.
+
+Final local validation:
+
+- Related Python regression: **99 passed**, including both parent spans in one
+  roundtrip, physical child courses, descent rules, displayed ETE sums, manual
+  UMK protection, KML/MAP confirmation and working-state restoration/recalculation.
+- Actual Pyodide 0.27.7: **20 passed** on the final ordinary wheel for inbound
+  unit and KML/MAP integration tests. This is WASM runtime evidence, not browser
+  Worker/UI or physical-device acceptance.
+- Legacy HTTP regression: **2 passed, 1 deselected**, excluding the unrelated
+  expensive production west-extension numeric solver case.
+- Release validator, version tests (**2 passed**), web typecheck, changed Python
+  Ruff and full mypy (**77 source files**) passed.
+- Chromium **1 passed** at the default 1280×720 viewport: click 小丸, restore draft
+  after reload, click the selected marker again, and confirm list occurrences.
+  Page title and absence of Vite error overlay passed; screenshot at
+  `/tmp/issue235-omaru-map.png` inspected. Two generic HTTP 404 console messages
+  were observed; target click/restoration flow passed. No layout was changed;
+  mobile/1100px workflow-position testing was not performed for this followup.
+- Browser plugin initialization failed with `sandboxCwd is not a local file URI`;
+  repository Playwright on existing host Chromium supplied the local click
+  regression. The initial E2E attempt connected before the replacement runtime
+  finished rebuilding and did not find the new marker; reruns after rebuild passed.
+- The same isolated Compose runtime was rebuilt with its existing named volume,
+  and `/healthz` returned `ok`, version 2.1.0. Primary runtime was untouched.
+
+GPT-6 Astra independently reviewed the read-only followup. It found one P2:
+returning the inbound grouping early skipped outbound grouping in a combined
+roundtrip. Prefix composition fixed it; a dedicated regression and Astra's
+lightweight reproduction confirmed both parents coexist with no missing or
+repeated source sections. Final review reported no remaining findings.
+
+One required clarification remains pending: outbound OMARU-first inputs currently
+use a straight physical RJFM-to-OMARU route with virtual RCA. Distinct courses via
+real UMK require changing geometry, DIST, weather and cruise ETE/fuel. The user
+has been asked whether to use real UMK (recommended) or retain the existing
+straight route. That conversion is not implemented or represented as completed.
+The already-physical outbound UMK route has explicit child courses. The separate
+direct OMARU-to-RJFM unresolved descent policy also remains excluded. Push, PR,
+merge, production publication and permission changes remain unperformed.

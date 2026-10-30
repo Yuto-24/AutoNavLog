@@ -40,6 +40,7 @@ class NavLogPhysicalLeg:
     adopted_distance_nm: float | None = None
     start_node_id: UUID | None = None
     end_node_id: UUID | None = None
+    show_child_courses: bool = False
     summary_true_course_deg: float | None = None
     summary_variation_deg_east: float | None = None
     summary_magnetic_course_deg: float | None = None
@@ -274,8 +275,10 @@ def _allocate_raw_largest_remainder_ticks(
     not proportionally normalize those units to the rounded total.
     """
 
-    if target_ticks < 0 or not exact_ticks or any(
-        not isfinite(value) or value < 0 for value in exact_ticks
+    if (
+        target_ticks < 0
+        or not exact_ticks
+        or any(not isfinite(value) or value < 0 for value in exact_ticks)
     ):
         return None
     allocated = [floor(value) for value in exact_ticks]
@@ -320,9 +323,14 @@ def _display_fixed_ete_combined(
     prior_display_cumulative: float | None,
     allocations: dict[int, int],
 ) -> tuple[NavLogDisplayCell, float | None]:
-    if prior_display_cumulative is None or any(
-        zone.sequence not in allocations for zone in zones
-    ):
+    allocations = dict(allocations)
+    for zone in zones:
+        if zone.sequence not in allocations:
+            seconds = zone.zone_ete_seconds.adopted()
+            if seconds is None:
+                return _unavailable("DISPLAY_ETE_SUBTOTAL_UNAVAILABLE"), None
+            allocations[zone.sequence] = int(round_half_up(seconds, 30.0))
+    if prior_display_cumulative is None:
         return _unavailable("DISPLAY_ETE_SUBTOTAL_UNAVAILABLE"), None
     display_total = sum(allocations[zone.sequence] for zone in zones)
     display_cumulative = prior_display_cumulative + display_total
@@ -363,12 +371,8 @@ def _display_fuel_combined(
     if prior_display_remaining_tenths is None:
         return _unavailable(fallback_reason), None
 
-    display_section_tenths = sum(
-        _fuel_tenths(value) for value in adopted if value is not None
-    )
-    display_remaining_tenths = (
-        prior_display_remaining_tenths - display_section_tenths
-    )
+    display_section_tenths = sum(_fuel_tenths(value) for value in adopted if value is not None)
+    display_remaining_tenths = prior_display_remaining_tenths - display_section_tenths
     exact_section = sum(value for value in adopted if value is not None)
     return (
         _display(
@@ -641,10 +645,7 @@ def _strip_checkpoint_prefix(label: str) -> str:
 
 def _same_effective(first: NavLogDisplayCell, second: NavLogDisplayCell) -> bool:
     if first.state == DisplayCellState.UNAVAILABLE or second.state == DisplayCellState.UNAVAILABLE:
-        return (
-            first.state == second.state
-            and first.reason_code == second.reason_code
-        )
+        return first.state == second.state and first.reason_code == second.reason_code
     first_value = first.effective_value
     second_value = second.effective_value
     if isinstance(first_value, float) and isinstance(second_value, float):
@@ -866,9 +867,8 @@ def build_navlog_display_rows(
     rows: list[NavLogDisplayRow] = []
     display_cumulative_distance_nm: float | None = 0.0
     display_cumulative_ete_seconds: float | None = 0.0
-    display_remaining_fuel_tenths: int | None = (
-        _fuel_tenths(total_usable_fuel_gal)
-        - _fuel_tenths(1.5 if run_up_included else 0.0)
+    display_remaining_fuel_tenths: int | None = _fuel_tenths(total_usable_fuel_gal) - _fuel_tenths(
+        1.5 if run_up_included else 0.0
     )
     eoc_boundary_pending = False
 
@@ -982,6 +982,10 @@ def build_navlog_display_rows(
             gs_cells = [candidate["gs"] for candidate in candidate_cells]
             parent_values["gs"] = gs_cells[0] if _all_same(gs_cells) else _blank()
 
+        if leg.show_child_courses and not is_departure_leg:
+            parent_values["tc"] = _blank()
+            parent_values["mc"] = _blank()
+
         append(
             NavLogDisplayRow(
                 section_id=leg.section_id,
@@ -1047,7 +1051,14 @@ def build_navlog_display_rows(
                 )
                 pa_kind, pa_candidate = _zone_pa(
                     zone,
-                    is_physical_endpoint=is_endpoint,
+                    is_physical_endpoint=(
+                        is_endpoint
+                        or (
+                            leg.show_child_courses
+                            and zone_index + 1 < len(zones)
+                            and zones[zone_index + 1].section_id != zone.section_id
+                        )
+                    ),
                     is_vrep_endpoint=is_vrep,
                     estimated_altitudes=estimated_altitudes,
                 )
@@ -1072,7 +1083,9 @@ def build_navlog_display_rows(
                     "wca",
                     "mh",
                 ):
-                    if eoc_wind_boundary and name in {"wind", "wca", "mh"}:
+                    if (leg.show_child_courses and name in {"tc", "mc"}) or (
+                        eoc_wind_boundary and name in {"wind", "wca", "mh"}
+                    ):
                         # EOC changes the applicable wind.  Preserve a calculated
                         # UNAVAILABLE state too; it must not become an inherited blank.
                         shown[name] = candidates[name]

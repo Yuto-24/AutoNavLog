@@ -1,3 +1,4 @@
+import rjfmReference from "../../../data/reference/rjfm/rjfm-reference.json";
 import { useMemo, useState } from "react";
 import { clusterCandidates, referencePoints, type ReferencePointSnapshot } from "../referencePoints";
 import { CircleMarker, Marker, Polyline, Tooltip, useMapEvents } from "react-leaflet";
@@ -24,11 +25,12 @@ export interface MapRouteBuilderProps {
   onAirport: (airport: AirportOption) => void;
   onReference: (reference: ReferencePointSnapshot) => void;
   onPoint: (latitude: number, longitude: number) => void;
+  onNamedPoint: (name: string, latitude: number, longitude: number) => void;
   onRemove: (id: string) => void;
   onClear: () => void;
   onConfirm: () => void;
 }
-export function MapDraftLayers({ points, airports, busy, onAirport, onReference, onPoint }: MapRouteBuilderProps) {
+export function MapDraftLayers({ points, airports, busy, onAirport, onReference, onPoint, onNamedPoint }: MapRouteBuilderProps) {
   const [zoom, setZoom] = useState<number | null>(null);
   const map = useMapEvents({
     zoomend: () => setZoom(map.getZoom()),
@@ -37,13 +39,17 @@ export function MapDraftLayers({ points, airports, busy, onAirport, onReference,
     },
   });
   const currentZoom = zoom ?? map.getZoom();
+  const omaru = rjfmReference.points.OMARU.position;
+  const omaruSelected = points.some(point => point.latitude_deg === omaru.latitude_deg && point.longitude_deg === omaru.longitude_deg);
   const selectedIds = new Set(points.flatMap(point => point.airport_id ? [`airport:${point.airport_id}`]
     : point.reference_snapshot ? [point.reference_snapshot.reference_id] : []));
-  type Candidate = { id: string; latitude: number; longitude: number; airport?: AirportOption; reference?: ReferencePointSnapshot };
+  type Candidate = { id: string; latitude: number; longitude: number; airport?: AirportOption; reference?: ReferencePointSnapshot; routePoint?: boolean };
   const candidates = useMemo<Candidate[]>(() => [
+    { id: "RJFM:OMARU", latitude: omaru.latitude_deg, longitude: omaru.longitude_deg, routePoint: true },
     ...airports.map(airport => ({ id: `airport:${airport.id}`, latitude: airport.latitudeDeg, longitude: airport.longitudeDeg, airport })),
     ...referencePoints.map(reference => ({ id: reference.reference_id, latitude: reference.latitude_deg, longitude: reference.longitude_deg, reference })),
   ], [airports]);
+  if (omaruSelected) selectedIds.add("RJFM:OMARU");
   const groups = clusterCandidates(candidates.filter(candidate => !selectedIds.has(candidate.id)).map(candidate => ({
     ...candidate, ...map.project([candidate.latitude, candidate.longitude], currentZoom),
   })));
@@ -58,18 +64,20 @@ export function MapDraftLayers({ points, airports, busy, onAirport, onReference,
       if (airport) selected.set(`airport:${airport.id}`, { id: `airport:${airport.id}`, latitude: point.latitude_deg, longitude: point.longitude_deg, airport });
     }
   }
+  if (omaruSelected) selected.set("RJFM:OMARU", { id: "RJFM:OMARU", latitude: omaru.latitude_deg, longitude: omaru.longitude_deg, routePoint: true });
   const renderPoint = (candidate: Candidate) => {
-    const { airport, reference } = candidate;
-    const title = airport ? `空港 ${airport.icao} ${airport.name}` : `VREP ${reference!.name} ${reference!.name_ja}`;
+    const { airport, reference, routePoint } = candidate;
+    const title = routePoint ? "小丸" : airport ? `空港 ${airport.icao} ${airport.name}` : `VREP ${reference!.name} ${reference!.name_ja}`;
     const icon = candidateIcons[airport ? "airport" : "vrep"][selectedIds.has(candidate.id) ? "selected" : "unselected"];
     return <Marker key={candidate.id} icon={icon}
       position={[candidate.latitude, candidate.longitude]} title={title}
       bubblingMouseEvents={false} eventHandlers={{ click: () => {
         if (busy || points.length >= 500) return;
         if (airport) onAirport(airport);
+        else if (points.length > 0 && routePoint) onNamedPoint("小丸", candidate.latitude, candidate.longitude);
         else if (points.length > 0 && reference) onReference(reference);
       } }}>
-      <Tooltip>{airport ? `${airport.icao} ${airport.name}` : `${reference!.name} ${reference!.name_ja}`}</Tooltip>
+      <Tooltip>{routePoint ? "小丸" : airport ? `${airport.icao} ${airport.name}` : `${reference!.name} ${reference!.name_ja}`}</Tooltip>
     </Marker>;
   };
   return <>

@@ -186,7 +186,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
             for row in calculated["outcome"]["display_rows"]
             if row["row_type"] == "PHYSICAL_LEG_SUMMARY"
             and row["from_node_id"] == physical_node_ids[1]
-            and row["to_node_id"] == physical_node_ids[2]
+            and row["to_node_id"] == physical_node_ids[3]
         )
         assert navlog_inbound["pa"]["text"] == "4500"
         inbound_guidance = calculated["outcome"]["rjfm_inbound_guidance"]

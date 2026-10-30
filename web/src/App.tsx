@@ -1582,6 +1582,9 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       latitude_deg: reference.latitude_deg, longitude_deg: reference.longitude_deg,
       reference_snapshot: structuredClone(reference),
     }]),
+    onNamedPoint: (name: string, latitude: number, longitude: number) => setMapRouteDraft(current => current.length === 0 || current.length >= 500 ? current : [...current, {
+      id: crypto.randomUUID(), name, airport_id: null, latitude_deg: latitude, longitude_deg: longitude,
+    }]),
     onPoint: (latitude: number, longitude: number) => setMapRouteDraft(current => [...current, {
       id: crypto.randomUUID(), name: nextWaypointName(current), airport_id: null,
       latitude_deg: latitude, longitude_deg: longitude,

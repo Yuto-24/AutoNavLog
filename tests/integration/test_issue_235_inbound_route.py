@@ -9,7 +9,6 @@ import pytest
 
 from autonavlog.domain.calculation import CalculationOutcome
 from autonavlog.local import LocalApplication
-from autonavlog.nav.geodesy import geodesic_leg
 
 ROOT = Path(__file__).resolve().parents[2]
 INPUT = json.loads((ROOT / "tests/fixtures/issue_117_ftd.json").read_text())
@@ -117,24 +116,28 @@ def test_missing_inbound_umk_reaches_navlog_and_survives_restore_and_recalculati
             for row in calculated["outcome"]["display_rows"]
             if row["row_type"] == "PHYSICAL_LEG_SUMMARY"
         ]
-        for start, end in zip(nodes[1:3], nodes[2:4], strict=True):
-            row = next(
-                row
-                for row in rows
-                if row["from_node_id"] == start["id"] and row["to_node_id"] == end["id"]
+        parent = next(row for row in rows if row["from_node_id"] == nodes[1]["id"])
+        assert parent["to_node_id"] == nodes[-2]["id"]
+        assert parent["tc"]["state"] == "BLANK"
+        children = [
+            row
+            for row in calculated["outcome"]["display_rows"]
+            if row["row_type"] == "CALCULATION_ZONE"
+            and row["section_id"] in {section["id"] for section in project["sections"][1:3]}
+        ]
+        for child in children:
+            zone = next(
+                z for z in outcome.sections if z.sequence == child["source_result_sequence"]
             )
-            geometry = geodesic_leg(
-                start["latitude_deg"],
-                start["longitude_deg"],
-                end["latitude_deg"],
-                end["longitude_deg"],
+            assert child["tc"]["effective_value"] == pytest.approx(zone.true_course_deg.adopted())
+            assert child["mc"]["effective_value"] == pytest.approx(
+                zone.magnetic_course_deg.adopted()
             )
-            assert row["tc"]["effective_value"] == pytest.approx(geometry.initial_true_course_deg)
-            assert sum(
-                zone.zone_distance_nm.adopted() or 0
-                for zone in outcome.sections
-                if str(zone.section_id) == row["section_id"]
-            ) == pytest.approx(geometry.distance_nm)
+            assert child["tc"]["state"] == "DISPLAY_VALUE"
+        assert len({row["tc"]["effective_value"] for row in children}) >= 2
+        assert float(parent["ete"]["text"].split(" / ")[0]) == pytest.approx(
+            sum(float(row["ete"]["text"]) for row in children)
+        )
         eoc = [point for point in calculated["outcome"]["derived_points"] if point["type"] == "EOC"]
         assert len(eoc) == 1
         assert eoc[0]["latitude_deg"] == nodes[2]["latitude_deg"]

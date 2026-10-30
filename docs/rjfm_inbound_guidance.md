@@ -49,3 +49,25 @@ The shared geometry utility accepts sampled route polylines only when every WGS8
 Route intervals are sampled along the WGS84 geodesic and then checked as straight latitude/longitude chords against straight latitude/longitude polygon edges. For each interval, the clearance reported by the local equirectangular diagnostic is reduced by the source-declared boundary model error (0.02 NM for the normalized KS4-3 arc) plus `d²/(8 × 3400 NM) + 0.01 NM`, where `d` is the interval length. The first term is a scale estimate for the three-dimensional chord sagitta; it is not a strict upper bound for the projected latitude/longitude chord. The fixed 0.01 NM term is the declared blocking numerical rejection buffer for this sampling approximation and local arithmetic. A guarded clearance at or below zero is treated as an intersection, including a near-tangent. The 0.01 NM margin does not assert source-chart positional accuracy, which remains a prerequisite for a verified primary boundary.
 
 The clearance value is a local planar approximation for diagnostics. Intersection checks preserve the required straight latitude/longitude edge model, but a future source with materially larger geographic extent or a different edge interpretation must be rejected or receive a separately reviewed geometry model.
+
+## Parent and child presentation (Issue #235 followup)
+
+The OMARU-to-final-VREP span is displayed as one parent Leg, retaining all
+physical source section IDs and child calculation zones. Child TC/MC cells show
+their adopted segment courses explicitly, as do the existing RJFM-to-OMARU
+parent's children. No new manual course override is introduced. The inbound
+parent leaves TC/MC blank because it spans multiple bearings. Its DIST, ETE and
+fuel are sums of displayed children; descent ETE still uses the once-rounded
+operational profile allocation, with cruise time added separately. Both parents
+can coexist in one roundtrip Project. VREP altitude and physical intermediate
+endpoint altitude presentation remain intact.
+
+The draft map includes a clickable 小丸 marker at the bundled OMARU coordinate.
+It creates an ordinary MAP route point, not a fabricated AIP VREP snapshot.
+Repeated clicks remain distinct occurrences, matching existing VREP behavior.
+The user-provided label 小丸 is reused.
+
+Outbound OMARU-first routes still use the existing straight physical geometry
+with a virtual RCA. Converting these to a real UMK detour changes DIST, weather
+and cruise ETE/fuel and awaits explicit clarification; displaying different
+courses without the corresponding physical geometry is not implemented.
