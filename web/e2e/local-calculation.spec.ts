@@ -163,8 +163,9 @@ for (const corrupt of [false, true]) {
       });
     }
     await page.goto("/");
-    // Asset failures can prevent the planning/import UI from starting.
-    await expect(page.getByRole("alert")).toContainText("処理を実行できませんでした。画面を再読み込みしてください。");
+    // Asset failures can prevent the planning/import UI from starting; cold Pyodide
+    // initialization precedes the injected asset request.
+    await expect(page.getByRole("alert")).toContainText("処理を実行できませんでした。画面を再読み込みしてください。", { timeout: 90_000 });
     expect(injected).toBe(true);
     expect(apiRequests).toEqual([]);
   });
