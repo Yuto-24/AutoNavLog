@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { enterImportWorkflow } from "./helpers/importWorkflow";
 
 test("production artifact shows storage limits and uses no Service Worker", async ({ page, context }) => {
   const api: string[] = [];
@@ -7,6 +8,7 @@ test("production artifact shows storage limits and uses no Service Worker", asyn
   });
   await context.route("**/api/**", route => route.abort());
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /^お知らせ/ }).click();
   await expect(page.getByText(/容量不足による自動削除/)).toBeVisible();
@@ -17,6 +19,7 @@ test("production artifact shows storage limits and uses no Service Worker", asyn
 test("production artifact rejects a different build manifest and recovers on reload", async ({ page, context }) => {
   await context.route("**/api/**", route => { throw new Error("Unexpected Legacy request: " + route.request().url()); });
   await page.goto("/");
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await page.getByLabel("FUEL gal", { exact: true }).fill("76");
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem("autonavlog.working-session.v1"))).toContain("76");
@@ -45,6 +48,7 @@ test("production artifact calculates with its served real MSM feed and retains N
   await context.route(release.configuration.VITE_TAF_PROXY_URL + "*",
     route => route.fulfill({ status: 503, body: "quota fixture" }));
   await page.goto("/");
+  await enterImportWorkflow(page);
   const departure = new Date(Date.now() + 10 * 3600_000).toISOString(); // JST, one hour ahead
   await page.getByLabel("DATE", { exact: true }).fill(departure.slice(0, 10));
   await page.getByLabel("ETD JST", { exact: true }).fill(departure.slice(11, 16));
