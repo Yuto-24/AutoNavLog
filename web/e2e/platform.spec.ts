@@ -87,7 +87,8 @@ test(`pending platform Paste confirmation can be cancelled and recovered with fi
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   } else await open(page);
-  await expect(page.getByText("ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。")).toBeVisible();
+  await expect(page.getByText("ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。")).toHaveCount(0);
+  await expect(paste(page)).toBeEnabled();
   await paste(page).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await expect(dialog).toBeHidden();

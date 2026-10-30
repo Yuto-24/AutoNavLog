@@ -1209,7 +1209,7 @@ export function RouteWorkspace({
                         title={
                           phaseEditing
                             ? "CLIMBまたはDESCENTを選ぶと同Phaseの基準Legが移動します。"
-                            : "変更する場合はPHASE列の「変更」を押してください。"
+                            : undefined
                         }
                         value={section.phase}
                         onPointerDown={(event) => {

@@ -89,7 +89,6 @@ export function StatusPanel({
           <AlertTriangle aria-hidden="true" size={18} />
           <p>
             <strong>開発用気象モード</strong>
-            固定気象で画面と計算を試せます。
           </p>
         </div>
       )}

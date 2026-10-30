@@ -687,7 +687,6 @@ export function NavLogTable({
       <div className="nav-log-heading">
         <div>
           <h2 id="nav-log-title">NAV LOG</h2>
-          <p>入力用の色の欄は直接編集でき、入力を止めてから約0.7秒後に自動再計算されます。</p>
         </div>
         <span>予報実行ID: {outcome.selected_forecast_run_id ?? "未選択"}</span>
       </div>
@@ -708,7 +707,6 @@ export function NavLogTable({
           <Plus aria-hidden="true" size={15} />
           VOR/DME列を追加
         </button>
-        <span>各列で基準局を選び、不要な列は見出しから削除できます。</span>
       </div>
       <div className="table-scroll nav-log-scroll">
         <div className="nav-log-tables">

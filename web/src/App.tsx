@@ -1674,13 +1674,11 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           <h2>経路作成</h2>
           {pastedKml && !pasteOpen && <button className="secondary-button" onClick={() => setPasteOpen(true)}>貼り付けたKMLの編集を続ける</button>}
           {pendingKmz && !kmzOpen && <button className="secondary-button" onClick={() => setKmzOpen(true)}>KMZからの選択を続ける</button>}
-          <p>FROMの空港から飛行順に地点を選択します。</p>
           <button className="secondary-button" disabled={busy} onClick={() => {
             if (confirmDiscardMapDraft()) { setMapRouteDraft([]); setLegacyRouteInput(true); }
           }}>KML/KMZから開始</button>
           <FileInput busy={busy} onFile={handleFile} inputRef={routeFileInput} />
           <button className="secondary-button" disabled={busy} onClick={() => void handlePasteImport("clipboard")}>KMLを貼り付け</button>
-          <p className="quiet-state">ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。</p>
         </aside> : <ImportPlanPanel
           panelRef={planningPanelRef}
           importState={state.import}
