@@ -297,13 +297,17 @@ class AutoNavLogWebApplication:
             if recovery.last_calculation is not None:
                 self._assert_project_owner(recovery.last_calculation.project, session.owner_id)
             session.last_calculation = recovery.last_calculation
-            session.project = recovery.project
+            session.project = (
+                None if recovery.project is None else recovery.project.model_copy(deep=True)
+            )
             session.outcome = recovery.outcome
             session.destination_wind = recovery.destination_wind
             session.import_result = recovery.import_result
             session.import_filename = recovery.import_filename
             session.readiness = None
             try:
+                if session.project is not None:
+                    self._normalize_rjfm_departure(session.project)
                 return self.present(session)
             except Exception as error:
                 session.last_calculation = None
@@ -963,6 +967,9 @@ class AutoNavLogWebApplication:
                 None if arrival is None else arrival.adopted_altitude_ft_msl
             ),
         )
+        # Inbound normalization may add a second UMK and change its controlled
+        # sections. Seal the departure fingerprint against the completed route.
+        normalize_rjfm_departure_plan(project, self.rjfm_reference_pack)
 
     def _with_rjfm_guidance(
         self,

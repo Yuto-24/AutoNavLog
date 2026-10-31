@@ -302,7 +302,7 @@ test("Pyodide core: saved Run, UMK, OMARU, inbound, overrides and Check Point", 
   expect(actual[0].outcome.selected_forecast_run_id).toBe("20260912000000");
   expect(actual[0].outcome.issues.some((issue: any) => issue.code === "FORECAST_UPDATE_AVAILABLE")).toBe(true);
   expect(actual[1].outcome.sections.some((zone: any) => zone.to_name === "UMK/RCA")).toBe(true);
-  expect(actual[2].outcome.sections.some((zone: any) => zone.to_name === "UMK/RCA（仮定）")).toBe(true);
+  expect(actual[2].outcome.sections.some((zone: any) => zone.to_name === "UMK/RCA")).toBe(true);
   expect(actual[3].outcome.rjfm_inbound_guidance).not.toBeNull();
   expect(actual[4].outcome.check_point_projections).toHaveLength(1);
 });

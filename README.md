@@ -226,7 +226,7 @@ Local Static Webでは[TAF専用Serverless Proxy](docs/taf_proxy.md)を使いま
 
 RJFMから大分方面へ北上する経路で、最初のWaypointがUMKまたはOMARUの参照座標から
 1.0 NM以内なら、UMK 5,500 ftのRCA例外を自動適用します。経路表と内部Route Graphは
-UMKとOMARUを保持しますが、NAV LOGでは `RJFM → OMARU` を1つの親Legとし、その中に
+UMKとOMARUを保持し、UMK省略時も実UMKを自動補完します。NAV LOGでは `RJFM → OMARU` を1つの親Legとし、その中に
 `UMK/RCA 5,500 ft` の境界を表示します。親LegのDIST・ETE・燃料は子区間の合計、
 TC・VAR・MCはRJFMからOMARUへの直行測地線値です。
 

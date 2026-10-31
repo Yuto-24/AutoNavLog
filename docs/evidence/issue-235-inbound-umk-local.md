@@ -133,3 +133,66 @@ straight route. That conversion is not implemented or represented as completed.
 The already-physical outbound UMK route has explicit child courses. The separate
 direct OMARU-to-RJFM unresolved descent policy also remains excluded. Push, PR,
 merge, production publication and permission changes remain unperformed.
+
+## 2026-10-31: explicit authorization for outbound physical UMK completion
+
+The user clarified in Slack message `1793418475.712199` that RJFM → 小丸 input
+must automatically insert real UMK, with separate child distance/course values,
+while the climb time continues to use the existing RCA/POH rule rather than
+DIST/GS. This supersedes the earlier pending clarification recorded above.
+
+OMARU-first normalization now materializes one reference UMK before OMARU and
+reuses the existing `UMK_PHYSICAL` calculation path. The RJFM → OMARU parent
+remains; its children use real physical DIST/TC/MC. POH 5,500-ft climb ETE and
+fuel are unchanged in policy; independent runway/OVER FIELD maneuver diagnostics
+are not added to physical totals. Generated coordinates retain reference source
+and uncertainty. Existing explicit UMK names, coordinates and manual inputs are
+preserved. Generated IDs remain stable, and removal restores original values
+only when their original adjacency is restored. Saved CP links are reconciled
+with the nearest valid abeam projection on the split spans and merged back on
+removal, preserving CP names and coordinates.
+
+Both generated outbound and inbound UMK occurrences survive in a combined
+roundtrip. Departure fingerprints are sealed after inbound normalization.
+Working recovery clones and normalizes the draft without replay, calculation
+or disk autosave: an old virtual-route Last Calculation is retained as stale;
+recalculation produces the new physical route. Already-current physical-route
+restoration remains current and idempotent.
+
+Final verification on the additional diff from `7eba3e40`:
+
+- **121 passed**: focused inbound/outbound normalization, child display/geometry,
+  POH ETE/fuel, explicit UMK inputs, roundtrip, CP persistence, map route and facade
+  regression. KML/MAP omitted-UMK inputs numerically match explicit-UMK inputs
+  for child DIST/TC/MC/ETE/fuel; current restoration/recalculation and stale legacy
+  virtual restoration are covered.
+- **36 passed, 1 deselected**: existing Local calculation and Legacy inbound HTTP
+  regression. The unrelated expensive production numeric guidance test remained
+  excluded. An initial sandbox run stalled at HTTP tests and was interrupted;
+  the host-capable sequential run passed, including the final recovery changes.
+- **46 passed** in actual Pyodide 0.27.7 using the ordinary wheel: inbound/outbound
+  unit and KML/MAP application integration tests, including legacy recovery.
+  This is WASM runtime validation, not the full browser Worker suite.
+- Existing Chromium map click/reload/repeated-click regression **1 passed** on
+  the isolated runtime. Browser-plugin initialization remained unavailable as
+  recorded above; repository Playwright was used. Generic asset 404 console
+  messages remained; the target interaction passed. The larger browser core
+  parity test's old virtual-label expectation was updated, but that whole test
+  was not rerun; focused real-Pyodide coverage supplied the runtime evidence.
+- Ruff on changed Python files, full mypy (**77 source files**), release validator,
+  version tests (**2 passed**) and web typecheck passed. VERSION/CHANGELOG were
+  unchanged; no release preparation is included.
+- The same dedicated Compose runtime on port **33636** was rebuilt/recreated
+  with volume `autonavlog-wt-f34e8230_autonavlog-data` retained. `/healthz` is
+  `ok` / `2.1.0`, Docker health is healthy, restart is no. Live synthetic KML
+  confirm/update verified real UMK coordinates, two 5,500-ft spans, physical mode,
+  stable identities and no duplicate insertion. No primary runtime was touched.
+
+GPT-6 Astra independently reviewed the Sol implementation in a read-only context.
+It found and then re-reviewed fixes for generated outbound UMK suppressing inbound
+completion, and saved climb CPs retaining an inappropriate section link. Astra
+confirmed both resolved with lightweight reproductions and no remaining findings.
+It separately reviewed the legacy working-recovery normalization fix with no
+findings. No external reviewer request, push, PR, merge, production publication,
+permission change or private-session/private-database access was performed.
+Direct OMARU → RJFM unresolved descent policy remains outside this change.

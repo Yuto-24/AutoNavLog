@@ -3,15 +3,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 from hmac import compare_digest
+from uuid import uuid4
 
+from autonavlog.application.checkpoints import project_check_points
 from autonavlog.application.rjfm_coordinate_matcher import (
     TRIGGER_TOLERANCE_NM,
     coordinate_distance_nm,
     coordinate_matches_reference,
 )
-from autonavlog.domain.enums import FlightPhase, RouteNodeNameSource, RouteNodeRole
+from autonavlog.domain.enums import (
+    FlightPhase,
+    RouteNodeNameSource,
+    RouteNodeRole,
+    VisualReferenceRole,
+)
 from autonavlog.domain.planning import (
     RJFM_DEPARTURE_RULE_VERSION,
+    CheckPointProjection,
     PersistedUiState,
     RjfmCoordinate,
     RjfmDeparturePlan,
@@ -29,6 +37,8 @@ RJFM_INPUT_MODE_UMK_TO_OMARU_FIXED = "RJFM_UMK_TO_OMARU_FIXED"
 RJFM_INPUT_MODE_PARENT_CONTAINS_UMK_FIXED = "RJFM_PARENT_CONTAINS_UMK_FIXED"
 _ORIGINAL_SECTIONS_METADATA_KEY = "rjfm_departure_exception_original_sections"
 _ORIGINAL_NODE_OVERRIDE_METADATA_KEY = "rjfm_departure_exception_original_node_override"
+_UMK_SOURCE = "RJFM_DEPARTURE_UMK:"
+_UMK_GEOMETRY_KEY = "rjfm_departure_umk_original_geometry"
 
 
 @dataclass(frozen=True)
@@ -51,6 +61,8 @@ def apply_rjfm_departure_exception(
     needed by the calculation and guidance services.
     """
 
+    _restore_original_sections(project)
+    _reconcile_departure_umk(project, references)
     if project.departure_airport_id.strip().upper() != "RJFM":
         _deactivate_exception(project)
         return None
@@ -72,11 +84,7 @@ def apply_rjfm_departure_exception(
         _deactivate_exception(project)
         return None
 
-    trigger = (
-        RjfmDepartureTrigger.UMK
-        if umk_gap <= omaru_gap
-        else RjfmDepartureTrigger.OMARU
-    )
+    trigger = RjfmDepartureTrigger.UMK if umk_gap <= omaru_gap else RjfmDepartureTrigger.OMARU
     _normalize_physical_reference_name(
         first,
         "UMK" if trigger == RjfmDepartureTrigger.UMK else "OMARU",
@@ -92,12 +100,13 @@ def apply_rjfm_departure_exception(
         )
         # The trigger node is the authoritative KML UMK even when its name is
         # absent or misspelled.
-        umk = RjfmCoordinate(
-            latitude_deg=first.latitude_deg,
-            longitude_deg=first.longitude_deg,
-            source="KML:UMK",
-            estimated_error_nm=0.0,
-        )
+        if not first.source.startswith(_UMK_SOURCE):
+            umk = RjfmCoordinate(
+                latitude_deg=first.latitude_deg,
+                longitude_deg=first.longitude_deg,
+                source="KML:UMK",
+                estimated_error_nm=0.0,
+            )
         omaru_index = _ensure_omaru_after_umk(project, omaru, references.revision)
         nodes = project.ordered_nodes()
         sections = project.ordered_sections()
@@ -151,6 +160,120 @@ def apply_rjfm_departure_exception(
     )
     _store_plan(project, plan)
     return plan
+
+
+def _reconcile_departure_umk(project: Project, references: RjfmPlanReferences) -> None:
+    """Materialize an omitted outbound UMK without altering the POH-time policy."""
+    nodes = project.ordered_nodes()
+    sections = project.ordered_sections()
+    if (
+        len(nodes) < 2
+        or len(sections) != len(nodes) - 1
+        or any(
+            section.from_node_id != start.id or section.to_node_id != end.id
+            for section, start, end in zip(sections, nodes[:-1], nodes[1:], strict=True)
+        )
+    ):
+        return
+    generated = [node for node in nodes if node.source.startswith(_UMK_SOURCE)]
+    active = project.departure_airport_id.strip().upper() == "RJFM"
+    if (
+        active
+        and len(generated) == 1
+        and nodes[1].id == generated[0].id
+        and len(nodes) > 2
+        and _distance_to(nodes[2], references.omaru) <= TRIGGER_TOLERANCE_NM
+    ):
+        generated[0].latitude_deg = references.umk.latitude_deg
+        generated[0].longitude_deg = references.umk.longitude_deg
+        generated[0].source = f"{_UMK_SOURCE}{references.revision}"
+        return
+    for node in generated:
+        incoming = next((s for s in sections if s.to_node_id == node.id), None)
+        outgoing = next((s for s in sections if s.from_node_id == node.id), None)
+        if incoming is not None and outgoing is not None:
+            outgoing.from_node_id = incoming.from_node_id
+            for reference in project.visual_references:
+                if reference.linked_section_id == incoming.id:
+                    reference.linked_section_id = outgoing.id
+        sections = [
+            s
+            for s in sections
+            if s is not incoming and s.from_node_id != node.id and s.to_node_id != node.id
+        ]
+        for index, section in enumerate(sections):
+            section.sequence = index
+        project.sections = sections
+        nodes.remove(node)
+        for index, item in enumerate(nodes):
+            item.sequence = index
+        project.route_nodes = nodes
+    stored = project.metadata.pop(_UMK_GEOMETRY_KEY, None)
+    if isinstance(stored, dict):
+        origin = next((n for n in nodes if str(n.id) == stored.get("node_id")), None)
+        if origin is not None and any(
+            s.from_node_id == origin.id and str(s.to_node_id) == stored.get("successor_id")
+            for s in sections
+        ):
+            origin.manual_true_course_deg = stored.get("manual_true_course_deg")
+            origin.manual_distance_nm = stored.get("manual_distance_nm")
+    if (
+        not active
+        or len(nodes) < 2
+        or _distance_to(nodes[1], references.omaru) > TRIGGER_TOLERANCE_NM
+    ):
+        return
+    origin = nodes[0]
+    remainder = sections[0]
+    project.metadata[_UMK_GEOMETRY_KEY] = {
+        "node_id": str(origin.id),
+        "successor_id": str(nodes[1].id),
+        "manual_true_course_deg": origin.manual_true_course_deg,
+        "manual_distance_nm": origin.manual_distance_nm,
+    }
+    origin.manual_true_course_deg = None
+    origin.manual_distance_nm = None
+    umk = RouteNode(
+        sequence=1,
+        name="UMK",
+        name_source=RouteNodeNameSource.GENERATED,
+        latitude_deg=references.umk.latitude_deg,
+        longitude_deg=references.umk.longitude_deg,
+        role=RouteNodeRole.ROUTE_POINT,
+        source=f"{_UMK_SOURCE}{references.revision}",
+    )
+    nodes.insert(1, umk)
+    for index, node in enumerate(nodes):
+        node.sequence = index
+    project.route_nodes = nodes
+    incoming = remainder.model_copy(deep=True, update={"id": uuid4(), "to_node_id": umk.id})
+    remainder.from_node_id = umk.id
+    sections.insert(0, incoming)
+    for index, section in enumerate(sections):
+        section.sequence = index
+    project.sections = sections
+    # A saved CP on the old direct leg belongs to whichever new physical span
+    # has its nearest valid abeam projection. Keep its coordinate/name intact.
+    for reference in project.visual_references:
+        if (
+            reference.role != VisualReferenceRole.CHECK_POINT
+            or reference.linked_section_id != remainder.id
+        ):
+            continue
+        candidates: list[CheckPointProjection] = []
+        for section in (incoming, remainder):
+            probe = project.model_copy(
+                update={
+                    "visual_references": [
+                        reference.model_copy(update={"linked_section_id": section.id})
+                    ]
+                }
+            )
+            candidates.extend(project_check_points(probe).projections)
+        if candidates:
+            reference.linked_section_id = min(
+                candidates, key=lambda item: item.cross_track_distance_nm
+            ).section_id
 
 
 def _distance_to(node: RouteNode, coordinate: RjfmCoordinate) -> float:
@@ -228,7 +351,7 @@ def _kml_coordinate(
     if index is None:
         return fallback
     node = nodes[index]
-    if _is_synthetic_omaru(node):
+    if _is_synthetic_omaru(node) or node.source.startswith(_UMK_SOURCE):
         return fallback
     return RjfmCoordinate(
         latitude_deg=node.latitude_deg,

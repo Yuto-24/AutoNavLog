@@ -67,7 +67,14 @@ It creates an ordinary MAP route point, not a fabricated AIP VREP snapshot.
 Repeated clicks remain distinct occurrences, matching existing VREP behavior.
 The user-provided label 小丸 is reused.
 
-Outbound OMARU-first routes still use the existing straight physical geometry
-with a virtual RCA. Converting these to a real UMK detour changes DIST, weather
-and cruise ETE/fuel and awaits explicit clarification; displaying different
-courses without the corresponding physical geometry is not implemented.
+Following the user's explicit 2026-10-31 instruction, outbound OMARU-first
+routes now materialize a reference UMK and use the existing physical-UMK policy.
+Child DIST/TC/MC follow each physical segment, while climb ETE and fuel retain
+the POH 5,500-ft values (DIST/GS does not determine climb ETE). Explicit UMK
+inputs are retained. Generated UMK provenance keeps the reference uncertainty.
+Saved CP links follow the nearest valid abeam projection on the new spans and
+return to the original section when the generated point is removed. Departure
+fingerprints are sealed after inbound normalization so a roundtrip can retain
+both generated UMK occurrences and both parent Legs. Independent RWY/OVER FIELD
+maneuver diagnostics remain separate from physical route totals. Direct-return
+descent endpoint policy is still excluded.

@@ -118,6 +118,7 @@ def _reconcile_umk(project: Project, references: RjfmInboundReferences) -> None:
             index
             for index, node in enumerate(nodes)
             if not _is_synthetic_umk(node)
+            and not node.source.startswith("RJFM_DEPARTURE_UMK:")
             and coordinate_matches_reference(
                 node.latitude_deg,
                 node.longitude_deg,

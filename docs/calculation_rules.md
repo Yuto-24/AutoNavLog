@@ -91,7 +91,7 @@ RJFMから大分方面へ北上する一部経路では、NavMateのRJFM専用Po
 - UMK / OMARUは名称ではなく参照座標と距離で識別します。
 - 適用中はRJFM→UMKをCLIMB、UMK→OMARUをCRUISEとして扱い、目標高度を5,500 ft MSLに固定します。
 - 経路にOMARUがない場合は、条件を満たす経路へOMARUを補います。
-- OMARUから開始する経路では物理UMKを挿入せず、参照位置を仮想RCAとして扱います。
+- RJFMの次がOMARUの経路では実UMKを自動挿入し、RJFM→UMKとUMK→OMARUを物理区間として計算します。明示UMKは名称・座標・手入力を保持し、重複させません。
 - NAV LOG主表ではRJFM→OMARUを1つの親Legとして表示し、UMK/RCAを内部境界として扱います。
 - RJFM→UMK/RCAのETEと燃料は、同じ気温補正を適用したPOHの5,500 ft到達値を優先します。この専用区間では`DIST / GS = ETE`を要求しません。
 - 利用者が取り込んだKMLに対応するUMK / OMARU座標がある場合は、その座標を同梱参照値より優先します。
