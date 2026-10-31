@@ -106,6 +106,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   const latestSession = useRef<ApplicationSession | null>(null);
   const restoredPattern = useRef<string | null>(null);
   const lifecycle = useRef(0);
+  const calculationInFlight = useRef(false);
   const mounted = useRef(true);
   const restoredCandidate = useRef<string | null>(null);
   const [kmzOpen, setKmzOpen] = useState(false);
@@ -124,7 +125,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   const [navLogEditStatus, setNavLogEditStatus] = useState<{
     kind: "idle" | "pending" | "saving" | "saved" | "error";
     message: string;
-  }>({ kind: "idle", message: "入力欄を編集すると自動再計算します。" });
+  }>({ kind: "idle", message: "" });
   const [busy, setBusy] = useState(false);
   const [activeOperation, setActiveOperation] = useState<ActiveOperation>(null);
   const [calculationProgress, setCalculationProgress] = useState({
@@ -228,7 +229,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     setNavLogEditVersion(0);
     setNavLogEditStatus({
       kind: "idle",
-      message: "入力欄を編集すると自動再計算します。",
+      message: "",
     });
   };
 
@@ -1363,7 +1364,9 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     return () => window.clearTimeout(timeout);
   }, [altitudeInputs, application, form, navLogDrafts, navLogEditVersion, state?.outcome, state?.project]);
 
-  const handleCalculate = async () => {
+  const handleCalculate = async (roundingMode?: boolean) => {
+    if (busy || calculationInFlight.current) return;
+    calculationInFlight.current = true;
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
     scrollToCalculatedNavLogRef.current = null;
@@ -1371,7 +1374,10 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     const calculated = await run(async () => {
       const saved = await flushDraftAutosave(true);
       if (!saved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-      const next = await application.calculate(setCalculationProgress);
+      const next = await application.calculate(
+        setCalculationProgress,
+        roundingMode === undefined ? undefined : { roundingMode },
+      );
       scrollToCalculatedNavLogRef.current = next.outcome;
       return next;
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
@@ -1379,6 +1385,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       operation: "calculate",
     });
     if (!calculated?.outcome) scrollToCalculatedNavLogRef.current = null;
+    calculationInFlight.current = false;
   };
 
   const handleSave = async (name: string) => {
@@ -1582,6 +1589,9 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       latitude_deg: reference.latitude_deg, longitude_deg: reference.longitude_deg,
       reference_snapshot: structuredClone(reference),
     }]),
+    onNamedPoint: (name: string, latitude: number, longitude: number) => setMapRouteDraft(current => current.length === 0 || current.length >= 500 ? current : [...current, {
+      id: crypto.randomUUID(), name, airport_id: null, latitude_deg: latitude, longitude_deg: longitude,
+    }]),
     onPoint: (latitude: number, longitude: number) => setMapRouteDraft(current => [...current, {
       id: crypto.randomUUID(), name: nextWaypointName(current), airport_id: null,
       latitude_deg: latitude, longitude_deg: longitude,
@@ -1674,13 +1684,11 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           <h2>経路作成</h2>
           {pastedKml && !pasteOpen && <button className="secondary-button" onClick={() => setPasteOpen(true)}>貼り付けたKMLの編集を続ける</button>}
           {pendingKmz && !kmzOpen && <button className="secondary-button" onClick={() => setKmzOpen(true)}>KMZからの選択を続ける</button>}
-          <p>FROMの空港から飛行順に地点を選択します。</p>
           <button className="secondary-button" disabled={busy} onClick={() => {
             if (confirmDiscardMapDraft()) { setMapRouteDraft([]); setLegacyRouteInput(true); }
           }}>KML/KMZから開始</button>
           <FileInput busy={busy} onFile={handleFile} inputRef={routeFileInput} />
           <button className="secondary-button" disabled={busy} onClick={() => void handlePasteImport("clipboard")}>KMLを貼り付け</button>
-          <p className="quiet-state">ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。</p>
         </aside> : <ImportPlanPanel
           panelRef={planningPanelRef}
           importState={state.import}
@@ -1752,11 +1760,12 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           readiness={state.readiness}
           projectExists={Boolean(state.project)}
           weatherMode={state.project?.weather_mode ?? form.weatherMode}
+          forecastRunId={state.outcome?.selected_forecast_run_id ?? null}
           canCalculate={canCalculate}
           outcomeExists={Boolean(state.outcome)}
           busy={busy}
           activeOperation={activeOperation}
-          onCalculate={handleCalculate}
+          onCalculate={() => void handleCalculate()}
           onAcknowledge={handleAcknowledge}
         />}
       </main>
@@ -1769,6 +1778,9 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           aria-label="計算済みNAV LOG"
         >
           <NavLogTable
+            roundingMode={state.roundingMode ?? false}
+            roundingDisabled={busy || !calculationInputsAreLocallyCurrent || hasNavLogEditErrors(navLogEditErrors) || (!(state.roundingMode ?? false) && !canCalculate) || navLogEditStatus.kind === "saving"}
+            onRoundingChange={(enabled) => void handleCalculate(enabled)}
             vorColumns={vorColumns}
             setVorColumns={setVorColumns}
             outcome={state.outcome}
@@ -1823,11 +1835,6 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           </p>
         </aside>
       )}
-
-      <footer className="app-footer">
-        <span>NavMateは非公式の地上準備支援ツールです。</span>
-        <span>参照 {state.runtime.referenceRevision} / 性能 {state.runtime.performanceRevision}</span>
-      </footer>
 
       {activeOperation === "calculate" && (
         <CalculationProgressOverlay {...calculationProgress}

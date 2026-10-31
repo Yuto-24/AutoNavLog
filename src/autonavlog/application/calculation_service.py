@@ -50,6 +50,7 @@ from autonavlog.nav.geodesy import (
     GeodesicLeg,
     geodesic_leg,
 )
+from autonavlog.nav.rounding_mode import wind_direction_for_calculation
 from autonavlog.nav.variation import variation_for_departure_latitude
 from autonavlog.nav.wind_triangle import WindTriangleError, solve_wind_triangle
 from autonavlog.performance.climb import ClimbCalculator, ClimbPerformanceError
@@ -78,7 +79,7 @@ from .phase_segments import (
     split_route_into_phase_segments,
 )
 from .rjfm_departure_plan import rjfm_plan_matches_project
-from .rjfm_inbound_plan import rjfm_inbound_plan_matches_project
+from .rjfm_inbound_plan import is_arita_node, rjfm_inbound_plan_matches_project
 
 
 @dataclass(frozen=True)
@@ -250,6 +251,7 @@ class CalculationService:
         self.last_weather_requests: list[WeatherRequest] = []
         self.last_weather_results: list[WeatherResult] = []
         self.last_forecast_metadata: dict[str, Any] = {}
+        self._rounding_mode = False
 
     @staticmethod
     def _airport_from_selection(selection: AirportSelection) -> Airport:
@@ -316,7 +318,10 @@ class CalculationService:
         provider: WeatherProvider,
         destination_wind: DestinationWindForecast | None = None,
         progress: Callable[[int, str], None] | None = None,
+        *,
+        rounding_mode: bool = False,
     ) -> CalculationOutcome:
+        self._rounding_mode = rounding_mode
         report = progress or (lambda _percent, _message: None)
         report(15, "経路データを準備しています。")
         working = project.model_copy(deep=True)
@@ -376,18 +381,14 @@ class CalculationService:
             ):
                 inbound_plan_rejection_reason = "CURRENT_REFERENCE_IDENTITY_UNAVAILABLE"
             elif (
-                rjfm_inbound_plan.reference_revision
-                != self.expected_rjfm_reference_revision
+                rjfm_inbound_plan.reference_revision != self.expected_rjfm_reference_revision
                 or rjfm_inbound_plan.reference_content_fingerprint
                 != self.expected_rjfm_reference_content_fingerprint
             ):
                 inbound_plan_rejection_reason = "REFERENCE_IDENTITY_MISMATCH"
             elif not rjfm_inbound_plan_matches_project(working, rjfm_inbound_plan):
                 inbound_plan_rejection_reason = "ROUTE_INPUT_MISMATCH"
-            elif (
-                rjfm_inbound_plan.adopted_vrep_altitude_ft_msl
-                != arrival_altitude_ft_msl
-            ):
+            elif rjfm_inbound_plan.adopted_vrep_altitude_ft_msl != arrival_altitude_ft_msl:
                 inbound_plan_rejection_reason = "ARRIVAL_ALTITUDE_MISMATCH"
         if rjfm_inbound_plan is not None and inbound_plan_rejection_reason is not None:
             issues.append(
@@ -636,7 +637,7 @@ class CalculationService:
                     None,
                 )
                 final.display_rows = build_navlog_display_rows(
-                    self._navlog_physical_legs(geometries, rjfm_departure_plan),
+                    self._navlog_physical_legs(geometries, rjfm_departure_plan, rjfm_inbound_plan),
                     final.sections,
                     departure,
                     destination,
@@ -645,6 +646,7 @@ class CalculationService:
                     destination_wind,
                     total_usable_fuel_gal=working.total_usable_fuel_gal,
                     run_up_included=working.run_up_included,
+                    rounding_mode=rounding_mode,
                 )
         report(80, "計算結果を検証しています。")
         issues.extend(final.issues)
@@ -730,7 +732,8 @@ class CalculationService:
             ),
             fuel_plan=fuel_plan,
             summary=build_navlog_summary(
-                final.sections, self._navlog_physical_legs(geometries, rjfm_departure_plan),
+                final.sections,
+                self._navlog_physical_legs(geometries, rjfm_departure_plan, rjfm_inbound_plan),
             ),
             issues=issues,
             converged=converged,
@@ -924,11 +927,7 @@ class CalculationService:
         elapsed = 0.0
         offsets = self._route_leg_offsets(geometries)
         for index, geometry in enumerate(geometries):
-            default_seconds = (
-                geometry.distance_nm
-                / ForecastService.estimate_speed_kt
-                * 3600.0
-            )
+            default_seconds = geometry.distance_nm / ForecastService.estimate_speed_kt * 3600.0
             valid_time = previous_times.get(
                 str(geometry.section.id),
                 project.planned_departure_time_jst
@@ -1153,7 +1152,7 @@ class CalculationService:
             ):
                 weather = weather_by_id.get(self._weather_request_id(section, phase))
                 wind_direction, wind_speed, temperature, metadata, warnings = self._section_weather(
-                    section, weather, phase
+                    section, weather, phase, rounding_mode=self._rounding_mode
                 )
                 altitude_ft_msl, _ = self._weather_request_representative_altitude(
                     index,
@@ -1186,11 +1185,11 @@ class CalculationService:
                             metadata={"phase": phase.value},
                         )
                     )
-                wind_is_required = (
-                    phase != FlightPhase.DESCENT or index == descent_basis_index
-                )
-                if phase != FlightPhase.VISUAL_ARRIVAL and wind_is_required and (
-                    wind_speed is None or (wind_speed > 0 and wind_direction is None)
+                wind_is_required = phase != FlightPhase.DESCENT or index == descent_basis_index
+                if (
+                    phase != FlightPhase.VISUAL_ARRIVAL
+                    and wind_is_required
+                    and (wind_speed is None or (wind_speed > 0 and wind_direction is None))
                 ):
                     issues.append(
                         self._blocker(
@@ -1535,26 +1534,27 @@ class CalculationService:
         )
 
     def _build_rjfm_inbound_descent_plan(
-        self, environments: list[_LegEnvironment], geometries: list[_Geometry],
-        cruise_policy: CruisePerformanceSelectionPolicy, issues: list[Issue],
-        arrival_altitude_ft_msl: float | None, nose_fairing_enabled: bool,
-        air_conditioning_enabled: bool, descent_rate_fpm: int,
+        self,
+        environments: list[_LegEnvironment],
+        geometries: list[_Geometry],
+        cruise_policy: CruisePerformanceSelectionPolicy,
+        issues: list[Issue],
+        arrival_altitude_ft_msl: float | None,
+        nose_fairing_enabled: bool,
+        air_conditioning_enabled: bool,
+        descent_rate_fpm: int,
         plan: RjfmInboundPlan,
     ) -> _DescentPlan | None:
         """Build the OMARU-return profile without extending the physical route."""
         try:
-            controlled_ids = plan.controlled_section_ids or (
-                plan.controlled_section_id,
-            )
+            controlled_ids = plan.controlled_section_ids or (plan.controlled_section_id,)
             controlled_indices = [
-                i for i, geometry in enumerate(geometries)
-                if geometry.section.id in controlled_ids
+                i for i, geometry in enumerate(geometries) if geometry.section.id in controlled_ids
             ]
             controlled_index = min(controlled_indices)
             controlled_end_index = max(controlled_indices)
             end_index = next(
-                i for i, geometry in enumerate(geometries)
-                if geometry.end.id == plan.vrep_node_id
+                i for i, geometry in enumerate(geometries) if geometry.end.id == plan.vrep_node_id
             )
         except StopIteration:
             return None
@@ -1567,15 +1567,23 @@ class CalculationService:
             return None
         target = arrival_altitude_ft_msl
         if target is None or target >= 4500.0:
-            issues.append(self._blocker(
-                "RJFM_INBOUND_ALTITUDE_DELTA_INVALID",
-                "RJFM帰路のVREP高度は4,500 ft未満である必要があります。",
-                geometries[controlled_end_index].section.id,
-                metadata={"target_altitude_ft_msl": target, "start_altitude_ft_msl": 4500.0},
-            ))
+            issues.append(
+                self._blocker(
+                    "RJFM_INBOUND_ALTITUDE_DELTA_INVALID",
+                    "RJFM帰路のVREP高度は4,500 ft未満である必要があります。",
+                    geometries[controlled_end_index].section.id,
+                    metadata={"target_altitude_ft_msl": target, "start_altitude_ft_msl": 4500.0},
+                )
+            )
             return None
-        basis_index = next((i for i in range(start_index, end_index + 1)
-                            if geometries[i].section.phase == FlightPhase.DESCENT), end_index)
+        basis_index = next(
+            (
+                i
+                for i in range(start_index, end_index + 1)
+                if geometries[i].section.phase == FlightPhase.DESCENT
+            ),
+            end_index,
+        )
         basis = environments[basis_index]
         source = basis.geometry.section
         cruise_cas = self._preview_last_cruise_cas(
@@ -1584,9 +1592,7 @@ class CalculationService:
         manual_tas = source.manual_tas_for_phase(FlightPhase.DESCENT)
         if manual_tas is None and cruise_cas is None:
             issues.append(
-                self._blocker(
-                    "DESCENT_TAS_UNAVAILABLE", "降下TASを確定できません。", source.id
-                )
+                self._blocker("DESCENT_TAS_UNAVAILABLE", "降下TASを確定できません。", source.id)
             )
             return None
         wind = basis.for_phase(FlightPhase.DESCENT)
@@ -1626,17 +1632,23 @@ class CalculationService:
             )
         direct_total = sum(direct_seconds.values())
         vertical_seconds = (4500.0 - target) / descent_rate_fpm * 60.0
-        duration = vertical_seconds + 60.0
+        arita_return = is_arita_node(geometries[end_index].end)
+        deceleration_seconds = 0.0 if arita_return else 60.0
+        duration = vertical_seconds + deceleration_seconds
         if direct_total + 1e-9 < duration:
-            issues.append(Issue(
-                code="RJFM_INBOUND_DIRECT_DISTANCE_SHORTFALL", severity=IssueSeverity.WARNING,
-                message="UMKからVREPへの直線経路だけでは、計画降下に必要な時間が不足しています。実飛行ではUMK通過後の経路延長が必要です。",
-                section_id=source.id, acknowledgement_required=False,
-                metadata={
-                    "available_direct_seconds": direct_total,
-                    "required_operational_seconds": duration,
-                },
-            ))
+            issues.append(
+                Issue(
+                    code="RJFM_INBOUND_DIRECT_DISTANCE_SHORTFALL",
+                    severity=IssueSeverity.WARNING,
+                    message="UMKからVREPへの直線経路だけでは、計画降下に必要な時間が不足しています。実飛行ではUMK通過後の経路延長が必要です。",
+                    section_id=source.id,
+                    acknowledgement_required=False,
+                    metadata={
+                        "available_direct_seconds": direct_total,
+                        "required_operational_seconds": duration,
+                    },
+                )
+            )
         offsets = self._route_leg_offsets(geometries)
         if cruise_cas is None:
             cruise_cas = cas_from_tas(
@@ -1645,20 +1657,27 @@ class CalculationService:
                 wind.temperature_c or 0.0,
             )
         return _DescentPlan(
-            source_section_id=source.id, duration_seconds=duration,
+            source_section_id=source.id,
+            duration_seconds=duration,
             route_start_distance_nm=offsets[start_index][0],
-            route_end_distance_nm=offsets[end_index][1], cruise_cas_kt=cruise_cas,
+            route_end_distance_nm=offsets[end_index][1],
+            cruise_cas_kt=cruise_cas,
             metadata={
                 "type": "rjfm_inbound_operational_descent",
                 "rjfm_inbound_rule_version": plan.rule_version,
                 "boundary_method": "RJFM_INBOUND_PHYSICAL_UMK_FIXED_EOC",
                 "descent_rate_fpm": float(descent_rate_fpm),
-                "cruise_altitude_ft_msl": 4500.0, "target_altitude_ft_msl": target,
+                "cruise_altitude_ft_msl": 4500.0,
+                "target_altitude_ft_msl": target,
                 "vertical_descent_duration_seconds": vertical_seconds,
-                "deceleration_duration_seconds": 60.0, "planned_duration_seconds": duration,
-                "phase_profile_rule": "DESCEND_LEVEL_OFF_DECELERATE_V1",
+                "deceleration_duration_seconds": deceleration_seconds,
+                "planned_duration_seconds": duration,
+                "phase_profile_rule": "DESCEND_TO_ARITA_V1"
+                if arita_return
+                else "DESCEND_LEVEL_OFF_DECELERATE_V1",
                 "eoc_source_section_id": str(geometries[start_index].section.id),
-                "descent_wind_source_section_id": str(source.id), "fuel_flow_gph": 12.0,
+                "descent_wind_source_section_id": str(source.id),
+                "fuel_flow_gph": 12.0,
                 "operational_seconds_by_source_section": {
                     str(geometries[index].section.id): duration * seconds / direct_total
                     for index, seconds in direct_seconds.items()
@@ -1715,10 +1734,7 @@ class CalculationService:
             )
             cruise_cas = None if provisional is None else provisional[0]
         if section.manual_tas_for_phase(FlightPhase.DESCENT) is None and cruise_cas is None:
-            if (
-                rca_distance_nm is not None
-                and rca_distance_nm >= offsets[descent_index][1] - 1e-9
-            ):
+            if rca_distance_nm is not None and rca_distance_nm >= offsets[descent_index][1] - 1e-9:
                 issues.append(
                     self._blocker(
                         "DESCENT_CRUISE_CAS_SOURCE_UNAVAILABLE",
@@ -2822,12 +2838,9 @@ class CalculationService:
                     }
                 )
 
-            if (
-                rjfm_inbound_plan is not None
-                and section.id in (
-                    rjfm_inbound_plan.controlled_section_ids
-                    or (rjfm_inbound_plan.controlled_section_id,)
-                )
+            if rjfm_inbound_plan is not None and section.id in (
+                rjfm_inbound_plan.controlled_section_ids
+                or (rjfm_inbound_plan.controlled_section_id,)
             ):
                 performance_metadata["rjfm_inbound_fixed_altitude"] = True
 
@@ -2998,10 +3011,17 @@ class CalculationService:
                     ),
                     magnetic_course_deg=_automatic(magnetic_course),
                     wind_direction_deg_from=_manual_or_automatic(
-                        automatic_wind_direction,
-                        manual_wind_direction,
+                        wind_direction_for_calculation(
+                            automatic_wind_direction, enabled=self._rounding_mode
+                        ),
+                        wind_direction_for_calculation(
+                            manual_wind_direction, enabled=self._rounding_mode
+                        ),
                         state=wind_state,
-                        metadata=wind_metadata,
+                        metadata=(
+                            wind_metadata | {"rounding_mode": True}
+                            if self._rounding_mode else wind_metadata
+                        ),
                         warnings=wind_warnings,
                     ),
                     wind_speed_kt=_manual_or_automatic(
@@ -3124,7 +3144,7 @@ class CalculationService:
             for result, value in zip(sections, remaining, strict=True)
         ]
         display_rows = build_navlog_display_rows(
-            self._navlog_physical_legs(geometries, rjfm_departure_plan),
+            self._navlog_physical_legs(geometries, rjfm_departure_plan, rjfm_inbound_plan),
             sections,
             departure,
             destination,
@@ -3133,6 +3153,7 @@ class CalculationService:
             destination_wind,
             total_usable_fuel_gal=project.total_usable_fuel_gal,
             run_up_included=project.run_up_included,
+            rounding_mode=self._rounding_mode,
         )
         return _IterationResult(
             sections,
@@ -3149,6 +3170,7 @@ class CalculationService:
     def _navlog_physical_legs(
         geometries: list[_Geometry],
         rjfm_departure_plan: RjfmDeparturePlan | None,
+        rjfm_inbound_plan: RjfmInboundPlan | None = None,
     ) -> list[NavLogPhysicalLeg]:
         default = [
             NavLogPhysicalLeg(
@@ -3162,6 +3184,44 @@ class CalculationService:
             )
             for geometry in geometries
         ]
+        if rjfm_inbound_plan is not None:
+            start = next(
+                (
+                    i
+                    for i, g in enumerate(geometries)
+                    if g.start.id == rjfm_inbound_plan.omaru_node_id
+                ),
+                None,
+            )
+            vrep = next(
+                (g.end for g in geometries if g.end.id == rjfm_inbound_plan.vrep_node_id), None
+            )
+            end_node_id = (
+                geometries[-1].end.id
+                if vrep is not None and is_arita_node(vrep)
+                else rjfm_inbound_plan.vrep_node_id
+            )
+            end = next((i for i, g in enumerate(geometries) if g.end.id == end_node_id), None)
+            if start is not None and end is not None and start < end:
+                grouped = geometries[start : end + 1]
+                parent = NavLogPhysicalLeg(
+                    section_ids=tuple(g.section.id for g in grouped),
+                    phase=grouped[0].section.phase,
+                    start_name=grouped[0].start.name,
+                    start_node_id=grouped[0].start.id,
+                    end_name=grouped[-1].end.name,
+                    end_node_id=grouped[-1].end.id,
+                    adopted_distance_nm=sum(g.distance_nm for g in grouped),
+                    show_child_courses=True,
+                    vrep_node_id=rjfm_inbound_plan.vrep_node_id,
+                )
+                return [
+                    *CalculationService._navlog_physical_legs(
+                        geometries[:start], rjfm_departure_plan
+                    ),
+                    parent,
+                    *default[end + 1 :],
+                ]
         if rjfm_departure_plan is None or not geometries:
             return default
 
@@ -3189,9 +3249,7 @@ class CalculationService:
             rjfm_departure_plan.omaru.latitude_deg,
             rjfm_departure_plan.omaru.longitude_deg,
         )
-        variation = variation_for_departure_latitude(
-            grouped[0].start.latitude_deg
-        ).degrees_east
+        variation = variation_for_departure_latitude(grouped[0].start.latitude_deg).degrees_east
         parent = NavLogPhysicalLeg(
             section_ids=tuple(geometry.section.id for geometry in grouped),
             phase=grouped[0].section.phase,
@@ -3200,12 +3258,10 @@ class CalculationService:
             end_name=grouped[-1].end.name,
             end_node_id=grouped[-1].end.id,
             adopted_distance_nm=sum(geometry.distance_nm for geometry in grouped),
+            show_child_courses=True,
             summary_true_course_deg=direct.initial_true_course_deg,
             summary_variation_deg_east=variation,
-            summary_magnetic_course_deg=(
-                direct.initial_true_course_deg + variation
-            )
-            % 360.0,
+            summary_magnetic_course_deg=(direct.initial_true_course_deg + variation) % 360.0,
         )
         return [parent, *default[omaru_index + 1 :]]
 
@@ -3214,6 +3270,8 @@ class CalculationService:
         section: NavSection,
         weather: WeatherResult | None,
         phase: FlightPhase,
+        *,
+        rounding_mode: bool = False,
     ) -> tuple[float | None, float | None, float | None, dict[str, Any], tuple[str, ...]]:
         metadata = (
             {
@@ -3265,6 +3323,7 @@ class CalculationService:
         )
         if speed == 0:
             direction = None
+        direction = wind_direction_for_calculation(direction, enabled=rounding_mode)
         return direction, speed, temperature, metadata, warnings
 
     @staticmethod

@@ -24,6 +24,7 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const root = window as any;
     root.localStates = [];
+    root.localCalculationCount = 0;
     const Original = window.Worker;
     root.Worker = class extends Original {
       constructor(url: string | URL, options?: WorkerOptions) {
@@ -36,6 +37,7 @@ test.beforeEach(async ({ page }) => {
         });
       }
       postMessage(message: any, options?: any) {
+        if (message.type === "APPLY" && message.argumentList?.[0]?.value === "calculate") root.localCalculationCount += 1;
         if (root.failLocalCalculation && message.type === "APPLY" &&
             message.argumentList?.[0]?.value === "calculate") {
           // Inject a Python validation exception through the real Comlink/Python path.
@@ -48,7 +50,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-for (const width of [1100, 1440]) {
+for (const width of [390, 1100, 1440]) {
   test(`static FTD Golden, no API fallback, ${width}px`, async ({ page }) => {
     const apiRequests: string[] = [];
     const errors: string[] = [];
@@ -122,11 +124,125 @@ for (const width of [1100, 1440]) {
     await expect(page.locator("vite-error-overlay")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
     await page.screenshot({ path: `/tmp/issue117-local-${width}.png`, fullPage: true });
+    const mode = page.getByRole("radio", { name: "四捨五入", exact: true });
+    const normal = page.getByRole("radio", { name: "通常", exact: true });
+    await expect(normal).toBeChecked();
+    await expect(mode).not.toBeChecked();
+    const beforeToggleCount = await page.evaluate(() => (window as any).localCalculationCount);
+    await mode.evaluate((input: HTMLInputElement) => { input.click(); input.click(); });
+    await expect(mode).toBeDisabled();
+    await expect(mode).toBeChecked();
+    await expect(mode).toBeEnabled();
+    const rounded = await page.evaluate(() => (window as any).localStates.at(-1));
+    expect(rounded.roundingMode).toBe(true);
+    expect(await page.evaluate(() => (window as any).localCalculationCount)).toBe(beforeToggleCount + 1);
+    expect(rounded.project.sections).toEqual(state.project.sections);
+    expect(rounded.outcome.sections.some((zone: any, index: number) =>
+      zone.ground_speed_kt.automatic_value !== state.outcome.sections[index].ground_speed_kt.automatic_value)).toBe(true);
+    for (const zone of rounded.outcome.sections) {
+      const wind = zone.wind_direction_deg_from;
+      const direction = wind.adopted_source === "MANUAL" ? wind.manual_override : wind.automatic_value;
+      expect(direction === null || direction % 10 === 0).toBe(true);
+    }
+    for (const row of rounded.outcome.display_rows) {
+      if (typeof row.toat.effective_value === "number" && row.toat.text !== null) {
+        expect(row.toat.text).toMatch(/^-?\d+$/);
+        expect(row.toat.text).not.toBe("-0");
+      }
+    }
+    if (width === 1440) {
+      const direction = page.locator('.nav-log-table input[aria-label$="手動風向"]').first();
+      const speed = page.locator('.nav-log-table input[aria-label$="手動風速"]').first();
+      const temperature = page.locator('.nav-log-table input[aria-label$="手動気温"]').first();
+      await direction.fill("5");
+      await speed.fill("21");
+      await temperature.fill("-1.5");
+      await temperature.blur();
+      await expect(mode).toBeEnabled();
+      await expect(direction).toHaveValue("010");
+      await expect(temperature).toHaveValue("-2");
+      await direction.focus();
+      await expect(direction).toHaveValue("5");
+      await direction.blur();
+      await temperature.focus();
+      await expect(temperature).toHaveValue("-1.5");
+      await temperature.blur();
+      const manual = await page.evaluate(() => (window as any).localStates.at(-1));
+      expect(manual.project.sections[0].manual_wind_direction_deg).toBe(5);
+      expect(manual.outcome.sections[0].wind_direction_deg_from.manual_override).toBe(10);
+      expect(manual.outcome.sections[0].temperature_c.manual_override).toBe(-1.5);
+      await direction.fill("");
+      await speed.fill("");
+      await temperature.fill("");
+      await temperature.blur();
+      await expect(mode).toBeEnabled();
+    }
+    for (const cell of await page.locator(".vor-reference-cell").allTextContents()) {
+      const distance = Number(cell.split(" / ")[1]);
+      if (Number.isFinite(distance)) expect(distance * 2).toBe(Math.round(distance * 2));
+    }
+    // Input -> route -> readiness -> NAV LOG placement is already asserted above.
+    // Read the total distance/time first, then the selected calculation mode.
+    const summaryBox = await page.locator(".nav-log-summary").boundingBox();
+    const modeBox = await mode.boundingBox();
+    expect(modeBox!.y).toBeGreaterThanOrEqual(summaryBox!.y + summaryBox!.height);
+    const tableBox = await page.locator(".nav-log-scroll").boundingBox();
+    expect(modeBox!.y + modeBox!.height).toBeLessThanOrEqual(tableBox!.y);
+    const controlBox = await page.locator(".nav-log-rounding-control").boundingBox();
+    const addColumnBox = await page.getByRole("button", { name: "VOR/DME列を追加", exact: true }).boundingBox();
+    const navLogBox = await page.locator(".nav-log-section").boundingBox();
+    expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(navLogBox!.x + navLogBox!.width);
+    if (width >= 1100) {
+      expect(Math.abs(controlBox!.y + controlBox!.height / 2 - addColumnBox!.y - addColumnBox!.height / 2)).toBeLessThan(1);
+      expect(controlBox!.x).toBeGreaterThanOrEqual(addColumnBox!.x + addColumnBox!.width);
+    } else {
+      expect(controlBox!.y).toBeGreaterThanOrEqual(addColumnBox!.y + addColumnBox!.height);
+    }
+    await page.getByRole("button", { name: "メッセージを閉じる" }).click();
+    await page.locator(".nav-log-section").screenshot({ path: `/tmp/issue234-on-${width}.png` });
+    await page.locator(".nav-log-rounding-control").screenshot({ path: `/tmp/issue234-control-${width}.png` });
+    const completedCount = await page.evaluate(() => (window as any).localCalculationCount);
+    await mode.click();
+    expect(await page.evaluate(() => (window as any).localCalculationCount)).toBe(completedCount);
+    await mode.focus();
+    await mode.press("ArrowLeft");
+    await expect(mode).not.toBeChecked();
+    await expect(normal).toBeChecked();
+    await expect(mode).toBeEnabled();
+    const offAgain = await page.evaluate(() => (window as any).localStates.at(-1));
+    compare(calculationCoreGolden(offAgain), calculationCoreGolden(state));
+    if (width === 1100) {
+      await mode.click();
+      await expect(mode).toBeChecked();
+      await expect(mode).toBeEnabled();
+      await page.getByRole("button", { name: "保存", exact: true }).click();
+      await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
+      await expect(mode).toBeChecked();
+      await page.getByLabel("保存済み", { exact: true }).selectOption(state.project.id);
+      await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
+      await expect(page.locator(".nav-log-table")).toHaveCount(0);
+      await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+      await expect(mode).not.toBeChecked();
+      await expect(normal).toBeChecked();
+      await expect(mode).toBeEnabled();
+      await mode.click();
+      await expect(mode).toBeChecked();
+      await expect(mode).toBeEnabled();
+      await page.reload();
+      await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+      await expect(page.locator(".nav-log-table")).toHaveCount(0);
+      await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+      await expect(mode).not.toBeChecked();
+      await expect(normal).toBeChecked();
+      await expect(mode).toBeEnabled();
+    }
     const previousTable = await page.locator(".nav-log-table").innerText();
     await page.evaluate(() => { (window as any).failLocalCalculation = true; });
-    await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+    await mode.click();
     await expect(page.getByRole("alert")).toContainText("入力内容を確認してください。");
     expect(await page.locator(".nav-log-table").innerText()).toBe(previousTable);
+    await expect(mode).not.toBeChecked();
+    await expect(normal).toBeChecked();
     await page.evaluate(() => { (window as any).failLocalCalculation = false; });
 
     // A real worker crash must reject calculation and preserve the displayed last-good result.
@@ -302,7 +418,7 @@ test("Pyodide core: saved Run, UMK, OMARU, inbound, overrides and Check Point", 
   expect(actual[0].outcome.selected_forecast_run_id).toBe("20260912000000");
   expect(actual[0].outcome.issues.some((issue: any) => issue.code === "FORECAST_UPDATE_AVAILABLE")).toBe(true);
   expect(actual[1].outcome.sections.some((zone: any) => zone.to_name === "UMK/RCA")).toBe(true);
-  expect(actual[2].outcome.sections.some((zone: any) => zone.to_name === "UMK/RCA（仮定）")).toBe(true);
+  expect(actual[2].outcome.sections.some((zone: any) => zone.to_name === "UMK/RCA")).toBe(true);
   expect(actual[3].outcome.rjfm_inbound_guidance).not.toBeNull();
   expect(actual[4].outcome.check_point_projections).toHaveLength(1);
 });

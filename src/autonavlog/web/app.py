@@ -34,6 +34,7 @@ from .cloudflare_access import (
 from .facade import AutoNavLogWebApplication, WebApplicationError, WebSession
 from .models import (
     AcknowledgeRequest,
+    CalculationRequest,
     ConfirmRouteRequest,
     ImportRouteRequest,
     LoadProjectRequest,
@@ -262,13 +263,17 @@ def create_app(
     def application_session(
         request: Request,
         recovery: WorkingRecovery | None = None,
+        rounding_mode: bool | None = None,
     ) -> dict[str, Any]:
         session = web.create_session(
             _owner_identity(request), restore_persisted=False, persist_working=False
         )
         try:
             state = (
-                web.present(session) if recovery is None else web.restore_working(session, recovery)
+                web.present(session) if recovery is None else web.restore_working(
+                    session, recovery, reset_rounding=rounding_mode is None,
+                    rounding_mode=bool(rounding_mode),
+                )
             )
         except Exception:
             web.invalidate_session(session.token, session.owner_id)
@@ -432,13 +437,18 @@ def create_app(
         return payload
 
     @app.post("/api/calculation-jobs", status_code=202)
-    def create_calculation_job(session: SessionDependency) -> dict[str, Any]:
+    def create_calculation_job(
+        session: SessionDependency, payload: CalculationRequest | None = None
+    ) -> dict[str, Any]:
         """Queue one calculation or return a precise capacity/session error."""
         try:
             job = calculation_jobs.submit(
                 owner_id=session.owner_id,
                 session_token=session.token,
-                task=lambda report_progress: web.calculate(session, progress=report_progress),
+                task=lambda report_progress: web.calculate(
+                    session, progress=report_progress,
+                    rounding_mode=None if payload is None else payload.rounding_mode,
+                ),
             )
         except CalculationJobAlreadyActiveError as error:
             raise WebApplicationError(

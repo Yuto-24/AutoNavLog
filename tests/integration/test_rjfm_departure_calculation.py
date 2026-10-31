@@ -137,6 +137,14 @@ def test_umk_physical_navlog_groups_rjfm_through_omaru_with_direct_parent_course
     assert {row.section_id for row in children} == set(controlled_section_ids)
     assert all(row.row_type == "CALCULATION_ZONE" for row in children)
     assert any(row.to_name == "UMK/RCA" for row in children)
+    for child in children:
+        source = next(result for result in outcome.sections
+                      if result.sequence == child.source_result_sequence)
+        assert child.tc.state == DisplayCellState.DISPLAY_VALUE
+        assert child.mc.state == DisplayCellState.DISPLAY_VALUE
+        assert child.tc.effective_value == pytest.approx(source.true_course_deg.adopted())
+        assert child.mc.effective_value == pytest.approx(source.magnetic_course_deg.adopted())
+    assert len({child.tc.effective_value for child in children}) >= 2
 
     expected_direct = geodesic_leg(
         working.ordered_nodes()[0].latitude_deg,
@@ -214,67 +222,45 @@ def test_umk_physical_navlog_groups_rjfm_through_omaru_with_direct_parent_course
         )
 
 
-def test_omaru_first_keeps_parent_distance_and_labels_virtual_umk(
-    airports,
-    performance_repository,
-    project,
+def test_omaru_first_uses_real_segment_geometry_but_poh_time(
+    airports, performance_repository, project
 ) -> None:
     working = project.model_copy(deep=True)
     first = working.ordered_nodes()[1]
-    first.latitude_deg = 32.60
-    first.longitude_deg = 131.62
-    references = _references(
-        umk=(32.20, 131.50),
-        omaru=(first.latitude_deg, first.longitude_deg),
-    )
-    parent_geodesic_distance = geodesic_leg(
-        working.ordered_nodes()[0].latitude_deg,
-        working.ordered_nodes()[0].longitude_deg,
-        first.latitude_deg,
-        first.longitude_deg,
-    ).distance_nm
-    parent_distance = parent_geodesic_distance * 1.25
-    working.ordered_nodes()[0].manual_distance_nm = parent_distance
-    umk_geodesic_distance = geodesic_leg(
-        working.ordered_nodes()[0].latitude_deg,
-        working.ordered_nodes()[0].longitude_deg,
-        references.umk.latitude_deg,
-        references.umk.longitude_deg,
-    ).distance_nm
-    expected_rca_distance = (
-        parent_distance * umk_geodesic_distance / parent_geodesic_distance
-    )
+    first.latitude_deg, first.longitude_deg = 32.60, 131.62
+    references = _references(umk=(32.20, 131.50), omaru=(first.latitude_deg, first.longitude_deg))
     plan = apply_rjfm_departure_exception(working, references)
     assert plan is not None
-
     outcome = _calculation_service(airports, performance_repository).calculate(
-        working,
-        FakeWeatherProvider(),
+        working, FakeWeatherProvider()
     )
-
-    parent_results = [
-        result
-        for result in outcome.sections
-        if result.section_id == working.ordered_sections()[0].id
-    ]
-    assert [result.phase for result in parent_results] == [
-        FlightPhase.CLIMB,
-        FlightPhase.CRUISE,
-    ]
-    assert parent_results[0].to_name == "UMK/RCA（仮定）"
-    assert parent_results[1].from_name == "UMK/RCA（仮定）"
-    parent_total_distance = sum(
-        result.zone_distance_nm.adopted() or 0 for result in parent_results
+    controlled = {s.id for s in working.ordered_sections()[:2]}
+    results = [r for r in outcome.sections if r.section_id in controlled]
+    assert [r.phase for r in results] == [FlightPhase.CLIMB, FlightPhase.CRUISE]
+    assert results[0].to_name == "UMK/RCA"
+    assert results[0].to_latitude_deg == references.umk.latitude_deg
+    for result, start, end in zip(
+        results, working.ordered_nodes()[:2], working.ordered_nodes()[1:3], strict=True
+    ):
+        geometry = geodesic_leg(
+            start.latitude_deg, start.longitude_deg, end.latitude_deg, end.longitude_deg
+        )
+        assert result.zone_distance_nm.adopted() == pytest.approx(geometry.distance_nm)
+        assert result.true_course_deg.adopted() == pytest.approx(geometry.initial_true_course_deg)
+    climb = results[0]
+    assert climb.zone_ete_seconds.adopted() == pytest.approx(
+        climb.performance_metadata["planned_duration_seconds"]
     )
-    assert parent_total_distance == pytest.approx(parent_distance, abs=1e-9)
-    assert (parent_results[0].zone_distance_nm.adopted()) == pytest.approx(
-        expected_rca_distance,
-        abs=1e-9,
+    assert climb.section_fuel_gal.adopted() == pytest.approx(
+        climb.performance_metadata["planned_fuel_gal"]
     )
-    assert plan.virtual_rca_distance_nm == pytest.approx(expected_rca_distance, abs=1e-9)
+    assert climb.zone_ete_seconds.adopted() != pytest.approx(
+        climb.zone_distance_nm.adopted() / climb.ground_speed_kt.adopted() * 3600
+    )
+    assert plan.virtual_rca_distance_nm == pytest.approx(climb.zone_distance_nm.adopted())
 
 
-def test_omaru_first_navlog_uses_rjfm_omaru_parent_and_virtual_umk_child(
+def test_omaru_first_navlog_uses_rjfm_omaru_parent_and_physical_umk_children(
     airports,
     performance_repository,
     project,
@@ -298,16 +284,52 @@ def test_omaru_first_navlog_uses_rjfm_omaru_parent_and_virtual_umk_child(
     )
 
     separator_index = next(
-        index
-        for index, row in enumerate(outcome.display_rows)
-        if row.row_type == "LEG_SEPARATOR"
+        index for index, row in enumerate(outcome.display_rows) if row.row_type == "LEG_SEPARATOR"
     )
     parent, *children = outcome.display_rows[:separator_index]
     assert (parent.from_name, parent.to_name) == ("RJFM", "OMARU")
-    assert {row.section_id for row in children} == {
-        working.ordered_sections()[0].id
-    }
-    assert [row.to_name for row in children][:1] == ["UMK/RCA（仮定）"]
+    assert {row.section_id for row in children} == {s.id for s in working.ordered_sections()[:2]}
+    assert children[0].to_name == "UMK/RCA"
+    assert len({row.tc.effective_value for row in children}) == 2
+
+
+def test_generated_umk_preserves_manual_distance_in_calculation_and_poh_time(
+    airports, performance_repository, project
+) -> None:
+    working = project.model_copy(deep=True)
+    origin, omaru = working.ordered_nodes()[:2]
+    omaru.latitude_deg, omaru.longitude_deg = 32.60, 131.62
+    origin.manual_distance_nm = 36
+    origin.manual_true_course_deg = 24
+    original_distance = _adopted_route_distance(working)
+    assert apply_rjfm_departure_exception(
+        working,
+        _references(umk=(32.20, 131.50), omaru=(omaru.latitude_deg, omaru.longitude_deg)),
+    ) is not None
+
+    outcome = _calculation_service(airports, performance_repository).calculate(
+        working, FakeWeatherProvider()
+    )
+    assert sum(r.zone_distance_nm.adopted() or 0 for r in outcome.sections) == pytest.approx(
+        original_distance
+    )
+    controlled = {section.id for section in working.ordered_sections()[:2]}
+    results = [r for r in outcome.sections if r.section_id in controlled]
+    assert sum(r.zone_distance_nm.adopted() or 0 for r in results) == pytest.approx(36)
+    for result, start, end in zip(
+        results, working.ordered_nodes()[:2], working.ordered_nodes()[1:3], strict=True
+    ):
+        geometry = geodesic_leg(
+            start.latitude_deg, start.longitude_deg, end.latitude_deg, end.longitude_deg
+        )
+        assert result.true_course_deg.adopted() == pytest.approx(geometry.initial_true_course_deg)
+    climb = results[0]
+    assert climb.zone_ete_seconds.adopted() == pytest.approx(
+        climb.performance_metadata["planned_duration_seconds"]
+    )
+    assert climb.section_fuel_gal.adopted() == pytest.approx(
+        climb.performance_metadata["planned_fuel_gal"]
+    )
 
 
 def test_direct_calculation_rejects_stale_persisted_rjfm_plan(

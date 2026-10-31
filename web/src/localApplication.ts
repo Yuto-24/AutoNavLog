@@ -1,6 +1,6 @@
 import { accountBoundaryClosed, type AuthProvider } from "./auth";
 import { ApplicationError } from "./application";
-import type { AutoNavLogApplication, ImportRouteInput, ConfirmRouteInput, UpdateProjectInput, ProgressListener } from "./application";
+import type { AutoNavLogApplication, CalculationOptions, ImportRouteInput, ConfirmRouteInput, UpdateProjectInput, ProgressListener } from "./application";
 import type { CheckPointInput, WebState, WorkingRecovery } from "./types";
 import { LocalClient } from "./localClient";
 import type { LocalProjectRepository, LocalProjectRecord, LocalProjectRepositoryFactory } from "./localProjectRepository";
@@ -92,7 +92,9 @@ export class LocalApplication implements AutoNavLogApplication {
     this.tokens.set(record.id, record.token);
     if (name !== undefined) {
       const { durableToken: _token, repositoryRecovery: _repository, ...recovery } = working;
-      state = await this.request<WebState>("bootstrap", { ...recovery, project: draft });
+      state = await this.request<WebState>("refreshSavedWork", {
+        working: { ...recovery, project: draft }, rounding_mode: state.roundingMode ?? false,
+      });
     }
     return this.present(state);
   }
@@ -125,11 +127,11 @@ export class LocalApplication implements AutoNavLogApplication {
       if (operation === "importRoute") return this.present(state);
       try { return await this.persist(state); }
       catch (error) {
-        if (operation === "confirmRoute" && error instanceof ApplicationError) {
-          // Python has accepted the route; retain it for session recovery/save retry.
+        if ((operation === "confirmRoute" || operation === "calculate") && error instanceof ApplicationError) {
+          // Python has committed the result; retain it for recovery/save retry.
           const committed = await this.present(state).catch(() => state);
           throw new ApplicationError(error.message, error.code,
-            { ...error.details, operation: "confirmRoute" }, committed);
+            { ...error.details, operation }, committed);
         }
         throw error;
       }
@@ -151,10 +153,10 @@ export class LocalApplication implements AutoNavLogApplication {
   renameRouteNode(nodeId: string, name: string) { return this.execute("renameRouteNode", { node_id: nodeId, name }); }
   replaceCheckPoints(checkPoints: CheckPointInput[]) { return this.execute("replaceCheckPoints", { check_points: checkPoints }); }
   acknowledge(key: string, checked: boolean) { return this.execute("acknowledge", { key, checked }); }
-  async calculate(onProgress?: ProgressListener) {
+  async calculate(onProgress?: ProgressListener, options?: CalculationOptions) {
     // Report only known milestones; finer progress is deferred to #159.
     onProgress?.({ percent: 0, message: "計算を開始しています。" });
-    const state = await this.execute("calculate");
+    const state = await this.execute("calculate", options && { rounding_mode: options.roundingMode });
     onProgress?.({ percent: 100, message: "計算が完了しました。" });
     return state;
   }
@@ -177,7 +179,9 @@ export class LocalApplication implements AutoNavLogApplication {
       catch (error) {
         if (previous.workingRecovery) {
           const { durableToken: _token, repositoryRecovery: _repository, ...working } = previous.workingRecovery;
-          await this.request("bootstrap", working);
+          await this.request("refreshSavedWork", {
+            working, rounding_mode: previous.roundingMode ?? false,
+          });
         }
         throw error;
       }

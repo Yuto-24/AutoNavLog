@@ -36,6 +36,7 @@ from autonavlog.weather.msm_fixture import FIXTURE_WEATHER_LABEL, fixture_weathe
 from autonavlog.web.facade import AutoNavLogWebApplication, WebApplicationError
 from autonavlog.web.models import (
     AcknowledgeRequest,
+    CalculationRequest,
     ConfirmRouteRequest,
     ImportRouteRequest,
     RenameRouteNodeRequest,
@@ -209,10 +210,18 @@ class LocalApplication:
             return migrate_record(payload).model_dump_json()
         if path == "state":
             state = self.app.present(self.session)
-        elif path == "bootstrap":
+        elif path in {"bootstrap", "refreshSavedWork"}:
+            recovery_payload = payload if path == "bootstrap" else payload["working"]
+            refresh_mode = _validate_request(
+                CalculationRequest, {"rounding_mode": payload.get("rounding_mode")}
+            ).rounding_mode
             state = (
-                self.app.restore_working(self.session, _validate_request(WorkingRecovery, payload))
-                if payload
+                self.app.restore_working(
+                    self.session, _validate_request(WorkingRecovery, recovery_payload),
+                    reset_rounding=path != "refreshSavedWork",
+                    rounding_mode=bool(refresh_mode),
+                )
+                if recovery_payload
                 else self.app.present(self.session)
             )
         elif path == "importRoute":
@@ -256,7 +265,10 @@ class LocalApplication:
         elif path == "calculate":
             if self.session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
-            state = self.app.calculate(self.session)
+            calculation_request = _validate_request(CalculationRequest, payload)
+            state = self.app.calculate(
+                self.session, rounding_mode=calculation_request.rounding_mode
+            )
         elif path == "replaceCheckPoints":
             state = self.app.replace_check_points(
                 self.session, _validate_request(ReplaceCheckPointsRequest, payload)
