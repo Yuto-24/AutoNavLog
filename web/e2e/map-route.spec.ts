@@ -95,7 +95,10 @@ test("Leaflet zoom controls contain long-press styling without blocking map inte
     return (style.userSelect || style.getPropertyValue("-webkit-user-select")) === "none"
       && (!CSS.supports("-webkit-touch-callout", "none") || style.getPropertyValue("-webkit-touch-callout") === "none");
   }))).toBe(true);
-  await expect(page.getByRole("complementary", { name: "RJFM空域データ注記" })).not.toHaveCSS("user-select", "none");
+  await expect(page.getByRole("complementary", { name: "RJFM空域データ注記" })).toHaveCount(0);
+  await expect(attribution).toBeVisible();
+  await expect(osm).toBeVisible();
+  await expect(attribution).toHaveCSS("user-select", "none");
 });
 
 for (const width of [1100, 1440]) {
