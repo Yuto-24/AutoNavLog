@@ -10,7 +10,8 @@ const navigation = (outcome: any) => outcome.sections.map((section: any) => Obje
 ));
 const working = (page: Page) => page.evaluate(() => JSON.parse(sessionStorage.getItem("autonavlog.working-session.v1")!).working);
 const records = (page: Page): Promise<any[]> => page.evaluate(() => new Promise((resolve, reject) => {
-  const open = indexedDB.open("autonavlog.projects", 1);
+  const open = indexedDB.open("autonavlog.projects");
+  open.onerror = () => reject(open.error);
   open.onsuccess = () => {
     const tx = open.result.transaction("projects");
     const read = tx.objectStore("projects").getAll();

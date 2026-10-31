@@ -78,7 +78,8 @@ async function accountRecords(page: Page) {
   return page.evaluate(async () => {
     const id = (window as any).authTest.state().account.account_id;
     return new Promise<any[]>((resolve, reject) => {
-      const open = indexedDB.open(`autonavlog.projects.${id}`, 1);
+      const open = indexedDB.open(`autonavlog.projects.${id}`);
+      open.onerror = () => reject(open.error);
       open.onsuccess = () => {
         const tx = open.result.transaction("projects"); const read = tx.objectStore("projects").getAll();
         tx.oncomplete = () => { open.result.close(); resolve(read.result); };

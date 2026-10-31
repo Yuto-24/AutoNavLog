@@ -15,7 +15,7 @@ const reference = (pinned = false) => JSON.parse(execFileSync(
 ));
 const state = (page: Page) => page.evaluate(() => (window as any).weatherStates.at(-1));
 const record = (page: Page) => page.evaluate(() => new Promise<any>((resolve, reject) => {
-  const opening = indexedDB.open("autonavlog.projects", 1);
+  const opening = indexedDB.open("autonavlog.projects");
   opening.onerror = () => reject(opening.error);
   opening.onsuccess = () => {
     const db = opening.result;
@@ -107,7 +107,8 @@ test("saved Run stays fixed while a newer Run is available", async ({ page }) =>
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await page.evaluate(recovery => new Promise<void>((resolve, reject) => {
-    const opening = indexedDB.open("autonavlog.projects", 1);
+    const opening = indexedDB.open("autonavlog.projects");
+    opening.onerror = () => reject(opening.error);
     opening.onsuccess = () => {
       const db = opening.result;
       const tx = db.transaction("projects", "readwrite");
