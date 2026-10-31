@@ -2974,16 +2974,16 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(legend).toContainText("中心除外 9 km");
   await expect(legend).toContainText("民間訓練試験空域 KS4（GSI）");
   await expect(legend).toContainText("空域: 12区画を表示");
-  const airspaceNote = page.getByLabel("RJFM空域データ注記");
-  await expect(airspaceNote).not.toContainText("NAV LOG計算やPCA判定には使用しません");
-  await expect(airspaceNote).toContainText("国土交通省・国土地理院レイヤーをもとに加工");
-  await expect(airspaceNote.locator("time")).toHaveCount(0);
-  await expect(airspaceNote).not.toContainText("境界付近は空域を管轄する機関へ確認してください");
-  await expect(airspaceNote.getByRole("link", { name: "国土交通省" })).toHaveAttribute(
+  await expect(page.locator(".rjfm-airspace-note")).toHaveCount(0);
+  const attribution = page.locator(".leaflet-control-attribution");
+  const airspaceCredit = attribution.locator(".rjfm-airspace-credit");
+  await expect(airspaceCredit).toHaveText("国土交通省・国土地理院データを加工");
+  await expect(airspaceCredit).toHaveCount(1);
+  await expect(airspaceCredit.getByRole("link", { name: "国土交通省", exact: true })).toHaveAttribute(
     "href",
     "https://www.mlit.go.jp/koku/koku_tk10_000004.html",
   );
-  await expect(airspaceNote.getByRole("link", { name: "国土地理院レイヤー" })).toHaveAttribute(
+  await expect(airspaceCredit.getByRole("link", { name: "国土地理院", exact: true })).toHaveAttribute(
     "href",
     /kokuarea_minkankunren$/,
   );
@@ -3025,10 +3025,40 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     width: "2",
   })));
 
+  for (const width of [390, 1100, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(attribution).toHaveCSS("font-size", "12px");
+    await expect(attribution.getByRole("link", { name: "OpenStreetMap", exact: true }))
+      .toHaveAttribute("href", "https://www.openstreetmap.org/copyright");
+    const bounds = await attribution.evaluate(element => {
+      const credit = element.getBoundingClientRect();
+      const map = element.closest(".route-map")!.getBoundingClientRect();
+      return { left: credit.left - map.left, right: map.right - credit.right,
+        bottom: map.bottom - credit.bottom, overflow: element.scrollWidth - element.clientWidth };
+    });
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeGreaterThanOrEqual(0);
+    expect(bounds.bottom).toBeGreaterThanOrEqual(0);
+    expect(bounds.overflow).toBeLessThanOrEqual(1);
+    await expect.poll(async () => {
+      const creditBox = await attribution.boundingBox();
+      const legendBox = await legend.boundingBox();
+      return creditBox!.y - (legendBox!.y + legendBox!.height);
+    }).toBeGreaterThanOrEqual(0);
+    const outline = page.locator(".rjfm-pca-boundary");
+    const beforeZoom = await outline.getAttribute("d");
+    await page.locator(".leaflet-control-zoom-in").click();
+    await expect(outline).not.toHaveAttribute("d", beforeZoom!);
+    await page.locator(".leaflet-control-zoom-out").click();
+    await expect(airspaceCredit).toHaveText("国土交通省・国土地理院データを加工");
+    await page.locator(".map-frame").screenshot({ path: test.info().outputPath(`credits-${width}.png`) });
+  }
+
   await page.setViewportSize({ width: 1100, height: 900 });
   await expect(legend).toBeVisible();
   await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
   await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(19);
+  await expect(airspaceCredit).toHaveCount(1);
 
   await page.setViewportSize({ width: 390, height: 844 });
   const runway09Box = await runway09.boundingBox();
@@ -3139,6 +3169,8 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     );
     await expect(page.locator(".rjfm-training-airspace")).toHaveCount(0);
     await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(0);
+    await expect(airspaceCredit).toHaveCount(0);
+    await expect(attribution.getByRole("link", { name: "OpenStreetMap", exact: true })).toBeVisible();
     await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
     await expect(page.locator(".rjfm-pca-exclusion")).toHaveCount(1);
   }

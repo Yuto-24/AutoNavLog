@@ -245,6 +245,21 @@ test("download and Clipboard export the displayed result, survive denial, and re
 });
 
 test("source links open without an opener and cannot unlock a pending save", async ({ page, context }) => {
+  // Credit visibility follows successful live-layer loading; keep this interaction
+  // test independent of GSI network availability with a valid two-tile contract.
+  await context.route("https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/8/221/*.geojson", async route => {
+    const north = route.request().url().endsWith("/103.geojson");
+    const names = north ? ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5"]
+      : ["KS4-2", "KS4-7", "KS4-6", "KS4-1/4", "KS4-1", "KS4-3", "KS4-5", "KS4-8"];
+    const lat = north ? 32 : 31;
+    const ring = [[131, lat], [131.1, lat], [131.1, lat + .1], [131, lat + .1], [131, lat]];
+    await route.fulfill({ contentType: "application/geo+json", body: JSON.stringify({
+      type: "FeatureCollection", features: names.flatMap(name => ["Polygon", "LineString"].map(type => ({
+        type: "Feature", properties: { "空域名称": name, "下限": "0 ft", "上限": "10000 ft", "管轄機関": "Fixture" },
+        geometry: { type, coordinates: type === "Polygon" ? [ring] : ring },
+      }))),
+    }) });
+  });
   await open(page);
   await page.getByLabel("気象モード").selectOption("FTD");
   await drop(page, "route.kml", kml);

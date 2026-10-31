@@ -183,8 +183,13 @@ Map credits are separate from revision metadata. The base layer still displays i
 OpenStreetMap copyright link on the map, as required by the
 [OSM tile policy](https://operations.osmfoundation.org/policies/tiles/).
 The live `kokuarea_minkankunren` GeoJSON is fetched from GSI, validates/extracts the
-approved KS4 features, and renders them over the base map. Its compact adjacent credit
-keeps the linked MLIT source page and GSI layer page, plus the processing indication.
+approved KS4 features, and renders them over the base map. While those layers are
+displayed, their credit joins the existing bottom-right Leaflet attribution, keeping
+the linked MLIT source page and GSI layer page plus the processing indication.
+There is no separate explanation row below the map. The combined attribution uses
+12 px text and wraps within the map at narrow widths. The legend sits above the
+measured attribution height, including after resizing; the OSM credit stays visible
+when airspace is unavailable. Source links retain the platform external-link behavior.
 This credit is not moved behind Details: both the
 [GSI terms](https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html) and
 [MLIT terms](https://www.mlit.go.jp/link.html) require source identification, with a
@@ -193,7 +198,9 @@ the individual layer entry to the text reader; this was not treated as permissio
 omit a credit or as proof of a layer-specific exception.
 
 The compact credit text was determined with Gemini CLI (`gemini-3.8-flash-medium`):
-`出典: 国土交通省・国土地理院レイヤーをもとに加工`.
+`国土交通省・国土地理院データを加工`.
+This live GSI source is unchanged; the attribution exemption for Shapefile/KML
+from the AIP ZIP does not apply to this implementation.
 
 
 ## New MAP routes (Issue #174)

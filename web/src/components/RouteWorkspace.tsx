@@ -1,7 +1,6 @@
 import { MapDraftLayers, RouteStrip, type MapRouteBuilderProps } from "./MapRouteBuilder";
 import { MapViewport } from "./MapViewport";
 import type { KeyValueStorage } from "../platform";
-import { ExternalLink } from "./ExternalLink";
 import type { Dispatch, SetStateAction } from "react";
 import type { CheckPointDraft, NodeNameDraft } from "../applicationSession";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
@@ -45,6 +44,26 @@ import { rjfmCandidateClass, rjfmStatusLabels } from "./RjfmGuidancePanel";
 import { RouteConfirmation } from "./RouteConfirmation";
 import "./RouteWorkspacePhase.css";
 import { localMode } from "../executionMode";
+
+function MapAttributionLayout() {
+  const map = useMap();
+  useEffect(() => {
+    const attribution = map.attributionControl?.getContainer();
+    const frame = map.getContainer().closest<HTMLElement>(".map-frame");
+    if (!attribution || !frame) return;
+    const updateHeight = () => frame.style.setProperty(
+      "--map-attribution-height", `${attribution.getBoundingClientRect().height}px`,
+    );
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(attribution);
+    updateHeight();
+    return () => {
+      observer.disconnect();
+      frame.style.removeProperty("--map-attribution-height");
+    };
+  }, [map]);
+  return null;
+}
 
 interface RouteWorkspaceProps {
   mapBuilder?: MapRouteBuilderProps;
@@ -374,6 +393,10 @@ export function RouteWorkspace({
   const civilAirspaceReference = rjfmMapReference?.civilTrainingTestAirspace ?? null;
   const civilAirspaceReferenceIsApproved = civilAirspaceReference !== null
     && isApprovedRjfmAirspaceReference(civilAirspaceReference);
+  // Only the strictly allowlisted source URLs enter Leaflet's HTML attribution.
+  const airspaceAttribution = civilAirspaceReferenceIsApproved
+    ? `<span class="rjfm-airspace-credit"><a data-airspace-source href="${civilAirspaceReference.sourcePageUrl}" target="_blank" rel="noopener noreferrer">国土交通省</a>・<a data-airspace-source href="${civilAirspaceReference.layerMetadataUrl}" target="_blank" rel="noopener noreferrer">国土地理院</a>データを加工</span>`
+    : undefined;
   const civilAirspaceRequestKey = civilAirspaceReference === null
     ? ""
     : JSON.stringify({
@@ -537,6 +560,14 @@ export function RouteWorkspace({
         id="route-map-frame"
         className={`map-frame${pickingCheckPoint ? " is-picking-checkpoint" : ""}`}
         style={mapFrameStyle}
+        onClickCapture={(event) => {
+          const link = event.target instanceof Element
+            ? event.target.closest<HTMLAnchorElement>("a[data-airspace-source]")
+            : null;
+          if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          onOpenExternalUrl(link.href);
+        }}
       >
         <MapContainer
           // Local Account changes may unmount immediately; Leaflet zoom timers outlive remove().
@@ -552,6 +583,7 @@ export function RouteWorkspace({
             url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
             referrerPolicy="strict-origin-when-cross-origin"
           />
+          <MapAttributionLayout />
           {rjfmMapReference && pcaCoordinates.length >= 3 && (
             <>
               <Polygon
@@ -604,6 +636,7 @@ export function RouteWorkspace({
             <Polygon
               key={airspace.id}
               className="rjfm-training-airspace"
+              attribution={airspaceAttribution}
               positions={airspace.positions}
               pathOptions={{
                 fillColor: "#5b83cf",
@@ -628,6 +661,7 @@ export function RouteWorkspace({
             <Polyline
               key={boundary.id}
               className="rjfm-training-airspace-boundary"
+              attribution={airspaceAttribution}
               positions={boundary.positions}
               pathOptions={{
                 color: "#315caa",
@@ -870,22 +904,6 @@ export function RouteWorkspace({
         )}
       </div>
       {mapBuilder ? <RouteStrip {...mapBuilder} /> : <MapResizeHandle value={mapHeight} min={320} max={900} onChange={setMapHeight} />}
-      {rjfmMapReference && (
-        <aside className="rjfm-airspace-note" aria-label="RJFM空域データ注記">
-          {civilAirspaceReferenceIsApproved && (
-            <span>
-              出典: <ExternalLink
-                onOpen={onOpenExternalUrl}
-                href={rjfmMapReference.civilTrainingTestAirspace.sourcePageUrl}
-              >国土交通省</ExternalLink>
-              ・<ExternalLink
-                onOpen={onOpenExternalUrl}
-                href={rjfmMapReference.civilTrainingTestAirspace.layerMetadataUrl}
-              >国土地理院レイヤー</ExternalLink>をもとに加工
-            </span>
-          )}
-        </aside>
-      )}
 
       <RouteConfirmation
         visible={Boolean(candidate && !project && !mapBuilder)}
