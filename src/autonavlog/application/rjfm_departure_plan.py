@@ -184,10 +184,16 @@ def _reconcile_departure_umk(project: Project, references: RjfmPlanReferences) -
         and len(nodes) > 2
         and _distance_to(nodes[2], references.omaru) <= TRIGGER_TOLERANCE_NM
     ):
+        umk_moved = (
+            generated[0].latitude_deg != references.umk.latitude_deg
+            or generated[0].longitude_deg != references.umk.longitude_deg
+        )
         generated[0].latitude_deg = references.umk.latitude_deg
         generated[0].longitude_deg = references.umk.longitude_deg
         generated[0].source = f"{_UMK_SOURCE}{references.revision}"
         _apply_split_manual_override(project, generated[0], metadata_key=_UMK_GEOMETRY_KEY)
+        if umk_moved:
+            _relink_departure_check_points(project, (sections[0], sections[1]))
         return
     for node in generated:
         incoming = next((s for s in sections if s.to_node_id == node.id), None)
@@ -252,16 +258,24 @@ def _reconcile_departure_umk(project: Project, references: RjfmPlanReferences) -
     for index, section in enumerate(sections):
         section.sequence = index
     project.sections = sections
+    _relink_departure_check_points(project, (incoming, remainder))
+
+
+def _relink_departure_check_points(
+    project: Project, split_sections: tuple[NavSection, NavSection]
+) -> None:
+    """Link saved CPs to valid physical spans after inserting or moving UMK."""
     # A saved CP on the old direct leg belongs to whichever new physical span
     # has its nearest valid abeam projection. Keep its coordinate/name intact.
+    section_ids = {section.id for section in split_sections}
     for reference in project.visual_references:
         if (
             reference.role != VisualReferenceRole.CHECK_POINT
-            or reference.linked_section_id != remainder.id
+            or reference.linked_section_id not in section_ids
         ):
             continue
         candidates: list[CheckPointProjection] = []
-        for section in (incoming, remainder):
+        for section in split_sections:
             probe = project.model_copy(
                 update={
                     "visual_references": [

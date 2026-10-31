@@ -820,3 +820,87 @@ def test_saved_climb_checkpoint_follows_split_and_restores_on_removal() -> None:
     assert apply_rjfm_departure_exception(restored, _references()) is None
     assert restored.visual_references[0].linked_section_id == original_id
     assert not project_check_points(restored).issues
+
+
+@pytest.mark.parametrize("initial_fraction,new_fraction", [(0.4, 0.7), (0.7, 0.4)])
+def test_saved_checkpoint_relinks_when_reference_umk_moves_across_it(
+    initial_fraction: float, new_fraction: float
+) -> None:
+    from autonavlog.application.checkpoints import project_check_points
+    from autonavlog.domain.enums import VisualReferenceRole
+    from autonavlog.domain.project import VisualReference
+    from autonavlog.nav.geodesy import point_along_leg
+
+    project = _project(
+        [("RJFM", 31.877, 131.449), ("OMARU", 32.22, 131.55), ("RJFO", 33.479, 131.737)]
+    )
+    origin, omaru = project.route_nodes[:2]
+    origin.manual_distance_nm = 30
+    geometry = geodesic_leg(
+        origin.latitude_deg, origin.longitude_deg, omaru.latitude_deg, omaru.longitude_deg
+    )
+
+    def position(fraction: float) -> tuple[float, float]:
+        return point_along_leg(
+            origin.latitude_deg,
+            origin.longitude_deg,
+            geometry.initial_true_course_deg,
+            geometry.distance_nm * fraction,
+        )
+
+    latitude, longitude = position(0.55)
+    checkpoint = VisualReference(
+        name="saved boundary CP",
+        latitude_deg=latitude,
+        longitude_deg=longitude,
+        role=VisualReferenceRole.CHECK_POINT,
+        linked_section_id=project.sections[0].id,
+    )
+    destination = project.route_nodes[-1]
+    other_geometry = geodesic_leg(
+        omaru.latitude_deg, omaru.longitude_deg,
+        destination.latitude_deg, destination.longitude_deg,
+    )
+    other_latitude, other_longitude = point_along_leg(
+        omaru.latitude_deg, omaru.longitude_deg,
+        other_geometry.initial_true_course_deg, other_geometry.distance_nm * 0.5,
+    )
+    unrelated = VisualReference(
+        name="unrelated CP",
+        latitude_deg=other_latitude,
+        longitude_deg=other_longitude,
+        role=VisualReferenceRole.CHECK_POINT,
+        linked_section_id=project.sections[1].id,
+    )
+    project.visual_references = [checkpoint, unrelated]
+    refs = _references()
+    refs.umk.latitude_deg, refs.umk.longitude_deg = position(initial_fraction)
+    assert apply_rjfm_departure_exception(project, refs) is not None
+    initial_link = checkpoint.linked_section_id
+    unrelated_link = unrelated.linked_section_id
+    node_ids = [node.id for node in project.ordered_nodes()]
+    section_ids = [section.id for section in project.ordered_sections()]
+    saved = Project.model_validate_json(project.model_dump_json())
+    checkpoint = saved.visual_references[0]
+    refs.umk.latitude_deg, refs.umk.longitude_deg = position(new_fraction)
+    # Show the saved link becomes invalid on the new geometry before repair.
+    saved.route_nodes[1].latitude_deg = refs.umk.latitude_deg
+    saved.route_nodes[1].longitude_deg = refs.umk.longitude_deg
+    assert any(
+        issue.code == "CP_NOT_ABEAM_LINKED_SECTION"
+        and issue.metadata.get("checkpoint_id") == str(checkpoint.id)
+        for issue in project_check_points(saved).issues
+    )
+    saved = Project.model_validate_json(project.model_dump_json())
+    assert apply_rjfm_departure_exception(saved, refs) is not None
+    checkpoint = saved.visual_references[0]
+    assert checkpoint.linked_section_id != initial_link
+    assert checkpoint.latitude_deg == latitude and checkpoint.longitude_deg == longitude
+    assert saved.visual_references[1].linked_section_id == unrelated_link
+    assert [node.id for node in saved.ordered_nodes()] == node_ids
+    assert [section.id for section in saved.ordered_sections()] == section_ids
+    assert sum(node.manual_distance_nm or 0 for node in saved.route_nodes[:2]) == pytest.approx(30)
+    assert not project_check_points(saved).issues
+    before = saved.model_dump(mode="json")
+    assert apply_rjfm_departure_exception(saved, refs) is not None
+    assert saved.model_dump(mode="json") == before
