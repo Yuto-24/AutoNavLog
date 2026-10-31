@@ -4,24 +4,22 @@ This is a diagnostic for an RJFM inbound route whose authoritative NAV LOG has a
 
 The solver derives its duration, TAS, wind, UMK, VREP, selected descent rate, and adopted VREP altitude from that completed authoritative profile. The card is transient: it is generated for the current calculation-input fingerprint and is not saved in project UI state. A stale authoritative plan prevents numeric guidance; an unavailable solver/reference produces only a warning diagnostic.
 
-## Inbound route completion (Issue #235, partial)
+## Inbound route completion (Issue #235)
 
-Before applying the existing profile, route normalization inserts the reference UMK
-immediately after a coordinate-matched OMARU when the RJFM return has a separate
-final VREP and no explicit UMK. KML and MAP confirmation share this normalization,
-as do Local calculation, Legacy calculation, edits and saved-project restoration.
-The existing VREP, its arrival plan and the physical UMK-to-VREP segment remain intact.
-An explicit coordinate-matched UMK is retained, including its user/Point name,
-coordinates and manual inputs. An earlier explicit UMK prevents duplicate insertion
-but does not make an incorrectly ordered route eligible for the profile.
+OMARU→RJFM and OMARU→ARITA→RJFM return tails complete missing UMK and ARITA.
+KML/MAP confirmation, Local/Legacy calculation, edits and restoration share the
+normalization. An explicit coordinate-matched UMK after OMARU is retained with
+its name, coordinates and manual inputs. An earlier UMK visit belongs to a
+previous span and does not suppress the return occurrence. Explicit ARITA is
+retained; direct returns gain ARITA as their final VREP. Other routes retain
+existing VREP validation and profile behavior.
 
-Generated UMK and section identities remain stable on reapplication. If the route
-no longer qualifies, normalization removes the generated point and restores the
-original section altitude/phase and any original OMARU direct-leg geometry overrides.
-While split, both legs use their own geometry rather than the old direct-leg override.
-West-extension guidance remains a separate diagnostic and supplies no route nodes.
-
-The subsequently agreed direct OMARU-to-RJFM tail now completes ARITA as its final VREP; it does not waive VREP validation for other routes.
+Generated point and section identities remain stable on reapplication. When the
+route no longer qualifies, generated points are removed. Original geometry,
+roles and section fields are restored only when their original adjacency returns.
+Existing manual arrival fields survive reference retargeting. Split sections use
+their physical geometry, and CP links follow valid abeam projections.
+West-extension guidance supplies no physical route nodes.
 
 ## Sources and current availability
 
@@ -48,10 +46,11 @@ Route intervals are sampled along the WGS84 geodesic and then checked as straigh
 
 The clearance value is a local planar approximation for diagnostics. Intersection checks preserve the required straight latitude/longitude edge model, but a future source with materially larger geographic extent or a different edge interpretation must be rejected or receive a separately reviewed geometry model.
 
-## Parent and child presentation (Issue #235 followup)
+## Parent and child presentation
 
-The OMARU-to-final-VREP span is displayed as one parent Leg, retaining all
-physical source section IDs and child calculation zones. Child TC/MC cells show
+ARITA returns display OMARU→RJFM as one parent Leg containing OMARU→UMK,
+UMK→ARITA and ARITA→RJFM. Other existing inbound profiles retain their
+OMARU-to-final-VREP parent. Both preserve physical source section IDs and zones. Child TC/MC cells show
 their adopted segment courses explicitly, as do the existing RJFM-to-OMARU
 parent's children. No new manual course override is introduced. The inbound
 parent leaves TC/MC blank because it spans multiple bearings. Its DIST, ETE and
@@ -74,8 +73,8 @@ Saved CP links follow the nearest valid abeam projection on the new spans and
 return to the original section when the generated point is removed. Departure
 fingerprints are sealed after inbound normalization so a roundtrip can retain
 both generated UMK occurrences and both parent Legs. Independent RWY/OVER FIELD
-maneuver diagnostics remain separate from physical route totals. Direct-return
-descent endpoint policy is still excluded.
+maneuver diagnostics remain separate from physical route totals. The agreed
+ARITA direct-return profile is described below.
 
 ## Agreed ARITA return policy (2026-10-31)
 
