@@ -106,6 +106,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   const latestSession = useRef<ApplicationSession | null>(null);
   const restoredPattern = useRef<string | null>(null);
   const lifecycle = useRef(0);
+  const calculationInFlight = useRef(false);
   const mounted = useRef(true);
   const restoredCandidate = useRef<string | null>(null);
   const [kmzOpen, setKmzOpen] = useState(false);
@@ -1363,7 +1364,9 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     return () => window.clearTimeout(timeout);
   }, [altitudeInputs, application, form, navLogDrafts, navLogEditVersion, state?.outcome, state?.project]);
 
-  const handleCalculate = async () => {
+  const handleCalculate = async (roundingMode?: boolean) => {
+    if (busy || calculationInFlight.current) return;
+    calculationInFlight.current = true;
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
     scrollToCalculatedNavLogRef.current = null;
@@ -1371,7 +1374,10 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     const calculated = await run(async () => {
       const saved = await flushDraftAutosave(true);
       if (!saved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-      const next = await application.calculate(setCalculationProgress);
+      const next = await application.calculate(
+        setCalculationProgress,
+        roundingMode === undefined ? undefined : { roundingMode },
+      );
       scrollToCalculatedNavLogRef.current = next.outcome;
       return next;
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
@@ -1379,6 +1385,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       operation: "calculate",
     });
     if (!calculated?.outcome) scrollToCalculatedNavLogRef.current = null;
+    calculationInFlight.current = false;
   };
 
   const handleSave = async (name: string) => {
@@ -1755,7 +1762,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           outcomeExists={Boolean(state.outcome)}
           busy={busy}
           activeOperation={activeOperation}
-          onCalculate={handleCalculate}
+          onCalculate={() => void handleCalculate()}
           onAcknowledge={handleAcknowledge}
         />}
       </main>
@@ -1768,6 +1775,9 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           aria-label="計算済みNAV LOG"
         >
           <NavLogTable
+            roundingMode={state.roundingMode ?? false}
+            roundingDisabled={busy || !calculationInputsAreLocallyCurrent || hasNavLogEditErrors(navLogEditErrors) || (!(state.roundingMode ?? false) && !canCalculate) || navLogEditStatus.kind === "saving"}
+            onRoundingChange={(enabled) => void handleCalculate(enabled)}
             vorColumns={vorColumns}
             setVorColumns={setVorColumns}
             outcome={state.outcome}

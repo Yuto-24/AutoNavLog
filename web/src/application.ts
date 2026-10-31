@@ -44,6 +44,7 @@ export class ApplicationError extends Error {
 }
 export interface CalculationProgress { percent: number; message: string }
 export type ProgressListener = (progress: CalculationProgress) => void;
+export interface CalculationOptions { roundingMode: boolean }
 
 // Operation boundaries intentionally preserve draft commits and atomic update/recalculate.
 export interface AutoNavLogApplication {
@@ -58,7 +59,7 @@ export interface AutoNavLogApplication {
   renameRouteNode(nodeId: string, name: string): Promise<ApplicationSnapshot>;
   replaceCheckPoints(checkPoints: CheckPointInput[]): Promise<ApplicationSnapshot>;
   acknowledge(key: string, checked: boolean): Promise<ApplicationSnapshot>;
-  calculate(onProgress?: ProgressListener): Promise<ApplicationSnapshot>;
+  calculate(onProgress?: ProgressListener, options?: CalculationOptions): Promise<ApplicationSnapshot>;
   saveProject(name: string): Promise<ApplicationSnapshot>;
   loadProject(projectId: string): Promise<ApplicationSnapshot>;
   deleteProject(projectId: string): Promise<ApplicationSnapshot>;

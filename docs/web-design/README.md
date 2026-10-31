@@ -216,3 +216,16 @@ The Local test helper holds renderer host tasks until it observes the requested
 focus frame, including when asynchronous confirmation schedules that frame after
 an earlier renderer task. Deferring a task by one frame alone does not establish
 this order.
+
+
+Checkpoint entry (#224 / #272) uses the same validation and save path for the
+name input's Enter key and the existing Add/Save buttons. Composition state,
+`isComposing`, `keyCode === 229` and repeated keydown events do not submit.
+A synchronous save lock covers Enter/click mixtures until the asynchronous save
+settles; failures retain the draft and permit retry. Each MAP coordinate pick
+focuses the mounted name input once and scrolls it into view; ordinary draft
+updates and manual focus changes do not focus it again. Opening or editing a
+checkpoint without a MAP pick does not request name focus.
+`web/e2e/checkpoint-enter.spec.ts` covers Local and Legacy, including 390/1100/1440px
+MAP-to-name-to-Enter flows. Composition events are simulated; these checks do not
+establish physical IME behavior or mobile software keyboard activation.

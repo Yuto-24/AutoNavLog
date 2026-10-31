@@ -17,6 +17,14 @@ SR22性能値については、Cirrus Design SR22 AFM/POH P/N 13772-006 Revision
 - NAV LOGへ表示するMHは、同じ行に表示する丸め済みMCとWCAから作り、画面上の算術を一致させます。
 - VFR巡航高度候補の方向判定は、NAV LOGへ表示する1°単位のMCを使用します。359.5°以上は表示360°、判定上は0°側とします。
 
+## 四捨五入モード
+
+計算後のNAV LOG上部で切り替え、切替時には再計算します。互換維持の暫定既定はOFFです。
+ON時は共通採用風向を10° half-upへ丸めて航法計算と表示に使用し、MH・GS自身は10刻みにしません。
+DMEは0.5 NM、TOATは1℃の表示投影だけを行い、内部距離・気温を保持します。
+OFFの従来表示・計算は維持します。モードは同じ作業中のみ保持し、新規作業・Project読込・再読込でOFFへ戻します。
+境界値・失敗時の扱いと保存設定の未確定範囲は[四捨五入モード](rounding_mode_helpers.md)を参照してください。
+
 ## Phaseと代表気象
 
 Flight Phaseは`CLIMB`、`CRUISE`、`DESCENT`、`VISUAL_ARRIVAL`を扱います。
