@@ -43,3 +43,7 @@ When a repository's documentation and its existing code disagree, follow the con
 ## Reusable knowledge
 
 Before work, consult [the shared knowledge index](docs/knowledge/INDEX.md) and only the entries relevant to the task; follow [the knowledge workflow](docs/knowledge/README.md) to verify applicability and preserve non-obvious findings with evidence through incremental updates. Keep detailed lessons out of this file, reuse existing canonical documents, and do not create an entry when nothing reusable was learned.
+
+## Reader-facing writing
+
+Before creating or updating PR bodies, Issue bodies, comments, ROADMAPs, work reports, or final replies for this project, read and follow [the writing standard](docs/writing-style.md). This applies to GitHub and chat messages as well as repository files. Run its submission checklist before sending or publishing. Keep the standard canonical rather than duplicating its detailed rules here. Writing rules do not authorize changes, publication, or additional notifications.

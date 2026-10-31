@@ -6,7 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        実装方法ではなく、解決したい問題と完了条件を中心に記載してください。
+        [文章の規範](https://github.com/Yuto-24/AutoNavLog/blob/main/docs/writing-style.md)に従い、解決したい問題・対象範囲・完了条件を中心に記載してください。
+        現在の状態を先に、詳細な経緯やログは補足に分けてください。
 
   - type: dropdown
     id: type
@@ -43,6 +44,15 @@ body:
       required: true
 
   - type: textarea
+    id: scope
+    attributes:
+      label: 対象範囲
+      description: 今回扱う機能・場面を書いてください。実装方法の固定は不要です。
+      placeholder: 例：保存済みProjectの読込と入力値の復元。
+    validations:
+      required: false
+
+  - type: textarea
     id: non_goals
     attributes:
       label: Non-Goals
@@ -68,4 +78,4 @@ body:
     attributes:
       label: 補足情報
       description: 関連Issue / PR、スクリーンショット、ログ、資料URLなどがあれば記載してください。
-      placeholder: "例：Related: #123"
+      placeholder: "例：Related: #123 保存内容の復元"
