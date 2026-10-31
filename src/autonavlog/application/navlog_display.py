@@ -1075,7 +1075,7 @@ def build_navlog_display_rows(
                 )
                 context["pa"] = new_pa_context
                 shown: dict[str, NavLogDisplayCell] = {}
-                eoc_wind_boundary = zone.phase == FlightPhase.DESCENT and (
+                eoc_phase_boundary = zone.phase == FlightPhase.DESCENT and (
                     eoc_boundary_pending or _is_eoc_descent_start(zone)
                 )
                 for name in (
@@ -1090,9 +1090,9 @@ def build_navlog_display_rows(
                     "mh",
                 ):
                     if (leg.show_child_courses and name in {"tc", "mc"}) or (
-                        eoc_wind_boundary and name in {"wind", "wca", "mh"}
+                        eoc_phase_boundary and name in {"toat", "wind", "wca", "mh"}
                     ):
-                        # EOC changes the applicable wind.  Preserve a calculated
+                        # Keep child courses explicit and refresh the EOC phase environment.
                         # UNAVAILABLE state too; it must not become an inherited blank.
                         shown[name] = candidates[name]
                         context[name] = candidates[name]
@@ -1101,7 +1101,7 @@ def build_navlog_display_rows(
                             candidates[name],
                             context.get(name),
                         )
-                if eoc_wind_boundary:
+                if eoc_phase_boundary:
                     gs_cell = candidates["gs"]
                 else:
                     gs_cell = (
@@ -1165,7 +1165,7 @@ def build_navlog_display_rows(
                     )
                 )
 
-                if eoc_wind_boundary:
+                if eoc_phase_boundary:
                     eoc_boundary_pending = False
                 elif "EOC" in _label_markers(zone.to_name):
                     eoc_boundary_pending = True
