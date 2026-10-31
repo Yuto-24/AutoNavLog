@@ -192,6 +192,7 @@ class WebSession:
     restore_warning: str | None = None
     persist_working: bool = True
     last_calculation: WorkingCalculation | None = None
+    rounding_mode: bool = False
 
 
 class AutoNavLogWebApplication:
@@ -276,7 +277,14 @@ class AutoNavLogWebApplication:
             self._session_order.append(token)
             return session
 
-    def restore_working(self, session: WebSession, recovery: WorkingRecovery) -> dict[str, Any]:
+    def restore_working(
+        self,
+        session: WebSession,
+        recovery: WorkingRecovery,
+        *,
+        reset_rounding: bool = True,
+        rounding_mode: bool = False,
+    ) -> dict[str, Any]:
         # Validate before committing. No autosave, marker update, calculation or replay.
         with self.owner_operation(session.owner_id), session.lock:
             if recovery.project is not None:
@@ -300,6 +308,10 @@ class AutoNavLogWebApplication:
             )
             session.outcome = recovery.outcome
             session.destination_wind = recovery.destination_wind
+            if reset_rounding:
+                self._reset_rounding_mode(session)
+            else:
+                session.rounding_mode = rounding_mode
             session.import_result = recovery.import_result
             session.import_filename = recovery.import_filename
             session.readiness = None
@@ -380,6 +392,7 @@ class AutoNavLogWebApplication:
             session.import_filename = filename
             session.project = None
             session.outcome = None
+            session.rounding_mode = False
             session.destination_wind = None
             session.readiness = None
             return self.present(session)
@@ -711,33 +724,48 @@ class AutoNavLogWebApplication:
         self,
         session: WebSession,
         progress: Callable[[int, str], None] | None = None,
+        *,
+        rounding_mode: bool | None = None,
     ) -> dict[str, Any]:
         with self.owner_operation(session.owner_id), session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             report = progress or (lambda _percent, _message: None)
+            selected_rounding_mode = (
+                session.rounding_mode if rounding_mode is None else rounding_mode
+            )
             report(10, "経路と計算条件を確認しています。")
             calculation_project = session.project.model_copy(deep=True)
             outcome, destination_wind = self._calculate_outcome(
                 session,
                 calculation_project,
                 progress=report,
+                rounding_mode=selected_rounding_mode,
             )
+            if selected_rounding_mode != session.rounding_mode and outcome.blockers:
+                # A failed mode transition must retain the last-good mode/result,
+                # including when rounding makes a previously solvable wind invalid.
+                detail = " / ".join(issue.message for issue in outcome.blockers[:3])
+                raise WebApplicationError(
+                    "CALCULATION_FAILED", f"計算に失敗しました。{detail}"
+                )
             report(90, "計算結果と準備状況を反映しています。")
             materialized = session.readiness_service.record_calculation(
                 calculation_project,
                 outcome,
             )
-            self._persist_calculation(
-                session,
-                materialized,
-                destination_wind,
-            )
+            previous_last_calculation = session.last_calculation
+            try:
+                self._persist_calculation(session, materialized, destination_wind)
+            except Exception:
+                session.last_calculation = previous_last_calculation
+                raise
             session.project = materialized.project
             session.outcome = materialized.outcome
             session.destination_wind = destination_wind
             session.readiness = materialized.evaluation
             session.restore_warning = None
+            session.rounding_mode = selected_rounding_mode
             report(98, "画面表示を準備しています。")
             return self.present(session)
 
@@ -866,7 +894,10 @@ class AutoNavLogWebApplication:
         session: WebSession,
         project: Project,
         progress: Callable[[int, str], None] | None = None,
+        *,
+        rounding_mode: bool | None = None,
     ) -> tuple[CalculationOutcome, DestinationWindForecast | None]:
+        selected_rounding_mode = session.rounding_mode if rounding_mode is None else rounding_mode
         self._normalize_rjfm_departure(project)
         state = self.project_service.ui_state(project)
         plan = state.arrival_plan
@@ -890,6 +921,7 @@ class AutoNavLogWebApplication:
                 project,
                 FtdWeatherProvider(project.ftd_weather),
                 progress=progress,
+                rounding_mode=selected_rounding_mode,
             )
             destination_icao = self.airports.get(project.destination_airport_id).icao
             ftd_destination_wind = unavailable_destination_wind(
@@ -904,6 +936,7 @@ class AutoNavLogWebApplication:
             project,
             session.weather_provider,
             progress=progress,
+            rounding_mode=selected_rounding_mode,
         )
         for _ in range(3):
             forecast = self._destination_wind(project, outcome)
@@ -917,6 +950,7 @@ class AutoNavLogWebApplication:
                 session.weather_provider,
                 forecast,
                 progress=progress,
+                rounding_mode=selected_rounding_mode,
             )
         if not self.development_weather:
             return self._with_rjfm_guidance(session, project, outcome), destination_wind
@@ -1305,6 +1339,30 @@ class AutoNavLogWebApplication:
         session.import_result = None
         session.import_filename = None
         session.restore_warning = restore_warning
+        self._reset_rounding_mode(session)
+
+    @staticmethod
+    def _reset_rounding_mode(session: WebSession) -> None:
+        """A restored result is not a saved preference: new work starts OFF.
+
+        The existing result provenance identifies rounded runs without adding
+        Project or storage schema fields. Retain the durable record, but require
+        a fresh calculation before showing a restored rounded result as OFF.
+        """
+        session.rounding_mode = False
+        outcomes = [
+            session.outcome,
+            None if session.last_calculation is None else session.last_calculation.outcome,
+        ]
+        if any(
+            section.wind_direction_deg_from.automatic_metadata.get("rounding_mode") is True
+            for outcome in outcomes if outcome is not None
+            for section in outcome.sections
+        ):
+            session.outcome = None
+            session.last_calculation = None
+            session.destination_wind = None
+            session.readiness = None
 
     def _outcome_for_presentation(
         self,
@@ -1416,6 +1474,7 @@ class AutoNavLogWebApplication:
         summaries = self._owned_project_summaries(session)
         check_point_planning = self._check_point_planning(session.project)
         return {
+            "roundingMode": session.rounding_mode,
             "workingRecovery": WorkingRecovery(
                 version=1,
                 project=session.project,

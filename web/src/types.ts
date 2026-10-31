@@ -608,6 +608,7 @@ export interface WorkingRecovery {
 }
 
 export interface WebState {
+  roundingMode?: boolean;
   storageWarning?: string;
   workingRecovery?: WorkingRecovery;
   runtime: RuntimeState;

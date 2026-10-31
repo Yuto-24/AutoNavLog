@@ -50,6 +50,7 @@ from autonavlog.nav.geodesy import (
     GeodesicLeg,
     geodesic_leg,
 )
+from autonavlog.nav.rounding_mode import wind_direction_for_calculation
 from autonavlog.nav.variation import variation_for_departure_latitude
 from autonavlog.nav.wind_triangle import WindTriangleError, solve_wind_triangle
 from autonavlog.performance.climb import ClimbCalculator, ClimbPerformanceError
@@ -250,6 +251,7 @@ class CalculationService:
         self.last_weather_requests: list[WeatherRequest] = []
         self.last_weather_results: list[WeatherResult] = []
         self.last_forecast_metadata: dict[str, Any] = {}
+        self._rounding_mode = False
 
     @staticmethod
     def _airport_from_selection(selection: AirportSelection) -> Airport:
@@ -316,7 +318,10 @@ class CalculationService:
         provider: WeatherProvider,
         destination_wind: DestinationWindForecast | None = None,
         progress: Callable[[int, str], None] | None = None,
+        *,
+        rounding_mode: bool = False,
     ) -> CalculationOutcome:
+        self._rounding_mode = rounding_mode
         report = progress or (lambda _percent, _message: None)
         report(15, "経路データを準備しています。")
         working = project.model_copy(deep=True)
@@ -641,6 +646,7 @@ class CalculationService:
                     destination_wind,
                     total_usable_fuel_gal=working.total_usable_fuel_gal,
                     run_up_included=working.run_up_included,
+                    rounding_mode=rounding_mode,
                 )
         report(80, "計算結果を検証しています。")
         issues.extend(final.issues)
@@ -1146,7 +1152,7 @@ class CalculationService:
             ):
                 weather = weather_by_id.get(self._weather_request_id(section, phase))
                 wind_direction, wind_speed, temperature, metadata, warnings = self._section_weather(
-                    section, weather, phase
+                    section, weather, phase, rounding_mode=self._rounding_mode
                 )
                 altitude_ft_msl, _ = self._weather_request_representative_altitude(
                     index,
@@ -3005,10 +3011,17 @@ class CalculationService:
                     ),
                     magnetic_course_deg=_automatic(magnetic_course),
                     wind_direction_deg_from=_manual_or_automatic(
-                        automatic_wind_direction,
-                        manual_wind_direction,
+                        wind_direction_for_calculation(
+                            automatic_wind_direction, enabled=self._rounding_mode
+                        ),
+                        wind_direction_for_calculation(
+                            manual_wind_direction, enabled=self._rounding_mode
+                        ),
                         state=wind_state,
-                        metadata=wind_metadata,
+                        metadata=(
+                            wind_metadata | {"rounding_mode": True}
+                            if self._rounding_mode else wind_metadata
+                        ),
                         warnings=wind_warnings,
                     ),
                     wind_speed_kt=_manual_or_automatic(
@@ -3140,6 +3153,7 @@ class CalculationService:
             destination_wind,
             total_usable_fuel_gal=project.total_usable_fuel_gal,
             run_up_included=project.run_up_included,
+            rounding_mode=self._rounding_mode,
         )
         return _IterationResult(
             sections,
@@ -3256,6 +3270,8 @@ class CalculationService:
         section: NavSection,
         weather: WeatherResult | None,
         phase: FlightPhase,
+        *,
+        rounding_mode: bool = False,
     ) -> tuple[float | None, float | None, float | None, dict[str, Any], tuple[str, ...]]:
         metadata = (
             {
@@ -3307,6 +3323,7 @@ class CalculationService:
         )
         if speed == 0:
             direction = None
+        direction = wind_direction_for_calculation(direction, enabled=rounding_mode)
         return direction, speed, temperature, metadata, warnings
 
     @staticmethod

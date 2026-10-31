@@ -117,6 +117,7 @@ local_application.dispatch_response("updateProject", json.loads(local_body_json)
 `) as string;
           if (JSON.parse(updated).error) return updated;
           pyodide.globals.set("local_dispatch_path", "calculate");
+          pyodide.globals.set("local_body_json", "{}");
         }
         try { await acquireWeather(pyodide); }
         catch (error) {
