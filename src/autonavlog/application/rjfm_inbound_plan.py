@@ -4,9 +4,17 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from uuid import uuid4
 
+from autonavlog.application.arrival import ARITA_COORDINATE, SPECIAL_RJFM_VREP_MATCH_RADIUS_NM
+from autonavlog.application.checkpoints import project_check_points
 from autonavlog.application.rjfm_coordinate_matcher import coordinate_matches_reference
-from autonavlog.domain.enums import FlightPhase, RouteNodeNameSource, RouteNodeRole
+from autonavlog.domain.enums import (
+    FlightPhase,
+    RouteNodeNameSource,
+    RouteNodeRole,
+    VisualReferenceRole,
+)
 from autonavlog.domain.planning import (
+    CheckPointProjection,
     PersistedUiState,
     RjfmCoordinate,
     RjfmInboundPlan,
@@ -17,6 +25,8 @@ from autonavlog.domain.project import NavSection, Project, RouteNode
 TARGET_ALTITUDE_FT_MSL = 4500.0
 RJFM_INPUT_MODE_OMARU_TO_UMK_FIXED = "RJFM_INBOUND_OMARU_TO_UMK_FIXED"
 _ORIGINAL_SECTIONS_METADATA_KEY = "rjfm_inbound_exception_original_sections"
+_ARITA_SOURCE = "RJFM_INBOUND_ARITA:"
+_ARITA_ORIGINAL = "rjfm_inbound_arita_original"
 _SYNTHETIC_UMK_SOURCE = "RJFM_INBOUND_EXCEPTION:"
 _ORIGINAL_GEOMETRY_METADATA_KEY = "rjfm_inbound_exception_original_geometry"
 
@@ -42,6 +52,7 @@ def apply_rjfm_inbound_exception(
     """
 
     _restore_original_sections(project)
+    _reconcile_arita(project, references)
     _reconcile_umk(project, references)
     if project.destination_airport_id.strip().upper() != "RJFM":
         _clear_plan(project)
@@ -102,6 +113,171 @@ def apply_rjfm_inbound_exception(
     return plan
 
 
+def is_arita_node(node: RouteNode) -> bool:
+    return coordinate_matches_reference(
+        node.latitude_deg,
+        node.longitude_deg,
+        *ARITA_COORDINATE,
+        tolerance_nm=SPECIAL_RJFM_VREP_MATCH_RADIUS_NM,
+    )
+
+
+def _relink_split_checkpoints(project: Project, original: NavSection, inserted: NavSection) -> None:
+    for reference in project.visual_references:
+        if (
+            reference.role != VisualReferenceRole.CHECK_POINT
+            or reference.linked_section_id != original.id
+        ):
+            continue
+        projections: list[CheckPointProjection] = []
+        for section in (inserted, original):
+            probe = project.model_copy(
+                update={
+                    "visual_references": [
+                        reference.model_copy(update={"linked_section_id": section.id})
+                    ]
+                }
+            )
+            projections.extend(project_check_points(probe).projections)
+        if projections:
+            reference.linked_section_id = min(
+                projections, key=lambda p: p.cross_track_distance_nm
+            ).section_id
+
+
+def _reconcile_arita(project: Project, references: RjfmInboundReferences) -> None:
+    nodes = project.ordered_nodes()
+    sections = project.ordered_sections()
+    if not _sections_link_nodes(sections, nodes) or len(nodes) < 2:
+        return
+    omaru_index = _matching_index(nodes, references.omaru)
+    active = project.destination_airport_id.strip().upper() == "RJFM" and omaru_index is not None
+    generated = next((n for n in nodes if n.source.startswith(_ARITA_SOURCE)), None)
+    if generated is not None:
+        other_arita = next(
+            (
+                n
+                for n in nodes[(omaru_index + 1) if omaru_index is not None else 0 :]
+                if n.id != generated.id and is_arita_node(n)
+            ),
+            None,
+        )
+        if active and other_arita is None and nodes[-2].id == generated.id:
+            return
+        _remove_synthetic_umks(project)
+        nodes, sections = project.ordered_nodes(), project.ordered_sections()
+        incoming = next(s for s in sections if s.to_node_id == generated.id)
+        outgoing = next(s for s in sections if s.from_node_id == generated.id)
+        outgoing.from_node_id = incoming.from_node_id
+        for cp in project.visual_references:
+            if cp.linked_section_id == incoming.id:
+                cp.linked_section_id = outgoing.id
+        project.sections = [s for s in sections if s.id != incoming.id]
+        project.route_nodes = [n for n in nodes if n.id != generated.id]
+        original = project.metadata.pop(_ARITA_ORIGINAL, {})
+        if isinstance(original, dict) and {"phase", "altitude", "role"}.issubset(original):
+            predecessor = next(
+                (n for n in project.route_nodes if str(n.id) == original.get("predecessor")), None
+            )
+            if (
+                predecessor is not None
+                and outgoing.from_node_id == predecessor.id
+                and str(outgoing.to_node_id) == original.get("successor")
+            ):
+                predecessor.manual_true_course_deg = original.get("manual_true_course_deg")
+                predecessor.manual_distance_nm = original.get("manual_distance_nm")
+                predecessor.role = RouteNodeRole(original["role"])
+                outgoing.phase = FlightPhase(original["phase"])
+                outgoing.planned_altitude_ft_msl = original["altitude"]
+        for i, n in enumerate(project.ordered_nodes()):
+            n.sequence = i
+        for i, s in enumerate(project.ordered_sections()):
+            s.sequence = i
+        completed = project.ordered_nodes()
+        if active and len(completed) >= 3 and is_arita_node(completed[-2]):
+            for node in completed[1:-2]:
+                if node.role == RouteNodeRole.VISUAL_REPORTING_POINT:
+                    node.role = RouteNodeRole.ROUTE_POINT
+            completed[-2].role = RouteNodeRole.VISUAL_REPORTING_POINT
+        state = _state(project)
+        if (
+            state.arrival_plan is not None
+            and state.arrival_plan.visual_reporting_point_node_id == generated.id
+        ):
+            old_vrep = _final_vrep_index(project.ordered_nodes())
+            arrival = (
+                None
+                if old_vrep is None
+                else state.arrival_plan.model_copy(
+                    update={"visual_reporting_point_node_id": project.ordered_nodes()[old_vrep].id}
+                )
+            )
+            project.metadata["ui_state"] = state.model_copy(
+                update={"arrival_plan": arrival}
+            ).model_dump(mode="json")
+    if not active:
+        return
+    nodes, sections = project.ordered_nodes(), project.ordered_sections()
+    omaru_index = _matching_index(nodes, references.omaru)
+    assert omaru_index is not None
+    if any(is_arita_node(n) for n in nodes[omaru_index + 1 :]):
+        if is_arita_node(nodes[-2]):
+            for node in nodes[1:-2]:
+                if node.role == RouteNodeRole.VISUAL_REPORTING_POINT:
+                    node.role = RouteNodeRole.ROUTE_POINT
+            nodes[-2].role = RouteNodeRole.VISUAL_REPORTING_POINT
+        return
+    # Complete only the agreed direct tail (OMARU or UMK immediately before RJFM).
+    predecessor = nodes[-2]
+    if predecessor.id != nodes[omaru_index].id and not coordinate_matches_reference(
+        predecessor.latitude_deg,
+        predecessor.longitude_deg,
+        references.umk.latitude_deg,
+        references.umk.longitude_deg,
+    ):
+        return
+    if omaru_index >= len(nodes) - 1:
+        return
+    remainder = sections[-1]
+    project.metadata[_ARITA_ORIGINAL] = {
+        "predecessor": str(predecessor.id),
+        "successor": str(remainder.to_node_id),
+        "role": predecessor.role.value,
+        "manual_true_course_deg": predecessor.manual_true_course_deg,
+        "manual_distance_nm": predecessor.manual_distance_nm,
+        "phase": remainder.phase.value,
+        "altitude": remainder.planned_altitude_ft_msl,
+    }
+    predecessor.manual_true_course_deg = None
+    predecessor.manual_distance_nm = None
+    if predecessor.role == RouteNodeRole.VISUAL_REPORTING_POINT:
+        predecessor.role = RouteNodeRole.ROUTE_POINT
+    arita = RouteNode(
+        sequence=len(nodes) - 1,
+        name="ARITA",
+        name_source=RouteNodeNameSource.GENERATED,
+        latitude_deg=ARITA_COORDINATE[0],
+        longitude_deg=ARITA_COORDINATE[1],
+        role=RouteNodeRole.VISUAL_REPORTING_POINT,
+        source=f"{_ARITA_SOURCE}{references.revision}",
+    )
+    nodes.insert(len(nodes) - 1, arita)
+    for i, n in enumerate(nodes):
+        n.sequence = i
+    project.route_nodes = nodes
+    inserted = remainder.model_copy(
+        deep=True, update={"id": uuid4(), "to_node_id": arita.id, "phase": FlightPhase.DESCENT}
+    )
+    remainder.from_node_id = arita.id
+    remainder.phase = FlightPhase.VISUAL_ARRIVAL
+    remainder.planned_altitude_ft_msl = 1500
+    sections.insert(len(sections) - 1, inserted)
+    for i, section in enumerate(sections):
+        section.sequence = i
+    project.sections = sections
+    _relink_split_checkpoints(project, remainder, inserted)
+
+
 def _is_synthetic_umk(node: RouteNode) -> bool:
     return node.source.startswith(_SYNTHETIC_UMK_SOURCE)
 
@@ -117,7 +293,9 @@ def _reconcile_umk(project: Project, references: RjfmInboundReferences) -> None:
         (
             index
             for index, node in enumerate(nodes)
-            if not _is_synthetic_umk(node)
+            if omaru_index is not None
+            and index > omaru_index
+            and not _is_synthetic_umk(node)
             and not node.source.startswith("RJFM_DEPARTURE_UMK:")
             and coordinate_matches_reference(
                 node.latitude_deg,
@@ -192,6 +370,7 @@ def _reconcile_umk(project: Project, references: RjfmInboundReferences) -> None:
     for index, section in enumerate(sections):
         section.sequence = index
     project.sections = sections
+    _relink_split_checkpoints(project, remainder, incoming)
 
 
 def _remove_synthetic_umks(project: Project) -> None:
@@ -202,6 +381,9 @@ def _remove_synthetic_umks(project: Project) -> None:
         outgoing = next((s for s in sections if s.from_node_id == synthetic.id), None)
         if incoming is not None and outgoing is not None:
             outgoing.from_node_id = incoming.from_node_id
+            for cp in project.visual_references:
+                if cp.linked_section_id == incoming.id:
+                    cp.linked_section_id = outgoing.id
         sections = [
             section
             for section in sections

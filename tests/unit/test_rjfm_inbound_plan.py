@@ -345,7 +345,7 @@ def test_explicit_umk_replaces_generated_point_without_losing_its_values() -> No
     )
 
 
-def test_direct_return_does_not_invent_unresolved_vrep_or_descent_policy() -> None:
+def test_direct_return_completes_arita_and_umk() -> None:
     project = _without_umk()
     nodes = project.ordered_nodes()
     sections = project.ordered_sections()
@@ -354,12 +354,12 @@ def test_direct_return_does_not_invent_unresolved_vrep_or_descent_policy() -> No
     project.route_nodes = [nodes[0], nodes[1], nodes[-1]]
     # Existing route confirmation treats the penultimate point as VREP.
     nodes[1].role = RouteNodeRole.VISUAL_REPORTING_POINT
-    before = project.model_dump(mode="json")
-    assert apply_rjfm_inbound_exception(project, _references()) is None
-    assert project.model_dump(mode="json") == before
+    assert apply_rjfm_inbound_exception(project, _references()) is not None
+    assert [n.name for n in project.ordered_nodes()] == ["ORIGIN", "OMARU", "UMK", "ARITA", "RJFM"]
+    assert project.ordered_nodes()[-2].role == RouteNodeRole.VISUAL_REPORTING_POINT
 
 
-def test_generated_umk_cannot_replace_the_required_final_vrep() -> None:
+def test_direct_tail_with_umk_selected_as_vrep_gets_real_arita() -> None:
     project = _without_umk()
     assert apply_rjfm_inbound_exception(project, _references()) is not None
     nodes = project.ordered_nodes()
@@ -368,12 +368,18 @@ def test_generated_umk_cannot_replace_the_required_final_vrep() -> None:
     project.sections = sections[:3]
     project.route_nodes = [*nodes[:3], nodes[-1]]
     nodes[2].role = RouteNodeRole.VISUAL_REPORTING_POINT
-    assert apply_rjfm_inbound_exception(project, _references()) is None
-    assert [node.name for node in project.ordered_nodes()] == ["ORIGIN", "OMARU", "RJFM"]
-    assert all(section.planned_altitude_ft_msl == 5500 for section in project.sections)
+    assert apply_rjfm_inbound_exception(project, _references()) is not None
+    assert [node.name for node in project.ordered_nodes()] == [
+        "ORIGIN",
+        "OMARU",
+        "UMK",
+        "ARITA",
+        "RJFM",
+    ]
+    assert project.ordered_nodes()[-2].role == RouteNodeRole.VISUAL_REPORTING_POINT
 
 
-def test_inbound_wrong_reference_order_with_coherent_sections_does_not_apply() -> None:
+def test_earlier_umk_does_not_suppress_return_umk_after_omaru() -> None:
     project = _project()
     omaru = project.route_nodes[1]
     umk = project.route_nodes[2]
@@ -388,4 +394,137 @@ def test_inbound_wrong_reference_order_with_coherent_sections_does_not_apply() -
         section.from_node_id = ordered_nodes[index].id
         section.to_node_id = ordered_nodes[index + 1].id
 
-    assert apply_rjfm_inbound_exception(project, _references()) is None
+    assert apply_rjfm_inbound_exception(project, _references()) is not None
+
+
+def _direct_return_project():
+    project = _without_umk()
+    nodes = project.ordered_nodes()
+    sections = project.ordered_sections()
+    sections[1].to_node_id = nodes[-1].id
+    project.sections = sections[:2]
+    project.route_nodes = [nodes[0], nodes[1], nodes[-1]]
+    nodes[1].role = RouteNodeRole.VISUAL_REPORTING_POINT
+    return project
+
+
+@pytest.mark.parametrize("deactivate", ["destination", "omaru"])
+def test_direct_completion_restores_original_roles_geometry_and_sections(deactivate):
+    p = _direct_return_project()
+    omaru = p.route_nodes[1]
+    omaru.manual_true_course_deg, omaru.manual_distance_nm = 190, 20
+    original_sections = [s.model_copy(deep=True) for s in p.ordered_sections()]
+    assert apply_rjfm_inbound_exception(p, _references()) is not None
+    snapshot = p.model_dump(mode="json")
+    restored = Project.model_validate_json(p.model_dump_json())
+    assert apply_rjfm_inbound_exception(restored, _references()) is not None
+    assert restored.model_dump(mode="json") == snapshot
+    if deactivate == "destination":
+        p.destination_airport_id = "RJFO"
+    else:
+        omaru.latitude_deg = 0
+    assert apply_rjfm_inbound_exception(p, _references()) is None
+    assert len(p.route_nodes) == 3
+    assert p.route_nodes[1].role == RouteNodeRole.VISUAL_REPORTING_POINT
+    assert p.route_nodes[1].manual_true_course_deg == 190
+    assert p.route_nodes[1].manual_distance_nm == 20
+    # Sequences become contiguous during normalization; identities/inputs survive.
+    assert [s.model_dump(exclude={"sequence"}) for s in p.sections] == [
+        s.model_dump(exclude={"sequence"}) for s in original_sections
+    ]
+
+
+def test_an_earlier_arita_visit_does_not_churn_return_point_ids():
+    from uuid import uuid4
+
+    from autonavlog.application.arrival import ARITA_COORDINATE
+
+    p = _direct_return_project()
+    nodes, sections = p.ordered_nodes(), p.ordered_sections()
+    early = nodes[1].model_copy(
+        update={
+            "id": uuid4(),
+            "name": "earlier ARITA",
+            "latitude_deg": ARITA_COORDINATE[0],
+            "longitude_deg": ARITA_COORDINATE[1],
+            "role": RouteNodeRole.ROUTE_POINT,
+        }
+    )
+    nodes.insert(1, early)
+    for i, n in enumerate(nodes):
+        n.sequence = i
+    p.route_nodes = nodes
+    bridge = sections[0].model_copy(update={"id": uuid4(), "to_node_id": early.id})
+    sections[0].from_node_id = early.id
+    sections.insert(0, bridge)
+    for i, s in enumerate(sections):
+        s.sequence = i
+    p.sections = sections
+    assert apply_rjfm_inbound_exception(p, _references()) is not None
+    before = p.model_dump(mode="json")
+    assert apply_rjfm_inbound_exception(p, _references()) is not None
+    assert p.model_dump(mode="json") == before
+
+
+def test_explicit_arita_replacement_does_not_restore_old_direct_geometry():
+    from uuid import uuid4
+
+    from autonavlog.domain.enums import AdoptedSource
+    from autonavlog.domain.planning import ArrivalAltitudeMode, ArrivalPlan
+
+    p = _project()
+    nodes, sections = p.ordered_nodes(), p.ordered_sections()
+    sections[2].to_node_id = nodes[-1].id
+    p.sections = sections[:3]
+    p.route_nodes = [*nodes[:3], nodes[-1]]
+    umk = nodes[2]
+    umk.role = RouteNodeRole.VISUAL_REPORTING_POINT
+    umk.manual_true_course_deg, umk.manual_distance_nm = 190, 20
+    assert apply_rjfm_inbound_exception(p, _references()) is not None
+    nodes, sections = p.ordered_nodes(), p.ordered_sections()
+    state = load_persisted_ui_state(p.metadata["ui_state"])
+    arrival = ArrivalPlan(
+        visual_reporting_point_node_id=nodes[-2].id,
+        selected_pattern_altitude_ft_msl=1000,
+        selected_pattern_altitude_source=AdoptedSource.AUTOMATIC,
+        altitude_mode=ArrivalAltitudeMode.MANUAL_NON_STANDARD_ENTRY,
+        manual_vrep_altitude_ft_msl=2500,
+        manual_override_reason="keep manual reason",
+    )
+    p.metadata["ui_state"] = state.model_copy(update={"arrival_plan": arrival}).model_dump(
+        mode="json"
+    )
+    manual = nodes[-2].model_copy(
+        update={
+            "id": uuid4(),
+            "name": "手動有田",
+            "name_source": RouteNodeNameSource.USER,
+            "source": "MANUAL",
+            "role": RouteNodeRole.ROUTE_POINT,
+        }
+    )
+    nodes.insert(len(nodes) - 1, manual)
+    for i, n in enumerate(nodes):
+        n.sequence = i
+    p.route_nodes = nodes
+    tail = sections[-1].model_copy(update={"id": uuid4(), "from_node_id": manual.id})
+    sections[-1].to_node_id = manual.id
+    sections[-1].phase = FlightPhase.DESCENT
+    sections[-1].planned_altitude_ft_msl = 1700
+    replacement_id = sections[-1].id
+    sections.append(tail)
+    for i, s in enumerate(sections):
+        s.sequence = i
+    p.sections = sections
+    assert apply_rjfm_inbound_exception(p, _references()) is not None
+    assert len(p.route_nodes) == 5
+    assert p.route_nodes[-2].id == manual.id
+    assert manual.name == "手動有田"
+    assert umk.role == RouteNodeRole.ROUTE_POINT
+    assert umk.manual_true_course_deg is None and umk.manual_distance_nm is None
+    replacement = next(s for s in p.sections if s.id == replacement_id)
+    assert replacement.phase == FlightPhase.DESCENT and replacement.planned_altitude_ft_msl == 1700
+
+    preserved = load_persisted_ui_state(p.metadata["ui_state"]).arrival_plan
+    assert preserved == arrival.model_copy(update={"visual_reporting_point_node_id": manual.id})
+    assert manual.role == RouteNodeRole.VISUAL_REPORTING_POINT

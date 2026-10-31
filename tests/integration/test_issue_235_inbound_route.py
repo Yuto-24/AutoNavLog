@@ -117,13 +117,13 @@ def test_missing_inbound_umk_reaches_navlog_and_survives_restore_and_recalculati
             if row["row_type"] == "PHYSICAL_LEG_SUMMARY"
         ]
         parent = next(row for row in rows if row["from_node_id"] == nodes[1]["id"])
-        assert parent["to_node_id"] == nodes[-2]["id"]
+        assert parent["to_node_id"] == nodes[-1]["id"]
         assert parent["tc"]["state"] == "BLANK"
         children = [
             row
             for row in calculated["outcome"]["display_rows"]
             if row["row_type"] == "CALCULATION_ZONE"
-            and row["section_id"] in {section["id"] for section in project["sections"][1:3]}
+            and row["section_id"] in {section["id"] for section in project["sections"][1:4]}
         ]
         for child in children:
             zone = next(

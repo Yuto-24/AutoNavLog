@@ -40,6 +40,7 @@ class NavLogPhysicalLeg:
     adopted_distance_nm: float | None = None
     start_node_id: UUID | None = None
     end_node_id: UUID | None = None
+    vrep_node_id: UUID | None = None
     show_child_courses: bool = False
     summary_true_course_deg: float | None = None
     summary_variation_deg_east: float | None = None
@@ -877,9 +878,7 @@ def build_navlog_display_rows(
 
     for leg_index, leg in enumerate(physical_legs):
         source_section_ids = set(leg.section_ids)
-        zones = [
-            section for section in sections if section.section_id in source_section_ids
-        ]
+        zones = [section for section in sections if section.section_id in source_section_ids]
         if not zones:
             continue
         first = zones[0]
@@ -887,8 +886,10 @@ def build_navlog_display_rows(
         candidate_cells = [_zone_cells(zone) for zone in zones]
         is_departure_leg = leg_index == 0 and leg.phase == FlightPhase.CLIMB
         is_final_visual = (
-            leg_index == len(physical_legs) - 1
-            and leg.phase == FlightPhase.VISUAL_ARRIVAL
+            leg_index == len(physical_legs) - 1 and leg.phase == FlightPhase.VISUAL_ARRIVAL
+        )
+        has_destination_info = (
+            leg_index == len(physical_legs) - 1 and last.phase == FlightPhase.VISUAL_ARRIVAL
         )
 
         (
@@ -1027,27 +1028,27 @@ def build_navlog_display_rows(
             context: dict[str, NavLogDisplayCell | None] = {
                 "pa": parent_pa,
                 **{
-                    name: (
-                        cell if cell.state != DisplayCellState.BLANK else None
-                    )
+                    name: (cell if cell.state != DisplayCellState.BLANK else None)
                     for name, cell in parent_values.items()
                     if name != "gs"
                 },
             }
             parent_gs_context = (
-                parent_values["gs"]
-                if parent_values["gs"].state != DisplayCellState.BLANK
-                else None
+                parent_values["gs"] if parent_values["gs"].state != DisplayCellState.BLANK else None
             )
             next_leg = physical_legs[leg_index + 1] if leg_index + 1 < len(physical_legs) else None
             for zone_index, (zone, candidates, zone_distance_cell) in enumerate(
                 zip(zones, candidate_cells, zone_distance_cells, strict=True)
             ):
                 is_endpoint = zone_index == len(zones) - 1
-                is_vrep = bool(
-                    is_endpoint
-                    and next_leg is not None
-                    and next_leg.phase == FlightPhase.VISUAL_ARRIVAL
+                is_vrep = (
+                    zone.to_node_id == leg.vrep_node_id
+                    if leg.vrep_node_id is not None
+                    else bool(
+                        is_endpoint
+                        and next_leg is not None
+                        and next_leg.phase == FlightPhase.VISUAL_ARRIVAL
+                    )
                 )
                 pa_kind, pa_candidate = _zone_pa(
                     zone,
@@ -1062,6 +1063,10 @@ def build_navlog_display_rows(
                     is_vrep_endpoint=is_vrep,
                     estimated_altitudes=estimated_altitudes,
                 )
+                if has_destination_info and is_endpoint:
+                    pa_kind = PressureAltitudeDisplayKind.NUMERIC
+                    altitude = float(destination.elevation_ft_msl)
+                    pa_candidate = _display(_rounded_integer(altitude), altitude)
                 pa_cell, new_pa_context = _project_with_inheritance(
                     pa_candidate,
                     context.get("pa"),
@@ -1069,8 +1074,7 @@ def build_navlog_display_rows(
                 context["pa"] = new_pa_context
                 shown: dict[str, NavLogDisplayCell] = {}
                 eoc_wind_boundary = zone.phase == FlightPhase.DESCENT and (
-                    eoc_boundary_pending
-                    or _is_eoc_descent_start(zone)
+                    eoc_boundary_pending or _is_eoc_descent_start(zone)
                 )
                 for name in (
                     "toat",
@@ -1164,12 +1168,12 @@ def build_navlog_display_rows(
                 elif "EOC" in _label_markers(zone.to_name):
                     eoc_boundary_pending = True
 
-        if is_final_visual:
+        if has_destination_info:
             destination_pa = float(destination.elevation_ft_msl)
             blank = _row_cells_blank()
             append(
                 NavLogDisplayRow(
-                    section_id=leg.section_id,
+                    section_id=last.section_id,
                     sequence=0,
                     phase=FlightPhase.VISUAL_ARRIVAL,
                     row_type="DESTINATION_INFO",

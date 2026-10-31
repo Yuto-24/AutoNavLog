@@ -78,7 +78,7 @@ from .phase_segments import (
     split_route_into_phase_segments,
 )
 from .rjfm_departure_plan import rjfm_plan_matches_project
-from .rjfm_inbound_plan import rjfm_inbound_plan_matches_project
+from .rjfm_inbound_plan import is_arita_node, rjfm_inbound_plan_matches_project
 
 
 @dataclass(frozen=True)
@@ -1528,26 +1528,27 @@ class CalculationService:
         )
 
     def _build_rjfm_inbound_descent_plan(
-        self, environments: list[_LegEnvironment], geometries: list[_Geometry],
-        cruise_policy: CruisePerformanceSelectionPolicy, issues: list[Issue],
-        arrival_altitude_ft_msl: float | None, nose_fairing_enabled: bool,
-        air_conditioning_enabled: bool, descent_rate_fpm: int,
+        self,
+        environments: list[_LegEnvironment],
+        geometries: list[_Geometry],
+        cruise_policy: CruisePerformanceSelectionPolicy,
+        issues: list[Issue],
+        arrival_altitude_ft_msl: float | None,
+        nose_fairing_enabled: bool,
+        air_conditioning_enabled: bool,
+        descent_rate_fpm: int,
         plan: RjfmInboundPlan,
     ) -> _DescentPlan | None:
         """Build the OMARU-return profile without extending the physical route."""
         try:
-            controlled_ids = plan.controlled_section_ids or (
-                plan.controlled_section_id,
-            )
+            controlled_ids = plan.controlled_section_ids or (plan.controlled_section_id,)
             controlled_indices = [
-                i for i, geometry in enumerate(geometries)
-                if geometry.section.id in controlled_ids
+                i for i, geometry in enumerate(geometries) if geometry.section.id in controlled_ids
             ]
             controlled_index = min(controlled_indices)
             controlled_end_index = max(controlled_indices)
             end_index = next(
-                i for i, geometry in enumerate(geometries)
-                if geometry.end.id == plan.vrep_node_id
+                i for i, geometry in enumerate(geometries) if geometry.end.id == plan.vrep_node_id
             )
         except StopIteration:
             return None
@@ -1585,9 +1586,7 @@ class CalculationService:
         manual_tas = source.manual_tas_for_phase(FlightPhase.DESCENT)
         if manual_tas is None and cruise_cas is None:
             issues.append(
-                self._blocker(
-                    "DESCENT_TAS_UNAVAILABLE", "降下TASを確定できません。", source.id
-                )
+                self._blocker("DESCENT_TAS_UNAVAILABLE", "降下TASを確定できません。", source.id)
             )
             return None
         wind = basis.for_phase(FlightPhase.DESCENT)
@@ -1627,17 +1626,23 @@ class CalculationService:
             )
         direct_total = sum(direct_seconds.values())
         vertical_seconds = (4500.0 - target) / descent_rate_fpm * 60.0
-        duration = vertical_seconds + 60.0
+        arita_return = is_arita_node(geometries[end_index].end)
+        deceleration_seconds = 0.0 if arita_return else 60.0
+        duration = vertical_seconds + deceleration_seconds
         if direct_total + 1e-9 < duration:
-            issues.append(Issue(
-                code="RJFM_INBOUND_DIRECT_DISTANCE_SHORTFALL", severity=IssueSeverity.WARNING,
-                message="UMKからVREPへの直線経路だけでは、計画降下に必要な時間が不足しています。実飛行ではUMK通過後の経路延長が必要です。",
-                section_id=source.id, acknowledgement_required=False,
-                metadata={
-                    "available_direct_seconds": direct_total,
-                    "required_operational_seconds": duration,
-                },
-            ))
+            issues.append(
+                Issue(
+                    code="RJFM_INBOUND_DIRECT_DISTANCE_SHORTFALL",
+                    severity=IssueSeverity.WARNING,
+                    message="UMKからVREPへの直線経路だけでは、計画降下に必要な時間が不足しています。実飛行ではUMK通過後の経路延長が必要です。",
+                    section_id=source.id,
+                    acknowledgement_required=False,
+                    metadata={
+                        "available_direct_seconds": direct_total,
+                        "required_operational_seconds": duration,
+                    },
+                )
+            )
         offsets = self._route_leg_offsets(geometries)
         if cruise_cas is None:
             cruise_cas = cas_from_tas(
@@ -1646,20 +1651,27 @@ class CalculationService:
                 wind.temperature_c or 0.0,
             )
         return _DescentPlan(
-            source_section_id=source.id, duration_seconds=duration,
+            source_section_id=source.id,
+            duration_seconds=duration,
             route_start_distance_nm=offsets[start_index][0],
-            route_end_distance_nm=offsets[end_index][1], cruise_cas_kt=cruise_cas,
+            route_end_distance_nm=offsets[end_index][1],
+            cruise_cas_kt=cruise_cas,
             metadata={
                 "type": "rjfm_inbound_operational_descent",
                 "rjfm_inbound_rule_version": plan.rule_version,
                 "boundary_method": "RJFM_INBOUND_PHYSICAL_UMK_FIXED_EOC",
                 "descent_rate_fpm": float(descent_rate_fpm),
-                "cruise_altitude_ft_msl": 4500.0, "target_altitude_ft_msl": target,
+                "cruise_altitude_ft_msl": 4500.0,
+                "target_altitude_ft_msl": target,
                 "vertical_descent_duration_seconds": vertical_seconds,
-                "deceleration_duration_seconds": 60.0, "planned_duration_seconds": duration,
-                "phase_profile_rule": "DESCEND_LEVEL_OFF_DECELERATE_V1",
+                "deceleration_duration_seconds": deceleration_seconds,
+                "planned_duration_seconds": duration,
+                "phase_profile_rule": "DESCEND_TO_ARITA_V1"
+                if arita_return
+                else "DESCEND_LEVEL_OFF_DECELERATE_V1",
                 "eoc_source_section_id": str(geometries[start_index].section.id),
-                "descent_wind_source_section_id": str(source.id), "fuel_flow_gph": 12.0,
+                "descent_wind_source_section_id": str(source.id),
+                "fuel_flow_gph": 12.0,
                 "operational_seconds_by_source_section": {
                     str(geometries[index].section.id): duration * seconds / direct_total
                     for index, seconds in direct_seconds.items()
@@ -3167,10 +3179,15 @@ class CalculationService:
                 ),
                 None,
             )
-            end = next(
-                (i for i, g in enumerate(geometries) if g.end.id == rjfm_inbound_plan.vrep_node_id),
-                None,
+            vrep = next(
+                (g.end for g in geometries if g.end.id == rjfm_inbound_plan.vrep_node_id), None
             )
+            end_node_id = (
+                geometries[-1].end.id
+                if vrep is not None and is_arita_node(vrep)
+                else rjfm_inbound_plan.vrep_node_id
+            )
+            end = next((i for i, g in enumerate(geometries) if g.end.id == end_node_id), None)
             if start is not None and end is not None and start < end:
                 grouped = geometries[start : end + 1]
                 parent = NavLogPhysicalLeg(
@@ -3182,12 +3199,14 @@ class CalculationService:
                     end_node_id=grouped[-1].end.id,
                     adopted_distance_nm=sum(g.distance_nm for g in grouped),
                     show_child_courses=True,
+                    vrep_node_id=rjfm_inbound_plan.vrep_node_id,
                 )
                 return [
                     *CalculationService._navlog_physical_legs(
                         geometries[:start], rjfm_departure_plan
                     ),
-                    parent, *default[end + 1 :],
+                    parent,
+                    *default[end + 1 :],
                 ]
         if rjfm_departure_plan is None or not geometries:
             return default
@@ -3216,9 +3235,7 @@ class CalculationService:
             rjfm_departure_plan.omaru.latitude_deg,
             rjfm_departure_plan.omaru.longitude_deg,
         )
-        variation = variation_for_departure_latitude(
-            grouped[0].start.latitude_deg
-        ).degrees_east
+        variation = variation_for_departure_latitude(grouped[0].start.latitude_deg).degrees_east
         parent = NavLogPhysicalLeg(
             section_ids=tuple(geometry.section.id for geometry in grouped),
             phase=grouped[0].section.phase,

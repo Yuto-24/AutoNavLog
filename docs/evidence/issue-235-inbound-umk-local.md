@@ -196,3 +196,76 @@ It separately reviewed the legacy working-recovery normalization fix with no
 findings. No external reviewer request, push, PR, merge, production publication,
 permission change or private-session/private-database access was performed.
 Direct OMARU → RJFM unresolved descent policy remains outside this change.
+
+## 2026-10-31: agreed return completion and separate descent clock
+
+User messages `1793423353.155839` and `1793423570.097529` finalize the formerly
+pending return policy. OMARU→RJFM and OMARU→ARITA→RJFM return legs complete missing
+UMK/ARITA, and display OMARU→RJFM as one parent containing the three physical
+children. Existing explicit point names/coordinates/manual fields are retained;
+generated ARITA uses the existing arrival-policy ARITA reference coordinate.
+Manual altitude entries remain saved, while the agreed effective ARITA target is
+1,500 ft. Existing airport endpoint requirements and route-creation UI were not
+changed; application fixtures exercise these return legs within airport-to-airport
+Projects.
+
+Physical child coordinates, DIST, TC/MC, wind correction and parent/child displayed
+sums remain based on the adopted physical geometry. UMK stays at 4,500 ft;
+UMK→ARITA ETE is exactly 360 seconds at 500 fpm or 180 seconds at 1000 fpm.
+The established 12 gph descent convention gives 1.2 / 0.6 gal. This ARITA profile
+adds no 60-second level-off allowance and does not use reference DIST/GS for its
+clock. Other final VREP profiles and outbound POH climb timing/fuel remain intact.
+Kunitomi/west-extension diagnostics stay separate and do not inflate physical LOG
+DIST. The grouped final visual child retains ARITA altitude and airport elevation,
+and the destination information/weather/TAF row is preserved.
+
+Generated point identities and section inputs remain stable across reapplication
+and restoration. Explicit replacement restores old geometry/roles/section values
+only when original adjacency returns; existing arrival fields are retained when
+retargeting a manual ARITA replacement. Earlier ARITA visits do not trigger return
+point churn. CP links follow valid physical spans and merge on generated-point
+removal. Inbound policy V2 is fingerprinted; legacy V1 plans still parse, but old
+420-second calculations become stale until recalculation instead of being labeled
+current for the new 360-second policy.
+
+Final local validation:
+
+- **142 passed**: relevant inbound/outbound, parent/child display, manual-input,
+  role/geometry restoration, CP, map, roundtrip and facade regression. This includes
+  16 combinations of KML/MAP, direct/via-ARITA tail, explicit/missing UMK, and
+  500/1000 fpm, plus explicit old-V1 calculation freshness regression.
+- **36 passed, 1 deselected**: existing Local calculation / lightweight Legacy
+  inbound HTTP checks. The remaining real-reference HTTP test was then run
+  separately and **passed** (12.56 seconds). Its former expectation of no solution
+  under the old ARITA timing was updated: the validated solver now produces an
+  available candidate for the agreed 6-minute/1,500-ft profile. Its numeric/source
+  checks remain, and stored manual 2,500-ft input remains preserved while the
+  effective target is 1,500 ft. The initial obsolete expectation failed before
+  updating this regression; it was not a passing production acceptance result.
+- **67 passed** in actual Pyodide 0.27.7 using the final ordinary application wheel,
+  including outbound/inbound unit tests and KML/MAP application regressions. This
+  proves the WASM calculation path, not full browser Worker/physical-device use.
+- Changed Python Ruff, full mypy (**77 source files**), schema export check,
+  release validator, version tests (**2 passed**) and web typecheck passed.
+  VERSION / CHANGELOG are unchanged. No frontend layout/copy changes were made;
+  browser automation/screenshots were not added for this calculation-only followup.
+- The same dedicated Compose runtime on port **33636** was rebuilt/recreated with
+  `autonavlog-wt-f34e8230_autonavlog-data` retained. Live synthetic HTTP jobs checked
+  direct-tail/500 and via-ARITA/1000 cases: 360 / 180 seconds, 1.2 / 0.6 gal, one
+  OMARU→RJFM parent, physical children, destination info and current V2 outcome.
+  `/healthz` returned `ok` / `2.1.0`, Docker health is healthy. Primary runtime and
+  other worktrees were untouched. Fixture/runtime checks are not Static Web
+  production or real-flight acceptance; the reporter's own KML/Project was not used.
+
+GPT-6 Astra independently reviewed the Sol implementation in a separate read-only
+context. Five P2 findings were fixed with targeted regressions and re-reviewed:
+incorrect original-field restoration on explicit ARITA replacement, generated-ID
+churn from an earlier ARITA visit, missing destination information when grouping
+through the final visual leg, stale V1 calculation freshness, and lost manual
+arrival fields when a replacement ARITA began as ROUTE_POINT. Final review found
+no remaining actionable findings. Review used source and lightweight in-memory
+reproductions; reviewers made no edits or runtime changes.
+
+No push, PR, merge, remote publication, permission change or primary-runtime
+operation occurred. There is no unresolved aviation-policy choice within these
+agreed return-leg cases.

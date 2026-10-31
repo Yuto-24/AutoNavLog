@@ -21,9 +21,7 @@ original section altitude/phase and any original OMARU direct-leg geometry overr
 While split, both legs use their own geometry rather than the old direct-leg override.
 West-extension guidance remains a separate diagnostic and supplies no route nodes.
 
-The direct OMARU-to-RJFM exception, its single parent NAV LOG row, and its descent
-endpoint altitude/ETE/fuel remain deferred under Issue #235. This partial change
-does not waive the existing VREP requirements or choose the unresolved aviation policy.
+The subsequently agreed direct OMARU-to-RJFM tail now completes ARITA as its final VREP; it does not waive VREP validation for other routes.
 
 ## Sources and current availability
 
@@ -78,3 +76,25 @@ fingerprints are sealed after inbound normalization so a roundtrip can retain
 both generated UMK occurrences and both parent Legs. Independent RWY/OVER FIELD
 maneuver diagnostics remain separate from physical route totals. Direct-return
 descent endpoint policy is still excluded.
+
+## Agreed ARITA return policy (2026-10-31)
+
+Following user messages 1793423353.155839 and 1793423570.097529, OMARU→RJFM
+and OMARU→ARITA→RJFM tails complete missing physical UMK and ARITA. Generated
+ARITA uses the existing arrival-policy ARITA reference coordinate; an explicit
+coordinate-matched ARITA retains its input name/location and manual fields.
+The effective adopted ARITA altitude is 1,500 ft even when a prior manual altitude
+entry remains saved. The entire OMARU→UMK→ARITA→RJFM span is one display parent;
+all three physical children retain adopted DIST/TC/MC and weather/heading values,
+with ARITA target altitude and separate destination information retained.
+
+UMK remains 4,500 ft. Descent time to ARITA is (4500−1500)/selected_fpm: exactly
+360 seconds at 500 fpm or 180 seconds at 1000 fpm. The established 12 gph descent
+fuel convention gives 1.2 or 0.6 gal. This ARITA profile adds no 60-second level-off
+allowance. Reference distance/GS is not its operational ETE. Other final VREP
+profiles retain their prior behavior. Kunitomi/west-extension geometry belongs
+only to the diagnostic solver; it adds no physical LOG distance or fuel/time.
+
+Inbound policy identity V2 invalidates saved V1 calculation freshness even when
+all route nodes already existed. V1 plans remain readable; saved results remain
+available as stale until recalculation. Outbound POH policy is unchanged.

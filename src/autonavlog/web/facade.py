@@ -153,9 +153,7 @@ ISSUE_ACTIONS: dict[str, str] = {
     "WEATHER_QUERY_FAILED": "通信状態と気象データ取得先を確認して再計算してください。",
     "WIND_UNAVAILABLE": "風向・風速を取得するか、手入力してください。",
     "TEMPERATURE_UNAVAILABLE": "気温を取得するか、手入力してください。",
-    "CRUISE_POWER_TABLE_BOUNDARY_USED": (
-        "65% PWRの線形外挿値とPOH原表を確認してください。"
-    ),
+    "CRUISE_POWER_TABLE_BOUNDARY_USED": ("65% PWRの線形外挿値とPOH原表を確認してください。"),
     "PILOT_REQUIRED": "PILOTを入力してください。",
     "SHIP_REQUIRED": "SHIPを入力してください。",
     "DEVELOPMENT_WEATHER_PROVIDER": "実際の気象データで再計算してください。",
@@ -942,30 +940,53 @@ class AutoNavLogWebApplication:
 
     def _normalize_rjfm_departure(self, project: Project) -> None:
         normalize_rjfm_departure_plan(project, self.rjfm_reference_pack)
-        state = self.project_service.ui_state(project)
-        arrival = calculate_arrival_altitude(project, state).result
         points = self.rjfm_reference_pack.points
+        references = RjfmInboundReferences(
+            revision=self.rjfm_reference_pack.revision,
+            content_fingerprint=self.rjfm_reference_pack.content_fingerprint,
+            umk=RjfmCoordinate(
+                latitude_deg=points["UMK"].position.latitude_deg,
+                longitude_deg=points["UMK"].position.longitude_deg,
+                source=f"RJFM_REFERENCE:{self.rjfm_reference_pack.revision}:UMK",
+                estimated_error_nm=0.35,
+            ),
+            omaru=RjfmCoordinate(
+                latitude_deg=points["OMARU"].position.latitude_deg,
+                longitude_deg=points["OMARU"].position.longitude_deg,
+                source=f"RJFM_REFERENCE:{self.rjfm_reference_pack.revision}:OMARU",
+                estimated_error_nm=0.35,
+            ),
+        )
+        apply_rjfm_inbound_exception(project, references)
+        state = self.project_service.ui_state(project)
+        nodes = project.ordered_nodes()
+        if (
+            len(nodes) >= 3
+            and state.rjfm_inbound_plan is not None
+            and nodes[-2].id == state.rjfm_inbound_plan.vrep_node_id
+            and (
+                state.arrival_plan is None
+                or state.arrival_plan.visual_reporting_point_node_id != nodes[-2].id
+            )
+        ):
+            arrival_plan = (
+                self._automatic_arrival_plan(
+                    nodes[-2].id, self.reference_catalog.airports[project.destination_airport_id]
+                )
+                if state.arrival_plan is None
+                else state.arrival_plan.model_copy(
+                    update={"visual_reporting_point_node_id": nodes[-2].id}
+                )
+            )
+            state = state.model_copy(update={"arrival_plan": arrival_plan})
+            project.metadata["ui_state"] = state.model_dump(mode="json")
+        arrival = calculate_arrival_altitude(project, state).result
         apply_rjfm_inbound_exception(
             project,
-            RjfmInboundReferences(
-                revision=self.rjfm_reference_pack.revision,
-                content_fingerprint=self.rjfm_reference_pack.content_fingerprint,
-                umk=RjfmCoordinate(
-                    latitude_deg=points["UMK"].position.latitude_deg,
-                    longitude_deg=points["UMK"].position.longitude_deg,
-                    source=f"RJFM_REFERENCE:{self.rjfm_reference_pack.revision}:UMK",
-                    estimated_error_nm=0.35,
-                ),
-                omaru=RjfmCoordinate(
-                    latitude_deg=points["OMARU"].position.latitude_deg,
-                    longitude_deg=points["OMARU"].position.longitude_deg,
-                    source=f"RJFM_REFERENCE:{self.rjfm_reference_pack.revision}:OMARU",
-                    estimated_error_nm=0.35,
-                ),
-            ),
-            adopted_vrep_altitude_ft_msl=(
-                None if arrival is None else arrival.adopted_altitude_ft_msl
-            ),
+            references,
+            adopted_vrep_altitude_ft_msl=None
+            if arrival is None
+            else arrival.adopted_altitude_ft_msl,
         )
         # Inbound normalization may add a second UMK and change its controlled
         # sections. Seal the departure fingerprint against the completed route.
@@ -2320,7 +2341,6 @@ class AutoNavLogWebApplication:
             float(airport.latitude_deg),
             float(airport.longitude_deg),
         ).distance_nm
-
 
     def _automatic_arrival_plan(
         self,
