@@ -25,7 +25,7 @@ Sha256Hex = Annotated[
 ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V5"
 CP_PROJECTION_POLICY_VERSION = "CP_ABEAM_WGS84_V1"
 RJFM_DEPARTURE_RULE_VERSION = "RJFM_NORTHBOUND_R6_5_1_V2"
-RJFM_INBOUND_RULE_VERSION = "RJFM_INBOUND_OMARU_UMK_VREP_V1"
+RJFM_INBOUND_RULE_VERSION = "RJFM_INBOUND_OMARU_UMK_ARITA_V2"
 
 
 class PlanningModel(BaseModel):
@@ -107,7 +107,9 @@ class RjfmDeparturePlan(PlanningModel):
 class RjfmInboundPlan(PlanningModel):
     """Persisted, coordinate-triggered RJFM return profile."""
 
-    rule_version: Literal["RJFM_INBOUND_OMARU_UMK_VREP_V1"] = "RJFM_INBOUND_OMARU_UMK_VREP_V1"
+    rule_version: Literal["RJFM_INBOUND_OMARU_UMK_VREP_V1", "RJFM_INBOUND_OMARU_UMK_ARITA_V2"] = (
+        "RJFM_INBOUND_OMARU_UMK_ARITA_V2"
+    )
     application_status: RjfmInboundApplicationStatus = RjfmInboundApplicationStatus.APPLIED
     application_reason: str = Field(min_length=1)
     omaru_node_id: UUID

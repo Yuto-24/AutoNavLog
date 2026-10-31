@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+  <Placemark><name>RJFO→RJFM</name><LineString><coordinates>
+    131.7371201529664,33.47949406702627,0
+    131.47036916946163,32.16255070087476,0
+    131.3535165268158,31.94977931375614,0
+    131.4484517490447,31.87712141761355,0
+  </coordinates></LineString></Placemark>
+  <Placemark><name>小丸</name><Point><coordinates>131.47036916946163,32.16255070087476,0</coordinates></Point></Placemark>
+  <Placemark><name>有田</name><Point><coordinates>131.3535165268158,31.94977931375614,0</coordinates></Point></Placemark>
+</Document></kml>

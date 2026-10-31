@@ -282,7 +282,7 @@ def test_rjfm_physical_umk_sections_expose_fixed_input_modes(project) -> None:
     assert guidance[2]["fixedAltitudeFtMsl"] is None
 
 
-def test_rjfm_omaru_first_parent_exposes_one_fixed_input_mode(project) -> None:
+def test_rjfm_omaru_first_exposes_two_physical_fixed_input_modes(project) -> None:
     first = project.ordered_nodes()[1]
     first.latitude_deg = 32.6
     first.longitude_deg = 131.62
@@ -296,9 +296,12 @@ def test_rjfm_omaru_first_parent_exposes_one_fixed_input_mode(project) -> None:
 
     guidance = AutoNavLogWebApplication._section_guidance(project)
 
-    assert guidance[0]["inputMode"] == "RJFM_PARENT_CONTAINS_UMK_FIXED"
-    assert guidance[0]["fixedAltitudeFtMsl"] == 5500.0
-    assert guidance[1]["inputMode"] == "EDITABLE"
+    assert [item["inputMode"] for item in guidance[:2]] == [
+        "RJFM_DEPARTURE_TO_UMK_FIXED",
+        "RJFM_UMK_TO_OMARU_FIXED",
+    ]
+    assert all(item["fixedAltitudeFtMsl"] == 5500.0 for item in guidance[:2])
+    assert guidance[2]["inputMode"] == "EDITABLE"
 
 
 def test_rjfm_map_reference_exposes_source_geometry_and_live_display_layer(

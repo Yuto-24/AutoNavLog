@@ -4,6 +4,23 @@ This is a diagnostic for an RJFM inbound route whose authoritative NAV LOG has a
 
 The solver derives its duration, TAS, wind, UMK, VREP, selected descent rate, and adopted VREP altitude from that completed authoritative profile. The card is transient: it is generated for the current calculation-input fingerprint and is not saved in project UI state. A stale authoritative plan prevents numeric guidance; an unavailable solver/reference produces only a warning diagnostic.
 
+## Inbound route completion (Issue #235)
+
+OMARU→RJFM and OMARU→ARITA→RJFM return tails complete missing UMK and ARITA.
+KML/MAP confirmation, Local/Legacy calculation, edits and restoration share the
+normalization. An explicit coordinate-matched UMK after OMARU is retained with
+its name, coordinates and manual inputs. An earlier UMK visit belongs to a
+previous span and does not suppress the return occurrence. Explicit ARITA is
+retained; direct returns gain ARITA as their final VREP. Other routes retain
+existing VREP validation and profile behavior.
+
+Generated point and section identities remain stable on reapplication. When the
+route no longer qualifies, generated points are removed. Original geometry,
+roles and section fields are restored only when their original adjacency returns.
+Existing manual arrival fields survive reference retargeting. Split sections use
+their physical geometry, and CP links follow valid abeam projections.
+West-extension guidance supplies no physical route nodes.
+
 ## Sources and current availability
 
 `data/reference/rjfm-inbound-guidance/manifest.json` pins the payload SHA-256 for revision `2026-08-31-rjfm-inbound-west-guidance-v2`. The pack is `AVAILABLE` only after all of the following checks succeed; any mismatch fails closed and the card remains a non-blocking unavailable diagnostic.
@@ -28,3 +45,55 @@ The shared geometry utility accepts sampled route polylines only when every WGS8
 Route intervals are sampled along the WGS84 geodesic and then checked as straight latitude/longitude chords against straight latitude/longitude polygon edges. For each interval, the clearance reported by the local equirectangular diagnostic is reduced by the source-declared boundary model error (0.02 NM for the normalized KS4-3 arc) plus `d²/(8 × 3400 NM) + 0.01 NM`, where `d` is the interval length. The first term is a scale estimate for the three-dimensional chord sagitta; it is not a strict upper bound for the projected latitude/longitude chord. The fixed 0.01 NM term is the declared blocking numerical rejection buffer for this sampling approximation and local arithmetic. A guarded clearance at or below zero is treated as an intersection, including a near-tangent. The 0.01 NM margin does not assert source-chart positional accuracy, which remains a prerequisite for a verified primary boundary.
 
 The clearance value is a local planar approximation for diagnostics. Intersection checks preserve the required straight latitude/longitude edge model, but a future source with materially larger geographic extent or a different edge interpretation must be rejected or receive a separately reviewed geometry model.
+
+## Parent and child presentation
+
+ARITA returns display OMARU→RJFM as one parent Leg containing OMARU→UMK,
+UMK→ARITA and ARITA→RJFM. Other existing inbound profiles retain their
+OMARU-to-final-VREP parent. Both preserve physical source section IDs and zones. Child TC/MC cells show
+their adopted segment courses explicitly, as do the existing RJFM-to-OMARU
+parent's children. No new manual course override is introduced. The inbound
+parent leaves TC/MC blank because it spans multiple bearings. Its DIST, ETE and
+fuel are sums of displayed children; descent ETE still uses the once-rounded
+operational profile allocation, with cruise time added separately. Both parents
+can coexist in one roundtrip Project. VREP altitude and physical intermediate
+endpoint altitude presentation remain intact.
+
+The draft map includes a clickable 小丸 marker at the bundled OMARU coordinate.
+It creates an ordinary MAP route point, not a fabricated AIP VREP snapshot.
+Repeated clicks remain distinct occurrences, matching existing VREP behavior.
+The user-provided label 小丸 is reused.
+
+Following the user's explicit 2026-10-31 instruction, outbound OMARU-first
+routes now materialize a reference UMK and use the existing physical-UMK policy.
+Child DIST/TC/MC follow each physical segment, while climb ETE and fuel retain
+the POH 5,500-ft values (DIST/GS does not determine climb ETE). Explicit UMK
+inputs are retained. Generated UMK provenance keeps the reference uncertainty.
+Saved CP links follow the nearest valid abeam projection on the new spans and
+return to the original section when the generated point is removed. Departure
+fingerprints are sealed after inbound normalization so a roundtrip can retain
+both generated UMK occurrences and both parent Legs. Independent RWY/OVER FIELD
+maneuver diagnostics remain separate from physical route totals. The agreed
+ARITA direct-return profile is described below.
+
+## Agreed ARITA return policy (2026-10-31)
+
+Following user messages 1793423353.155839 and 1793423570.097529, OMARU→RJFM
+and OMARU→ARITA→RJFM tails complete missing physical UMK and ARITA. Generated
+ARITA uses the existing arrival-policy ARITA reference coordinate; an explicit
+coordinate-matched ARITA retains its input name/location and manual fields.
+The effective adopted ARITA altitude is 1,500 ft even when a prior manual altitude
+entry remains saved. The entire OMARU→UMK→ARITA→RJFM span is one display parent;
+all three physical children retain adopted DIST/TC/MC and weather/heading values,
+with ARITA target altitude and separate destination information retained.
+
+UMK remains 4,500 ft. Descent time to ARITA is (4500−1500)/selected_fpm: exactly
+360 seconds at 500 fpm or 180 seconds at 1000 fpm. The established 12 gph descent
+fuel convention gives 1.2 or 0.6 gal. This ARITA profile adds no 60-second level-off
+allowance. Reference distance/GS is not its operational ETE. Other final VREP
+profiles retain their prior behavior. Kunitomi/west-extension geometry belongs
+only to the diagnostic solver; it adds no physical LOG distance or fuel/time.
+
+Inbound policy identity V2 invalidates saved V1 calculation freshness even when
+all route nodes already existed. V1 plans remain readable; saved results remain
+available as stale until recalculation. Outbound POH policy is unchanged.
