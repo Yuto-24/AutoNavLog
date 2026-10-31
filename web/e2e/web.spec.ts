@@ -3249,7 +3249,9 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
 
   page.once("dialog", (dialog) => void dialog.accept());
   await editor.getByRole("button", { name: "訓練CP改を削除" }).click();
-  await expect(editor.getByText("まだチェックポイントはありません。")).toBeVisible();
+  await expect(editor.locator(".checkpoint-item")).toHaveCount(0);
+  await expect(editor.getByText("まだチェックポイントはありません。")).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: "チェックポイントを追加" })).toBeEnabled();
   expect(runtimeErrors).toEqual([]);
 });
 
@@ -3452,7 +3454,10 @@ test("NAV LOG summary, sticky route names, and TIME / FUEL PLAN remain stable ac
   }
   await expect(summary).toContainText(`${calculatedSummary.distance.text} NM`);
   await expect(summary).toContainText(calculatedSummary.time.text ?? "未取得");
-  await expect(summary.getByLabel("目的地空港の風予報")).toContainText("出典:");
+  const destinationWind = summary.getByLabel("目的地空港の風予報");
+  await expect(destinationWind).not.toContainText("出典:");
+  await expect(destinationWind).toContainText("到着区間の計算はCALMです。");
+  await expect(destinationWind.locator("strong")).toContainText("目的地風:");
   await expect(fuel.getByRole("heading", { name: "TIME / FUEL PLAN" })).toBeVisible();
   const dismissNotice = page.getByLabel("メッセージを閉じる");
   if (await dismissNotice.count()) await dismissNotice.first().click();

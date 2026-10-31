@@ -522,7 +522,6 @@ function DestinationWindSummary({
       {forecast.valid_time_utc && (
         <span>到着予定 {formatJst(forecast.valid_time_utc)} JST</span>
       )}
-      <span>出典: {forecast.source_label}</span>
       {available && forecast.forecast_change && (
         <span>区分: {forecast.forecast_change}</span>
       )}
@@ -533,7 +532,7 @@ function DestinationWindSummary({
         </details>
       )}
       <p>
-        目的地風はNAV LOG最終行への表示専用です。到着区間の計算はCALMです。
+        到着区間の計算はCALMです。
       </p>
     </section>
   );
@@ -692,8 +691,6 @@ export function NavLogTable({
       </div>
       <NavLogSummary outcome={outcome} destinationWind={destinationWind} />
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
-        <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>
-        <span className="nav-log-readonly-key">読取専用: 航法、距離、時間、燃料などの計算値</span>
         <span className={`nav-log-edit-status nav-log-edit-status-${editStatus.kind}`} role="status" aria-live="polite">
           {editStatus.message}
         </span>

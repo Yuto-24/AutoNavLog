@@ -124,7 +124,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   const [navLogEditStatus, setNavLogEditStatus] = useState<{
     kind: "idle" | "pending" | "saving" | "saved" | "error";
     message: string;
-  }>({ kind: "idle", message: "入力欄を編集すると自動再計算します。" });
+  }>({ kind: "idle", message: "" });
   const [busy, setBusy] = useState(false);
   const [activeOperation, setActiveOperation] = useState<ActiveOperation>(null);
   const [calculationProgress, setCalculationProgress] = useState({
@@ -228,7 +228,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     setNavLogEditVersion(0);
     setNavLogEditStatus({
       kind: "idle",
-      message: "入力欄を編集すると自動再計算します。",
+      message: "",
     });
   };
 

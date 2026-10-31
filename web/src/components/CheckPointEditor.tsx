@@ -286,9 +286,7 @@ export function CheckPointEditor({
         </div>
       )}
 
-      {!checkPoints.length ? (
-        <p className="checkpoint-empty">まだチェックポイントはありません。</p>
-      ) : (
+      {checkPoints.length > 0 && (
         <div className="checkpoint-list">
           {checkPoints.map((item) => {
             const projection = projectionById.get(item.id);
@@ -350,7 +348,6 @@ export function CheckPointEditor({
           })}
         </div>
       )}
-      <small className="checkpoint-guidance">巡航区間では15〜20 NM程度の間隔が配置の目安です。</small>
     </section>
   );
 }
