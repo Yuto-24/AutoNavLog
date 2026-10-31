@@ -6,6 +6,9 @@ import { divIcon } from "leaflet";
 import type { AirportOption } from "../types";
 import { canConfirmMapDraft, type MapRoutePoint } from "../mapRouteDraft";
 
+const omaruMarkerHint = `運用参照図より推定（未検証・誤差${rjfmReference.points.OMARU.estimated_error_nm}NM）`;
+const omaruPositionNotice = `小丸は運用参照図からの未検証デジタイズによる推定位置（誤差${rjfmReference.points.OMARU.estimated_error_nm} NM）であり、精度は保証されません。`;
+
 function candidateIcon(kind: "airport" | "vrep", selected: boolean) {
   return divIcon({
     className: `${kind}-draft-marker${selected ? " is-selected" : ""}`,
@@ -77,7 +80,7 @@ export function MapDraftLayers({ points, airports, busy, onAirport, onReference,
         else if (points.length > 0 && routePoint) onNamedPoint("小丸", candidate.latitude, candidate.longitude);
         else if (points.length > 0 && reference) onReference(reference);
       } }}>
-      <Tooltip>{routePoint ? "小丸" : airport ? `${airport.icao} ${airport.name}` : `${reference!.name} ${reference!.name_ja}`}</Tooltip>
+      <Tooltip>{routePoint ? <>小丸<br />{omaruMarkerHint}</> : airport ? `${airport.icao} ${airport.name}` : `${reference!.name} ${reference!.name_ja}`}</Tooltip>
     </Marker>;
   };
   return <>
@@ -99,7 +102,7 @@ export function MapDraftLayers({ points, airports, busy, onAirport, onReference,
 }
 export function RouteStrip({ points, busy, onRemove, onClear, onConfirm }: MapRouteBuilderProps) {
   return <div className="map-route-controls">
-    <p className="field-hint">AD2のARPから算出した参考位置です。公示座標ではなく精度は保証されません。</p>
+    <p className="field-hint">VREPはAD2のARPから算出した参考位置です。公示座標ではなく精度は保証されません。<br />{omaruPositionNotice}</p>
     <p>{points.length ? "飛行順に地点を追加し、最後の空港で経路を確定してください。" : "地図上の空港を選んで、出発地（FROM）を設定してください。"}</p>
     {points.length > 0 && <ol className="route-strip" aria-label="経路リスト">
       {points.map((point, index) => <li key={point.id}>

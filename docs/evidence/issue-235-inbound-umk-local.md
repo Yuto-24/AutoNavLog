@@ -29,6 +29,9 @@ NAV LOGは往路RJFM→小丸、帰路小丸→RJFMを親Legとし、子Legに�
 今回の帰路では採用高度1,500 ftを適用する。生成有田には既存arrival-policy参照座標を使う。
 AIP VREP snapshotを捏造しない。小丸の地図クリックは既存の同梱OMARU座標を使う通常のMAP点。
 繰り返しクリックは既存VREPと同じく別の訪問として残す。
+小丸の注記はAD2由来のVREPと区別し、運用参照図の未検証デジタイズ・推定誤差0.35 NMを表示する。
+この注記とtooltipの文言はGemini CLI（`gemini-3-flash-preview`、2026-10-31）が決定した。
+生成UMKで分割する元Legの手入力距離は測地線距離比で按分し、元の合計と解除時の復元を保つ。
 
 補完は冪等で、再適用・保存復元時に生成IDを変えない。往復では往路・帰路それぞれのUMKを保持する。
 明示点への置換時は、元の隣接関係に戻った場合だけ旧区間の手入力・役割・高度等を復元する。
@@ -83,7 +86,7 @@ GPT-6 AstraがSol実装を別の読み取り専用contextで確認した。指�
 
 fixtureは既存の空港発着Project内の帰路Legを検証する。始点・終点の空港要件と経路作成UIは変更しない。
 本人の実KML/Projectは未取得。実端末、全ブラウザWorker flow、実飛行、本番Static Web受入を示す結果ではない。
-今回の計算変更について追加のlayout/copy変更やvisual検査は行っていない。
+事前検証以降の注記修正と幅別の画面順序検証は、PRの最終検証記録を参照。
 
 Browser pluginは環境の `sandboxCwd is not a local file URI` で初期化できず、地図クリックはrepoの
 Playwrightで検証した。一般的なasset 404 console出力は残ったが対象操作は成功した。

@@ -293,6 +293,45 @@ def test_omaru_first_navlog_uses_rjfm_omaru_parent_and_physical_umk_children(
     assert len({row.tc.effective_value for row in children}) == 2
 
 
+def test_generated_umk_preserves_manual_distance_in_calculation_and_poh_time(
+    airports, performance_repository, project
+) -> None:
+    working = project.model_copy(deep=True)
+    origin, omaru = working.ordered_nodes()[:2]
+    omaru.latitude_deg, omaru.longitude_deg = 32.60, 131.62
+    origin.manual_distance_nm = 36
+    origin.manual_true_course_deg = 24
+    original_distance = _adopted_route_distance(working)
+    assert apply_rjfm_departure_exception(
+        working,
+        _references(umk=(32.20, 131.50), omaru=(omaru.latitude_deg, omaru.longitude_deg)),
+    ) is not None
+
+    outcome = _calculation_service(airports, performance_repository).calculate(
+        working, FakeWeatherProvider()
+    )
+    assert sum(r.zone_distance_nm.adopted() or 0 for r in outcome.sections) == pytest.approx(
+        original_distance
+    )
+    controlled = {section.id for section in working.ordered_sections()[:2]}
+    results = [r for r in outcome.sections if r.section_id in controlled]
+    assert sum(r.zone_distance_nm.adopted() or 0 for r in results) == pytest.approx(36)
+    for result, start, end in zip(
+        results, working.ordered_nodes()[:2], working.ordered_nodes()[1:3], strict=True
+    ):
+        geometry = geodesic_leg(
+            start.latitude_deg, start.longitude_deg, end.latitude_deg, end.longitude_deg
+        )
+        assert result.true_course_deg.adopted() == pytest.approx(geometry.initial_true_course_deg)
+    climb = results[0]
+    assert climb.zone_ete_seconds.adopted() == pytest.approx(
+        climb.performance_metadata["planned_duration_seconds"]
+    )
+    assert climb.section_fuel_gal.adopted() == pytest.approx(
+        climb.performance_metadata["planned_fuel_gal"]
+    )
+
+
 def test_direct_calculation_rejects_stale_persisted_rjfm_plan(
     airports,
     performance_repository,

@@ -21,6 +21,7 @@ from autonavlog.domain.planning import (
     load_persisted_ui_state,
 )
 from autonavlog.domain.project import ManualWind, NavSection, Project, RouteNode
+from autonavlog.nav.geodesy import geodesic_leg
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -537,7 +538,8 @@ def test_generated_umk_is_removed_and_original_geometry_restored(deactivate: str
     origin.manual_distance_nm = 30
     original_sections = [s.model_copy(deep=True) for s in project.sections]
     assert apply_rjfm_departure_exception(project, _references()) is not None
-    assert origin.manual_true_course_deg is None and origin.manual_distance_nm is None
+    assert origin.manual_true_course_deg is None
+    assert sum(n.manual_distance_nm or 0 for n in project.ordered_nodes()[:2]) == pytest.approx(30)
     if deactivate == "departure":
         project.departure_airport_id = "RJFO"
     else:
@@ -546,6 +548,36 @@ def test_generated_umk_is_removed_and_original_geometry_restored(deactivate: str
     assert len(project.route_nodes) == 3
     assert origin.manual_true_course_deg == 12 and origin.manual_distance_nm == 30
     assert project.sections == original_sections
+
+
+def test_generated_umk_preserves_manual_distance_through_reapply_and_reference_update() -> None:
+    project = _project(
+        [("RJFM", 31.877, 131.449), ("first", 32.22, 131.55), ("RJFO", 33.479, 131.737)]
+    )
+    origin = project.route_nodes[0]
+    origin.manual_true_course_deg = 12
+    origin.manual_distance_nm = 30
+    references = _references()
+
+    for latitude in (references.umk.latitude_deg, 32.09):
+        references.umk.latitude_deg = latitude
+        assert apply_rjfm_departure_exception(project, references) is not None
+        origin, umk, omaru = project.ordered_nodes()[:3]
+        first = geodesic_leg(
+            origin.latitude_deg, origin.longitude_deg, umk.latitude_deg, umk.longitude_deg
+        )
+        second = geodesic_leg(
+            umk.latitude_deg, umk.longitude_deg, omaru.latitude_deg, omaru.longitude_deg
+        )
+        assert origin.manual_distance_nm == pytest.approx(
+            30 * first.distance_nm / (first.distance_nm + second.distance_nm)
+        )
+        assert umk.manual_distance_nm == pytest.approx(30 - origin.manual_distance_nm)
+        assert origin.manual_true_course_deg is None and umk.manual_true_course_deg is None
+        before = project.model_dump(mode="json")
+        project = Project.model_validate_json(project.model_dump_json())
+        assert apply_rjfm_departure_exception(project, references) is not None
+        assert project.model_dump(mode="json") == before
 
 
 def test_explicit_umk_keeps_name_coordinates_and_manual_geometry() -> None:

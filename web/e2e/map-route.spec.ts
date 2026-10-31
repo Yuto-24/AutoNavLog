@@ -270,27 +270,49 @@ test("direct airport route survives failed local persistence and can be saved", 
   await expect(page.locator(".route-table tbody tr")).toHaveCount(2);
 });
 
-test("Issue 235: click OMARU as a route point and restore the draft", async ({ page }) => {
-  await start(page);
-  await selectAirport(page, "RJFM");
-  await zoomMapTo(page, 9);
-  const marker = page.locator('.vrep-draft-marker[title="小丸"]');
-  for (let attempt = 0; attempt < 12 && !await marker.count(); attempt++) {
-    const cluster = page.locator('.candidate-cluster').filter({ has: page.locator('[data-candidates~="RJFM:OMARU"]') });
-    await cluster.click();
-    await expect(page.locator('.route-map')).not.toHaveClass(/leaflet-zoom-anim/);
-  }
-  await marker.click();
-  await expect(strip(page).locator('li')).toHaveCount(2);
-  await expect(strip(page).locator('li').nth(1)).toContainText('小丸');
-  await page.reload();
-  await expect(strip(page).locator('li')).toHaveCount(2);
-  await expect(strip(page).locator('li').nth(1)).toContainText('小丸');
-  await expect(marker).toHaveCount(1);
-  await marker.click();
-  // Each explicit click is an occurrence, just like existing VREP markers.
-  await expect(strip(page).locator('li')).toHaveCount(3);
-  await expect(page).toHaveTitle(/NavMate/);
-  await expect(page.locator('vite-error-overlay')).toHaveCount(0);
-  await page.screenshot({ path: '/tmp/issue235-omaru-map.png' });
-});
+for (const width of [1100, 1440]) {
+  test(`Issue 235: click OMARU with correct provenance and restore the draft at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1100 });
+    await start(page);
+    await expect(page.locator('.map-route-controls .field-hint')).toHaveText(
+      'VREPはAD2のARPから算出した参考位置です。公示座標ではなく精度は保証されません。小丸は運用参照図からの未検証デジタイズによる推定位置（誤差0.35 NM）であり、精度は保証されません。',
+    );
+    await page.locator('.map-route-controls').screenshot({ path: `/tmp/issue235-omaru-notice-${width}.png` });
+    await selectAirport(page, "RJFM");
+    await zoomMapTo(page, 9);
+    const marker = page.locator('.vrep-draft-marker[title="小丸"]');
+    for (let attempt = 0; attempt < 12 && !await marker.count(); attempt++) {
+      const cluster = page.locator('.candidate-cluster').filter({ has: page.locator('[data-candidates~="RJFM:OMARU"]') });
+      await cluster.click();
+      await expect(page.locator('.route-map')).not.toHaveClass(/leaflet-zoom-anim/);
+    }
+    await marker.hover();
+    await expect(page.getByRole('tooltip')).toContainText('運用参照図より推定（未検証・誤差0.35NM）');
+    await marker.click();
+    await expect(strip(page).locator('li')).toHaveCount(2);
+    await expect(strip(page).locator('li').nth(1)).toContainText('小丸');
+    await page.reload();
+    await expect(strip(page).locator('li')).toHaveCount(2);
+    await expect(strip(page).locator('li').nth(1)).toContainText('小丸');
+    await expect(marker).toHaveCount(1);
+    await marker.click();
+    // Each explicit click is an occurrence, just like existing VREP markers.
+    await expect(strip(page).locator('li')).toHaveCount(3);
+    await expect(page).toHaveTitle(/NavMate/);
+    await expect(page.locator('vite-error-overlay')).toHaveCount(0);
+    await selectAirport(page, 'RJFO');
+    await page.getByRole('button', { name: '経路を確定', exact: true }).click();
+    await expect(page.getByLabel('DATE', { exact: true })).toBeVisible();
+    const input = (await page.locator('.input-rail').boundingBox())!;
+    const route = (await page.locator('.route-workspace').boundingBox())!;
+    const readiness = (await page.locator('.status-rail').boundingBox())!;
+    if (width <= 1240) {
+      expect(input.y + input.height).toBeLessThanOrEqual(route.y + 2);
+      expect(route.y + route.height).toBeLessThanOrEqual(readiness.y + 2);
+    } else {
+      expect(input.x + input.width).toBeLessThanOrEqual(route.x + 2);
+      expect(route.x + route.width).toBeLessThanOrEqual(readiness.x + 2);
+    }
+    await page.screenshot({ path: `/tmp/issue235-omaru-map-${width}.png` });
+  });
+}

@@ -187,6 +187,7 @@ def _reconcile_departure_umk(project: Project, references: RjfmPlanReferences) -
         generated[0].latitude_deg = references.umk.latitude_deg
         generated[0].longitude_deg = references.umk.longitude_deg
         generated[0].source = f"{_UMK_SOURCE}{references.revision}"
+        _apply_split_manual_override(project, generated[0], metadata_key=_UMK_GEOMETRY_KEY)
         return
     for node in generated:
         incoming = next((s for s in sections if s.to_node_id == node.id), None)
@@ -231,8 +232,6 @@ def _reconcile_departure_umk(project: Project, references: RjfmPlanReferences) -
         "manual_true_course_deg": origin.manual_true_course_deg,
         "manual_distance_nm": origin.manual_distance_nm,
     }
-    origin.manual_true_course_deg = None
-    origin.manual_distance_nm = None
     umk = RouteNode(
         sequence=1,
         name="UMK",
@@ -246,6 +245,7 @@ def _reconcile_departure_umk(project: Project, references: RjfmPlanReferences) -
     for index, node in enumerate(nodes):
         node.sequence = index
     project.route_nodes = nodes
+    _apply_split_manual_override(project, umk, metadata_key=_UMK_GEOMETRY_KEY)
     incoming = remainder.model_copy(deep=True, update={"id": uuid4(), "to_node_id": umk.id})
     remainder.from_node_id = umk.id
     sections.insert(0, incoming)
@@ -539,8 +539,13 @@ def _capture_original_node_override(
     }
 
 
-def _apply_split_manual_override(project: Project, synthetic: RouteNode) -> None:
-    raw = project.metadata.get(_ORIGINAL_NODE_OVERRIDE_METADATA_KEY)
+def _apply_split_manual_override(
+    project: Project,
+    synthetic: RouteNode,
+    *,
+    metadata_key: str = _ORIGINAL_NODE_OVERRIDE_METADATA_KEY,
+) -> None:
+    raw = project.metadata.get(metadata_key)
     if not isinstance(raw, dict):
         return
     node_id = raw.get("node_id")
