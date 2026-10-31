@@ -142,7 +142,7 @@ test("download and Clipboard export the displayed result, survive denial, and re
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
   for (const width of [390, 1100, 1440, 1600]) {
     await page.setViewportSize({ width, height: 1000 });
-    const regions = await page.evaluate(() => [".input-rail", ".route-workspace", ".status-rail", ".nav-log-scroll", ".nav-log-disclaimer"].map(selector => {
+    const regions = await page.evaluate(() => [".input-rail", ".route-workspace", ".status-rail", ".nav-log-scroll", ".fuel-plan-section"].map(selector => {
       const rect = document.querySelector(selector)!.getBoundingClientRect();
       return { x: rect.x, y: rect.y, bottom: rect.bottom };
     }));
@@ -163,7 +163,7 @@ test("download and Clipboard export the displayed result, survive denial, and re
         return { x: box.x, y: box.y, width: box.width, height: box.height };
       };
       return {
-        boxes: [".nav-log-summary", ".nav-log-scroll", ".fuel-plan-section", ".nav-log-disclaimer", ".navlog-export-actions"].map(rect),
+        boxes: [".nav-log-summary", ".nav-log-scroll", ".fuel-plan-section", ".navlog-export-actions"].map(rect),
         section: rect(".nav-log-section"),
         buttons: [1, 2].map(index => rect(`.navlog-export-actions button:nth-child(${index})`)),
       };
@@ -171,20 +171,20 @@ test("download and Clipboard export the displayed result, survive denial, and re
     for (let i = 1; i < boxes.length; i++) {
       expect(boxes[i]!.y).toBeGreaterThanOrEqual(boxes[i - 1]!.y + boxes[i - 1]!.height);
     }
-    expect(boxes[4]!.y - section.y - section.height).toBeGreaterThanOrEqual(16);
+    expect(boxes[3]!.y - section.y - section.height).toBeGreaterThanOrEqual(16);
     const actions = content.locator(".navlog-export-actions");
     await expect(actions.locator("button")).toHaveCount(2);
     expect(await actions.evaluate(element => getComputedStyle(element).gap)).toBe("8px");
     expect(await actions.evaluate(element => element.closest(".nav-log-scroll"))).toBeNull();
-    expect(buttons[0]!.x).toBe(boxes[3]!.x);
-    expect(boxes[4]!.width - 32).toBe(boxes[3]!.width);
+    expect(buttons[0]!.x).toBe(boxes[0]!.x);
+    expect(boxes[3]!.width - 32).toBe(boxes[0]!.width);
     if (width === 390) expect(buttons[1]!.y).toBeGreaterThanOrEqual(buttons[0]!.y + buttons[0]!.height + 8);
     else expect(buttons[1]!.y).toBe(buttons[0]!.y);
     const scroll = content.locator(".nav-log-scroll");
     await scroll.evaluate(element => { element.scrollLeft = element.scrollWidth; });
     if (width <= 1440) expect(await scroll.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
-    expect((await actions.boundingBox())!.x).toBe(boxes[4]!.x);
-    expect((await actions.boundingBox())!.width).toBe(boxes[4]!.width);
+    expect((await actions.boundingBox())!.x).toBe(boxes[3]!.x);
+    expect((await actions.boundingBox())!.width).toBe(boxes[3]!.width);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await actions.scrollIntoViewIfNeeded();
     await page.screenshot({ path: test.info().outputPath(`navlog-export-${width}.png`) });

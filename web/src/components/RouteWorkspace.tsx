@@ -872,7 +872,6 @@ export function RouteWorkspace({
       {mapBuilder ? <RouteStrip {...mapBuilder} /> : <MapResizeHandle value={mapHeight} min={320} max={900} onChange={setMapHeight} />}
       {rjfmMapReference && (
         <aside className="rjfm-airspace-note" aria-label="RJFM空域データ注記">
-          <span>{rjfmMapReference.civilTrainingTestAirspace.caution}</span>
           {civilAirspaceReferenceIsApproved && (
             <span>
               出典: <ExternalLink
@@ -882,14 +881,9 @@ export function RouteWorkspace({
               ・<ExternalLink
                 onOpen={onOpenExternalUrl}
                 href={rjfmMapReference.civilTrainingTestAirspace.layerMetadataUrl}
-              >国土地理院レイヤー</ExternalLink>
+              >国土地理院レイヤー</ExternalLink>をもとに加工
             </span>
           )}
-          <span>
-            レイヤー設定確認: <time
-              dateTime={rjfmMapReference.civilTrainingTestAirspace.checkedAtUtc}
-            >{rjfmMapReference.civilTrainingTestAirspace.checkedAtUtc}</time>
-          </span>
         </aside>
       )}
 
@@ -1245,10 +1239,6 @@ export function RouteWorkspace({
       </div>
       {project && (
         <p className="altitude-guidance-note">
-          上昇のALTは上昇先、降下のALTは降下開始時の巡航高度です。いずれもMC候補から選択できます。
-          <br />
-          {altitudeGuidance.legalThresholdNote}
-          <br />
           {altitudeGuidance.terrainLimitationNote}
         </p>
       )}

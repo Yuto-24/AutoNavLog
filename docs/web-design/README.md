@@ -57,6 +57,8 @@ decorative cards. Shadows are reserved for temporary overlays.
 - Editable route/leg table with ALT and PHASE controls.
 - Readiness rail showing the next action, data provenance, blockers, confirmation
   items, and acknowledgement controls.
+  Reference/performance revisions and the FTD internal run ID are available in a native
+  Details disclosure. Weather mode, real forecast run IDs, warnings and other required sources remain visible.
 - NAV LOG Summary above the main table with canonical TTL DIST and TTL TIME, plus
   destination TAF wind as reference data.
 - NAV LOG result table aligned to the 19-column 別添8-1 layout. FROM and TO stay
@@ -79,8 +81,9 @@ decorative cards. Shadows are reserved for temporary overlays.
   tables horizontally scrollable. In NAV LOG, Summary precedes the scroll region;
   TIME / FUEL PLAN follows it at the page width. Route input and flight-plan fields come first;
   the map, map confirmation, and route-confirm action then continue in one downward flow.
-- Do not hide blockers, confirmation controls, provenance, or action reasons
-  at any viewport width. Keep linked OpenStreetMap attribution visible even in
+- Do not hide blockers, confirmation controls, required sources, or action reasons
+  at any viewport width. Keep revision provenance accessible through Details at every width.
+  Keep linked OpenStreetMap attribution visible even in
   the empty-map overlay.
 
 ## Copy lock
@@ -115,7 +118,7 @@ Summary, horizontally scrollable main table, TIME / FUEL PLAN, then guidance.
 The 2026-08-13 fidelity ledger below remains historical evidence for the
 earlier calculated view; current Playwright coverage verifies this revised
 layout at 390 px, 1,100 px, and 1,440 px.
-JSON download/copy actions follow the NAV LOG guidance/disclaimer, outside the
+JSON download/copy actions follow the NAV LOG and its applicable guidance, outside the
 horizontal scroll region, with a 1rem top margin and the same content inset and
 maximum width as NAV LOG. Buttons retain their 0.5rem gap and wrap on narrow screens.
 
@@ -166,6 +169,31 @@ maximum width as NAV LOG. Buttons retain their 0.5rem gap and wrap on narrow scr
 - The current bundled RJFM/RJFO reference rows remain `UNVERIFIED`; visual fidelity does not
   override the primary-source release gate.
 - Fake weather remains the local default and prevents a release-ready status by design.
+
+## Provenance disclosure and map credits
+
+Readiness keeps the weather mode visible. Reference/performance revisions and the
+`ftd-fixed-v1` result ID are available in its native `詳細` disclosure; the stored values,
+calculation fingerprints and real forecast run IDs are unchanged. The duplicated footer
+revisions are removed. Static map-precision/date, altitude-rule and ground-preparation
+explanations are removed from the normal view; conditional warnings and calculation
+conditions remain independent of this display choice.
+
+Map credits are separate from revision metadata. The base layer still displays its
+OpenStreetMap copyright link on the map, as required by the
+[OSM tile policy](https://operations.osmfoundation.org/policies/tiles/).
+The live `kokuarea_minkankunren` GeoJSON is fetched from GSI, validates/extracts the
+approved KS4 features, and renders them over the base map. Its compact adjacent credit
+keeps the linked MLIT source page and GSI layer page, plus the processing indication.
+This credit is not moved behind Details: both the
+[GSI terms](https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html) and
+[MLIT terms](https://www.mlit.go.jp/link.html) require source identification, with a
+processing indication for edited content. The current GSI tile-list page did not expose
+the individual layer entry to the text reader; this was not treated as permission to
+omit a credit or as proof of a layer-specific exception.
+
+The compact credit text was determined with Gemini CLI (`gemini-3.8-flash-medium`):
+`出典: 国土交通省・国土地理院レイヤーをもとに加工`.
 
 
 ## New MAP routes (Issue #174)

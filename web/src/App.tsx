@@ -1750,6 +1750,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           readiness={state.readiness}
           projectExists={Boolean(state.project)}
           weatherMode={state.project?.weather_mode ?? form.weatherMode}
+          forecastRunId={state.outcome?.selected_forecast_run_id ?? null}
           canCalculate={canCalculate}
           outcomeExists={Boolean(state.outcome)}
           busy={busy}
@@ -1821,11 +1822,6 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           </p>
         </aside>
       )}
-
-      <footer className="app-footer">
-        <span>NavMateは非公式の地上準備支援ツールです。</span>
-        <span>参照 {state.runtime.referenceRevision} / 性能 {state.runtime.performanceRevision}</span>
-      </footer>
 
       {activeOperation === "calculate" && (
         <CalculationProgressOverlay {...calculationProgress}

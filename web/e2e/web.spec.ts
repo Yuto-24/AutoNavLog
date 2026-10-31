@@ -2699,6 +2699,70 @@ test("responsive workflow keeps a one-way order at intermediate width", async ({
   expect(pageErrors).toEqual([]);
 });
 
+test("provenance Details preserve saved inputs, fingerprint and FTD run ID", async ({ page }) => {
+  await page.goto("/");
+  await enterImportWorkflow(page);
+  const readState = () => page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error("state read failed");
+    return await response.json() as WebState;
+  });
+  const runtime = (await readState()).runtime;
+  await expect(page.locator(".status-rail > .provenance-list")).toContainText(runtime.weatherLabel);
+  if (runtime.developmentWeather) {
+    await expect(page.getByText("開発用気象モード", { exact: true })).toBeVisible();
+  }
+  await calculateNavLog(page, false, false, true);
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
+  const before = await readState();
+  const calculation = before.workingRecovery?.last_calculation as { calculation_fingerprint: string };
+  expect(calculation.calculation_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+  expect(before.outcome?.selected_forecast_run_id).toBe("ftd-fixed-v1");
+  expect(before.readiness.calculationIsCurrent).toBe(true);
+  const writes: string[] = [];
+  page.on("request", request => {
+    if (new URL(request.url()).pathname.startsWith("/api/") && request.method() !== "GET") {
+      writes.push(request.url());
+    }
+  });
+  const details = page.locator(".status-rail .provenance-details");
+  const summary = details.locator("summary");
+  for (const width of [390, 1100, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(details).toHaveJSProperty("open", false);
+    await expect(page.locator(".status-rail > .provenance-list")).toContainText("FTD固定気象");
+    await expect(page.getByText(runtime.referenceRevision, { exact: true })).toBeHidden();
+    await expect(page.getByText(runtime.performanceRevision!, { exact: true })).toBeHidden();
+    await expect(page.getByText("ftd-fixed-v1", { exact: true })).toBeHidden();
+    await expect(page.locator(".nav-log-heading")).not.toContainText("ftd-fixed-v1");
+    await summary.focus();
+    await page.keyboard.press("Enter");
+    await expect(details).toHaveJSProperty("open", true);
+    await expect(details.getByText(runtime.referenceRevision, { exact: true })).toBeVisible();
+    await expect(details.getByText(runtime.performanceRevision!, { exact: true })).toBeVisible();
+    await expect(details.getByText("ftd-fixed-v1", { exact: true })).toBeVisible();
+    await expect(page.locator(".status-rail > .provenance-list")).toBeVisible();
+    await expect(page.getByText("到着区間の計算はCALMです。", { exact: true })).toBeVisible();
+    await page.keyboard.press("Space");
+    await expect(details).toHaveJSProperty("open", false);
+    const after = await readState();
+    expect(after.project).toEqual(before.project);
+    expect(after.outcome).toEqual(before.outcome);
+    expect(after.workingRecovery?.last_calculation).toEqual(before.workingRecovery?.last_calculation);
+    expect(after.readiness.calculationIsCurrent).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  }
+  expect(writes).toEqual([]);
+  await page.reload();
+  await expect(page.locator(".nav-log-table")).toBeVisible();
+  await expect(details).toHaveJSProperty("open", false);
+  const restored = await readState();
+  expect(restored.project).toEqual(before.project);
+  expect(restored.outcome).toEqual(before.outcome);
+  expect(restored.workingRecovery?.last_calculation).toEqual(before.workingRecovery?.last_calculation);
+});
+
 test("RJFM inbound guidance remains below NAV LOG at intermediate and wide widths", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
@@ -2909,9 +2973,11 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(legend).toContainText("PCA 200–800 m");
   await expect(legend).toContainText("中心除外 9 km");
   await expect(legend).toContainText("民間訓練試験空域 KS4（GSI）");
-  await expect(legend).toContainText("GSI: 12区画を表示");
+  await expect(legend).toContainText("空域: 12区画を表示");
   const airspaceNote = page.getByLabel("RJFM空域データ注記");
-  await expect(airspaceNote).toContainText("NAV LOG計算やPCA判定には使用しません");
+  await expect(airspaceNote).not.toContainText("NAV LOG計算やPCA判定には使用しません");
+  await expect(airspaceNote).toContainText("国土交通省・国土地理院レイヤーをもとに加工");
+  await expect(airspaceNote.locator("time")).toHaveCount(0);
   await expect(airspaceNote).not.toContainText("境界付近は空域を管轄する機関へ確認してください");
   await expect(airspaceNote.getByRole("link", { name: "国土交通省" })).toHaveAttribute(
     "href",
@@ -3454,6 +3520,10 @@ test("NAV LOG summary, sticky route names, and TIME / FUEL PLAN remain stable ac
   }
   await expect(summary).toContainText(`${calculatedSummary.distance.text} NM`);
   await expect(summary).toContainText(calculatedSummary.time.text ?? "未取得");
+  expect(calculatedState.project?.weather_mode).toBe("FORECAST");
+  await expect(page.locator(".nav-log-heading")).toContainText(
+    `予報実行ID: ${calculatedState.outcome?.selected_forecast_run_id}`,
+  );
   const destinationWind = summary.getByLabel("目的地空港の風予報");
   await expect(destinationWind).not.toContainText("出典:");
   await expect(destinationWind).toContainText("到着区間の計算はCALMです。");

@@ -17,6 +17,7 @@ interface StatusPanelProps {
   readiness: ReadinessState;
   projectExists: boolean;
   weatherMode: "FORECAST" | "FTD";
+  forecastRunId: string | null;
   canCalculate: boolean;
   outcomeExists: boolean;
   busy: boolean;
@@ -30,6 +31,7 @@ export function StatusPanel({
   readiness,
   projectExists,
   weatherMode,
+  forecastRunId,
   canCalculate,
   outcomeExists,
   busy,
@@ -71,18 +73,29 @@ export function StatusPanel({
 
       <dl className="provenance-list">
         <div>
-          <dt><Database aria-hidden="true" size={16} />参照</dt>
-          <dd>{runtime.referenceRevision}</dd>
-        </div>
-        <div>
-          <dt><Database aria-hidden="true" size={16} />性能</dt>
-          <dd>{runtime.performanceRevision ?? "未確定"}</dd>
-        </div>
-        <div>
           <dt><CloudSun aria-hidden="true" size={16} />気象</dt>
-          <dd>{weatherMode === "FTD" ? "FTD固定気象（ISA）" : runtime.weatherLabel}</dd>
+          <dd>{weatherMode === "FTD" ? "FTD固定気象" : runtime.weatherLabel}</dd>
         </div>
       </dl>
+      <details className="provenance-details">
+        <summary>詳細</summary>
+        <dl className="provenance-list">
+          <div>
+            <dt><Database aria-hidden="true" size={16} />参照</dt>
+            <dd>{runtime.referenceRevision}</dd>
+          </div>
+          <div>
+            <dt><Database aria-hidden="true" size={16} />性能</dt>
+            <dd>{runtime.performanceRevision ?? "未確定"}</dd>
+          </div>
+          {forecastRunId === "ftd-fixed-v1" && (
+            <div>
+              <dt>予報実行ID</dt>
+              <dd>{forecastRunId}</dd>
+            </div>
+          )}
+        </dl>
+      </details>
 
       {runtime.developmentWeather && weatherMode !== "FTD" && (
         <div className="demo-weather-warning">

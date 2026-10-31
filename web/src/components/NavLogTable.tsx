@@ -687,7 +687,9 @@ export function NavLogTable({
         <div>
           <h2 id="nav-log-title">NAV LOG</h2>
         </div>
-        <span>予報実行ID: {outcome.selected_forecast_run_id ?? "未選択"}</span>
+        {outcome.selected_forecast_run_id !== "ftd-fixed-v1" && (
+          <span>予報実行ID: {outcome.selected_forecast_run_id ?? "未選択"}</span>
+        )}
       </div>
       <NavLogSummary outcome={outcome} destinationWind={destinationWind} />
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
@@ -889,10 +891,6 @@ export function NavLogTable({
       </div>
       <FuelPlanTable outcome={outcome} />
       {rjfmGuidance && <RjfmGuidancePanel guidance={rjfmGuidance} />}
-      <p className="nav-log-disclaimer">
-        本表示は地上準備用です。運航の可否を決定する資料ではありません。
-        最新の気象・NOTAM・AIPおよび適用可能な原資料を確認してください。
-      </p>
     </section>
   );
 }
