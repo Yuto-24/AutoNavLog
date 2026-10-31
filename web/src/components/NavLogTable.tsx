@@ -548,7 +548,6 @@ function DestinationWindSummary({
       {forecast.valid_time_utc && (
         <span>到着予定 {formatJst(forecast.valid_time_utc)} JST</span>
       )}
-      <span>出典: {forecast.source_label}</span>
       {available && forecast.forecast_change && (
         <span>区分: {forecast.forecast_change}</span>
       )}
@@ -559,7 +558,7 @@ function DestinationWindSummary({
         </details>
       )}
       <p>
-        目的地風はNAV LOG最終行への表示専用です。到着区間の計算はCALMです。
+        到着区間の計算はCALMです。
       </p>
     </section>
   );
@@ -717,14 +716,13 @@ export function NavLogTable({
       <div className="nav-log-heading">
         <div>
           <h2 id="nav-log-title">NAV LOG</h2>
-          <p>入力用の色の欄は直接編集でき、入力を止めてから約0.7秒後に自動再計算されます。</p>
         </div>
-        <span>予報実行ID: {outcome.selected_forecast_run_id ?? "未選択"}</span>
+        {outcome.selected_forecast_run_id !== "ftd-fixed-v1" && (
+          <span>予報実行ID: {outcome.selected_forecast_run_id ?? "未選択"}</span>
+        )}
       </div>
       <NavLogSummary outcome={outcome} destinationWind={destinationWind} />
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
-        <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>
-        <span className="nav-log-readonly-key">読取専用: 航法、距離、時間、燃料などの計算値</span>
         <span className={`nav-log-edit-status nav-log-edit-status-${editStatus.kind}`} role="status" aria-live="polite">
           {editStatus.message}
         </span>
@@ -739,7 +737,6 @@ export function NavLogTable({
             <Plus aria-hidden="true" size={15} />
             VOR/DME列を追加
           </button>
-          <span>各列で基準局を選び、不要な列は見出しから削除できます。</span>
         </div>
         <div className="nav-log-rounding-control">
           <span id="nav-log-rounding-label">四捨五入モード</span>
@@ -944,10 +941,6 @@ export function NavLogTable({
       </div>
       <FuelPlanTable outcome={outcome} />
       {rjfmGuidance && <RjfmGuidancePanel guidance={rjfmGuidance} />}
-      <p className="nav-log-disclaimer">
-        本表示は地上準備用です。運航の可否を決定する資料ではありません。
-        最新の気象・NOTAM・AIPおよび適用可能な原資料を確認してください。
-      </p>
     </section>
   );
 }

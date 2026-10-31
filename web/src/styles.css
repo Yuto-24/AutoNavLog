@@ -672,7 +672,7 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
 .rjfm-map-legend {
   position: absolute;
   right: 10px;
-  bottom: 22px;
+  bottom: calc(var(--map-attribution-height, 14px) + 8px);
   z-index: 500;
   min-width: 190px;
   max-width: 310px;
@@ -731,30 +731,20 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
 .rjfm-airspace-status {
   color: #6c4c1d;
 }
-.rjfm-airspace-note {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  margin: 8px 0 4px;
-  padding: 8px 10px;
-  color: #6c4c1d;
-  background: #fffaf0;
-  border: 1px solid #d8c6a7;
-  border-left: 3px solid #a45b13;
+.route-map .leaflet-bottom.leaflet-right {
+  width: 100%;
+}
+.route-map .leaflet-control-attribution {
+  max-width: calc(100% - 10px);
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.rjfm-airspace-note > span:first-child {
-  flex-basis: 100%;
-  font-weight: 650;
+.rjfm-airspace-credit {
+  display: inline-block;
+  white-space: nowrap;
 }
-.rjfm-airspace-note a {
-  color: #184f91;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.rjfm-airspace-note a:focus-visible {
+.route-map .leaflet-control-attribution a:focus-visible {
   outline: 2px solid #184f91;
   outline-offset: 2px;
 }
@@ -1106,6 +1096,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .provenance-list > div { display: grid; grid-template-columns: 88px 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--slate-200); }
 .provenance-list dt { display: flex; align-items: center; gap: 6px; color: #42596f; font-size: 11px; font-weight: 700; }
 .provenance-list dd { margin: 0; color: var(--navy-950); font-size: 11px; overflow-wrap: anywhere; }
+.provenance-details { margin-bottom: 14px; }
+.provenance-details > summary { color: #42596f; font-size: 11px; font-weight: 700; cursor: pointer; }
+.provenance-details > summary:focus-visible { outline: 2px solid var(--teal-700); outline-offset: 2px; }
+.provenance-details > .provenance-list { margin-top: 7px; }
 
 .demo-weather-warning {
   display: flex;
@@ -1567,7 +1561,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .ftd-weather-fields { grid-template-columns: 1fr; }
   .ftd-weather-fields > p { grid-column: auto; }
   .map-frame { height: 320px; }
-  .rjfm-map-legend { right: 6px; bottom: 18px; min-width: 170px; padding: 6px; }
+  .rjfm-map-legend { right: 6px; min-width: 170px; padding: 6px; }
   .rjfm-guidance { padding: 11px; }
   .rjfm-guidance-heading { display: grid; }
   .rjfm-reference-revision { justify-self: start; }

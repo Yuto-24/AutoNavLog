@@ -177,7 +177,6 @@ export function CheckPointEditor({
       <div className="section-heading-row">
         <div>
           <h3>チェックポイント</h3>
-          <p>偏流と到着予定時刻を確認する地点を、地図または座標から追加します。</p>
         </div>
         <button
           className="secondary-button checkpoint-add-button"
@@ -316,9 +315,7 @@ export function CheckPointEditor({
         </div>
       )}
 
-      {!checkPoints.length ? (
-        <p className="checkpoint-empty">まだチェックポイントはありません。</p>
-      ) : (
+      {checkPoints.length > 0 && (
         <div className="checkpoint-list">
           {checkPoints.map((item) => {
             const projection = projectionById.get(item.id);
@@ -380,7 +377,6 @@ export function CheckPointEditor({
           })}
         </div>
       )}
-      <small className="checkpoint-guidance">巡航区間では15〜20 NM程度の間隔が配置の目安です。abeam点がLeg線分内にあり、横ずれ10 NM以内となる区間を候補とし、1件なら自動選択します。</small>
     </section>
   );
 }

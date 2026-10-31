@@ -87,7 +87,8 @@ test(`pending platform Paste confirmation can be cancelled and recovered with fi
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   } else await open(page);
-  await expect(page.getByText("ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。")).toBeVisible();
+  await expect(page.getByText("ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。")).toHaveCount(0);
+  await expect(paste(page)).toBeEnabled();
   await paste(page).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await expect(dialog).toBeHidden();
@@ -141,7 +142,7 @@ test("download and Clipboard export the displayed result, survive denial, and re
   await expect(page.getByLabel("計算済みNAV LOG")).toBeFocused();
   for (const width of [390, 1100, 1440, 1600]) {
     await page.setViewportSize({ width, height: 1000 });
-    const regions = await page.evaluate(() => [".input-rail", ".route-workspace", ".status-rail", ".nav-log-scroll", ".nav-log-disclaimer"].map(selector => {
+    const regions = await page.evaluate(() => [".input-rail", ".route-workspace", ".status-rail", ".nav-log-scroll", ".fuel-plan-section"].map(selector => {
       const rect = document.querySelector(selector)!.getBoundingClientRect();
       return { x: rect.x, y: rect.y, bottom: rect.bottom };
     }));
@@ -162,7 +163,7 @@ test("download and Clipboard export the displayed result, survive denial, and re
         return { x: box.x, y: box.y, width: box.width, height: box.height };
       };
       return {
-        boxes: [".nav-log-summary", ".nav-log-scroll", ".fuel-plan-section", ".nav-log-disclaimer", ".navlog-export-actions"].map(rect),
+        boxes: [".nav-log-summary", ".nav-log-scroll", ".fuel-plan-section", ".navlog-export-actions"].map(rect),
         section: rect(".nav-log-section"),
         buttons: [1, 2].map(index => rect(`.navlog-export-actions button:nth-child(${index})`)),
       };
@@ -170,20 +171,20 @@ test("download and Clipboard export the displayed result, survive denial, and re
     for (let i = 1; i < boxes.length; i++) {
       expect(boxes[i]!.y).toBeGreaterThanOrEqual(boxes[i - 1]!.y + boxes[i - 1]!.height);
     }
-    expect(boxes[4]!.y - section.y - section.height).toBeGreaterThanOrEqual(16);
+    expect(boxes[3]!.y - section.y - section.height).toBeGreaterThanOrEqual(16);
     const actions = content.locator(".navlog-export-actions");
     await expect(actions.locator("button")).toHaveCount(2);
     expect(await actions.evaluate(element => getComputedStyle(element).gap)).toBe("8px");
     expect(await actions.evaluate(element => element.closest(".nav-log-scroll"))).toBeNull();
-    expect(buttons[0]!.x).toBe(boxes[3]!.x);
-    expect(boxes[4]!.width - 32).toBe(boxes[3]!.width);
+    expect(buttons[0]!.x).toBe(boxes[0]!.x);
+    expect(boxes[3]!.width - 32).toBe(boxes[0]!.width);
     if (width === 390) expect(buttons[1]!.y).toBeGreaterThanOrEqual(buttons[0]!.y + buttons[0]!.height + 8);
     else expect(buttons[1]!.y).toBe(buttons[0]!.y);
     const scroll = content.locator(".nav-log-scroll");
     await scroll.evaluate(element => { element.scrollLeft = element.scrollWidth; });
     if (width <= 1440) expect(await scroll.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
-    expect((await actions.boundingBox())!.x).toBe(boxes[4]!.x);
-    expect((await actions.boundingBox())!.width).toBe(boxes[4]!.width);
+    expect((await actions.boundingBox())!.x).toBe(boxes[3]!.x);
+    expect((await actions.boundingBox())!.width).toBe(boxes[3]!.width);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await actions.scrollIntoViewIfNeeded();
     await page.screenshot({ path: test.info().outputPath(`navlog-export-${width}.png`) });
@@ -244,6 +245,21 @@ test("download and Clipboard export the displayed result, survive denial, and re
 });
 
 test("source links open without an opener and cannot unlock a pending save", async ({ page, context }) => {
+  // Credit visibility follows successful live-layer loading; keep this interaction
+  // test independent of GSI network availability with a valid two-tile contract.
+  await context.route("https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/8/221/*.geojson", async route => {
+    const north = route.request().url().endsWith("/103.geojson");
+    const names = north ? ["KS4-1/4", "KS4-1", "KS4-3", "KS4-5"]
+      : ["KS4-2", "KS4-7", "KS4-6", "KS4-1/4", "KS4-1", "KS4-3", "KS4-5", "KS4-8"];
+    const lat = north ? 32 : 31;
+    const ring = [[131, lat], [131.1, lat], [131.1, lat + .1], [131, lat + .1], [131, lat]];
+    await route.fulfill({ contentType: "application/geo+json", body: JSON.stringify({
+      type: "FeatureCollection", features: names.flatMap(name => ["Polygon", "LineString"].map(type => ({
+        type: "Feature", properties: { "空域名称": name, "下限": "0 ft", "上限": "10000 ft", "管轄機関": "Fixture" },
+        geometry: { type, coordinates: type === "Polygon" ? [ring] : ring },
+      }))),
+    }) });
+  });
   await open(page);
   await page.getByLabel("気象モード").selectOption("FTD");
   await drop(page, "route.kml", kml);

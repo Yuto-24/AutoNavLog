@@ -125,7 +125,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   const [navLogEditStatus, setNavLogEditStatus] = useState<{
     kind: "idle" | "pending" | "saving" | "saved" | "error";
     message: string;
-  }>({ kind: "idle", message: "入力欄を編集すると自動再計算します。" });
+  }>({ kind: "idle", message: "" });
   const [busy, setBusy] = useState(false);
   const [activeOperation, setActiveOperation] = useState<ActiveOperation>(null);
   const [calculationProgress, setCalculationProgress] = useState({
@@ -229,7 +229,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     setNavLogEditVersion(0);
     setNavLogEditStatus({
       kind: "idle",
-      message: "入力欄を編集すると自動再計算します。",
+      message: "",
     });
   };
 
@@ -1684,13 +1684,11 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           <h2>経路作成</h2>
           {pastedKml && !pasteOpen && <button className="secondary-button" onClick={() => setPasteOpen(true)}>貼り付けたKMLの編集を続ける</button>}
           {pendingKmz && !kmzOpen && <button className="secondary-button" onClick={() => setKmzOpen(true)}>KMZからの選択を続ける</button>}
-          <p>FROMの空港から飛行順に地点を選択します。</p>
           <button className="secondary-button" disabled={busy} onClick={() => {
             if (confirmDiscardMapDraft()) { setMapRouteDraft([]); setLegacyRouteInput(true); }
           }}>KML/KMZから開始</button>
           <FileInput busy={busy} onFile={handleFile} inputRef={routeFileInput} />
           <button className="secondary-button" disabled={busy} onClick={() => void handlePasteImport("clipboard")}>KMLを貼り付け</button>
-          <p className="quiet-state">ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。</p>
         </aside> : <ImportPlanPanel
           panelRef={planningPanelRef}
           importState={state.import}
@@ -1762,6 +1760,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           readiness={state.readiness}
           projectExists={Boolean(state.project)}
           weatherMode={state.project?.weather_mode ?? form.weatherMode}
+          forecastRunId={state.outcome?.selected_forecast_run_id ?? null}
           canCalculate={canCalculate}
           outcomeExists={Boolean(state.outcome)}
           busy={busy}
@@ -1836,11 +1835,6 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           </p>
         </aside>
       )}
-
-      <footer className="app-footer">
-        <span>NavMateは非公式の地上準備支援ツールです。</span>
-        <span>参照 {state.runtime.referenceRevision} / 性能 {state.runtime.performanceRevision}</span>
-      </footer>
 
       {activeOperation === "calculate" && (
         <CalculationProgressOverlay {...calculationProgress}
