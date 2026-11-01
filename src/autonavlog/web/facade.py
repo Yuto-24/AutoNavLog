@@ -15,6 +15,7 @@ from autonavlog.application.arrival import calculate_arrival_altitude, standard_
 from autonavlog.application.calculation_service import CalculationService
 from autonavlog.application.checkpoints import project_check_points
 from autonavlog.application.navlog_display import reproject_route_node_labels
+from autonavlog.application.project_fingerprints import forecast_selection_fingerprint
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.readiness import ReadinessEvaluation
 from autonavlog.application.readiness_service import MaterializedReadiness, ReadinessService
@@ -194,6 +195,7 @@ class WebSession:
     persist_working: bool = True
     last_calculation: WorkingCalculation | None = None
     rounding_mode: bool = False
+    forecast_update_fingerprint: str | None = None
 
 
 class AutoNavLogWebApplication:
@@ -304,6 +306,7 @@ class AutoNavLogWebApplication:
             if recovery.last_calculation is not None:
                 self._assert_project_owner(recovery.last_calculation.project, session.owner_id)
             session.last_calculation = recovery.last_calculation
+            session.forecast_update_fingerprint = None
             session.project = (
                 None if recovery.project is None else recovery.project.model_copy(deep=True)
             )
@@ -903,6 +906,12 @@ class AutoNavLogWebApplication:
     ) -> tuple[CalculationOutcome, DestinationWindForecast | None]:
         selected_rounding_mode = session.rounding_mode if rounding_mode is None else rounding_mode
         self._normalize_rjfm_departure(project)
+        fingerprint = forecast_selection_fingerprint(
+            project, rounding_mode=selected_rounding_mode
+        )
+        refresh_forecast = self.forecast_refresh_requested(
+            session, project, rounding_mode=selected_rounding_mode
+        )
         state = self.project_service.ui_state(project)
         plan = state.arrival_plan
         if (
@@ -916,6 +925,7 @@ class AutoNavLogWebApplication:
                 status_code=409,
             )
         if project.weather_mode == "FTD":
+            session.forecast_update_fingerprint = None
             if project.ftd_weather is None:
                 raise WebApplicationError(
                     "FTD_WEATHER_REQUIRED",
@@ -941,8 +951,13 @@ class AutoNavLogWebApplication:
             session.weather_provider,
             progress=progress,
             rounding_mode=selected_rounding_mode,
+            refresh_forecast=refresh_forecast,
         )
         for _ in range(3):
+            if not outcome.sections or any(
+                issue.code.startswith(("FORECAST_", "WEATHER_")) for issue in outcome.blockers
+            ):
+                break
             forecast = self._destination_wind(project, outcome)
             current_signature = self._destination_wind_signature(destination_wind)
             forecast_signature = self._destination_wind_signature(forecast)
@@ -955,7 +970,13 @@ class AutoNavLogWebApplication:
                 forecast,
                 progress=progress,
                 rounding_mode=selected_rounding_mode,
+                refresh_forecast=refresh_forecast,
             )
+        session.forecast_update_fingerprint = (
+            fingerprint if any(
+                issue.code == "FORECAST_UPDATE_AVAILABLE" for issue in outcome.issues
+            ) else None
+        )
         if not self.development_weather:
             return self._with_rjfm_guidance(session, project, outcome), destination_wind
         decorated = outcome.model_copy(
@@ -1011,6 +1032,26 @@ class AutoNavLogWebApplication:
             }),
             reconfirmed=True,
         )
+
+    @staticmethod
+    def forecast_refresh_requested(
+        session: WebSession, project: Project, *, rounding_mode: bool | None = None,
+    ) -> bool:
+        """Refresh intent belongs to this working session and unchanged inputs."""
+        try:
+            fingerprint = forecast_selection_fingerprint(
+                project,
+                rounding_mode=session.rounding_mode if rounding_mode is None else rounding_mode,
+            )
+        except (TypeError, ValueError):
+            # Invalid planning cannot retain refresh intent. Let the established
+            # readiness/state validation report its domain error to the caller.
+            session.forecast_update_fingerprint = None
+            return False
+        if project.weather_mode != "FORECAST" or session.forecast_update_fingerprint != fingerprint:
+            session.forecast_update_fingerprint = None
+            return False
+        return True
 
     def _normalize_rjfm_departure(self, project: Project) -> None:
         normalize_rjfm_departure_plan(project, self.rjfm_reference_pack)
@@ -1199,6 +1240,7 @@ class AutoNavLogWebApplication:
     def load(self, session: WebSession, project_id: UUID) -> dict[str, Any]:
         with self.owner_operation(session.owner_id), session.lock:
             self._restore_project(session, project_id, explicit=True)
+            session.forecast_update_fingerprint = None
             return self.present(session)
 
     def delete(self, session: WebSession, project_id: UUID) -> dict[str, Any]:
@@ -1441,6 +1483,11 @@ class AutoNavLogWebApplication:
             return self._present_unlocked(session)
 
     def _present_unlocked(self, session: WebSession) -> dict[str, Any]:
+        # Observe edits away and back, rather than reviving an earlier second click.
+        if session.project is None:
+            session.forecast_update_fingerprint = None
+        else:
+            self.forecast_refresh_requested(session, session.project)
         evaluation = None if session.project is None else self._evaluate(session)
         issues: list[dict[str, Any]] = []
         displayed_issue_keys: set[tuple[str, UUID | None, int | None]] = set()

@@ -72,7 +72,7 @@ async function acquireWeather(pyodide: Awaited<ReturnType<typeof initialize>>) {
     pyodide.globals.set("weather_catalog", catalog);
     try {
       return weatherResult<PreparedAsset>(pyodide.runPython(
-        "local_application.weather_plan(weather_catalog)",
+        "local_application.weather_plan(weather_catalog, json.loads(local_body_json))",
       ) as string);
     } finally { pyodide.globals.delete("weather_catalog"); }
   });

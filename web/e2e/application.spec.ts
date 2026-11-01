@@ -402,3 +402,29 @@ test("Legacy transparent session renewal retains ON without persisting a prefere
   expect(JSON.parse(String(calls[3]!.options!.body))).toEqual(rounded.workingRecovery);
   expect(calls[2]!.options!.body).toBe(calls[4]!.options!.body);
 });
+
+
+test("explicit Local Save adopts the same working Project without a recovery bootstrap", async () => {
+  let working: any = { version: 1, project: { id: "forecast", revision: 0, name: "Forecast", metadata: {} },
+    last_calculation: { retained: true } };
+  let stored: any;
+  const operations: string[] = [];
+  const repository = {
+    list: async () => ({ projects: [], unavailable: [] }),
+    read: async () => stored,
+    write: async (record: any) => { stored = structuredClone(record); },
+  } as unknown as LocalProjectRepository;
+  const app = new LocalApplication(() => repository, () => ({
+    request: async <T>(operation: string, input?: any) => {
+      operations.push(operation);
+      if (operation === "adoptSavedProject") working = input.working;
+      if (operation === "bootstrap") working = input;
+      return structuredClone({ ...state, project: working.project, workingRecovery: working }) as T;
+    }, dispose() {},
+  }));
+  const saved = await app.saveProject("Saved forecast");
+  expect(operations).toEqual(["state", "adoptSavedProject"]);
+  expect(saved.project?.name).toBe("Saved forecast");
+  expect(saved.project?.revision).toBe(1);
+  expect(saved.workingRecovery?.last_calculation).toEqual({ retained: true });
+});
