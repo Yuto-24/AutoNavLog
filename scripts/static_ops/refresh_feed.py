@@ -18,7 +18,7 @@ def refresh(producer: Path, output: Path, cache: Path, expected_run: str | None 
     ) else set()
     result = subprocess.run(
         [sys.executable, str(producer), "--output", str(output), "--cache", str(cache),
-         "--hours", str(PUBLICATION_GENERATION_HOURS),
+         "--hours", str(PUBLICATION_GENERATION_HOURS), "--full-run",
          *(["--expected-run", expected_run] if expected_run else [])],
         check=False,
         text=True,

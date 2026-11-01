@@ -58,7 +58,8 @@ def test_publication_refresh_covers_next_hour_with_pressure_interpolation(monkey
         # Exercise refresh's actual CLI horizon; omitting it reproduces the old 24h default.
         hours = int(command[command.index("--hours") + 1]) if "--hours" in command else 24
         report = prepare_msm_feed.produce(
-            output, tmp_path / "cache", start, hours, Bounds(), now=generated)
+            output, tmp_path / "cache", start, hours, Bounds(), now=generated,
+            full_run="--full-run" in command)
         return subprocess.CompletedProcess(command, 0, stdout=json.dumps(report))
 
     monkeypatch.setattr(refresh_feed.subprocess, "run", run_producer)
@@ -74,7 +75,8 @@ def test_publication_refresh_covers_next_hour_with_pressure_interpolation(monkey
         assert (datetime(2026, 10, 13, 13, tzinfo=UTC), 2, "tmp_surface") in data.surface
         upper = datetime(2026, 10, 13, 15, tzinfo=UTC)
         assert (upper, 1000, "tmp") in data.pressure
-        assert max(key[0] for key in data.pressure) == upper
+        assert max(key[0] for key in data.pressure) == (
+            data.selection.run_utc + timedelta(hours=39))
     # The generation margin must not relax freshness or move the validator's clock back.
     with pytest.raises(ValueError, match="freshness"):
         validate_feed(output, report, generated + timedelta(minutes=31))

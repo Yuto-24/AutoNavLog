@@ -126,6 +126,10 @@ class LocalMsmClient(MsmClient):  # type: ignore[misc]
         if self.data is None:
             raise LocalWeatherError("WEATHER_PREPARED_UNAVAILABLE", "MSM配信データがありません。")
         try:
+            if self.data.selection.run_utc == run.initial_time_utc:
+                # Let the library distinguish absent prepared coverage from source
+                # identity corruption. The catalog identity check below still runs.
+                super().prepare_run(run, requirements, prepared_data=self.data)
             return super().prepare_run(
                 run,
                 requirements,
@@ -136,7 +140,9 @@ class LocalMsmClient(MsmClient):  # type: ignore[misc]
         except CacheIntegrityError as error:
             raise LocalWeatherError("WEATHER_PAYLOAD_INTEGRITY_FAILED", str(error)) from error
         except (MissingVariableError, SelectedRunCoverageError) as error:
-            raise LocalWeatherError("WEATHER_PREPARED_UNAVAILABLE", str(error)) from error
+            raise LocalWeatherError(
+                "WEATHER_PREPARED_UNAVAILABLE", "選択したMSM Runの配信データがありません。"
+            ) from error
 
 
 class LocalMsmWeather:

@@ -44,7 +44,7 @@ Firebase authorized domains、Firestore Rulesとindex、TAF origin allowlistは�
 ```sh
 source .venv/bin/activate
 npm --prefix web ci
-python scripts/prepare_msm_feed.py --output /tmp/autonavlog-msm-feed --cache /tmp/autonavlog-msm-cache
+python scripts/prepare_msm_feed.py --output /tmp/autonavlog-msm-feed --cache /tmp/autonavlog-msm-cache --hours 25 --full-run
 AUTONAVLOG_MSM_FEED=/tmp/autonavlog-msm-feed npm --prefix web run build:static
 npm --prefix web run check:static
 npm --prefix web run test:static-artifact
