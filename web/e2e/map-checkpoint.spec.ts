@@ -186,7 +186,9 @@ test("green theme keeps readable controls, keyboard selection and aviation color
     await expect(primary).toBeEnabled();
     await page.mouse.move(0, 0);
     await expect(primary).toHaveCSS("background-color", "rgb(0, 96, 80)");
-    for (const element of [header, primary, selected]) {
+    const savedProjects = header.getByLabel("保存済み", { exact: true });
+    await expect(savedProjects).toHaveCSS("appearance", "none");
+    for (const element of [header, primary, selected, savedProjects]) {
       const colors = await element.evaluate(el => {
         const style = getComputedStyle(el);
         return [style.color, style.backgroundColor];
