@@ -8,6 +8,7 @@ from numbers import Integral, Real
 from pathlib import Path
 from typing import Any
 
+from autonavlog.diagnostics import timed_stage
 from autonavlog.domain.enums import Availability, WeatherRequestKind
 from autonavlog.domain.weather import (
     ForecastRequirement,
@@ -78,6 +79,7 @@ class MsmWeatherProvider:
         parsed = datetime.strptime(value, "%Y%m%d%H%M%S").replace(tzinfo=UTC)
         return self._msm.RunId(parsed)
 
+    @timed_stage("weather_discovery")
     def resolve_run(self, requirement: ForecastRequirement) -> ForecastRun:
         status = self.client.resolve_run(self._requirement(requirement), selected_run=None)
         if status.selected_run is None:
@@ -85,6 +87,7 @@ class MsmWeatherProvider:
         selected = status.selected_run
         return ForecastRun(id=str(selected), initial_time_utc=selected.initial_time_utc)
 
+    @timed_stage("weather_discovery")
     def inspect_run_status(
         self,
         selected_run_id: str,
@@ -104,6 +107,7 @@ class MsmWeatherProvider:
             warnings=status.warnings,
         )
 
+    @timed_stage("weather_preparation")
     def prepare_run(
         self,
         forecast_run_id: str,

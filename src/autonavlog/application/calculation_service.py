@@ -7,6 +7,7 @@ from math import isfinite
 from typing import Any
 from uuid import UUID
 
+from autonavlog.diagnostics import timed_stage
 from autonavlog.domain.calculation import (
     CalculationOutcome,
     DerivedRoutePoint,
@@ -2303,6 +2304,7 @@ class CalculationService:
                 )
         return points
 
+    @timed_stage("navigation")
     def _calculate_iteration(
         self,
         project: Project,

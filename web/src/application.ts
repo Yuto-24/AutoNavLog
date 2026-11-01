@@ -58,6 +58,7 @@ export interface AutoNavLogApplication {
   renameRouteNode(nodeId: string, name: string): Promise<ApplicationSnapshot>;
   replaceCheckPoints(checkPoints: CheckPointInput[]): Promise<ApplicationSnapshot>;
   acknowledge(key: string, checked: boolean): Promise<ApplicationSnapshot>;
+  resumeCalculation?(onProgress?: ProgressListener): Promise<ApplicationSnapshot | null>;
   calculate(onProgress?: ProgressListener): Promise<ApplicationSnapshot>;
   saveProject(name: string): Promise<ApplicationSnapshot>;
   loadProject(projectId: string): Promise<ApplicationSnapshot>;

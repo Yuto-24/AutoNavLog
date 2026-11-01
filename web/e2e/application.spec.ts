@@ -297,3 +297,96 @@ test("Local route confirmation exposes committed Project after storage failure f
   expect(stored.draft.id).toBe(project.id);
   expect(stored.checkpoint.name).toBe("Recovered route");
 });
+
+test("Legacy recovers an unacknowledged start without submitting it twice", async () => {
+  let posts = 0;
+  globalThis.fetch = async (path, options) => {
+    if (options?.method === "POST") { posts++; throw new TypeError("lost response"); }
+    expect(String(path)).toBe("/api/calculation-jobs/active");
+    return json({ job_id: "existing", status: "succeeded", state, progress_percent: 100, progress_message: "done" });
+  };
+  const app = new LegacyApplication();
+  expect(await app.calculate()).toEqual(state);
+  expect(posts).toBe(1);
+});
+
+test("Legacy never replays a start whose outcome is unknown", async () => {
+  let posts = 0;
+  globalThis.fetch = async (_path, options) => {
+    if (options?.method === "POST") { posts++; throw new TypeError("lost response"); }
+    return new Response(null, { status: 204 });
+  };
+  await expect(new LegacyApplication().calculate()).rejects.toMatchObject({ code: "APPLICATION_UNAVAILABLE" });
+  expect(posts).toBe(1);
+});
+
+test("Legacy reconnects polling and shares double clicks without replacing the session", async () => {
+  let posts = 0, reads = 0;
+  const paths: string[] = [];
+  globalThis.fetch = async (path, options) => {
+    paths.push(String(path));
+    if (options?.method === "POST") {
+      posts++;
+      return json({ job_id: "held", status: "preparing_weather", progress_percent: 25, progress_message: "weather" });
+    }
+    if (++reads === 1) throw new TypeError("offline");
+    if (reads === 2) return new Response("gateway unavailable", { status: 502 });
+    return json({ job_id: "held", status: "succeeded", state, progress_percent: 100, progress_message: "done" });
+  };
+  const app = new LegacyApplication();
+  expect(await Promise.all([app.calculate(), app.calculate()])).toEqual([state, state]);
+  expect(posts).toBe(1);
+  expect(paths).not.toContain("/api/application-session");
+});
+
+test("Legacy active lookup is optional and never creates a session", async () => {
+  const calls = responses(new Response(null, { status: 204 }), json({ error: { code: "SESSION_NOT_FOUND", message: "expired" } }, 401));
+  const app = new LegacyApplication();
+  expect(await app.resumeCalculation()).toBeNull();
+  await expect(app.resumeCalculation()).rejects.toMatchObject({ code: "SESSION_NOT_FOUND" });
+  expect(calls.map(x => x.path)).toEqual(["/api/calculation-jobs/active", "/api/calculation-jobs/active"]);
+});
+
+test("Legacy tracking deadline retains the job for an explicit retry", async () => {
+  const originalNow = Date.now;
+  let now = originalNow(), reads = 0, posts = 0;
+  Date.now = () => now;
+  globalThis.fetch = async (path, options) => {
+    if (options?.method === "POST") {
+      posts++;
+      return json({ job_id: "slow", status: "preparing_weather", progress_percent: 25, progress_message: "weather" });
+    }
+    expect(String(path)).toBe("/api/calculation-jobs/slow");
+    if (++reads === 1) { now += 600_001; throw new TypeError("offline"); }
+    return json({ job_id: "slow", status: "succeeded", state, progress_percent: 100, progress_message: "done" });
+  };
+  try {
+    const app = new LegacyApplication();
+    await expect(app.calculate()).rejects.toMatchObject({ code: "CALCULATION_TIMEOUT" });
+    expect(await app.resumeCalculation()).toEqual(state);
+    expect(posts).toBe(1);
+  } finally { Date.now = originalNow; }
+});
+
+test("Legacy rejects a job response after ordinary recovery replaces its session", async () => {
+  let release!: () => void;
+  let requested!: () => void;
+  const waiting = new Promise<void>(resolve => { requested = resolve; });
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  let sessions = 0, updates = 0;
+  globalThis.fetch = async path => {
+    if (String(path) === "/api/application-session") return json({ state, token: `session-${++sessions}` });
+    if (String(path) === "/api/project") return ++updates === 1 ? json({}, 401) : json(state);
+    if (String(path) === "/api/calculation-jobs") return json({ job_id: "old", status: "calculating", progress_percent: 30, progress_message: "calculating" });
+    requested();
+    await barrier;
+    return json({ job_id: "old", status: "succeeded", state, progress_percent: 100, progress_message: "done" });
+  };
+  const app = new LegacyApplication();
+  await app.bootstrap();
+  const pending = app.calculate();
+  await waiting;
+  await app.updateProject(update);
+  release();
+  await expect(pending).rejects.toMatchObject({ code: "SESSION_REQUIRED" });
+});

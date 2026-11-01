@@ -282,3 +282,58 @@ test("pasted KML draft resumes without reading a changed clipboard", async ({ pa
   await page.getByRole("button", { name: "貼り付けたKMLの編集を続ける" }).click();
   await expect(page.getByRole("dialog").getByRole("textbox")).toHaveValue("<kml>入力途中");
 });
+
+test("Legacy waits past thirty seconds, reconnects and resumes before saving edited input", async ({ page }) => {
+  test.skip(isLocal(), "Legacy transport regression");
+  test.setTimeout(90_000);
+  await calculated(page);
+  let posts = 0, saves = 0, reads = 0;
+  const realState = await page.evaluate(async () => {
+    // Test transport fixture: use the last real result from the tab recovery snapshot.
+    return JSON.parse(sessionStorage.getItem("autonavlog.working-session.v1")!);
+  });
+  // Obtain a complete application response through the existing authenticated tab.
+  let result: unknown;
+  await page.route("**/api/calculation-jobs", async route => {
+    posts++;
+    const response = await route.fetch();
+    const job = await response.json();
+    await route.fulfill({ response });
+    result = job;
+  });
+  await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+  await expect(page.locator(".calculation-progress-backdrop")).toBeHidden();
+  expect(result).toBeTruthy();
+  expect(realState).toBeTruthy();
+  await page.unroute("**/api/calculation-jobs");
+  // A previous calculation's terminal snapshot is retained for the response fixture.
+  const jobId = (result as { job_id: string }).job_id;
+  let completed: Record<string, unknown>;
+  await page.route("**/api/calculation-jobs/active", async route => {
+    const response = await route.fetch({ url: new URL(`/api/calculation-jobs/${jobId}`, route.request().url()).href });
+    completed = await response.json();
+    await route.fulfill({ json: { ...completed, status: "preparing_weather", progress_percent: 25, state: undefined } });
+  });
+  await page.route(`**/api/calculation-jobs/${jobId}`, async route => {
+    if (++reads === 1) { await route.abort(); return; }
+    await route.fulfill({ json: Date.now() - started < 32_000
+      ? { ...completed, status: "preparing_weather", progress_percent: 25, state: undefined }
+      : completed });
+  });
+  await page.route("**/api/project", async route => {
+    if (route.request().method() === "PUT") saves++;
+    await route.fulfill({ status: 409, json: { error: { code: "OPERATION_IN_PROGRESS", message: "計算中のため、まだ保存できていません。" } } });
+  });
+  await page.getByLabel("ETD JST", { exact: true }).fill("15:00");
+  await expect(page.getByText("計算中のため、まだ保存できていません。", { exact: true })).toBeVisible();
+  const beforeSaves = saves, beforePosts = posts;
+  const started = Date.now();
+  await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+  await expect(page.locator(".calculation-progress-backdrop")).toBeVisible();
+  await expect(page.getByText(/経過時間 0:3/)).toBeVisible({ timeout: 40_000 });
+  await expect(page.locator(".calculation-progress-backdrop")).toBeHidden({ timeout: 15_000 });
+  expect(posts).toBe(beforePosts);
+  expect(saves).toBe(beforeSaves);
+  await expect(page.getByLabel("ETD JST", { exact: true })).toHaveValue("15:00");
+  await expect(page.locator(".nav-log-table")).toBeVisible();
+});

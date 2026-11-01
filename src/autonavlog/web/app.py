@@ -142,8 +142,8 @@ def require_session(request: Request) -> WebSession:
         )
     web = cast(AutoNavLogWebApplication, request.app.state.web_application)
     owner_id = _owner_identity(request)
-    with web.owner_operation(owner_id):
-        return web.session(session_token, owner_id)
+    web.check_owner_access(owner_id)
+    return web.session(session_token, owner_id)
 
 
 SessionDependency = Annotated[WebSession, Depends(require_session)]
@@ -239,6 +239,7 @@ def create_app(
             raise ValueError("Migration requires Legacy local storage")
         migration = LegacyMigration(repository.root / "account-links.sqlite3", web, navmate_url)
         web.owner_operation = migration.legacy_operation
+        web.check_owner_access = migration.check_legacy_access
         app.state.legacy_migration = migration
         install_migration_routes(app, migration,
                                  FirebaseTokenVerifier(migration_project, migration_api_key),
@@ -277,7 +278,8 @@ def create_app(
 
     @app.delete("/api/application-session", status_code=204)
     def close_application_session(session: SessionDependency) -> Response:
-        web.invalidate_session(session.token, session.owner_id)
+        with web.session_operation(session):
+            web.invalidate_session(session.token, session.owner_id)
         return Response(status_code=204)
 
     @app.post("/api/session")
@@ -468,6 +470,13 @@ def create_app(
                 "updated_at_utc": job.updated_at_utc.isoformat(),
             }
         return job_payload(snapshot)
+
+    @app.get("/api/calculation-jobs/active", response_model=None)
+    def active_calculation_job(session: SessionDependency) -> dict[str, Any] | Response:
+        job = calculation_jobs.active_snapshot(
+            owner_id=session.owner_id, session_token=session.token,
+        )
+        return Response(status_code=204) if job is None else job_payload(job)
 
     @app.get("/api/calculation-jobs/{job_id}")
     def calculation_job(job_id: str, session: SessionDependency) -> dict[str, Any]:

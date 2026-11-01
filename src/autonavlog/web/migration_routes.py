@@ -62,7 +62,7 @@ def install_migration_routes(
             if request.method == "GET" and "text/html" in request.headers.get("Accept", ""):
                 try:
                     status = await run_in_threadpool(
-                        lambda: migration.status(owner_storage_key(owner_identity(request)))
+                        lambda: migration.read_status(owner_storage_key(owner_identity(request)))
                     )
                     if status["state"] == "NAVMATE_ACTIVE":
                         return RedirectResponse(
@@ -95,7 +95,7 @@ def install_migration_routes(
 
     @app.get("/api/account-link")
     def link_status(request: Request) -> dict[str, Any]:
-        return migration.status(owner_storage_key(owner_identity(request)))
+        return migration.read_status(owner_storage_key(owner_identity(request)))
 
     @app.post("/api/account-link")
     def link(request: Request) -> dict[str, Any]:
