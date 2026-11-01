@@ -103,6 +103,7 @@ test("new discards recovery; new tabs including opener clones never inherit work
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("3");
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "新規", exact: true }).click();
+  await dismissLegacyNotice(page);
   await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("0");
   await page.reload();
