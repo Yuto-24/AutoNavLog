@@ -194,17 +194,24 @@ export function ImportPlanPanel({
             />
           </label>
           <div className="endpoint-row span-two">
-            <label>
-              <span>FROM（自動取得）</span>
-              <input
-                aria-label="FROM"
-                type="text"
-                readOnly
-                value={selectedDeparture ? `${selectedDeparture.icao} ${selectedDeparture.name}` : ""}
-                placeholder="経路を選択すると自動設定"
-                aria-invalid={Boolean(form.candidateKey && !selectedDeparture)}
-              />
-            </label>
+            <div className="departure-field">
+              <label>
+                <span>FROM（自動取得）</span>
+                <input
+                  aria-label="FROM"
+                  type="text"
+                  readOnly
+                  value={selectedDeparture ? `${selectedDeparture.icao} ${selectedDeparture.name}` : ""}
+                  placeholder="経路を選択すると自動設定"
+                  aria-invalid={Boolean(form.candidateKey && !selectedDeparture)}
+                />
+              </label>
+              <label className="checkbox-row departure-vor-option">
+                <input type="checkbox" checked={form.departureOrigin === "VOR"}
+                  onChange={(event) => update("departureOrigin", event.target.checked ? "VOR" : "AIRPORT")} />
+                <span>VOR Tracking Mode</span>
+              </label>
+            </div>
             <label>
               <span>TO（自動取得）</span>
               <input
@@ -222,11 +229,6 @@ export function ImportPlanPanel({
               </small>
             )}
           </div>
-          <label className="checkbox-row span-two">
-            <input type="checkbox" checked={form.departureOrigin === "VOR"}
-              onChange={(event) => update("departureOrigin", event.target.checked ? "VOR" : "AIRPORT")} />
-            <span>VOR Tracking Mode</span>
-          </label>
           <div className="fuel-input-row span-two">
             <label>
               <span>FUEL gal</span>

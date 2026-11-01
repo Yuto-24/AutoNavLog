@@ -560,10 +560,13 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .flight-date-field,
 .flight-time-field { grid-column: 1 / -1; }
-.endpoint-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.endpoint-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
 .endpoint-row label { min-width: 0; display: grid; gap: 5px; }
 .endpoint-row input { width: 100%; min-width: 0; }
 .form-grid label { min-width: 0; display: grid; gap: 5px; }
+.departure-field { min-width: 0; display: grid; gap: 5px; }
+.form-grid .departure-vor-option { display: flex; align-items: center; gap: 8px; }
+.departure-vor-option input { width: 17px; }
 .form-grid-field { min-width: 0; display: grid; gap: 5px; }
 .form-grid-field > span {
   color: #304960;

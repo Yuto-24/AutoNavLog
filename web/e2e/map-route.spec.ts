@@ -320,8 +320,8 @@ for (const width of [1100, 1440]) {
   });
 }
 
-for (const width of [1100, 1440]) {
-  test(`MAP to Planning and NAV LOG: VOR Tracking Mode survives reload at ${width}px`, async ({ page }) => {
+for (const width of [390, 1100, 1440]) {
+  test(`MAP to Planning and NAV LOG: VOR Tracking Mode survives reload at ${width}px`, async ({ page }, info) => {
     test.setTimeout(240_000);
     await page.setViewportSize({ width, height: 1100 });
     await start(page);
@@ -335,6 +335,37 @@ for (const width of [1100, 1440]) {
     await selectAirport(page, "RJFS");
     await page.getByRole("button", { name: "経路を確定", exact: true }).click();
     const vor = page.getByRole("checkbox", { name: "VOR Tracking Mode", exact: true });
+    await expect(vor).not.toBeChecked();
+    await page.locator(".flight-plan-section").screenshot({ path: info.outputPath("vor-planning.png") });
+    const layout = await vor.evaluate(checkbox => {
+      const bounds = (element: Element) => element.getBoundingClientRect().toJSON();
+      const label = checkbox.closest("label")!;
+      return {
+        checkbox: bounds(checkbox), label: bounds(label), text: bounds(label.querySelector("span")!),
+        from: bounds(document.querySelector('input[aria-label="FROM"]')!),
+        to: bounds(document.querySelector('input[aria-label="TO"]')!),
+      };
+    });
+    expect(layout.checkbox.width).toBeCloseTo(17, 0);
+    expect(layout.checkbox.height).toBeCloseTo(17, 0);
+    expect(layout.text.x).toBeGreaterThan(layout.checkbox.right);
+    expect(Math.abs((layout.text.top + layout.text.bottom) / 2
+      - (layout.checkbox.top + layout.checkbox.bottom) / 2)).toBeLessThanOrEqual(2);
+    expect(layout.label.x).toBeCloseTo(layout.from.x, 0);
+    expect(layout.label.top).toBeGreaterThanOrEqual(layout.from.bottom);
+    expect(layout.label.top - layout.from.bottom).toBeLessThanOrEqual(8);
+    expect(layout.label.right).toBeLessThanOrEqual(layout.from.right + 1);
+    expect(layout.to.height).toBeCloseTo(layout.from.height, 0);
+    if (width === 1100) {
+      expect(layout.to.x).toBeGreaterThan(layout.from.right);
+      expect(layout.to.top).toBeCloseTo(layout.from.top, 0);
+    } else {
+      expect(layout.to.top).toBeGreaterThan(layout.label.bottom);
+    }
+    // Clicking the visible text must activate the independent checkbox label.
+    await page.getByText("VOR Tracking Mode", { exact: true }).click();
+    await expect(vor).toBeChecked();
+    await page.getByText("VOR Tracking Mode", { exact: true }).click();
     await expect(vor).not.toBeChecked();
     await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
     await page.getByLabel("気象モード").selectOption("FTD");
