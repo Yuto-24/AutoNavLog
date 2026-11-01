@@ -291,9 +291,9 @@ IndexedDB Project / Last Calculation保持を確認する。通常の`test:local
 
 ## Browser CI runners
 
-`local-browser`と`account-sync`は`ubuntu-24.04`を明示し、`ubuntu-latest`のOS移行で
+`local-browser`と`account-sync-tests`は`ubuntu-24.04`を明示し、`ubuntu-latest`のOS移行で
 Playwrightの依存導入が急に変わらないようにする。`local-browser`の25分上限、認証・Local保存・
-計算・NAV LOG・ブラウザ受入・TAFの検証と、`account-sync`の20分上限、Firestore Rules・同期・
+計算・NAV LOG・ブラウザ受入・TAFの検証と、`account-sync-tests`の20分上限、Firestore Rules・同期・
 移行の検証は維持する。両ジョブでChromium / WebKitを導入する。キャンセル時はcheck annotationと
 失敗stepを確認する。ブラウザ依存のdownloadでtimeoutした場合、後続のテストは未実行であり、
 テスト失敗やconcurrencyによる中止とは区別する。
@@ -304,8 +304,13 @@ Playwrightの依存導入が急に変わらないようにする。`local-browse
 `--workers=2`を指定する。各suiteは引き続き順番に起動し、同じファイル内のテスト順序を保つ。
 `fullyParallel`、retry、timeout、assertion、選択するテスト、失敗時のtrace/artifactは変更しない。
 認証、TAF、Firestore Rules、storage-upgrade、migrationは従来のworker設定を保つ。
-`account-sync`内の`test:sync`だけは、[同条件の比較結果](evidence/ci/account-sync-workers-20261101.md)に基づきCI引数で`--workers=2`を指定する。
-共有emulatorを使うsuiteの順番・テスト範囲は変えず、各ブラウザの同期データは既存のランダムsubjectとcontextで分離する。
+`account-sync-tests`内の`test:sync`だけは、[同条件の比較結果](evidence/ci/account-sync-workers-20261101.md)に基づきCI引数で`--workers=2`を指定する。
+同期はChromium / iPad WebKit / iPhone WebKitを別runner・別emulatorで実行する。
+Firestore Rules→storage-upgrade→migrationは別のcontracts runnerで全対象を順番に実行する。
+各suite内の順序・テスト範囲は保ち、ランダムsubjectとcontextによる分離も維持する。
+`account-sync`集約checkは4群の成功と、全同期テストのexact-once project分配を検証する。
+失敗・skip・cancelした群や未知projectの欠落を成功扱いにしない。
+[依存関係と計測方針](evidence/ci/account-sync-project-shards-20261101.md)を参照。
 ローカルのPlaywright configの既定値も1 workerのままとする。
 
 同期テストの初回ログインは、テスト用`authTest`の存在だけでなく、初期画面の
@@ -346,7 +351,7 @@ Playwright 1.62.1、`CI=1`、子プロセスとHTTP serverを含め`taskset -c 0
 
 ### Browser-job pip cache
 
-`local-browser`と`account-sync`は`setup-python@v5`の`cache: pip`を使用する。
+`local-browser`と`account-sync-tests`は`setup-python@v5`の`cache: pip`を使用する。
 保存対象は`pip cache dir`のHTTP応答とbuilt wheelで、venvやsite-packagesではない。
 既存の`pip install`はcache hit時も実行し、checkoutの`.`をビルド・導入する。
 依存版は固定していないため、cacheはlockfileやオフライン導入の代わりにはならない。

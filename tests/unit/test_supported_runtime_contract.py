@@ -40,7 +40,8 @@ def test_backend_ci_runs_only_python_312() -> None:
     assert "set -eu" in workflow
     assert '"status": "ok"' in workflow
     assert '"version": os.environ["EXPECTED_VERSION"]' in workflow
-    assert "matrix:" not in workflow
+    assert "python-version: ${{ matrix." not in workflow
+    assert "suite: [chromium, ipad-webkit, iphone-webkit, contracts]" in workflow
     assert '"3.10"' not in workflow
     assert '"3.11"' not in workflow
 
