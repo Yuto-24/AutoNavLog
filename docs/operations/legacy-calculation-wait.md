@@ -21,6 +21,12 @@ for responsive job polling.
   retry GET with the original session and job. Each tracking attempt is limited to
   ten minutes; expiration does not cancel the server job. Reconnection across page
   reload or server restart is not promised.
+- Active-job discovery excludes terminal jobs. If the start response is lost and the
+  server finishes before discovery, the tab reports the communication failure rather
+  than recovering that completed result. It does not automatically submit again. A
+  later explicit Calculate action can start a new calculation. Recovery of a completed
+  job whose identifier was never received is not implemented; it requires a separate
+  request-correlation contract rather than returning an arbitrary previous result.
 - Busy autosaves retain the raw UI draft and report that it is unsaved. Recovered
   results do not replace edited inputs, and those inputs remain stale until calculated.
 - `calculation_stage` timing events contain only a fixed stage, start/end, outcome,

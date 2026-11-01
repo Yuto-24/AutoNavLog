@@ -302,7 +302,10 @@ test("Legacy recovers an unacknowledged start without submitting it twice", asyn
   let posts = 0;
   globalThis.fetch = async (path, options) => {
     if (options?.method === "POST") { posts++; throw new TypeError("lost response"); }
-    expect(String(path)).toBe("/api/calculation-jobs/active");
+    if (String(path) === "/api/calculation-jobs/active") {
+      return json({ job_id: "existing", status: "queued", progress_percent: 0, progress_message: "queued" });
+    }
+    expect(String(path)).toBe("/api/calculation-jobs/existing");
     return json({ job_id: "existing", status: "succeeded", state, progress_percent: 100, progress_message: "done" });
   };
   const app = new LegacyApplication();
@@ -318,6 +321,30 @@ test("Legacy never replays a start whose outcome is unknown", async () => {
   };
   await expect(new LegacyApplication().calculate()).rejects.toMatchObject({ code: "APPLICATION_UNAVAILABLE" });
   expect(posts).toBe(1);
+});
+
+test("Legacy unreceived terminal start is not recovered by active lookup; only an explicit calculation submits again", async () => {
+  let posts = 0, activeReads = 0;
+  globalThis.fetch = async (path, options) => {
+    if (options?.method === "POST") {
+      expect(String(path)).toBe("/api/calculation-jobs");
+      if (++posts === 1) throw new TypeError("response lost after the server completed");
+      return json({ job_id: "new", status: "succeeded", state });
+    }
+    expect(String(path)).toBe("/api/calculation-jobs/active");
+    activeReads++;
+    // The server excludes terminal jobs even if their start response was lost.
+    return new Response(null, { status: 204 });
+  };
+  const app = new LegacyApplication();
+  await expect(app.calculate()).rejects.toMatchObject({ code: "APPLICATION_UNAVAILABLE" });
+  expect(posts).toBe(1);
+  expect(await app.resumeCalculation()).toBeNull();
+  expect(activeReads).toBe(2);
+  expect(posts).toBe(1);
+  // A new explicit Calculate action may submit a new calculation; lookup never does.
+  expect(await app.calculate()).toEqual(state);
+  expect(posts).toBe(2);
 });
 
 test("Legacy reconnects polling and shares double clicks without replacing the session", async () => {
