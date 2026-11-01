@@ -3,15 +3,16 @@
 ## Purpose and dependency
 
 Split the remaining Account Sync critical path across ordinary GitHub-hosted runners without
-reducing tests. This change stacks on PR #326's `ci/account-sync-two-workers` branch at
-`0753b9ca8c6ce21861e06ef7ece0b68d149a46ad`. Its readiness/encoding fixes are inherited unchanged,
-not duplicated in this diff. PR #330's Local/Python split is independent and is not included.
-No paid runner, permissions/protection change, merge, or deployment is part of this change.
+reducing tests. PR #326's readiness/encoding and verified release-base fixes are now in main
+at `f7516c0cccbb65f29a2e382eed665fee50775ded` and are inherited unchanged, not duplicated in
+this diff. This PR targets main. PR #330's Local/Python split remains independent and is not
+included. No paid runner, permissions/protection change, main merge, or deployment is part
+of this change.
 
-The stacked PR targets the #326 branch, not main: both sides retain the same VERSION and
-CHANGELOG, avoiding a version comparison against a different release-preparation base. Retargeting
-to main after #326 is merged requires a fresh release-contract/base check and conflict review;
-a passing stack CI is not a final integrated-main validation.
+The main synchronization is conflict-free and retains main's VERSION and CHANGELOG unchanged.
+The release-source regression suite includes all 109 checks from the merged dependency.
+Fresh hosted CI is required for this synchronized head; earlier stack CI is not evidence for
+the new main-based head or for the eventual combined Local/Python/Account Sync configuration.
 
 ## Suites and independent state
 

@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -17,7 +18,15 @@ spec.loader.exec_module(validator)
 
 
 @pytest.fixture
-def advanced_base_repo(tmp_path):
+def advanced_base_repo(tmp_path, monkeypatch):
+    # Git hooks export repository selectors that take precedence over git -C.
+    for name in (
+        "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_NAMESPACE", "GIT_PREFIX",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
     def write_release(version):
         (tmp_path / "VERSION").write_text(version + "\n")
         (tmp_path / "CHANGELOG.md").write_text(
@@ -40,6 +49,25 @@ def advanced_base_repo(tmp_path):
     actual_base = commit("main release advances")
     validator.git(tmp_path, "checkout", "-b", "pr")
     return tmp_path, stale_base, actual_base, write_release, commit
+
+
+def test_fixture_isolates_inherited_git_repository_selectors(tmp_path, monkeypatch):
+    inherited = {
+        name: str(tmp_path / "nonexistent-caller" / name)
+        for name in (
+            "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+            "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_NAMESPACE", "GIT_PREFIX",
+        )
+    }
+    for name, value in inherited.items():
+        monkeypatch.setenv(name, value)
+    with monkeypatch.context() as isolated:
+        root, *_ = advanced_base_repo.__wrapped__(tmp_path, isolated)
+        assert (root / ".git").is_dir()
+        assert validator.git(root, "branch", "--show-current").strip() == "pr"
+        assert all(name not in os.environ for name in inherited)
+    assert all(os.environ[name] == value for name, value in inherited.items())
 
 
 @pytest.mark.parametrize("pr_change", ["docs", "version", "changelog"])
