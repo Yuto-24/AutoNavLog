@@ -34,9 +34,11 @@ CIジョブ全体の短縮率ではない。Local browserやpytestが長い場�
 各回で新規emulatorを使い、以下のコマンドだけのwall timeを`time.monotonic()`で測る。`RUN`は毎回異なる保存先、`WORKERS`は1または2。親のemulator起動時間とは分ける。
 
 ```sh
+RUN="$(mktemp -d)"
+WORKERS=2 # 1または2
 CI=1 AUTONAVLOG_TEST_FIXTURES=1 FIREBASE_CLI_DISABLE_TELEMETRY=1 \
   npx --yes firebase-tools@15.10.1 emulators:exec --only firestore --project demo-autonavlog-sync \
-  'PLAYWRIGHT_JSON_OUTPUT_FILE=RUN/playwright.json AUTONAVLOG_SYNC_OUTPUT=RUN/artifacts npm --prefix web run test:sync -- --workers=WORKERS --reporter=line,json'
+  "PLAYWRIGHT_JSON_OUTPUT_FILE='$RUN/playwright.json' AUTONAVLOG_SYNC_OUTPUT='$RUN/artifacts' npm --prefix web run test:sync -- --workers=$WORKERS --reporter=line,json"
 ```
 
 上記は起動形式であり、外側の`emulators:exec`全体を時間比較には使わない。実測ではemulator内からPython runnerを呼び、`subprocess.run`で内側のnpmコマンドを起動する直前と終了直後の`time.monotonic()`の差を記録した。
