@@ -321,7 +321,7 @@ for (const width of [1100, 1440]) {
 }
 
 for (const width of [1100, 1440]) {
-  test(`MAP to Planning and NAV LOG: VOR Mode survives reload at ${width}px`, async ({ page }) => {
+  test(`MAP to Planning and NAV LOG: VOR Tracking Mode survives reload at ${width}px`, async ({ page }) => {
     test.setTimeout(240_000);
     await page.setViewportSize({ width, height: 1100 });
     await start(page);
@@ -334,7 +334,7 @@ for (const width of [1100, 1440]) {
     await pick(page, 33.029605, 130.444088);
     await selectAirport(page, "RJFS");
     await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-    const vor = page.getByRole("checkbox", { name: "VOR Mode", exact: true });
+    const vor = page.getByRole("checkbox", { name: "VOR Tracking Mode", exact: true });
     await expect(vor).not.toBeChecked();
     await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
     await page.getByLabel("気象モード").selectOption("FTD");

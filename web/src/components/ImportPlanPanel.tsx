@@ -225,7 +225,7 @@ export function ImportPlanPanel({
           <label className="checkbox-row span-two">
             <input type="checkbox" checked={form.departureOrigin === "VOR"}
               onChange={(event) => update("departureOrigin", event.target.checked ? "VOR" : "AIRPORT")} />
-            <span>VOR Mode</span>
+            <span>VOR Tracking Mode</span>
           </label>
           <div className="fuel-input-row span-two">
             <label>
