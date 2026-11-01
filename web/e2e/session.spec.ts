@@ -1,3 +1,4 @@
+import { dismissLegacyNotice } from "./helpers/legacyNotice";
 import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { resolve } from "node:path";
@@ -11,6 +12,7 @@ test.beforeEach(async ({ context }) => {
 });
 async function open(page: Page) {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 }
@@ -45,6 +47,7 @@ test("reload preserves raw invalid planning values, import and route selection",
   await page.getByLabel("TGL", { exact: true }).fill("99");
   await page.getByLabel("地上風向 ° FROM").fill("1.5");
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("99");
   await expect(page.getByLabel("地上風向 ° FROM")).toHaveValue("1.5");
   await expect(page.getByLabel("地図とKML記載順を確認しました")).toBeChecked();
@@ -56,6 +59,7 @@ test("reload preserves raw invalid planning values, import and route selection",
   const before = await snapshot(page);
   await page.getByLabel("RJFM出発Legの計画高度", { exact: true }).fill("123");
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByLabel("RJFM出発Legの計画高度", { exact: true })).toHaveValue("123");
   expect((await snapshot(page)).working.project.id).toBe(before.working.project.id);
 });
@@ -66,6 +70,7 @@ test("reload retains last-good and NAV LOG draft without auto calculation", asyn
   const tas = page.locator(".nav-log-table").getByLabel(/手動TAS$/).first();
   await tas.fill("999");
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.locator(".nav-log-table")).toBeVisible();
   await expect(page.locator(".nav-log-table").getByLabel(/手動TAS$/).first()).toHaveValue("999");
   expect((await snapshot(page)).working.outcome).toEqual(before.working.outcome);
@@ -91,14 +96,18 @@ test("new discards recovery; new tabs including opener clones never inherit work
   expect((await snapshot(popup)).working.project).toBeNull();
   await popup.close();
   await second.reload();
+  await dismissLegacyNotice(second);
   await expect(second.getByLabel("TGL", { exact: true })).toHaveValue("7");
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("3");
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "新規", exact: true }).click();
+  await dismissLegacyNotice(page);
   await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("0");
   await page.reload();
+  await dismissLegacyNotice(page);
   expect((await snapshot(page)).working.project).toBeNull();
   await expect(second.getByLabel("TGL", { exact: true })).toHaveValue("7");
 });
@@ -113,6 +122,7 @@ for (const corruption of ["json", "version", "working"]) {
       sessionStorage.setItem(key, corruption === "json" ? "{" : JSON.stringify(saved));
     }, { key, corruption });
     await page.reload();
+    await dismissLegacyNotice(page);
     await expect(page.getByText("前回の作業を復元できなかったため、新規作業を開始しました。")).toBeVisible();
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
     expect((await snapshot(page)).working.project).toBeNull();
@@ -151,6 +161,7 @@ test("calculation interrupted by reload is not resent and late result cannot rep
   const interrupted = await snapshot(page);
   expect(interrupted.working.outcome.summary).toEqual(previous.working.outcome.summary);
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.locator(".nav-log-table")).toBeVisible();
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("2");
   await page.waitForTimeout(1200);
@@ -168,6 +179,7 @@ test("KMZ document choice resumes after reload with modal closed", async ({ page
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByLabel("KML文書").selectOption("b.kml");
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "KMZからの選択を続ける" }).click();
   await expect(page.getByLabel("KML文書")).toHaveValue("b.kml");
@@ -186,6 +198,7 @@ test("restored Check Point and VOR input remains editable; workflow positions ar
   await page.locator(".checkpoint-form").getByLabel("名称", { exact: true }).fill("未確定地点");
   await page.locator(".checkpoint-form").getByLabel(/緯度/).fill("999");
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.locator(".nav-log-table")).toBeVisible();
   await expect(page.getByLabel("VOR基準局", { exact: true })).toHaveValue(vor);
   await expect(page.locator(".checkpoint-form")).toHaveCount(0);
@@ -210,6 +223,7 @@ test("restored Check Point and VOR input remains editable; workflow positions ar
 test("late autosave after restore cannot canonicalize newer invalid input", async ({ page }) => {
   await confirmed(page);
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByLabel("TGL", { exact: true })).toBeVisible();
   let release!: () => void;
   let held = false;
@@ -244,6 +258,7 @@ test("late autosave after restore cannot canonicalize newer invalid input", asyn
   await page.waitForTimeout(700);
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("99");
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("99");
   await page.getByLabel("TGL", { exact: true }).fill("3");
   await expect.poll(async () => (await snapshot(page)).working.project.tgl_count).toBe(3);
@@ -275,6 +290,7 @@ test("pasted KML draft resumes without reading a changed clipboard", async ({ pa
   await page.getByRole("button", { name: "KMLを貼り付け", exact: true }).click();
   await page.getByRole("dialog").getByRole("textbox").fill("<kml>入力途中");
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.evaluate(() => Object.defineProperty(navigator, "clipboard", {
     configurable: true, value: { readText: async () => "別のクリップボード内容" },

@@ -1,3 +1,4 @@
+import { dismissLegacyNotice } from "./helpers/legacyNotice";
 import { expect, test, type Page } from "@playwright/test";
 
 test.use({ actionTimeout: 15_000 });
@@ -27,6 +28,7 @@ for (const width of [1100, 1440]) {
       }
     });
     await page.goto("/");
+    await dismissLegacyNotice(page);
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible({ timeout: 90_000 });
     // A shared cluster contains an airport AND VREP. Its click is only navigation.
     const mixed = page.locator('.candidate-cluster').filter({ has: page.locator('[data-candidates~="airport:RJFM"][data-candidates~="RJFM-VREP-HITOTSUBA"]') });
@@ -85,6 +87,7 @@ for (const width of [1100, 1440]) {
     await vrep(page).click();
     await expect(strip(page).locator("li")).toHaveCount(5);
     await page.reload();
+    await dismissLegacyNotice(page);
     await expect(strip(page).locator("li")).toHaveCount(5, { timeout: 90_000 });
     await expect(vrepSymbol()).toHaveCSS("background-color", "rgb(12, 124, 120)");
     await expect(airportSymbol()).toHaveCSS("background-color", "rgb(23, 59, 94)");
@@ -116,6 +119,7 @@ for (const width of [1100, 1440]) {
     expect(selected[0].reference_snapshot.derivation).toContain("WGS84");
     const savedId = project.id;
     await page.reload();
+    await dismissLegacyNotice(page);
     await expect(page.getByLabel("DATE", { exact: true })).toBeVisible({ timeout: 90_000 });
     expect((await snapshot(page)).working.project.route_nodes).toEqual(project.route_nodes);
     page.once("dialog", dialog => dialog.accept());
