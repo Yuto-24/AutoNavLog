@@ -57,6 +57,7 @@ jobs:
         run: >-
           python -m pytest --noconftest
           tests/integration/check_ci_changes.py
+          tests/integration/check_release_merge.py
           tests/unit/test_release_ci.py
           tests/unit/test_publish_github_release.py
           tests/integration/check_publish_github_release.py
@@ -68,11 +69,12 @@ jobs:
       - name: Validate release sources and PR contract
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          if [ -n "$PR_BASE" ]; then
+          if [ -n "$PR_BASE" ] || [ -n "$PR_HEAD" ]; then
             printf "%s" "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
-            python scripts/validate_release.py --base "$PR_BASE" --pr-body-file "$RUNNER_TEMP/pr-body.md"
+            python scripts/validate_release.py --base "$PR_BASE" --pr-head "$PR_HEAD" --pr-body-file "$RUNNER_TEMP/pr-body.md"
           else
             python scripts/validate_release.py
           fi
@@ -354,7 +356,7 @@ jobs:
           fixture_pid=$!
           trap 'kill "$fixture_pid"' EXIT
           curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8186/healthz > /dev/null
-          npx --yes firebase-tools@15.10.1 emulators:exec --only firestore --project demo-autonavlog-sync "npm --prefix web run test:firestore && npm --prefix web run test:storage-upgrade && npm --prefix web run test:sync && npm --prefix web run test:migration"
+          npx --yes firebase-tools@15.10.1 emulators:exec --only firestore --project demo-autonavlog-sync "npm --prefix web run test:firestore && npm --prefix web run test:storage-upgrade && npm --prefix web run test:sync -- --workers=2 && npm --prefix web run test:migration"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

@@ -21,6 +21,30 @@ def test_push_checks_sources_without_git(monkeypatch):
     validator.validate(ROOT)
 
 
+@pytest.mark.parametrize("parents", ["merge base", "merge base head extra", "merge base other"])
+def test_pr_base_rejects_unverified_checkout(monkeypatch, parents):
+    monkeypatch.setattr(validator, "git", lambda *_: parents)
+    with pytest.raises(ValueError, match="two-parent merge"):
+        validator.validate(ROOT, "stale-base", "Release: required", "head")
+
+
+def test_pr_base_rejects_missing_event_metadata(monkeypatch):
+    monkeypatch.setattr(validator, "git", lambda *_: "merge base head")
+    with pytest.raises(ValueError, match="event base"):
+        validator.validate(ROOT, "", "Release: required", "head")
+    with pytest.raises(ValueError, match="two-parent merge"):
+        validator.validate(ROOT, "base", "Release: required", "")
+
+
+def test_workflow_supplies_pr_head_and_keeps_non_pr_source_validation():
+    workflow = (ROOT / ".github/workflows/test.yml").read_text()
+    assert "PR_HEAD: ${{ github.event.pull_request.head.sha }}" in workflow
+    assert "tests/integration/check_release_merge.py" in workflow
+    assert '--base "$PR_BASE" --pr-head "$PR_HEAD"' in workflow
+    assert 'if [ -n "$PR_BASE" ] || [ -n "$PR_HEAD" ]; then' in workflow
+    assert "else\n            python scripts/validate_release.py\n          fi" in workflow
+
+
 def test_contract_requires_exact_marker_and_reason():
     assert validator.parse_contract("Release: required\n") == "required"
     assert (

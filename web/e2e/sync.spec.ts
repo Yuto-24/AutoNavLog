@@ -1,17 +1,49 @@
 import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { test, expect, type Page } from "@playwright/test";
 import { resolve } from "node:path";
-import { backend, waitForSyncAccount } from "./helpers/sync-auth";
+import { backend, signInSyncAccount, waitForSyncAccount } from "./helpers/sync-auth";
 async function start(page: Page, subject: string) {
   await page.goto("/e2e/auth-harness/index.html?sync");
-  await expect.poll(() => page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
-  await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
-  // Vite may reload the first page while generated Local assets settle in CI.
+  await signInSyncAccount(page, subject);
+  // Preserve the exact-account check across a reload after successful sign-in.
   await waitForSyncAccount(page, subject);
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 
 }
+
+test("sync sign-in waits for initial UI across a reload", async ({ page }) => {
+  const calls: { subject: string; ready: boolean }[] = [];
+  await page.exposeFunction("recordSignIn", (subject: string, ready: boolean) => { calls.push({ subject, ready }); });
+  let ready = false;
+  await page.route("https://readiness.example/", route => route.fulfill({
+    contentType: "text/html; charset=utf-8",
+    body: `<!doctype html><meta charset="utf-8">${ready ? '<button aria-label="アカウント">Account</button>' : '<p>Loading</p>'}
+      <script>window.authTest = { signIn: subject => window.recordSignIn(subject, ${ready}) };</script>`,
+  }));
+  await page.goto("https://readiness.example/");
+  const signingIn = signInSyncAccount(page, "expected");
+  // The harness is already callable, but its initial App is not ready yet.
+  expect(await page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
+  expect(calls).toEqual([]);
+  ready = true;
+  await page.reload();
+  expect(await page.evaluate(() => document.characterSet)).toBe("UTF-8");
+  await signingIn;
+  expect(calls).toEqual([{ subject: "expected", ready: true }]);
+});
+
+test("sync sign-in propagates auth errors without retry", async ({ page }) => {
+  await page.setContent(`<button aria-label="アカウント">Account</button><script>
+    window.signInCalls = 0;
+    window.authTest = { signIn() {
+      window.signInCalls++;
+      return Promise.reject(new Error("auth/network-request-failed"));
+    } };
+  </script>`);
+  await expect(signInSyncAccount(page, "expected")).rejects.toThrow("auth/network-request-failed");
+  expect(await page.evaluate(() => (window as any).signInCalls)).toBe(1);
+});
 
 test("sync account readiness survives a reload while the account is pending", async ({ page }) => {
   let restored = false;
