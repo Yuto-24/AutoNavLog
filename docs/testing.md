@@ -306,8 +306,9 @@ Chromium群はChromium、iPad/iPhone群はWebKit、storage-upgradeとmigration�
 
 ### Local browser worker count
 
-`local-browser-tests`のLocal regression、NAV LOG scroll、browser acceptanceだけは、CIの起動引数で
-`--workers=2`を指定する。Local regressionと、認証→NAV LOG scroll→browser acceptance→TAFを別runnerで実行する。
+`local-browser-tests`のLocal regression、NAV LOG scroll、browser acceptance、focused UX、Clipboardは、CIの起動引数で
+`--workers=2`を指定する。`local`、`acceptance`、`focused-ux`、`clipboard`の4 suiteを別runnerで実行し、
+`acceptance`内では認証→NAV LOG scroll→browser acceptance→TAFの順序を保つ。
 同じファイル内のテスト順序は保つ。
 `fullyParallel`、retry、timeout、assertion、選択するテスト、失敗時のtrace/artifactは変更しない。
 認証、TAF、Firestore Rules、storage-upgrade、migrationは従来のworker設定を保つ。
@@ -393,10 +394,12 @@ GitHub側ではsetup-pythonのrestoreとpost saveを含めて測る。上記ロ�
 
 ### Independent CI shards
 
-`local-browser-tests` uses two ordinary GitHub-hosted runners: `local` runs the existing
-Local regression selection; `acceptance` runs auth, scroll, every browser/device acceptance
-project, and TAF. Each runner owns its server and build directory; the TAF-specific rebuild
-cannot change the Local regression artifact. Worker counts and selected tests are unchanged.
+`local-browser-tests` uses four ordinary GitHub-hosted runners: `local` runs the Local
+regression selection; `acceptance` runs auth, scroll, every browser/device acceptance
+project, and TAF; `focused-ux` and `clipboard` run their respective Playwright configurations.
+Each runner owns its server and build directory; the TAF-specific rebuild cannot change
+other suites’ artifacts. Local regression, scroll, browser acceptance, focused UX, and
+Clipboard use `--workers=2`; auth and TAF retain their existing worker settings.
 The `local-browser` aggregate retains the existing check name and fails unless every suite succeeds.
 
 `pytest-tests` uses two independent Docker test-stage runners. The existing lint, typing,
