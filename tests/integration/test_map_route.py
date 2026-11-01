@@ -487,7 +487,7 @@ def test_route_edit_preserves_user_renamed_reference_snapshot(local):
     assert unchanged["project"] == project
     malformed = json.loads(json.dumps(edit))
     malformed["map_points"][1]["name"] = "偽装"
-    with pytest.raises(ValueError, match="対象のRoute点"):
+    with pytest.raises(ValueError, match="更新対象の経路点の情報が正しくありません。"):
         local.dispatch("confirmRoute", malformed)
 
 
