@@ -25,7 +25,7 @@ async function mockAirspace(page: Page) {
   });
 }
 
-async function importLocalRoute(page: Page) {
+async function importLocalRoute(page: Page, confirm = true) {
   await page.goto("/");
   await page.locator('input[type="file"]').setInputFiles({ name: "map-interaction.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(routeKml) });
   await expect(page.locator('input[type="file"]')).toBeEnabled();
@@ -33,8 +33,10 @@ async function importLocalRoute(page: Page) {
   await page.getByLabel("気象モード").selectOption("FTD");
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  await expect(page.getByRole("button", { name: "チェックポイントを追加" })).toBeEnabled();
+  if (confirm) {
+    await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+    await expect(page.getByRole("button", { name: "チェックポイントを追加" })).toBeEnabled();
+  }
 }
 
 test.beforeEach(async ({ page, context }) => {
@@ -163,4 +165,78 @@ test("PCA notice uses converted feet while operational limits, geometry and acqu
   await expect(page.locator(".rjfm-training-airspace")).toHaveCount(0);
   await expect(boundary).toHaveCount(1);
   expect(errors).toEqual([]);
+});
+
+test("green theme keeps readable controls, keyboard selection and aviation colors", async ({ page }, info) => {
+  await importLocalRoute(page, false);
+  const contrast = (first: string, second: string) => {
+    const luminance = (color: string) => color.match(/[\d.]+/g)!.slice(0, 3)
+      .map(value => Number(value) / 255)
+      .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+      .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index]!, 0);
+    const values = [luminance(first), luminance(second)].sort((a, b) => b - a);
+    return (values[0]! + 0.05) / (values[1]! + 0.05);
+  };
+  const header = page.locator(".app-header");
+  const primary = page.getByRole("button", { name: "経路を確定", exact: true });
+  const selected = page.locator('.descent-rate-segments input:checked + span');
+  for (const width of [390, 1100, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(header).toHaveCSS("background-color", "rgb(0, 80, 64)");
+    await expect(primary).toBeEnabled();
+    await page.mouse.move(0, 0);
+    await expect(primary).toHaveCSS("background-color", "rgb(0, 96, 80)");
+    for (const element of [header, primary, selected]) {
+      const colors = await element.evaluate(el => {
+        const style = getComputedStyle(el);
+        return [style.color, style.backgroundColor];
+      });
+      expect(contrast(colors[0]!, colors[1]!)).toBeGreaterThanOrEqual(4.5);
+    }
+    await primary.hover();
+    await expect(primary).toHaveCSS("background-color", "rgb(0, 128, 96)");
+    expect(contrast(await primary.evaluate(el => getComputedStyle(el).color), "rgb(0, 128, 96)")).toBeGreaterThanOrEqual(4.5);
+    await expect(selected).toHaveCSS("text-decoration-line", "underline");
+    const standard = page.locator('.descent-rate-segments input[value="500"]');
+    await standard.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.locator('.descent-rate-segments input[value="1000"]')).toBeChecked();
+    await page.keyboard.press("ArrowLeft");
+    await expect(standard).toBeChecked();
+    await expect(selected).toHaveCSS("background-color", "rgb(0, 116, 91)");
+    await expect(selected).toHaveCSS("box-shadow", "rgb(255, 255, 255) 0px 0px 0px 3px inset");
+    await page.locator(".descent-rate-control").screenshot({ path: info.outputPath(`green-selection-${width}.png`) });
+    const newButton = header.getByRole("button", { name: "新規", exact: true });
+    await newButton.focus();
+    await expect(newButton).toBeFocused();
+    await expect(newButton).toHaveCSS("outline-style", "solid");
+    await expect(newButton).toHaveCSS("outline-color", "rgb(255, 255, 255)");
+    expect(contrast(await newButton.evaluate(el => getComputedStyle(el).outlineColor), "rgb(0, 80, 64)")).toBeGreaterThanOrEqual(3);
+    await header.screenshot({ path: info.outputPath(`green-header-${width}.png`) });
+    await page.screenshot({ path: info.outputPath(`green-workspace-${width}.png`), fullPage: true });
+  }
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  const information = header.getByRole("button", { name: /お知らせ/ });
+  // Exercise the existing warning CSS state even when KNOWN_ISSUES is empty.
+  await information.evaluate(el => el.classList.add("information-warning"));
+  await information.hover();
+  await expect(information.locator(".information-label")).toBeVisible();
+  const warningColors = await information.evaluate(el => [getComputedStyle(el).color, getComputedStyle(el).backgroundColor]);
+  expect(contrast(warningColors[0]!, warningColors[1]!)).toBeGreaterThanOrEqual(4.5);
+  await header.screenshot({ path: info.outputPath("green-warning-1600.png") });
+  await information.evaluate(el => el.classList.remove("information-warning"));
+  await header.getByRole("button", { name: "アカウント", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "アカウント", exact: true });
+  await page.keyboard.press("Tab");
+  const close = dialog.getByRole("button", { name: "アカウントを閉じる", exact: true });
+  await close.focus();
+  await expect(close).toHaveCSS("outline-color", "rgb(0, 116, 91)");
+  expect(contrast(await close.evaluate(el => getComputedStyle(el).outlineColor), "rgb(255, 255, 255)")).toBeGreaterThanOrEqual(3);
+  await dialog.screenshot({ path: info.outputPath("green-account-focus.png") });
+  await close.click();
+  await primary.click();
+  await expect(page.getByRole("button", { name: "チェックポイントを追加" })).toBeEnabled();
+  await expect(page.locator(".rjfm-pca-boundary")).toHaveAttribute("stroke", "#a45b13");
+  await expect(page.locator(".rjfm-training-airspace-boundary").first()).toHaveAttribute("stroke", "#315caa");
+
 });
