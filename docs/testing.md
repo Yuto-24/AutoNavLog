@@ -299,7 +299,8 @@ IndexedDB Project / Last Calculation保持を確認する。通常の`test:local
 `local-browser-tests`と`account-sync-tests`は`ubuntu-24.04`を明示し、`ubuntu-latest`のOS移行で
 Playwrightの依存導入が急に変わらないようにする。`local-browser-tests`の25分上限、認証・Local保存・
 計算・NAV LOG・ブラウザ受入・TAFの検証と、`account-sync-tests`の20分上限、Firestore Rules・同期・
-移行の検証は維持する。両ジョブでChromium / WebKitを導入する。キャンセル時はcheck annotationと
+移行の検証は維持する。Local runnerはChromium / WebKitを導入する。Account Syncは担当projectのengineだけを導入し、
+Chromium群はChromium、iPad/iPhone群はWebKit、storage-upgradeとmigrationを含むcontracts群は両方を導入する。キャンセル時はcheck annotationと
 失敗stepを確認する。ブラウザ依存のdownloadでtimeoutした場合、後続のテストは未実行であり、
 テスト失敗やconcurrencyによる中止とは区別する。
 
