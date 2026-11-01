@@ -99,6 +99,7 @@ for (const [phase, resetFails] of [["resolve", true], ["refresh", true], ["load"
     await saveRoute(page, "Original");
     const originalId = await page.locator("#saved-project").inputValue();
     await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
     await enterImportWorkflow(page);
     await saveRoute(page, "Resolved");
     const resolvedId = await page.locator("#saved-project").inputValue();
