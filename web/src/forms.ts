@@ -1,4 +1,3 @@
-import { localMode } from "./executionMode";
 import type {
   AirportOption,
   FtdWeatherSettings,
@@ -182,7 +181,7 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     routeUseConfirmed: false,
     polygonRouteConfirmed: false,
     usePenultimateAsVrep: true,
-    weatherMode: localMode ? "FTD" : "FORECAST",
+    weatherMode: "FORECAST",
     ftdSurfaceWindDirection: "360",
     ftdSurfaceWindSpeed: "15",
     ftdWind5000Direction: "270",

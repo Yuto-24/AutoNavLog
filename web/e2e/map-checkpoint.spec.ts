@@ -113,3 +113,54 @@ for (const [geometry, selector] of [
     await expect(trainingPaths).toHaveCount(24);
   });
 }
+
+test("PCA notice uses converted feet while operational limits, geometry and acquisition feedback remain distinct", async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/8/221/*.geojson", async route => {
+    await pending;
+    await route.fallback();
+  });
+  await importLocalRoute(page);
+  const legend = page.getByRole("group", { name: "RJFMガイダンス凡例" });
+  await expect(legend).toContainText("空域情報を取得中…");
+  release();
+  await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
+  await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(12);
+  await expect(legend).not.toContainText("空域情報を取得中…");
+  await expect(legend).not.toContainText("区画を表示");
+  await expect(legend).not.toContainText("民間訓練試験空域 KS4（GSI）");
+  await expect(legend).toContainText("PCA：約656–2,625 ft（200–800 m）");
+  const boundary = page.locator(".rjfm-pca-boundary");
+  await expect(boundary).toHaveAttribute("stroke", "#a45b13");
+  await boundary.dispatchEvent("mouseover");
+  await expect(page.getByRole("tooltip").filter({ hasText: "宮崎特別管制区（PCA）" })).toContainText("原告示高度 約656–2,625 ft（200–800 m）");
+  await expect(page.getByRole("tooltip").filter({ hasText: "宮崎特別管制区（PCA）" })).toContainText("運用判定 656–2,700 ft MSL（利用者承認値）");
+  await boundary.dispatchEvent("mouseout");
+  for (const width of [390, 1100, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(page).toHaveTitle(/NavMate/);
+    await expect(page.locator("vite-error-overlay")).toHaveCount(0);
+    await expect(page.locator(".brand-subtitle")).not.toContainText(" / Local");
+    await expect(page.locator(".rjfm-airspace-credit")).toHaveText("国土交通省・国土地理院データを加工");
+    const boxes = await page.evaluate(() => [".input-rail", ".route-workspace", ".status-rail"].map(selector => {
+      const r = document.querySelector(selector)!.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    }));
+    for (const box of boxes) { expect(box.width).toBeGreaterThan(0); expect(box.height).toBeGreaterThan(0); }
+    for (let index = 1; index < boxes.length; index++) {
+      if (width <= 1240) expect(boxes[index]!.y).toBeGreaterThanOrEqual(boxes[index - 1]!.y + boxes[index - 1]!.height - 1);
+      else expect(boxes[index]!.x).toBeGreaterThanOrEqual(boxes[index - 1]!.x + boxes[index - 1]!.width - 1);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+    await page.locator(".map-frame").screenshot({ path: info.outputPath(`pca-${width}.png`) });
+  }
+  await page.route("https://maps.gsi.go.jp/xyz/kokuarea_minkankunren/8/221/*.geojson", route => route.abort());
+  await page.reload();
+  await expect(legend).toContainText("空域情報を取得できず非表示");
+  await expect(page.locator(".rjfm-training-airspace")).toHaveCount(0);
+  await expect(boundary).toHaveCount(1);
+  expect(errors).toEqual([]);
+});

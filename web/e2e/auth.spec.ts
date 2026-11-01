@@ -60,6 +60,7 @@ async function backend(context: BrowserContext) {
   return state;
 }
 async function saveRoute(page: Page, name: string) {
+  await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
   await expect(page.locator('input[type="file"]')).toBeEnabled();
@@ -368,8 +369,8 @@ test("failed persistent logout closes access and offers a visible retry in the n
 });
 
 
-test("logout from calculation overlay terminates in-flight work without modifying the retained snapshot", async ({ page, context }) => {
-  await backend(context); await start(page); await signIn(page, "A"); await saveRoute(page, "A calculation");
+test("calculation overlay omits logout while auth revocation terminates work without modifying the retained snapshot", async ({ page, context }) => {
+  const service = await backend(context); await start(page); await signIn(page, "A"); await saveRoute(page, "A calculation");
   const before = (await accountRecords(page))[0];
   await page.evaluate(() => {
     const original = Worker.prototype.postMessage;
@@ -383,13 +384,17 @@ test("logout from calculation overlay terminates in-flight work without modifyin
   });
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
   await expect.poll(() => page.evaluate(() => Boolean((window as any).heldCalculation))).toBe(true);
-  await page.locator(".calculation-progress-dialog").getByRole("button", { name: "ログアウト", exact: true }).click();
+  await expect(page.locator(".calculation-progress-dialog")).toBeVisible();
+  await expect(page.locator(".calculation-progress-dialog").getByRole("button", { name: "ログアウト", exact: true })).toHaveCount(0);
+  service.failure = "TOKEN_EXPIRED";
+  await page.evaluate(() => (window as any).authTest.refresh());
   expect((await authState(page)).account).toBeNull();
   await expect(page.locator(".calculation-progress-backdrop")).not.toBeVisible();
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   expect(await savedNames(page)).not.toContain("A calculation");
   await page.evaluate(() => (window as any).restoreWorker());
+  service.failure = "";
   await signIn(page, "A");
   expect((await accountRecords(page))[0].lastCalculation).toEqual(before.lastCalculation);
 });

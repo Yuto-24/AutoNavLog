@@ -36,6 +36,7 @@ async function start(page: Page) {
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 }
 async function confirm(page: Page) {
+  await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
   await expect(page.locator('input[type="file"]')).toBeEnabled();
@@ -136,19 +137,27 @@ test("Latest replacement, promotion, opening another Project and explicit delete
   await save(page, "Named");
   page.on("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "新規", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
   await confirm(page);
   expect((await records(page)).filter(row => !row.checkpoint)).toHaveLength(1);
   const oldLatest = (await working(page)).project.id;
   await page.getByRole("button", { name: "新規", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
   await confirm(page);
   const replaced = await records(page);
   expect(replaced).toHaveLength(2);
   expect(replaced.some(row => row.id === oldLatest)).toBe(false);
+  await page.getByLabel("気象モード").selectOption("FORECAST");
   await load(page, first.id);
+  await expect(page.getByLabel("気象モード")).toHaveValue("FTD");
+  await page.reload();
+  await expect(page.getByLabel("気象モード")).toHaveValue("FTD");
   expect((await records(page)).map(row => row.id)).toEqual([first.id]);
   await page.getByRole("button", { name: "保存済みプロジェクトを削除", exact: true }).click();
   await expect.poll(async () => (await records(page)).length).toBe(0);

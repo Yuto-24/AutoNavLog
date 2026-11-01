@@ -2745,7 +2745,7 @@ test("provenance Details preserve saved inputs, fingerprint and FTD run ID", asy
     await expect(details.getByText(runtime.performanceRevision!, { exact: true })).toBeVisible();
     await expect(details.getByText("ftd-fixed-v1", { exact: true })).toBeVisible();
     await expect(page.locator(".status-rail > .provenance-list")).toBeVisible();
-    await expect(page.getByText("到着区間の計算はCALMです。", { exact: true })).toBeVisible();
+    await expect(page.getByText("到着区間の計算はCALMです。", { exact: true })).toHaveCount(0);
     await page.keyboard.press("Space");
     await expect(details).toHaveJSProperty("open", false);
     const after = await readState();
@@ -2973,10 +2973,10 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
 
   const legend = page.getByRole("group", { name: "RJFMガイダンス凡例" });
   await expect(legend).toHaveCSS("pointer-events", "none");
-  await expect(legend).toContainText("PCA 200–800 m");
+  await expect(legend).toContainText("PCA：約656–2,625 ft（200–800 m）");
   await expect(legend).toContainText("中心除外 9 km");
-  await expect(legend).toContainText("民間訓練試験空域 KS4（GSI）");
-  await expect(legend).toContainText("空域: 12区画を表示");
+  await expect(legend).not.toContainText("民間訓練試験空域 KS4（GSI）");
+  await expect(legend).not.toContainText("区画を表示");
   await expect(page.locator(".rjfm-airspace-note")).toHaveCount(0);
   const attribution = page.locator(".leaflet-control-attribution");
   const airspaceCredit = attribution.locator(".rjfm-airspace-credit");
@@ -3006,6 +3006,10 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(page.locator(".rjfm-center-marker")).toHaveCount(3);
   await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
   await expect(page.locator(".rjfm-pca-boundary")).toHaveAttribute("stroke", "#a45b13");
+  await page.locator(".rjfm-pca-boundary").dispatchEvent("mouseover");
+  await expect(page.getByRole("tooltip").filter({ hasText: "宮崎特別管制区（PCA）" })).toContainText("原告示高度 約656–2,625 ft（200–800 m）");
+  await expect(page.getByRole("tooltip").filter({ hasText: "宮崎特別管制区（PCA）" })).toContainText("運用判定 656–2,700 ft MSL（利用者承認値）");
+  await page.locator(".rjfm-pca-boundary").dispatchEvent("mouseout");
   await expect(page.locator(".rjfm-pca-exclusion")).toHaveCount(1);
   await expect(page.locator(".rjfm-pca-exclusion")).toHaveAttribute(
     "stroke-dasharray",
@@ -3077,8 +3081,8 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await page.getByLabel("FUEL gal").fill("77");
   await expect(guidance).toHaveCount(0);
   await expect(legend).toBeVisible();
-  await expect(legend).toContainText("PCA 200–800 m");
-  await expect(legend).toContainText("民間訓練試験空域 KS4（GSI）");
+  await expect(legend).toContainText("PCA：約656–2,625 ft（200–800 m）");
+  await expect(legend).not.toContainText("民間訓練試験空域 KS4（GSI）");
   await expect(legend).not.toContainText("Newta CENTER");
   await expect(legend).not.toContainText("RWY 09");
   await expect(page.locator(".rjfm-guidance-path")).toHaveCount(0);
@@ -3103,8 +3107,8 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     name: "RJFM北方面出発ガイダンス",
   })).toHaveCount(0);
   await expect(legend).toBeVisible();
-  await expect(legend).toContainText("PCA 200–800 m");
-  await expect(legend).toContainText("民間訓練試験空域 KS4（GSI）");
+  await expect(legend).toContainText("PCA：約656–2,625 ft（200–800 m）");
+  await expect(legend).not.toContainText("民間訓練試験空域 KS4（GSI）");
   await expect(legend).not.toContainText("Newta CENTER");
   await expect(page.locator(".rjfm-guidance-path")).toHaveCount(0);
   await expect(page.locator(".rjfm-center-route")).toHaveCount(0);
@@ -3561,7 +3565,7 @@ test("NAV LOG summary, sticky route names, and TIME / FUEL PLAN remain stable ac
   );
   const destinationWind = summary.getByLabel("目的地空港の風予報");
   await expect(destinationWind).not.toContainText("出典:");
-  await expect(destinationWind).toContainText("到着区間の計算はCALMです。");
+  await expect(destinationWind).not.toContainText("到着区間の計算はCALMです。");
   await expect(destinationWind.locator("strong")).toContainText("目的地風:");
   await expect(fuel.getByRole("heading", { name: "TIME / FUEL PLAN" })).toBeVisible();
   const dismissNotice = page.getByLabel("メッセージを閉じる");
@@ -4563,7 +4567,7 @@ test("Japanese TAF states distinguish missing data from failed acquisition witho
     await page.reload();
     const summary = page.getByRole("region", { name: "目的地空港の風予報" });
     await expect(summary.locator("strong")).toHaveText(`目的地風: ${label}`);
-    await expect(summary).toContainText("到着区間の計算はCALMです。");
+    await expect(summary).not.toContainText("到着区間の計算はCALMです。");
     await expect.poll(() => navigationCells.evaluateAll(cells => cells.map(cell => cell.getAttribute("data-display-text")))).toEqual(navigation);
     if (reason === "TAF_TIME_OUT_OF_RANGE") {
       for (const width of [390, 1100, 1440]) {

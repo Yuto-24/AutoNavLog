@@ -110,6 +110,7 @@ async function openReceived(page: Page, subject: string, fuel: string) {
 }
 async function create(page: Page, name: string) {
   await enterImportWorkflow(page);
+  await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
   await expect(page.locator('input[type="file"]')).toBeEnabled();

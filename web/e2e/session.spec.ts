@@ -125,6 +125,7 @@ test("new discards recovery; new tabs including opener clones never inherit work
     await expect(page.getByRole("button", { name: "KML/KMZから開始", exact: true })).toHaveCount(0);
     await expect.poll(async () => (await snapshot(page))?.form.tglCount).toBe("0");
     expect((await snapshot(page)).working.project).toBeNull();
+    expect((await snapshot(page)).form.weatherMode).toBe("FORECAST");
     if (isLocal()) {
       expect(await page.evaluate(() => (window as any).sameWorkDocument)).toBe(true);
       expect(await page.evaluate(() => (window as any).runtimeCount)).toBe(runtimeCount);
@@ -148,6 +149,7 @@ for (const corruption of ["json", "version", "working"]) {
     await expect(page.getByText("前回の作業を復元できなかったため、新規作業を開始しました。")).toBeVisible();
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
     expect((await snapshot(page)).working.project).toBeNull();
+    expect((await snapshot(page)).form.weatherMode).toBe("FORECAST");
   });
 }
 

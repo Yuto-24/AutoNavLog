@@ -600,12 +600,12 @@ export function RouteWorkspace({
                 <Tooltip sticky>
                   <span>
                     宮崎特別管制区（PCA）水平境界 / 原告示高度
-                    {" "}{rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
-                    –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m
+                    {" "}約{Math.round(rjfmMapReference.pca.sourceAltitudeLowerM / 0.3048).toLocaleString("ja-JP")}
+                    –{Math.round(rjfmMapReference.pca.sourceAltitudeUpperM / 0.3048).toLocaleString("ja-JP")} ft（{rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
+                    –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m）
                     <br />
                     運用判定 {rjfmMapReference.pca.operationalAltitudeLowerFtMsl.toLocaleString("ja-JP")}
-                    –{rjfmMapReference.pca.operationalAltitudeUpperFtMsl.toLocaleString("ja-JP")} ft MSL
-                    （利用者承認値）
+                    –{rjfmMapReference.pca.operationalAltitudeUpperFtMsl.toLocaleString("ja-JP")} ft MSL（利用者承認値）
                   </span>
                 </Tooltip>
               </Polygon>
@@ -835,19 +835,14 @@ export function RouteWorkspace({
               <>
                 <span>
                   <i className="is-pca" aria-hidden="true" />
-                  PCA {rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
-                  –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m
+                  PCA：約{Math.round(rjfmMapReference.pca.sourceAltitudeLowerM / 0.3048).toLocaleString("ja-JP")}
+                  –{Math.round(rjfmMapReference.pca.sourceAltitudeUpperM / 0.3048).toLocaleString("ja-JP")} ft（{rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
+                  –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m）
                 </span>
                 <span>
                   <i className="is-pca-exclusion" aria-hidden="true" />
                   中心除外 {rjfmMapReference.pca.exclusionRadiusKm.toLocaleString("ja-JP")} km
                 </span>
-                {trainingAirspace.status === "ready" && (
-                  <span>
-                    <i className="is-training-airspace" aria-hidden="true" />
-                    民間訓練試験空域 KS4（GSI）
-                  </span>
-                )}
               </>
             )}
             {rjfmGuidance && (
@@ -867,9 +862,7 @@ export function RouteWorkspace({
                   ? "空域情報を取得中…"
                   : trainingAirspace.status === "unavailable"
                     ? "空域情報を取得できず非表示"
-                    : trainingAirspace.status === "ready"
-                      ? `空域: ${trainingAirspace.polygons.length}区画を表示`
-                      : ""}
+                    : ""}
               </span>
             )}
           </div>

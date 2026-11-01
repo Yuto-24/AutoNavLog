@@ -64,7 +64,8 @@ for (const width of [390, 1100, 1440]) {
     await page.goto("/");
   await enterImportWorkflow(page);
     await expect(page).toHaveTitle(/NavMate/);
-    await expect(page.locator(".brand-subtitle").filter({ hasText: " / Local" })).toBeVisible();
+    await expect(page.locator(".brand-subtitle")).not.toContainText(" / Local");
+    await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
     await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
     await page.getByLabel("気象モード").selectOption("FTD");
     await page.getByLabel("地上風向 ° FROM").fill("360");
@@ -306,6 +307,7 @@ test("strong FTD wind preserves Python Warning and Blocker results", async ({ pa
   await page.goto("/");
   await enterImportWorkflow(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+  await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地上風向 ° FROM").fill("360");
   await page.getByLabel("地上風速 kt").fill("200");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("360");
