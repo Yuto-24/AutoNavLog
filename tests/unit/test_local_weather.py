@@ -17,7 +17,7 @@ from jma_gpv_weather import (
 from autonavlog.domain.enums import Availability, WeatherRequestKind
 from autonavlog.domain.project import Project
 from autonavlog.domain.weather import ForecastRequirement, WeatherRequest
-from autonavlog.weather.local_msm import LocalMsmWeather, LocalWeatherError
+from autonavlog.weather.local_msm import LocalMsmWeather, LocalWeatherError, coverage_message
 from scripts.local_reference import reference_state
 
 FEED = Path(__file__).resolve().parents[1] / "fixtures/msm-portable"
@@ -220,3 +220,24 @@ def test_hgt_exclusion_remains_distinct_from_unavailable_source(project, require
     outside = request.model_copy(update={"latitude_deg": 34.5, "altitude_ft_msl": 6500})
     result = weather.provider.query_batch(asset["run"], [outside])[0]
     assert result.metadata["altitude_coverage"]["reason_code"] == "SOURCE_VALUE_UNAVAILABLE"
+
+
+@pytest.mark.parametrize("reasons, expected", [
+    (("NO_SPEC_COMPATIBLE_RUN",), "選択した日時のMSM予報は利用できません。"),
+    (("UNKNOWN_REASON",), "UNKNOWN_REASON"),
+    (("NO_SPEC_COMPATIBLE_RUN", "UNKNOWN_REASON"),
+     "選択した日時のMSM予報は利用できません。, UNKNOWN_REASON"),
+])
+def test_time_coverage_message_preserves_other_reasons(reasons, expected):
+    assert coverage_message(reasons) == expected
+
+
+def test_plan_outside_selected_run_time_uses_approved_message(project, requirement, catalog):
+    project = project.model_copy(update={"selected_forecast_run_id": NEW})
+    requirement = requirement.model_copy(update={
+        "valid_times_utc": (datetime(2026, 9, 20, tzinfo=UTC),),
+    })
+    with pytest.raises(LocalWeatherError) as error:
+        LocalMsmWeather().plan(project, requirement, json.dumps(catalog))
+    assert error.value.code == "WEATHER_OUT_OF_COVERAGE"
+    assert str(error.value) == "選択した日時のMSM予報は利用できません。"

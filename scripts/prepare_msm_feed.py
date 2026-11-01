@@ -18,6 +18,7 @@ from urllib.request import urlopen
 
 from jma_gpv_weather import Bounds, ForecastRequirements, MsmClient, MsmPreparedData, RunId
 from jma_gpv_weather import WeatherVariable as Variable
+from jma_gpv_weather.msm.spec import MAX_FORECAST_HOURS
 
 from autonavlog.weather.local_msm import PreparedAsset, WeatherCatalog
 
@@ -29,11 +30,28 @@ def forecast_requirements(start: datetime, hours: int) -> ForecastRequirements:
     )
 
 
+def full_run_requirements(client: MsmClient, run: RunId, start: datetime) -> ForecastRequirements:
+    """Use the library's per-Run horizon, not a fixed horizon that excludes short Runs."""
+    times = []
+    for hour in range(MAX_FORECAST_HOURS + 1):
+        valid = start + timedelta(hours=hour)
+        candidate = forecast_requirements(valid, 0)
+        if client.check_coverage(candidate, run=run).outside_spec:
+            break
+        times.append(valid)
+    if not times:
+        raise ValueError(f"Run {run} has no publishable coverage from {start.isoformat()}")
+    return ForecastRequirements(tuple(times), candidate.variables)
+
+
 def acquire_listings(
     client: MsmClient, requirements: ForecastRequirements, *, require_content: bool = False,
+    existing: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    listings: dict[str, str] = {}
+    listings = dict(existing or {})
     for url in client.listing_urls(requirements):
+        if url in listings:
+            continue
         try:
             with urlopen(url + "/", timeout=60) as response:
                 payload = response.read(8 * 1024 * 1024 + 1)
@@ -60,6 +78,7 @@ def produce(
     now: datetime | None = None,
     max_runs: int = 2,
     expected_run: str | None = None,
+    full_run: bool = False,
 ) -> dict[str, object]:
     started = perf_counter()
     generated = now or datetime.now(UTC)
@@ -94,13 +113,29 @@ def produce(
                 if url in previous.listings:
                     retained_listings[url] = previous.listings[url]
         del previous
+    selected = list(runs[:max_runs])
+    expanded = {}
+    if full_run and runs:
+        expanded = {
+            selection.run_utc: full_run_requirements(client, RunId(selection.run_utc), start)
+            for selection in runs
+        }
+        # Keep the latest long-horizon Run even when the newest two are short Runs.
+        longest = max(runs, key=lambda item: (
+            expanded[item.run_utc].valid_times[-1], item.run_utc))
+        if longest not in selected:
+            selected.append(longest)
+        listings = acquire_listings(client, expanded[longest.run_utc], existing=listings)
     report_runs = []
-    for selection in runs[:max_runs]:
+    for selection in selected:
         before = perf_counter()
+        run_requirements = expanded.get(selection.run_utc, requirements)
+        available = (client.discover_runs(run_requirements, listings=listings)
+                     if full_run else runs)
         forecast = client.prepare_run(
             RunId(selection.run_utc),
-            requirements,
-            available_runs=runs,
+            run_requirements,
+            available_runs=available,
         )
         payload = MsmPreparedData.from_forecast(forecast).to_bytes()
         digest = hashlib.sha256(payload).hexdigest()
@@ -120,7 +155,9 @@ def produce(
             {
                 "run": asset.run,
                 "bytes": asset.bytes,
-                "sources": [remote.url for remote in selection.files],
+                "sources": [remote.url for remote in forecast.selection.files],
+                "valid_start": run_requirements.valid_times[0].isoformat(),
+                "valid_end": run_requirements.valid_times[-1].isoformat(),
                 "prepare_seconds": perf_counter() - before,
             }
         )
@@ -147,6 +184,7 @@ def produce(
             if path.name not in retained and path.stat().st_mtime < cutoff.timestamp():
                 path.unlink()
     return {
+        "full_run": full_run,
         "generated_at": generated.isoformat(),
         "valid_start": start.isoformat(),
         "hours": hours,
@@ -164,6 +202,7 @@ def main() -> None:
     parser.add_argument("--hours", type=int, default=24)
     parser.add_argument("--max-runs", type=int, default=2)
     parser.add_argument("--expected-run")
+    parser.add_argument("--full-run", action="store_true")
     parser.add_argument(
         "--bounds", type=float, nargs=4, metavar=("LAT_MIN", "LAT_MAX", "LON_MIN", "LON_MAX")
     )
@@ -174,7 +213,8 @@ def main() -> None:
     bounds = Bounds(*args.bounds) if args.bounds else Bounds()
     try:
         report = produce(args.output, args.cache, start, args.hours, bounds,
-                         max_runs=args.max_runs, expected_run=args.expected_run)
+                         max_runs=args.max_runs, expected_run=args.expected_run,
+                         full_run=args.full_run)
     except Exception as error:
         print(
             json.dumps(

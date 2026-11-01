@@ -88,7 +88,7 @@ At minute 23 every hour, the workflow reads canonical `release.json` and rejects
 any mismatch with `STATIC_APPROVED_SHA`. Scheduled runs then read the canonical MSM
 catalog and fresh upstream listings before restoring NPZ files, downloading GRIB,
 decoding, building the candidate sandbox, or running Browser E2E. A complete newer
-Run covering the producer's 25-hour horizon enables the existing publication path.
+Run covering the producer's 25-hour admission window enables the existing publication path.
 With no newer Run, a valid catalog with at least two hours remaining and matching
 complete upstream discovery, plus current 24-hour coverage in its own retained
 listings, produces `NO_NEW_RUN` and skips heavy work and upload.
@@ -207,7 +207,12 @@ GitHub-hosted runner metadata, exact canonical origin, full approved SHA and unc
 six public connection settings. The producer and all validators come from the workflow
 checkout. Every payload is decoded with the pinned real-MSM library, matched by Run/hash,
 and new Runs must cover the current hour through the next 24 hours with all three variables.
-The publication refresh requests 25 hours from the producer's current-hour start:
+The publication refresh uses a 25-hour admission window from the current-hour start,
+then `--full-run` prepares each selected Run through its library-supported forecast end.
+The newest two compatible Runs remain selected; the Run with the furthest forecast end
+is also prepared when it is not among those two. This preserves long-range requests
+without delaying the newest short-range Run. Both the full prepared range and the
+independent current-24-hour coverage gate are validated. The admission margin remains:
 the whole job's 45-minute timeout permits at most one hour-boundary crossing before
 the final check. The pinned MSM library includes the upper three-hour pressure
 bracket automatically (for example, a 13:00 endpoint needs 15:00 pressure fields).
@@ -537,7 +542,8 @@ indexes / Project schema の同一条件は移行時も維持する。
 候補に一致しない場合は自動 deploy しない。これは実 Google login / Sync の受入を代用しない。
 現在の plan/limits/共有枠確認と独立レビュー・候補 CI の確認は上の checklist と #121 を継続する。
 
-producer は現行 feed の保持 asset を復元し、25時間分を実取得・decode して新たに生成する。
+producer は現行 feed の保持 asset を復元し、25時間のadmissionとRun別予報末尾までの
+`--full-run`生成を行う。最新短期Runと、予報末尾が最も遠いRunを併存させる。
 アプリ更新では同じ Run の実再取得を許すが、retained-only の timestamp 更新を認めない。
 既存 `validate_feed` の30分 freshness、24時間 coverage、2時間残存、Run/hash 検証を再利用する。
 候補の release/data/schema 検査、typecheck、static artifact tests、production Browser E2E と、
