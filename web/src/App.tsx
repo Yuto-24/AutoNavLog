@@ -676,6 +676,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     const defaults = initialPlanningForm(state.airports);
     const from = state.airports.find(airport => airport.id === mapRouteDraft[0]?.airport_id);
     const confirmed = await run(() => application.confirmRoute({
+      departure_origin: form.departureOrigin,
       candidate_kind: "map", map_points: mapRouteDraft.map(({ id: _id, ...point }) => point),
       route_use_confirmed: true, use_penultimate_as_vrep: true,
       flight_date: defaults.flightDate, departure_time_jst: defaults.departureTimeJst,
@@ -733,6 +734,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
           ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
           run_up_included: form.runUpIncluded,
           nose_fairing_enabled: form.noseFairingEnabled,
+          departure_origin: form.departureOrigin,
           air_conditioning_enabled: form.airConditioningEnabled,
           descent_rate_fpm: form.descentRateFpm,
           tgl_count: tglCount,
@@ -958,6 +960,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       ftd_weather: weatherMode === "FTD" ? ftdWeather : null,
       run_up_included: form.runUpIncluded,
       nose_fairing_enabled: form.noseFairingEnabled,
+      departure_origin: form.departureOrigin,
       air_conditioning_enabled: form.airConditioningEnabled,
       descent_rate_fpm: form.descentRateFpm,
       tgl_count: tglCount,

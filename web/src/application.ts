@@ -9,7 +9,7 @@ export type PlanningInput = Pick<Project,
   "pilot_name" | "ship_identifier" | "weather_mode" | "ftd_weather" |
   "run_up_included" | "nose_fairing_enabled" | "air_conditioning_enabled" |
   "descent_rate_fpm" | "tgl_count"
->> & { departure_time_jst: string; defaults_confirmed?: boolean };
+>> & { departure_time_jst: string; departure_origin?: "AIRPORT" | "VOR"; defaults_confirmed?: boolean };
 export type ConfirmRouteInput = PlanningInput & {
   candidate_kind: "line" | "connected_lines" | "polygon" | "points" | "map";
   map_points?: Omit<import("./mapRouteDraft").MapRoutePoint, "id">[];

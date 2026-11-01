@@ -139,6 +139,7 @@ export interface Project {
   acknowledged_warning_codes: string[];
   metadata: {
     ui_state?: {
+      departure_vor?: { identifier: string; airport_id: string } | null;
       arrival_plan?: ArrivalPlan | null;
     };
     [key: string]: unknown;

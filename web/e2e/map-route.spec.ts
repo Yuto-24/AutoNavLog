@@ -319,3 +319,41 @@ for (const width of [1100, 1440]) {
     await page.screenshot({ path: `/tmp/issue235-omaru-map-${width}.png` });
   });
 }
+
+for (const width of [1100, 1440]) {
+  test(`MAP to Planning and NAV LOG: VOR Mode survives reload at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1100 });
+    await start(page);
+    await revealAirport(page, "RJFM");
+    await selectAirport(page, "RJFM");
+    await revealAirport(page, "RJFK");
+    await selectAirport(page, "RJFK");
+    await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+    const vor = page.getByRole("checkbox", { name: "VOR Mode", exact: true });
+    await expect(vor).not.toBeChecked();
+    await vor.check();
+    await page.getByLabel("気象モード").selectOption("FTD");
+    await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+    await expect(page.locator(".nav-log-table")).toBeVisible();
+    await expect(page.locator(".nav-log-table")).toContainText("MZE");
+    await expect(page.getByLabel("TO", { exact: true })).toHaveValue(/^RJFK/);
+    const input = (await page.locator(".input-rail").boundingBox())!;
+    const route = (await page.locator(".route-workspace").boundingBox())!;
+    const readiness = (await page.locator(".status-rail").boundingBox())!;
+    if (width <= 1240) {
+      expect(input.y + input.height).toBeLessThanOrEqual(route.y + 2);
+      expect(route.y + route.height).toBeLessThanOrEqual(readiness.y + 2);
+    } else {
+      expect(input.x + input.width).toBeLessThanOrEqual(route.x + 2);
+      expect(route.x + route.width).toBeLessThanOrEqual(readiness.x + 2);
+    }
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
+    await page.reload();
+    await expect(vor).toBeChecked({ timeout: 120_000 });
+    await expect(page.locator(".nav-log-table")).toContainText("MZE");
+    await vor.uncheck();
+    await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+    await expect(page.locator(".nav-log-table")).toContainText("RJFM");
+  });
+}

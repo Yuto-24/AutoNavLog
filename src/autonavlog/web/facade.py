@@ -42,6 +42,7 @@ from autonavlog.application.rjfm_inbound_plan import (
     TARGET_ALTITUDE_FT_MSL as RJFM_INBOUND_TARGET_ALTITUDE_FT_MSL,
 )
 from autonavlog.application.rjfm_inbound_service import build_rjfm_inbound_guidance
+from autonavlog.domain.airport_vor import AIRPORT_VORS
 from autonavlog.domain.calculation import CalculationOutcome, Issue
 from autonavlog.domain.enums import (
     AdoptedSource,
@@ -545,6 +546,7 @@ class AutoNavLogWebApplication:
                 ),
             )
             self.project_service.set_ui_state(project, state, reconfirmed=True)
+            self._apply_departure_origin(project, request.departure_origin)
             self._normalize_rjfm_departure(project)
             if request.defaults_confirmed:
                 session.readiness_service.confirm_defaults(project, None)
@@ -884,6 +886,8 @@ class AutoNavLogWebApplication:
             sections[update.section_id] = section.model_copy(update=section_update)
         working.sections = [sections[section.id] for section in working.ordered_sections()]
         self._apply_arrival_plan(working, request)
+        if request.departure_origin is not None:
+            self._apply_departure_origin(working, request.departure_origin)
         self._normalize_rjfm_departure(working)
         if request.defaults_confirmed:
             session.readiness_service.confirm_defaults(working, session.outcome)
@@ -971,6 +975,39 @@ class AutoNavLogWebApplication:
             },
         )
         return self._with_rjfm_guidance(session, project, decorated), destination_wind
+
+    def _apply_departure_origin(self, project: Project, mode: str) -> None:
+        state = self.project_service.ui_state(project)
+        if mode == "VOR" and state.departure_vor is not None:
+            # Keep the adopted source snapshot when merely updating other inputs.
+            return
+        if mode == "AIRPORT" and state.departure_vor is None:
+            return
+        snapshot = state.reference_data_snapshot
+        airport = (
+            self.reference_catalog.airports[project.departure_airport_id]
+            if snapshot is None
+            else snapshot.departure_airport
+        )
+        vor = AIRPORT_VORS.get(project.departure_airport_id) if mode == "VOR" else None
+        if mode == "VOR" and vor is None:
+            raise WebApplicationError(
+                "ROUTE_AIRPORT_ENDPOINT_MISMATCH",
+                "経路の先頭・末尾が選択した出発地・目的地と一致しません。",
+            )
+        origin = airport if vor is None else vor
+        node = project.ordered_nodes()[0]
+        node.latitude_deg = origin.latitude_deg
+        node.longitude_deg = origin.longitude_deg
+        node.name = airport.icao if vor is None else vor.identifier
+        node.name_source = RouteNodeNameSource.GENERATED
+        node.source = f"REFERENCE:{origin.source_revision}"
+        node.reference_snapshot = None
+        self.project_service.set_ui_state(
+            project,
+            state.model_copy(update={"departure_vor": vor}),
+            reconfirmed=True,
+        )
 
     def _normalize_rjfm_departure(self, project: Project) -> None:
         normalize_rjfm_departure_plan(project, self.rjfm_reference_pack)

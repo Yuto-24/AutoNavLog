@@ -124,6 +124,9 @@ def current_calculation_input_fingerprint(
             "ftd_weather_policy_version": (
                 FTD_WEATHER_POLICY_VERSION if project.weather_mode == "FTD" else None
             ),
+            # Preserve old AIRPORT-mode fingerprints; adopted VOR provenance is an input.
+            **({"departure_vor": ui_state.departure_vor.model_dump(mode="python")}
+               if ui_state.departure_vor is not None else {}),
             "route_nodes": route_nodes,
             "sections": sections,
             "arrival_plan": (

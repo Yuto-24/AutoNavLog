@@ -200,7 +200,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         assert eoc[0]["longitude_deg"] == pytest.approx(131.42429852046251)
 
         ui_state = calculated_project["metadata"]["ui_state"]
-        assert ui_state["state_schema_version"] == 7
+        assert ui_state["state_schema_version"] == 8
         assert ui_state["rjfm_inbound_plan"]["controlled_section_ids"] == [inbound["id"]]
         plan = ui_state["rjfm_inbound_plan"]
         assert plan["omaru_node_id"] == physical_node_ids[1]
@@ -218,7 +218,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         assert loaded_state["readiness"]["calculationIsCurrent"] is True
         assert loaded_project["weather_mode"] == "FTD"
         assert loaded_project["ftd_weather"] == calculated_project["ftd_weather"]
-        assert loaded_project["metadata"]["ui_state"]["state_schema_version"] == 7
+        assert loaded_project["metadata"]["ui_state"]["state_schema_version"] == 8
         assert loaded_project["metadata"]["ui_state"]["rjfm_inbound_plan"] == plan
 
         changed_sections = [
@@ -250,7 +250,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         assert stale_guidance["status"] == "AVAILABLE"
         assert stale_guidance["rounded_dme_nm"] is None
         assert not changed_state["readiness"]["calculationIsCurrent"]
-        assert changed_state["project"]["metadata"]["ui_state"]["state_schema_version"] == 7
+        assert changed_state["project"]["metadata"]["ui_state"]["state_schema_version"] == 8
         assert changed_state["project"]["metadata"]["ui_state"]["rjfm_inbound_plan"] == plan
 
 
