@@ -25,7 +25,12 @@ def test_backend_ci_runs_only_python_312() -> None:
     assert "docker build --target test --tag autonavlog:test ." in workflow
     # YAML folds the read-only contract mount and image onto one command line.
     command = (
-        "docker run --rm --mount type=bind,"
+        "docker run --rm "
+        "--env CI_PYTEST_SHARD=${{ matrix.shard }}/2 "
+        "--env COVERAGE_FILE=/ci-results/.coverage "
+        "--env CI_PYTEST_MANIFEST=/ci-results/collection.json "
+        "--mount type=bind,source=${{ runner.temp }},target=/ci-results "
+        "--mount type=bind,"
         'source="$PWD/.github/workflows/static-provider-probe.yml",'
         "target=/opt/autonavlog/.github/workflows/static-provider-probe.yml,readonly "
         '--mount type=bind,source="$PWD/.github/workflows/static-monitor.yml",'
@@ -40,7 +45,9 @@ def test_backend_ci_runs_only_python_312() -> None:
     assert "set -eu" in workflow
     assert '"status": "ok"' in workflow
     assert '"version": os.environ["EXPECTED_VERSION"]' in workflow
-    assert "matrix:" not in workflow
+    assert "python-version: ${{ matrix." not in workflow
+    assert "shard: [1, 2]" in workflow
+    assert "suite: [local, acceptance]" in workflow
     assert '"3.10"' not in workflow
     assert '"3.11"' not in workflow
 
