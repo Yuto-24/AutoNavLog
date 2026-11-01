@@ -263,8 +263,9 @@ test("source links open without an opener and cannot unlock a pending save", asy
     }) });
   });
   await open(page);
-  await page.getByLabel("気象モード").selectOption("FTD");
   await drop(page, "route.kml", kml);
+  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   const link = page.getByRole("link", { name: "国土交通省", exact: true });

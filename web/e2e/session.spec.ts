@@ -123,7 +123,7 @@ test("new discards recovery; new tabs including opener clones never inherit work
     await page.getByRole("button", { name: "新規", exact: true }).click();
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "KML/KMZから開始", exact: true })).toHaveCount(0);
-    await expect.poll(async () => (await snapshot(page)).form.tglCount).toBe("0");
+    await expect.poll(async () => (await snapshot(page))?.form.tglCount).toBe("0");
     expect((await snapshot(page)).working.project).toBeNull();
     if (isLocal()) {
       expect(await page.evaluate(() => (window as any).sameWorkDocument)).toBe(true);
