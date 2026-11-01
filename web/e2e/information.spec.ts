@@ -1,3 +1,4 @@
+import { dismissLegacyNotice } from "./helpers/legacyNotice";
 import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { disableClipboardRead } from "./helpers/clipboard";
 import { expect, test, type Page } from "@playwright/test";
@@ -93,6 +94,7 @@ test.beforeEach(async ({ page, request }) => {
 
 test("Information exposes bundle-generated latest and historical release sections without auto-opening", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await expectBaseWorkflow(page);
   await expect(informationDialog(page)).toBeHidden();
 
@@ -124,6 +126,7 @@ test("Information exposes bundle-generated latest and historical release section
 
 test("Information traps focus, closes with Escape and backdrop, and keeps latest release seen after reload", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   const button = informationButton(page);
   const dialog = await openInformation(page);
   await expect(dialog.getByRole("button", { name: "お知らせを閉じる" })).toBeFocused();
@@ -142,6 +145,7 @@ test("Information traps focus, closes with Escape and backdrop, and keeps latest
   await expect(button).toBeFocused();
 
   await page.reload();
+  await dismissLegacyNotice(page);
   await expectBaseWorkflow(page);
   await expect(informationButton(page)).toHaveAccessibleName("お知らせ");
   await expect(informationButton(page).locator(".information-unread-dot")).toBeHidden();
@@ -154,6 +158,7 @@ test("Information keeps the exact current update ID seen after reload", async ({
     latestInformationId,
   ]);
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await expect(informationButton(page)).toHaveAccessibleName("お知らせ");
   await expect(informationButton(page).locator(".information-unread-dot")).toBeHidden();
 });
@@ -166,6 +171,7 @@ test("Information treats the known same-version legacy baseline as unread after 
     legacy110BaselineId,
   ]);
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await expect(informationButton(page)).toHaveAccessibleName("お知らせ（未読の更新があります）");
   await expect(informationButton(page).locator(".information-unread-dot")).toBeVisible();
 });
@@ -195,6 +201,7 @@ for (const [name, key, storedValue] of [
       storedValue,
     ]);
     await page.goto("/");
+    await dismissLegacyNotice(page);
     await expectBaseWorkflow(page);
     await expect(informationDialog(page)).toBeHidden();
     await expect(informationButton(page)).toHaveAccessibleName("お知らせ（未読の更新があります）");
@@ -204,6 +211,7 @@ for (const [name, key, storedValue] of [
 
 test("Baseline storage completes the same create, edit, calculate, and save workflow", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await createEditCalculateAndSave(page);
   await expect(informationDialog(page)).toBeHidden();
 });
@@ -223,6 +231,7 @@ test("Information tolerates unavailable local storage without blocking create, e
     };
   }, lastSeenUpdateKey);
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await expect(page.getByRole("button", { name: "新規", exact: true })).toBeEnabled();
@@ -233,6 +242,7 @@ test("Information tolerates unavailable local storage without blocking create, e
   await createEditCalculateAndSave(page);
 
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByLabel("プロジェクト", { exact: true })).toHaveValue("storage fallback");
   await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
   await expect(page.getByRole("button", { name: "新規", exact: true })).toBeEnabled();
@@ -241,6 +251,7 @@ test("Information tolerates unavailable local storage without blocking create, e
 
 test("Information remains reachable without displacing header actions or workflow regions", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await createEditCalculateAndSave(page);
 
   for (const width of [320, 390, 820, 1100, 1440, 1600, 1273, 1242, 997, 996, 631, 630, 629] as const) {
@@ -309,6 +320,7 @@ test("Information remains reachable without displacing header actions or workflo
 
 test("compact header still saves, loads, deletes and starts a new project", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await createEditCalculateAndSave(page);
   await page.setViewportSize({ width: 390, height: 900 });
   const selector = page.locator("#saved-project");

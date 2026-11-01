@@ -1,3 +1,4 @@
+import { dismissLegacyNotice } from "./helpers/legacyNotice";
 import { expect, test } from "@playwright/test";
 import { createHash } from "node:crypto";
 
@@ -27,6 +28,7 @@ test("real bundle shows Known Issues first, distinguishes warning updates, and m
     if (window.localStorage.getItem(key) === null) window.localStorage.setItem(key, id);
   }, informationId());
   await page.goto("/");
+  await dismissLegacyNotice(page);
   const button = page.locator(".app-header").getByRole("button", { name: /お知らせ/ });
   const dialog = page.getByRole("dialog", { name: "お知らせ" });
   const acknowledge = async () => {
@@ -51,36 +53,43 @@ test("real bundle shows Known Issues first, distinguishes warning updates, and m
   await expect(button).not.toHaveClass(/information-warning/);
   expect(await button.evaluate((element) => getComputedStyle(element).color)).not.toBe(warningColor);
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(button).toHaveAccessibleName("お知らせ");
 
   issues = [second, first];
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(button).toHaveAccessibleName("お知らせ（未読の更新があります）");
   await expect(button).not.toHaveClass(/information-warning/);
   await acknowledge();
 
   issues = [first];
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(button).toHaveAccessibleName("お知らせ（未読の更新があります）");
   await expect(button).not.toHaveClass(/information-warning/);
   await acknowledge();
 
   issues = [{ ...first, id: "renamed-management-id" }];
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(button).toHaveAccessibleName("お知らせ");
 
   issues = [{ ...first, id: "renamed-management-id", bodyHash: "updated-body", description: ["一部の計画で内容が表示されません。"] }];
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(button).toHaveAccessibleName("お知らせ（既知の不具合に更新があります）");
   await acknowledge();
 
   issues = [...issues, second];
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(button).toHaveClass(/information-warning/);
   await acknowledge();
 
   issues = [];
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(button).toHaveAccessibleName("お知らせ（未読の更新があります）");
   await expect(button).not.toHaveClass(/information-warning/);
   await button.click();

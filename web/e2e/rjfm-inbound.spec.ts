@@ -1,3 +1,4 @@
+import { dismissLegacyNotice } from "./helpers/legacyNotice";
 import { observeLegacySession } from "./helpers/legacySession";
 import { expect, test, type Page } from "@playwright/test";
 
@@ -96,6 +97,7 @@ test("real RJFO inbound KML keeps physical route and places EOC at UMK", async (
   test.setTimeout(120_000);
 
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
   await page.getByRole("button", { name: "KMLを貼り付け" }).click();

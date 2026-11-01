@@ -61,7 +61,11 @@ export async function activateLegacyAccount(accountId: string, signal: AbortSign
 }
 
 let legacyProvider: Promise<import("./firebaseAuthProvider").FirebaseAuthProvider> | undefined;
+let legacyLinkPending = false;
 export async function prepareLegacyLink() {
+  // A dismissed Google popup may still resolve later. Do not let another dialog
+  // reuse its provider until cleanup completes.
+  if (legacyLinkPending) throw new Error("認証を準備できません。");
   legacyProvider ??= fetch("/api/account-link/config").then(async response => {
     if (!response.ok) throw new Error("この環境ではアカウント紐付けが設定されていません。");
     const { createFirebaseAuthProvider } = await import("./firebaseAuthProvider");
@@ -72,14 +76,24 @@ export async function prepareLegacyLink() {
   }).catch(error => { legacyProvider = undefined; throw error; });
   const auth = await legacyProvider;
   await auth.signOut();
-  return async () => {
+  return async (signal?: AbortSignal) => {
+    signal?.throwIfAborted();
+    if (legacyLinkPending) throw new Error("認証を準備できません。");
+    legacyLinkPending = true;
     try {
       // No asynchronous preparation before the popup: retain Safari click activation.
       await auth.signIn();
+      signal?.throwIfAborted();
       if (!auth.getState().account) return;
       const token = await getAuth(getApp()).currentUser!.getIdToken(true);
-      return await migrationRequest("/api/account-link", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-    } finally { await auth.signOut().catch(() => {}); }
+      signal?.throwIfAborted();
+      return await migrationRequest("/api/account-link", { method: "POST",
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+        headers: { Authorization: `Bearer ${token}` } });
+    } finally {
+      await auth.signOut().catch(() => {});
+      legacyLinkPending = false;
+    }
   };
 }
 export function legacyLinkStatus() { return migrationRequest("/api/account-link"); }

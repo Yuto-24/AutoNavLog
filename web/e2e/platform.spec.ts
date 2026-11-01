@@ -1,3 +1,4 @@
+import { dismissLegacyNotice } from "./helpers/legacyNotice";
 import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
@@ -15,6 +16,7 @@ test.beforeEach(async ({ context }) => {
 });
 async function open(page: Page) {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await enterImportWorkflow(page);
   await expect(paste(page)).toBeEnabled();
 }
@@ -85,6 +87,7 @@ test(`pending platform Paste confirmation can be cancelled and recovered with fi
   });
   if (entry === "map") {
     await page.goto("/");
+    await dismissLegacyNotice(page);
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   } else await open(page);
   await expect(page.getByText("ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。")).toBeVisible();

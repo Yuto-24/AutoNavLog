@@ -44,3 +44,33 @@ test("linked accounts get the configured destination, while migration takes prec
   await expect(page.getByRole("dialog")).toHaveCount(0);
   expect(await page.getByText("Legacy workspace").evaluate(el => !!el.closest("[inert]"))).toBe(true);
 });
+
+test("a hanging link operation can be dismissed and is aborted without reopening the notice", async ({ page }) => {
+  // Replace only link preparation for this UI cancellation scenario, not the dialog,
+  // boundary, focus trap or status polling. Live Google popup consent is separate QA.
+  await page.route("**/src/legacyMigration.ts", async route => {
+    const response = await route.fetch();
+    const source = await response.text();
+    const start = source.indexOf("async function prepareLegacyLink()");
+    const end = source.indexOf("export function legacyLinkStatus()", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    await route.fulfill({ response, body: source.slice(0, start) + `async function prepareLegacyLink() {
+      return async (signal) => {
+        window.__noticeLinkStarted = true;
+        await new Promise(resolve => signal.addEventListener('abort', () => {
+          window.__noticeLinkAborted = true;
+          resolve();
+        }, { once: true }));
+      };
+    }\n` + source.slice(end) });
+  });
+  await page.route("**/api/account-link", route => route.fulfill({ json: { state: "UNLINKED", completed: 0, total: 0, navmateUrl: "/navmate" } }));
+  await page.goto(path);
+  await page.getByRole("button", { name: "Googleアカウントを紐付ける" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__noticeLinkStarted)).toBe(true);
+  await page.getByRole("button", { name: "今回は旧画面を使う" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__noticeLinkAborted)).toBe(true);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(await page.getByText("Legacy workspace").evaluate(el => !!el.closest("[inert]"))).toBe(false);
+});

@@ -176,6 +176,10 @@ first, then offer the configured NavMate URL only after the server reports a lin
 NavMate's first login still performs the existing activation/migration. No automatic
 link, activation, redirect of unlinked owners, deletion, or shutdown is introduced.
 Configuration/authentication failures leave the explicit Legacy fallback available.
+The notice fallback remains available while Google/link work is pending. Dismissing
+aborts the request and prevents a later popup result from submitting a new link;
+a link already accepted by the server is not undone. The link POST has a 30-second
+request deadline. Neither mechanism cancels a server-side migration or deletes data.
 
 The user's target is December 2026, with the exact retirement day undecided. The
 notice uses the user's supplied retirement text and existing Account copy because

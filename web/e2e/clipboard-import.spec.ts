@@ -1,3 +1,4 @@
+import { dismissLegacyNotice } from "./helpers/legacyNotice";
 import { expect, test, type Page } from "@playwright/test";
 import { disableClipboardRead } from "./helpers/clipboard";
 
@@ -41,6 +42,7 @@ test.beforeEach(async ({ request }) => {
 test("native clipboard imports with one click and still requires route confirmation", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await expect(pasteButton(page)).toBeEnabled();
   await page.evaluate((text) => navigator.clipboard.writeText(text), kml);
   const bodies = importedBodies(page);
@@ -59,6 +61,7 @@ test("clipboard reading requires the paste click's user activation", async ({ pa
     });
   }, kml);
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await expect(pasteDialog(page)).toBeHidden();
   await pasteButton(page).click();
   await expectCandidates(page);
@@ -75,6 +78,7 @@ for (const mode of ["denied", "unsupported", "empty", "whitespace", "exception"]
       });
     }, mode);
     await page.goto("/");
+    await dismissLegacyNotice(page);
     const bodies = importedBodies(page);
     await pasteButton(page).click();
     const dialog = pasteDialog(page);
@@ -92,6 +96,7 @@ for (const mode of ["denied", "unsupported", "empty", "whitespace", "exception"]
 test("read failures preserve a cancelled manual draft and restore button focus", async ({ page }) => {
   await disableClipboardRead(page);
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await pasteButton(page).click();
   await pasteDialog(page).getByRole("textbox").fill("unfinished KML draft");
   await pasteDialog(page).getByRole("button", { name: "キャンセル" }).click();
@@ -114,6 +119,7 @@ for (const failure of ["invalid KML", "server error"] as const) {
       }), { times: 1 });
     }
     await page.goto("/");
+    await dismissLegacyNotice(page);
     await pasteButton(page).click();
     const dialog = pasteDialog(page);
     await expect(dialog.getByRole("alert")).toBeVisible();
@@ -142,6 +148,7 @@ test("pending clipboard read and import prevent duplicate clicks and unlock on s
   const importGate = new Promise<void>((resolve) => { finishImport = resolve; });
   await page.route("**/api/import", async (route) => { await importGate; await route.continue(); });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   const bodies = importedBodies(page);
   // Dispatch both clicks in one task, before React can render the disabled state.
   await pasteButton(page).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
@@ -161,6 +168,7 @@ for (const width of [390, 1100, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     await disableClipboardRead(page);
     await page.goto("/");
+    await dismissLegacyNotice(page);
     await pasteButton(page).click();
     const dialog = pasteDialog(page);
     await expect(dialog.getByRole("textbox")).toBeFocused();

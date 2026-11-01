@@ -1,3 +1,4 @@
+import { dismissLegacyNotice } from "./helpers/legacyNotice";
 import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { observeLegacySession } from "./helpers/legacySession";
 import { disableClipboardRead } from "./helpers/clipboard";
@@ -810,6 +811,7 @@ async function reloadWithGsiFixtureMode(
     });
   }, { times: 1 });
   await page.reload();
+  await dismissLegacyNotice(page);
 }
 
 const twoConnectedRouteCandidatesKml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -1096,6 +1098,7 @@ async function reloadWithCurrentRjfmGuidance(
     });
   }, { times: 1 });
   await page.reload();
+  await dismissLegacyNotice(page);
   return guidanceState;
 }
 
@@ -1297,6 +1300,7 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await expect(page.locator("body")).not.toBeEmpty();
@@ -1371,6 +1375,7 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
     });
   }, { times: 1 });
   await page.reload();
+  await dismissLegacyNotice(page);
   const unavailableCell = page.locator(
     '.nav-destination-info-row [data-cell-state="UNAVAILABLE"]',
   );
@@ -1397,6 +1402,7 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   const initiallyHasProject = await page.evaluate(async () => {
@@ -1435,11 +1441,13 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
   await expect(page.getByLabel("保存済み", { exact: true })).toHaveValue(projectId);
 
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
   await expect(page.getByLabel("保存済み", { exact: true })).toHaveValue(projectId);
 
   await context.clearCookies();
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
   const cookieRestored = await page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -1464,6 +1472,7 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
   expect(stale.readiness.calculationIsCurrent).toBe(false);
 
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByText("RECALCULATION_REQUIRED", { exact: true })).toBeVisible();
   await expect(page.getByLabel("計算済みNAV LOG")).toBeVisible();
   await page.screenshot({
@@ -1476,6 +1485,7 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
   await expect(page.getByText("保存済みプロジェクトを削除しました。", { exact: true })).toBeVisible();
   await context.clearCookies();
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByLabel("計算済みNAV LOG")).toHaveCount(0);
   await expect(page.getByLabel("保存済み", { exact: true }).locator(
     `option[value="${projectId}"]`,
@@ -1490,6 +1500,7 @@ test("valid planning drafts autosave before calculation and coalesce rapid edits
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await importKmlCandidate(page);
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
@@ -1567,6 +1578,7 @@ test("valid planning drafts autosave before calculation and coalesce rapid edits
   await correctedResponse;
 
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByLabel("FUEL gal")).toHaveValue("77.5");
   await expect(page.getByLabel("ETD JST")).toHaveValue("10:15");
   await expect(routeAltitudes.first()).toHaveValue("5500");
@@ -1575,6 +1587,7 @@ test("valid planning drafts autosave before calculation and coalesce rapid edits
 
   await context.clearCookies();
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByLabel("FUEL gal")).toHaveValue("77.5");
   await expect(page.getByLabel("ETD JST")).toHaveValue("10:15");
   await expect(routeAltitudes.first()).toHaveValue("5500");
@@ -1595,6 +1608,7 @@ test("valid planning drafts autosave before calculation and coalesce rapid edits
   expect(checkpointRequested).toBe(false);
   await expect(routeAltitudes.nth(1)).toHaveValue("");
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(routeAltitudes.nth(1)).toHaveValue("");
   expect(pageErrors).toEqual([]);
 });
@@ -1603,6 +1617,7 @@ test("draft autosave failure keeps the local value and a manual save flushes its
   page,
 }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await importKmlCandidate(page);
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
@@ -1660,6 +1675,7 @@ test("draft autosave failure keeps the local value and a manual save flushes its
   await saved;
   expect(requestOrder.slice(-2)).toEqual(["draft", "checkpoint"]);
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(fuel).toHaveValue("76");
 });
 
@@ -1667,6 +1683,7 @@ test("manual save flushes a pending destination pattern exactly once before chec
   page,
 }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await importKmlCandidate(page);
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
@@ -1717,6 +1734,7 @@ test("manual save flushes a pending destination pattern exactly once before chec
   expect(draftPayloads).toHaveLength(1);
   expect(draftPayloads[0]?.selected_pattern_altitude_ft_msl).toBe(1300);
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(patternAltitude).toHaveValue("1300");
 });
 
@@ -1724,6 +1742,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
   page,
 }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await importKmlCandidate(page);
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
@@ -1827,6 +1846,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
 
 test("new work replaces only the tab draft and does not create shared Latest", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await importKmlCandidate(page);
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
@@ -1870,6 +1890,7 @@ test("new work replaces only the tab draft and does not create shared Latest", a
   expect(second.savedProjects.some(project => project.id === secondProjectId)).toBe(false);
 
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect.poll(async () => (await readState()).project?.id).toBe(secondProjectId);
   const restored = await readState();
   expect(restored.savedProjects.some((project) => project.id === firstProjectId)).toBe(false);
@@ -1882,6 +1903,7 @@ test("a newer planning edit prevents a pending destination recalculation transac
   page,
 }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page, false, false, true);
 
   let releaseAutosave = () => {};
@@ -1942,6 +1964,7 @@ test("edited VREP altitude reaches the calculation request and NAV LOG", async (
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await importKmlCandidate(page);
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
@@ -1989,6 +2012,7 @@ test("edited VREP altitude reaches the calculation request and NAV LOG", async (
 test("destination altitude drafts validate locally and latest valid edit recalculates", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page, false);
 
   const recalculationPayloads: Record<string, unknown>[] = [];
@@ -2026,6 +2050,7 @@ test("destination altitude drafts validate locally and latest valid edit recalcu
 test("phase-specific TAS drafts on one RCA-split Physical Leg persist independently", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page, false);
 
   const tasInputs = page.locator(".nav-log-table").getByLabel(/手動TAS$/);
@@ -2063,6 +2088,7 @@ test("phase-specific TAS drafts on one RCA-split Physical Leg persist independen
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await saved;
   await page.reload();
+  await dismissLegacyNotice(page);
 
   const restoredInputs = page.locator(".nav-log-table").getByLabel(/手動TAS$/);
   await expect(restoredInputs.nth(0)).toHaveValue("130");
@@ -2083,6 +2109,7 @@ test("phase-specific TAS drafts on one RCA-split Physical Leg persist independen
 test("stale destination pattern response cannot overwrite a loaded project or duplicate on rerender", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page, false);
 
   const currentState = await page.evaluate(async () => {
@@ -2151,6 +2178,7 @@ test("stale destination pattern response cannot overwrite a loaded project or du
     });
   }, { times: 1 });
   await page.reload();
+  await dismissLegacyNotice(page);
 
   await page.route("**/api/project", async (route) => {
     if (route.request().method() !== "PUT") {
@@ -2221,6 +2249,7 @@ test("mobile numeric inputs allow clear then re-entry and TGL is sent as a numbe
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
 
   const fuel = page.getByLabel("FUEL gal");
   await expect(fuel).toHaveValue("90");
@@ -2253,6 +2282,7 @@ test("mobile numeric inputs allow clear then re-entry and TGL is sent as a numbe
 test("mobile route confirmation follows the map without scrolling back", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await importKmlCandidate(page);
 
   const map = page.locator("#route-map-frame");
@@ -2295,6 +2325,7 @@ test("route-node inline rename reprojects the current table, map, and NAV LOG", 
   });
   await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page, false);
   calculationRequests.length = 0;
 
@@ -2419,6 +2450,7 @@ test("route-node inline rename reprojects the current table, map, and NAV LOG", 
 test("cruise boundary cards separate calculation conditions from interpolation corners", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page, false);
 
   const currentState = await page.evaluate(async () => {
@@ -2524,6 +2556,7 @@ test("cruise boundary cards separate calculation conditions from interpolation c
     });
   });
   await page.reload();
+  await dismissLegacyNotice(page);
 
   const cards = page.locator(".issue-item", { hasText: "CRUISE_PRESSURE_ALTITUDE_TABLE_BOUNDARY_USED" });
   await expect(cards).toHaveCount(3);
@@ -2580,6 +2613,7 @@ test("responsive workflow keeps a one-way order at intermediate width", async ({
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await expect(page).toHaveTitle(/AutoNavLog/);
   await expect(page.locator("body")).not.toBeEmpty();
   await expect(
@@ -2702,6 +2736,7 @@ test("responsive workflow keeps a one-way order at intermediate width", async ({
 test("RJFM inbound guidance remains below NAV LOG at intermediate and wide widths", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page);
   const state = await page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -2741,6 +2776,7 @@ test("RJFM inbound guidance remains below NAV LOG at intermediate and wide width
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...bootstrap, state: inboundState }) });
   }, { times: 1 });
   await page.reload();
+  await dismissLegacyNotice(page);
   const navLog = page.getByLabel("計算済みNAV LOG");
   const guidance = page.getByLabel("RJFM帰路の経路延長案内");
   await expect(guidance).toContainText("warningのみ");
@@ -2781,11 +2817,13 @@ test("RJFM inbound guidance remains below NAV LOG at intermediate and wide width
     });
   }, { times: 1 });
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(guidance).toHaveCount(0);
 });
 
 test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays editable", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await page.getByRole("button", { name: "KMLを貼り付け" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(rjfmPhysicalUmkOmaruKml);
@@ -2815,6 +2853,7 @@ test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays e
 test("desktop map height is keyboard adjustable and fixed below breakpoint", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
 
   const map = page.locator("#route-map-frame");
   const separator = page.getByRole("separator", { name: "地図の高さを調整" });
@@ -2837,6 +2876,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page);
   const guidanceState = await reloadWithCurrentRjfmGuidance(page);
 
@@ -3000,6 +3040,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     });
   }, { times: 1 });
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByRole("region", {
     name: "RJFM北方面出発ガイダンス",
   })).toHaveCount(0);
@@ -3032,6 +3073,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     });
   }, { times: 1 });
   await page.reload();
+  await dismissLegacyNotice(page);
 
   const statusCoverageGuidance = page.getByRole("region", {
     name: "RJFM北方面出発ガイダンス",
@@ -3098,6 +3140,7 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await expect(page).toHaveTitle(/AutoNavLog/);
   await expect(page.locator("body")).not.toBeEmpty();
   await expect(
@@ -3260,6 +3303,7 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
   });
 
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page, false, false, true);
 
   await expect(
@@ -3433,6 +3477,7 @@ test("changed ALT appears in PA with lesson display precision", async ({ page })
 
 test("NAV LOG summary, sticky route names, and TIME / FUEL PLAN remain stable across scroll", async ({ page }, testInfo: TestInfo) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page);
 
   const summary = page.locator(".nav-log-summary");
@@ -3525,6 +3570,7 @@ test("VOR/DME reference columns can be added, configured independently, and remo
 }) => {
   await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page);
 
   const table = page.locator(".nav-log-table");
@@ -3594,6 +3640,7 @@ test("VOR/DME reference columns can be added, configured independently, and remo
 
 test("climb and descent legs show magnetic-course altitude candidates", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
 
   const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
   await openPaste.click();
@@ -3646,6 +3693,7 @@ test("climb and descent legs show magnetic-course altitude candidates", async ({
 
 test("NAV LOG safe inputs validate and recalculate automatically", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
@@ -3744,6 +3792,7 @@ test("EOC wind edit updates the DESCENT basis Leg common wind", async ({ page })
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await expect(page).toHaveTitle(/AutoNavLog/);
   await calculateNavLog(page, true, true);
 
@@ -3822,6 +3871,7 @@ test("EOC wind edit updates the DESCENT basis Leg common wind", async ({ page })
 
 test("stale automatic recalculation cannot overwrite newer planning inputs", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page);
 
   let releaseFirstResponse = () => {};
@@ -3873,6 +3923,7 @@ test("stale automatic recalculation cannot overwrite newer planning inputs", asy
 test("calculated mobile layout has no body overflow", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
@@ -3892,6 +3943,7 @@ test("calculated mobile layout has no body overflow", async ({ page }, testInfo)
 
 test("KMZ document selection modal moves and traps focus", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await page.locator("#route-file").setInputFiles({
@@ -3916,6 +3968,7 @@ test("KMZ document selection modal moves and traps focus", async ({ page }) => {
 test("grouped LineStrings require an explicit route candidate selection", async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
@@ -4031,6 +4084,7 @@ test("grouped LineStrings require an explicit route candidate selection", async 
 
 test("same-named grouped routes remain distinguishable in the selector", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
@@ -4054,6 +4108,7 @@ test("same-named grouped routes remain distinguishable in the selector", async (
 
 test("file picker, drop, and KMZ use the same grouped-route candidate flow", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
@@ -4102,6 +4157,7 @@ test("file picker, drop, and KMZ use the same grouped-route candidate flow", asy
 
 test("KML endpoints automatically determine read-only FROM and TO", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
@@ -4120,6 +4176,7 @@ test("KML endpoints automatically determine read-only FROM and TO", async ({ pag
 
 test("RUN UP, nose fairing, and A/C choices persist after save and reload", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await importKmlCandidate(page);
 
   const runUp = page.getByLabel("RUN UP あり");
@@ -4183,6 +4240,7 @@ test("RUN UP, nose fairing, and A/C choices persist after save and reload", asyn
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(runUp).not.toBeChecked();
   await expect(noseFairing).toBeChecked();
   await expect(airConditioning).not.toBeChecked();
@@ -4197,6 +4255,7 @@ test("500 and 1000 fpm descent rates recalculate, render, and persist", async ({
   });
   await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
 
   const rateGroup = page.getByRole("group", { name: "計画降下率" });
   const standardRate = page.getByRole("radio", { name: /500 fpm/ });
@@ -4270,6 +4329,7 @@ test("500 and 1000 fpm descent rates recalculate, render, and persist", async ({
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(fastRate).toBeChecked();
   await expect(page.getByText("計算結果 1000 fpm", { exact: true })).toBeVisible();
   expect(pageErrors).toEqual([]);
@@ -4281,6 +4341,7 @@ test("500 and 1000 fpm descent rates recalculate, render, and persist", async ({
 
 test("Issue 129 preserves one imported 小丸 route node after browser confirmation and reload", async ({ page }) => {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await page.getByRole("button", { name: "KMLを貼り付け" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(issue129OmaruPointKml);
@@ -4308,6 +4369,7 @@ test("Issue 129 preserves one imported 小丸 route node after browser confirmat
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
   await page.reload();
+  await dismissLegacyNotice(page);
   const restored = await page.evaluate(async () => {
     const response = await fetch("/api/state");
     return await response.json() as WebState;
@@ -4318,6 +4380,7 @@ test("Issue 129 preserves one imported 小丸 route node after browser confirmat
 test("Japanese TAF states distinguish missing data from failed acquisition without changing navigation", async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await calculateNavLog(page, false, false, true);
   const state: WebState = await page.evaluate(async () => (await fetch("/api/state")).json());
   expect(state.outcome).not.toBeNull();
@@ -4345,6 +4408,7 @@ test("Japanese TAF states distinguish missing data from failed acquisition witho
       } } });
     }, { times: 1 });
     await page.reload();
+    await dismissLegacyNotice(page);
     const summary = page.getByRole("region", { name: "目的地空港の風予報" });
     await expect(summary.locator("strong")).toHaveText(`目的地風: ${label}`);
     await expect(summary).toContainText("到着区間の計算はCALMです。");
@@ -4368,6 +4432,7 @@ test("Japanese startup and import errors preserve retry and editable input", asy
     await route.abort();
   }, { times: 1 });
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toBeVisible();
   release();
   await expect(page.getByRole("alert")).toContainText("サーバーに接続できませんでした。再試行してください。");

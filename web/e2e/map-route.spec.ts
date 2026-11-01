@@ -1,3 +1,4 @@
+import { dismissLegacyNotice } from "./helpers/legacyNotice";
 import { mapZoom, revealAirport, selectAirport, zoomMapTo } from "./helpers/mapCandidates";
 import { expect, test, type Page } from "@playwright/test";
 import { deferPlanningRender, installPlanningRenderDelay } from "./helpers/planningRender";
@@ -19,6 +20,7 @@ test.beforeEach(async ({ page }) => {
 
 async function start(page: Page) {
   await page.goto("/");
+  await dismissLegacyNotice(page);
   await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible({ timeout: 90_000 });
 }
 const strip = (page: Page) => page.getByRole("list", { name: "経路リスト" });
@@ -130,6 +132,7 @@ for (const width of [1100, 1440]) {
     await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeDisabled();
     await page.locator(".route-workspace").screenshot({ path: info.outputPath("map-draft.png") });
     await page.reload();
+    await dismissLegacyNotice(page);
     await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
     await expect(strip(page).locator("li")).toHaveCount(4, { timeout: 90_000 });
     await selectAirport(page, "RJFS");
@@ -165,6 +168,7 @@ for (const width of [1100, 1440]) {
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
     await page.reload();
+    await dismissLegacyNotice(page);
     await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
     await expect(page.locator(".nav-log-table")).toBeVisible();
     await expect(page.locator(".route-workspace.is-route-building")).toHaveCount(0);
@@ -190,10 +194,12 @@ for (const width of [1100, 1440]) {
       localStorage.setItem("autonavlog.map-viewport.v1.anonymous.last", JSON.stringify({ latitude: 35.68, longitude: 139.76, zoom: 12 }));
     }, projectId);
     await page.reload();
+    await dismissLegacyNotice(page);
     await expect(page.locator(".nav-log-table")).toBeVisible({ timeout: 120_000 });
     await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).longitude)).toBeLessThan(132);
     const fitted = await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"));
     await page.reload();
+    await dismissLegacyNotice(page);
     await expect(page.locator(".nav-log-table")).toBeVisible({ timeout: 120_000 });
     expect(await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(fitted);
     page.once("dialog", dialog => dialog.accept());
@@ -204,6 +210,7 @@ for (const width of [1100, 1440]) {
       localStorage.setItem("autonavlog.map-viewport.v1.anonymous.last", JSON.stringify({ latitude: 35.68, longitude: 139.76, zoom: 12 }));
     }, projectId);
     await page.reload();
+    await dismissLegacyNotice(page);
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible({ timeout: 120_000 });
     await page.getByLabel("保存済み", { exact: true }).selectOption(projectId);
     await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
@@ -266,6 +273,7 @@ test("direct airport route survives failed local persistence and can be saved", 
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
   await page.reload();
+  await dismissLegacyNotice(page);
   await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
   await expect(page.locator(".route-table tbody tr")).toHaveCount(2);
 });
