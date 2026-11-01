@@ -162,3 +162,30 @@ client disappears); retry preserves IDs; fresh-device login restores Saved/Lates
 NAV LOG; successful Legacy navigation automatically redirects. Verify a different Google
 account and a different Access owner cannot link to or retrieve the first owner's data.
 Record live deployment/physical acceptance separately from emulator and browser results.
+
+## Legacy startup notice (December 2026 target)
+
+The Legacy entry shows a full-screen notice on every page opening/reload. Dismissal
+is React memory only, never a localStorage/cookie preference. The small explicit
+`今回は旧画面を使う` action restores the existing workspace for this opening;
+Escape/backdrop clicks do not dismiss the notice. The workspace is inert while
+it is shown, and active migration progress takes precedence over the notice.
+
+The primary action reuses the Account flow: link the current Legacy owner to Google
+first, then offer the configured NavMate URL only after the server reports a link.
+NavMate's first login still performs the existing activation/migration. No automatic
+link, activation, redirect of unlinked owners, deletion, or shutdown is introduced.
+Configuration/authentication failures leave the explicit Legacy fallback available.
+
+The user's target is December 2026, with the exact retirement day undecided. The
+notice uses the user's supplied retirement text and existing Account copy because
+Gemini CLI was unavailable; any additional polished copy remains unresolved, not
+invented by the implementation agent. This is guidance only, not a scheduled cutoff.
+The Legacy server remains available as a weather-acquisition backup. Existing
+registry, Projects, backup/recovery procedures and retirement gates are unchanged.
+
+Focused notice coverage: `cd web && npx playwright test --config playwright.legacy-notice.config.ts`.
+The isolated component harness verifies full-viewport coverage, inert/focus behavior,
+explicit dismissal, reload/new-tab recurrence, configuration failure, linked-only
+navigation and migration precedence. The existing migration integration browser
+suite separately verifies real workspace region positions after dismissal.

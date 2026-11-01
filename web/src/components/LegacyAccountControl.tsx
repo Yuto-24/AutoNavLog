@@ -4,43 +4,54 @@ import { prepareLegacyLink, legacyLinkStatus, observeLegacyMigration, progressOf
 import { CalculationProgressOverlay } from "./CalculationProgressOverlay";
 import { useModalFocusTrap } from "../useModalFocusTrap";
 
-export function LegacyAccountControl({ busy }: { busy: boolean }) {
-  const [open, setOpen] = useState(false);
+function LegacyAccountDialog({ busy, notice = false, onClose }: { busy: boolean; notice?: boolean; onClose: () => void }) {
   const [linkOperation, setLinkOperation] = useState<() => Promise<MigrationStatus | undefined>>();
   const [pending, setPending] = useState(false);
   const [status, setStatus] = useState<MigrationStatus>();
   const [error, setError] = useState<string>();
-  const dialog = useModalFocusTrap<HTMLElement>(open);
-  const prepare = async () => {
-    try { const operation = await prepareLegacyLink(); setLinkOperation(() => operation); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "認証を準備できません。"); }
-  };
+  const dialog = useModalFocusTrap<HTMLElement>(true);
+  useEffect(() => {
+    let active = true;
+    void prepareLegacyLink().then(operation => { if (active) setLinkOperation(() => operation); })
+      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "認証を準備できません。"); });
+    void legacyLinkStatus().then(result => { if (active) setStatus(result); })
+      .catch(() => { if (active) setError("この環境ではアカウント紐付けが設定されていません。"); });
+    return () => { active = false; };
+  }, []);
   const link = async () => {
-    if (!linkOperation) return;
+    if (!linkOperation || pending) return;
     setPending(true); setError(undefined);
     try { const result = await linkOperation(); if (result) setStatus(result); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "紐付けに失敗しました。"); }
     finally { setPending(false); }
   };
-  return <>
-    <button type="button" className="icon-button header-icon-button" aria-label="アカウント" title="アカウント" onClick={() => {
-      setOpen(true); setError(undefined); void prepare();
-      void legacyLinkStatus().then(setStatus).catch(() => setError("この環境ではアカウント紐付けが設定されていません。"));
-    }}><UserRound aria-hidden="true" size={18} /></button>
-    {open && <div className="modal-backdrop"><section ref={dialog} className="modal-panel account-dialog" role="dialog" aria-modal="true" aria-labelledby="legacy-account-title" onKeyDown={event => { if (event.key === "Escape" && !pending) setOpen(false); }}>
-      <div className="modal-heading"><h2 id="legacy-account-title">アカウント</h2><button type="button" className="icon-button" aria-label="アカウントを閉じる" disabled={pending} onClick={() => setOpen(false)}><X size={20} /></button></div>
+  return <div className={notice ? "modal-backdrop legacy-migration-notice" : "modal-backdrop"}>
+    <section ref={dialog} tabIndex={-1} className="modal-panel account-dialog" role="dialog" aria-modal="true" aria-labelledby="legacy-account-title" onKeyDown={event => { if (event.key === "Escape" && !pending && !notice) onClose(); }}>
+      <div className="modal-heading"><h2 id="legacy-account-title">{notice ? "NavMate" : "アカウント"}</h2>{!notice && <button type="button" className="icon-button" aria-label="アカウントを閉じる" disabled={pending} onClick={onClose}><X size={20} /></button>}</div>
+      {notice && <p>旧画面は12月を目途に停止する</p>}
       <p>現在のデータをGoogleアカウントに紐付けます。紐付け後も、引き続きこの画面で編集・保存・計算が可能です。</p>
       <p>NavMateへの初回ログイン時に、その時点のプロジェクトと計算結果を自動で引き継ぎます。引継ぎ中は現在の画面操作を一時停止し、完了後にNavMateへ移動します。</p>
-      {status && status.state !== "UNLINKED" ? <><p>紐付け済みです。</p><a href={status.navmateUrl}>NavMateを開く</a></> :
+      {status && status.state !== "UNLINKED" ? <><p>紐付け済みです。</p><a className={notice ? "primary-button" : undefined} href={status.navmateUrl}>NavMateを開く</a></> :
         <button type="button" className="primary-button" disabled={busy || pending || !status || !linkOperation} onClick={() => { void link(); }}>Googleアカウントを紐付ける</button>}
       {error && <p role="alert">{error}</p>}
-    </section></div>}
+      {notice && <button type="button" className="legacy-migration-dismiss" disabled={pending} onClick={onClose}>今回は旧画面を使う</button>}
+    </section>
+  </div>;
+}
+
+export function LegacyAccountControl({ busy }: { busy: boolean }) {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button type="button" className="icon-button header-icon-button" aria-label="アカウント" title="アカウント" onClick={() => setOpen(true)}><UserRound aria-hidden="true" size={18} /></button>
+    {open && <LegacyAccountDialog busy={busy} onClose={() => setOpen(false)} />}
   </>;
 }
 
 export function LegacyMigrationBoundary({ children }: { children: ReactNode }) {
+  // Deliberately memory-only: each new page load offers migration again.
+  const [dismissed, setDismissed] = useState(false);
   const [status, setStatus] = useState<MigrationStatus>();
   useEffect(() => observeLegacyMigration(setStatus), []);
   const blocked = status?.state === "MIGRATING" || status?.state === "NAVMATE_ACTIVE";
-  return <><div inert={blocked}>{children}</div>{blocked && <CalculationProgressOverlay title="NavMateへ引継ぎ中" {...progressOf(status!)} />}</>;
+  return <><div inert={blocked || !dismissed}>{children}</div>{!blocked && !dismissed && <LegacyAccountDialog notice busy={false} onClose={() => setDismissed(true)} />}{blocked && <CalculationProgressOverlay title="NavMateへ引継ぎ中" {...progressOf(status!)} />}</>;
 }

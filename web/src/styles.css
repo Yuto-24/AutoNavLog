@@ -1706,3 +1706,28 @@ tbody tr:last-child td { border-bottom: 0; }
 .is-selected > .map-candidate-symbol { color: white; background: var(--candidate-color); }
 .candidate-cluster { color: #334155; background: white; border: 2px solid #64748b; border-radius: 50%; text-align: center; line-height: 28px; font-weight: 700; }
 .vrep-draft-marker:focus-visible, .candidate-cluster:focus-visible { outline: 3px solid #0c7c78; outline-offset: 3px; }
+
+/* Startup notice covers the Legacy workspace without changing its region order. */
+.legacy-migration-notice {
+  padding: 24px;
+  background: var(--surface, #fff);
+  overflow-y: auto;
+}
+.legacy-migration-notice .account-dialog {
+  width: min(100%, 560px);
+  max-width: 560px;
+  max-height: none;
+  margin: auto;
+}
+.legacy-migration-notice .primary-button { display: inline-flex; text-decoration: none; }
+.legacy-migration-dismiss {
+  display: block;
+  margin-top: 28px;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.875rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
