@@ -9,8 +9,8 @@ FROM → TO route has no synthetic VREP. Existing Readiness rules still apply.
 
 `ConfirmRouteRequest` accepts `candidate_kind=map` and ordered `map_points`.
 The common Python facade resolves airport identities against the active catalog,
-uses canonical airport coordinates, removes consecutive equal coordinates (retaining
-the destination airport), rejects routes with fewer than two distinct consecutive
+uses canonical airport coordinates for new selections, preserves every occurrence
+(including repeated coordinates), rejects routes with fewer than two distinct
 positions, and installs the route through the existing
 Project/arrival/phase normalization and Readiness boundaries. Geometry is never
 converted to KML; generated MAP labels never become imported Point provenance. Planning, Check Points, Calculation, Last Calculation, and the
@@ -33,7 +33,7 @@ without fitting the route. Existing KML candidate preview retains its fit behavi
 The existing KML/KMZ import controls stage candidates as new Map Drafts (#176).
 Import uses unsimplified route coordinates, not display-only preview geometry;
 routes above the existing 500-point MAP limit are explicitly rejected.
-Undo, search, reorder, reference-point catalogs and marker dragging are not implemented here.
+Undo, search, reorder and marker dragging are not implemented here.
 
 Verification: `test_map_route.py` exercises validation, repeated airports, direct
 routes, existing calculation Golden and recovery. `map-route.spec.ts` exercises the
@@ -54,7 +54,14 @@ Reconfirmation sends `edit_project_id` through the common confirmation operation
 The facade rejects a different Project and duplicate or foreign occurrence IDs.
 An unchanged identity/geometry/endpoints sequence is a no-op, including customized
 arrival policy. Otherwise unchanged occurrences retain identity, names and source;
-unchanged directed section pairs retain all planning inputs. Only Check Points
+unchanged directed section pairs retain manual planning inputs. If the destination
+or VREP role changes, descent/visual-arrival phases are reassigned to the new tail
+using the normal route phase rules; retained leg IDs, altitude/speed inputs and
+Check Points are preserved wherever compatible. No-op reconfirmation does not
+reassign phases. Adopted airport and
+VOR snapshots remain tied to unchanged airport identities, not a newer catalog.
+User-renamed reference occurrences retain their source snapshot and current name.
+Only Check Points
 linked to replaced sections are removed. New sections use normal installation
 and readiness rules. Last Calculation remains its existing snapshot and changed
 route inputs become stale until recalculated.
@@ -105,6 +112,5 @@ Verification includes all parser candidate kinds, occurrence order, endpoint mat
 invalid geometry and session validation, plus the imported parser geometry routed
 through Map confirmation to the existing FTD calculation golden. Focused browser
 coverage includes replacement/cancellation, denied Clipboard, reload and region order
-at 1100/1440 px. Browser execution and rendered acceptance remain blocked in this
-executor by the known socket permission denial; authored tests are not passed tests.
-Final release metadata, local runtime update and publication are integration-owned.
+at 1100/1440 px. The CI Local suite selects the import and re-edit scenarios;
+application tests validate parser adaptation and session recovery.

@@ -18,7 +18,7 @@ from autonavlog.weather.ftd_provider import FTD_WEATHER_POLICY_VERSION
 from .fingerprints import make_fingerprint
 
 
-def forecast_selection_fingerprint(project: Project) -> str:
+def forecast_selection_fingerprint(project: Project, *, rounding_mode: bool = False) -> str:
     """Bind explicit Forecast refresh intent to weather-relevant inputs.
 
     Selection itself, save/revision bookkeeping and warning acknowledgements are
@@ -28,7 +28,7 @@ def forecast_selection_fingerprint(project: Project) -> str:
     state = project.metadata.get("ui_state", {})
     planning_keys = {
         "arrival_plan", "rjfm_departure_plan", "rjfm_inbound_plan",
-        "reference_data_snapshot",
+        "reference_data_snapshot", "departure_vor",
     }
     # Browser JSON roundtrips erase integral float notation in untyped metadata.
     # Restore domain types before hashing so an unchanged Save keeps its intent.
@@ -52,6 +52,7 @@ def forecast_selection_fingerprint(project: Project) -> str:
                 },
             ),
             "planning": planning,
+            "rounding_mode": rounding_mode,
         },
     )
 
@@ -164,6 +165,9 @@ def current_calculation_input_fingerprint(
             "ftd_weather_policy_version": (
                 FTD_WEATHER_POLICY_VERSION if project.weather_mode == "FTD" else None
             ),
+            # Preserve old AIRPORT-mode fingerprints; adopted VOR provenance is an input.
+            **({"departure_vor": ui_state.departure_vor.model_dump(mode="python")}
+               if ui_state.departure_vor is not None else {}),
             "route_nodes": route_nodes,
             "sections": sections,
             "arrival_plan": (

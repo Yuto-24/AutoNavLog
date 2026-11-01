@@ -21,7 +21,7 @@ export function ImportCandidateDialog({ open, candidates, selected, busy, onSele
       <p>使用する飛行経路を選択してください。</p>
       <label className="field-group"><span>経路選択</span>
         <select data-modal-autofocus value={selected} disabled={busy} onChange={event => onSelect(event.target.value)}>
-          <option value="">使用する飛行経路を選択してください。</option>
+          <option value="">経路を選択してください</option>
           {candidates.map((candidate, index) => <option key={`${candidate.kind}:${candidate.index}`} value={`${candidate.kind}:${candidate.index}`}>
             {index + 1}. {candidate.containerPath?.join(" / ") || candidate.name} · {candidate.vertexCount}点
           </option>)}

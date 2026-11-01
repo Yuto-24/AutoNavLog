@@ -45,7 +45,10 @@ test("#176 invalid, cancelled and repeated import preserve the old Draft until a
   await upload(page, kml(route("old")));
   await expect(strip(page).locator("li")).toHaveCount(3);
   const before = (await snapshot(page)).mapRouteDraft;
-  page.on("dialog", dialog => void dialog.accept());
+  page.on("dialog", dialog => {
+    expect(dialog.message()).toBe("作成中の変更を破棄しますか？");
+    void dialog.accept();
+  });
   await upload(page, "invalid KML");
   await expect(page.getByRole("alert").first()).toBeVisible();
   expect((await snapshot(page)).mapRouteDraft).toEqual(before);
@@ -61,6 +64,8 @@ test("#176 invalid, cancelled and repeated import preserve the old Draft until a
   await upload(page, multiple);
   const dialog = page.getByRole("dialog", { name: "経路選択", exact: true });
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("option", { name: "経路を選択してください", exact: true })).toBeAttached();
+  await expect(page.getByText("経路候補を読み込みました。地図と記載順を確認してください。", { exact: true })).toHaveCount(0);
   await dialog.getByRole("combobox").selectOption("polygon:0");
   await page.reload();
   await expect(dialog).toBeVisible();
@@ -72,6 +77,7 @@ test("#176 invalid, cancelled and repeated import preserve the old Draft until a
   await dialog.getByRole("combobox").selectOption("polygon:0");
   await dialog.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
   await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("経路候補を読み込みました。地図と記載順を確認してください。", { exact: true })).toBeVisible();
   await expect(strip(page).locator("li").first()).toContainText("RJFK");
   expect((await snapshot(page)).working.project).toBeNull();
 });
@@ -95,7 +101,10 @@ test("#176 denied Clipboard falls back to manual paste without losing the Draft"
   await upload(page, kml(route("old")));
   await expect(strip(page).locator("li")).toHaveCount(3);
   const before = (await snapshot(page)).mapRouteDraft;
-  page.on("dialog", dialog => void dialog.accept());
+  page.on("dialog", dialog => {
+    expect(dialog.message()).toBe("作成中の変更を破棄しますか？");
+    void dialog.accept();
+  });
   await page.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   expect((await snapshot(page)).mapRouteDraft).toEqual(before);
@@ -137,7 +146,10 @@ test("#176 empty Clipboard cannot offer a previously imported KML for replacemen
   await page.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
   await expect(strip(page).locator("li")).toHaveCount(3);
   const before = (await snapshot(page)).mapRouteDraft;
-  page.on("dialog", dialog => void dialog.accept());
+  page.on("dialog", dialog => {
+    expect(dialog.message()).toBe("作成中の変更を破棄しますか？");
+    void dialog.accept();
+  });
   await page.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け", exact: true });
   await expect(dialog.getByRole("textbox", { name: "KML/XML", exact: true })).toHaveValue("");

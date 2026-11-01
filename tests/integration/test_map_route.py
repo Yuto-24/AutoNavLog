@@ -158,7 +158,7 @@ def test_invalid_map_routes_rejected(points):
         ConfirmRouteRequest.model_validate(payload(points))
 
 
-def test_map_route_removes_only_consecutive_duplicates(local):
+def test_map_route_preserves_every_click_including_consecutive_airports(local):
     state = json.loads(local.dispatch("confirmRoute", payload([
         point("FROM", airport="RJFM"), point("repeat", airport="RJFM"),
         point("WP1"), point("WP2"),
@@ -166,11 +166,10 @@ def test_map_route_removes_only_consecutive_duplicates(local):
         point("TO", airport="RJFO"), point("repeat TO", airport="RJFO"),
     ])))
     nodes = state["project"]["route_nodes"]
-    assert [node["name"] for node in nodes] == ["RJFM", "WP1", "RJFO", "RJFM", "RJFO"]
-    assert all(
-        (a["latitude_deg"], a["longitude_deg"]) != (b["latitude_deg"], b["longitude_deg"])
-        for a, b in zip(nodes, nodes[1:], strict=False)
-    )
+    assert [node["name"] for node in nodes] == [
+        "RJFM", "RJFM", "WP1", "WP2", "RJFO", "RJFM", "RJFO", "RJFO",
+    ]
+    assert len({node["id"] for node in nodes}) == 8
 
 
 def test_identical_airports_rejected_before_creating_project(local):
@@ -200,14 +199,68 @@ def test_map_reference_slots_keep_generated_provenance(local):
     assert all(node["source"] != "KML/KMZ Point" for node in nodes)
 
 
-def test_duplicate_destination_coordinate_keeps_airport_identity(local):
+def test_exact_arbitrary_destination_coordinate_does_not_snap_or_drop(local):
     destination = local.app.airports.get("RJFO")
     state = json.loads(local.dispatch("confirmRoute", payload([
         point("FROM", airport="RJFM"),
         point("WP1", float(destination.latitude_deg), float(destination.longitude_deg)),
         point("TO", airport="RJFO"),
     ])))
-    assert [node["name"] for node in state["project"]["route_nodes"]] == ["RJFM", "RJFO"]
+    assert [node["name"] for node in state["project"]["route_nodes"]] == ["RJFM", "WP1", "RJFO"]
+
+
+def reference_point():
+    snapshot = json.loads((ROOT / "data/reference/vrep.json").read_text())[0]
+    return {
+        **point(snapshot["name"], snapshot["latitude_deg"], snapshot["longitude_deg"]),
+        "reference_snapshot": snapshot,
+    }
+
+
+def test_reference_occurrences_snapshots_save_reload_and_master_independence(local):
+    selected = reference_point()
+    state = json.loads(local.dispatch("confirmRoute", payload([
+        point("FROM", airport="RJFC"), selected, selected,
+        point("WP1", 30.5, 130.5), selected, point("TO", airport="RJFG"),
+    ])))
+    nodes = state["project"]["route_nodes"]
+    assert len(nodes) == 6
+    occurrences = [node for node in nodes if node["reference_snapshot"]]
+    assert len({node["id"] for node in occurrences}) == 3
+    assert all(node["reference_snapshot"] == selected["reference_snapshot"] for node in occurrences)
+    # A saved snapshot may be older than today's catalog; hydration must never resolve it anew.
+    recovery = state["workingRecovery"]
+    for node in recovery["project"]["route_nodes"]:
+        if node["reference_snapshot"]:
+            node["reference_snapshot"]["source"]["table_effective_date"] = "2000-01-01"
+    restored = json.loads(local.dispatch("bootstrap", recovery))
+    restored_nodes = restored["project"]["route_nodes"]
+    assert [node["id"] for node in restored_nodes] == [node["id"] for node in nodes]
+    for node in restored_nodes:
+        if node["reference_snapshot"]:
+            assert node["reference_snapshot"]["source"]["table_effective_date"] == "2000-01-01"
+            assert node["latitude_deg"] == selected["latitude_deg"]
+            assert node["longitude_deg"] == selected["longitude_deg"]
+
+
+@pytest.mark.parametrize("change", [
+    {"airport_id": "RJFC"}, {"latitude_deg": 1}, {"name": "wrong"},
+    {"longitude_deg": 1},
+])
+def test_reference_snapshot_mismatch_rejected(change):
+    with pytest.raises(ValueError):
+        ConfirmRouteRequest.model_validate(payload([
+            point("FROM", airport="RJFC"), {**reference_point(), **change},
+            point("TO", airport="RJFG"),
+        ]))
+
+
+def test_reference_cannot_be_an_endpoint():
+    selected = reference_point()
+    for points in ([selected, point("TO", airport="RJFG")],
+                   [point("FROM", airport="RJFC"), selected]):
+        with pytest.raises(ValueError):
+            ConfirmRouteRequest.model_validate(payload(points))
 
 
 def edit_payload(project):
@@ -390,3 +443,124 @@ def test_fresh_map_cannot_use_forged_identity_for_long_name(local):
     with pytest.raises(WebApplicationError):
         local.dispatch("confirmRoute", payload(points))
     assert json.loads(local.dispatch("bootstrap"))["project"] is None
+
+
+@pytest.mark.parametrize("departure_origin", ["AIRPORT", "VOR"])
+def test_route_edit_keeps_reference_occurrences_and_departure_origin(local, departure_origin):
+    selected = reference_point()
+    request = payload([
+        point("FROM", airport="RJFM"), selected, selected,
+        point("WP1", 32.5, 131.5), point("TO", airport="RJFO"),
+    ])
+    request["departure_origin"] = departure_origin
+    initial = json.loads(local.dispatch("confirmRoute", request))
+    project = initial["project"]
+    edit = edit_payload(project)
+    edit["departure_origin"] = departure_origin
+    for selected_point, node in zip(edit["map_points"], project["route_nodes"], strict=True):
+        selected_point["reference_snapshot"] = node["reference_snapshot"]
+    unchanged = json.loads(local.dispatch("confirmRoute", edit))
+    assert unchanged["project"] == project
+    edit["map_points"].insert(-1, reference_point())
+    changed = json.loads(local.dispatch("confirmRoute", edit))["project"]
+    assert changed["route_nodes"][0] == project["route_nodes"][0]
+    assert (changed["metadata"]["ui_state"]["departure_vor"]
+            == project["metadata"]["ui_state"]["departure_vor"])
+    assert changed["route_nodes"][1:3] == project["route_nodes"][1:3]
+    assert changed["route_nodes"][-2]["reference_snapshot"] == selected["reference_snapshot"]
+    assert len({node["id"] for node in changed["route_nodes"]}) == len(changed["route_nodes"])
+
+
+def test_route_edit_preserves_user_renamed_reference_snapshot(local):
+    selected = reference_point()
+    initial = json.loads(local.dispatch("confirmRoute", payload([
+        point("FROM", airport="RJFM"), selected, point("TO", airport="RJFO"),
+    ])))
+    node = initial["project"]["route_nodes"][1]
+    renamed = json.loads(local.dispatch("renameRouteNode", {
+        "node_id": node["id"], "name": "訓練地点",
+    }))
+    project = renamed["project"]
+    edit = edit_payload(project)
+    edit["map_points"][1]["reference_snapshot"] = node["reference_snapshot"]
+    unchanged = json.loads(local.dispatch("confirmRoute", edit))
+    assert unchanged["project"] == project
+    malformed = json.loads(json.dumps(edit))
+    malformed["map_points"][1]["name"] = "偽装"
+    with pytest.raises(ValueError, match="対象のRoute点"):
+        local.dispatch("confirmRoute", malformed)
+
+
+def test_route_edit_promoted_airport_uses_saved_vor_before_matching_legs(local):
+    initial = json.loads(local.dispatch("confirmRoute", {
+        **payload([point("FROM", airport="RJOB"), point("again", airport="RJOB"),
+                   point("CP", 34.5, 133.5), point("TO", airport="RJFO")]),
+        "departure_origin": "VOR",
+    }))
+    project = initial["project"]
+    edit = edit_payload(project)
+    edit["departure_origin"] = "VOR"
+    edit["map_points"].pop(0)
+    edit["map_points"][0]["airport_id"] = "RJOB"
+    changed = json.loads(local.dispatch("confirmRoute", edit))["project"]
+    vor = project["metadata"]["ui_state"]["departure_vor"]
+    first = changed["route_nodes"][0]
+    assert ((first["latitude_deg"], first["longitude_deg"])
+            == (vor["latitude_deg"], vor["longitude_deg"]))
+    assert first["name"] == vor["identifier"]
+    assert first["id"] != project["route_nodes"][1]["id"]
+    assert changed["sections"][0]["id"] != project["sections"][1]["id"]
+    assert changed["metadata"]["ui_state"]["departure_vor"] == vor
+
+
+def test_route_edit_keeps_adopted_airports_across_catalog_updates(local):
+    initial = json.loads(local.dispatch("confirmRoute", payload([
+        point("FROM", airport="RJOB"), point("CP", 34.5, 133.5),
+        point("TO", airport="RJFO"),
+    ])))
+    recovery = initial["workingRecovery"]
+    project = recovery["project"]
+    adopted = project["metadata"]["ui_state"]["reference_data_snapshot"]
+    for index, side in [(0, "departure_airport"), (-1, "destination_airport")]:
+        project["route_nodes"][index]["latitude_deg"] += 0.001
+        adopted[side]["latitude_deg"] = project["route_nodes"][index]["latitude_deg"]
+        adopted[side]["source_revision"] = "adopted-older-catalog"
+    adopted["destination_airport"]["pattern_altitude_ft_msl"] = 2300
+    restored = json.loads(local.dispatch("bootstrap", recovery))
+    project = restored["project"]
+    edit = edit_payload(project)
+    unchanged = json.loads(local.dispatch("confirmRoute", edit))
+    assert unchanged["project"] == project
+    edit["map_points"].insert(-1, point("new", 34.0, 133.0))
+    changed = json.loads(local.dispatch("confirmRoute", edit))["project"]
+    assert changed["route_nodes"][0] == project["route_nodes"][0]
+    assert changed["route_nodes"][-1]["id"] == project["route_nodes"][-1]["id"]
+    assert changed["metadata"]["ui_state"]["reference_data_snapshot"] == adopted
+    arrival = changed["metadata"]["ui_state"]["arrival_plan"]
+    assert arrival["selected_pattern_altitude_ft_msl"] == 2300
+    assert changed["sections"][-1]["planned_altitude_ft_msl"] >= 2300
+
+
+@pytest.mark.parametrize("middle", [1, 2, 3])
+def test_appending_destination_reassigns_arrival_tail_without_losing_planning(local, middle):
+    state = json.loads(local.dispatch("confirmRoute", payload([
+        point("FROM", airport="RJFO"),
+        *[point(f"WP{i}", 33.3 - i * 0.1, 131.5 - i * 0.1) for i in range(middle)],
+        point("TO", airport="RJFS"),
+    ])))
+    before = state["project"]
+    request = edit_payload(before)
+    request["map_points"][-1]["airport_id"] = "RJFS"
+    request["map_points"].append(point("new TO", airport="RJFK"))
+    after = json.loads(local.dispatch("confirmRoute", request))["project"]
+    phases = [section["phase"] for section in after["sections"]]
+    assert phases == ["CLIMB", *(["CRUISE"] * (middle - 1)), "DESCENT", "VISUAL_ARRIVAL"]
+    for old, retained in zip(before["sections"], after["sections"], strict=False):
+        assert retained["id"] == old["id"]
+        assert retained["planned_altitude_ft_msl"] == old["planned_altitude_ft_msl"]
+        for key, value in old.items():
+            if key != "phase":
+                assert retained[key] == value
+    calculated = json.loads(local.dispatch("calculate"))
+    assert not any(issue["code"] == "FLIGHT_PHASE_SEQUENCE_INVALID"
+                   for issue in calculated["outcome"]["issues"])

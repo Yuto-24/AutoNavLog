@@ -143,11 +143,31 @@ input generations and autosave guards still reject superseded edits; action resu
 not canonicalize input edited while they were in flight.
 
 Explicit new work drains/discards pending autosave, clears only this tab's recovery,
-then resets the Adapter and reloads. If storage refuses removal, it reports the failure
-before disposing the working runtime; a failed Adapter reset restores the recovery copy. It does not delete saved Projects, Last Calculation, another
+then resets the Adapter. Local replaces the complete Python Application (including its
+transient storage, forecast providers and session) and remounts the UI while retaining
+the initialized interpreter within the same account. Legacy still reloads. Account
+changes still dispose the Worker. If storage refuses removal, it reports the failure
+before resetting work; a failed Adapter reset restores the recovery copy. It does not delete saved Projects, Last Calculation, another
 tab, or #124 data. Malformed/version-incompatible UI snapshots or invalid Application
 recovery start a safe blank session with a visible recovery-failure notice. Connection
 failures keep the retry screen and the recovery data, rather than silently losing work.
+
+The Python replacement must produce and serialize its initial state before removing
+the previous transient storage or replacing its Application, session and weather state.
+If presentation or serialization fails, the candidate is closed and the previous work
+remains usable. Failure-injection coverage verifies both boundaries and recalculation
+of the retained work; tab recovery is an additional safeguard.
+
+Sync resolution captures the work generation before its asynchronous resolver starts.
+New invalidates waiting resolution/refresh continuations, including when New fails.
+Only the state-changing sync phase and its UI commit share a queue with New: a load
+already in progress commits its matching UI before New can fail, while a paused
+resolver or refresh never locks New. This keeps the displayed Project and the retained
+Application consistent without rejecting New during synchronization.
+While New suppresses recovery writes, rendered work still updates the in-memory
+snapshot so an asynchronous reset failure restores the matching Project on reload.
+Map resize observers disconnect during layout cleanup. Detached or zero-size maps
+must not invalidate and overwrite the viewport that the new workspace restores.
 
 Verification: shared e2e/session.spec.ts runs against Legacy and production Local
 (npm --prefix web run test:local -- session.spec.ts).
@@ -155,3 +175,17 @@ Local blocks /api/**; KMZ document selection and reload continuation run in both
 Adapter/codec tests run in test:application; Python integration verifies parsed import
 continuation, last-good hydration without calculation, separate Legacy handles and no
 persistence writes during restore.
+
+### Same-account New performance (2026-10-27)
+
+The representative 1,100 px MAP → calculation → save/reopen test retained the same
+assertions and diagnostic instrumentation on GitHub-hosted Ubuntu 24.04 / Chromium.
+[Before](https://github.com/Yuto-24/AutoNavLog/actions/runs/40465795483), it took
+57.285 s with eight completed runtime initializations; [after](https://github.com/Yuto-24/AutoNavLog/actions/runs/40468089756),
+45.287 s with six. Both New requests in the latter run took approximately 0.166 s.
+This is one matched before/after observation (about 12 s / 21% for this test), not
+an estimate for the entire CI workflow or a guarantee for physical devices.
+The authentication, sync and account-deletion representatives retained their
+initialization counts (10, 4 and 6); cross-account runtime reuse is not implemented.
+The same after run passed repeated/cancelled New, retained-Worker, reload/other-tab
+recovery, and delayed sync-resolution/New regression assertions.

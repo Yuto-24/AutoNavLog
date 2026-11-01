@@ -102,9 +102,8 @@ export function ImportPlanPanel({
               disabled={busy}
             >
               <ClipboardPaste aria-hidden="true" size={17} />
-              KMLを貼り付け
+              Google Earth からペースト
             </button>
-            <p className="quiet-state">ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。</p>
           </>
         )}
         {importState.filename && (
@@ -223,6 +222,11 @@ export function ImportPlanPanel({
               </small>
             )}
           </div>
+          <label className="checkbox-row span-two">
+            <input type="checkbox" checked={form.departureOrigin === "VOR"}
+              onChange={(event) => update("departureOrigin", event.target.checked ? "VOR" : "AIRPORT")} />
+            <span>VOR Tracking Mode</span>
+          </label>
           <div className="fuel-input-row span-two">
             <label>
               <span>FUEL gal</span>

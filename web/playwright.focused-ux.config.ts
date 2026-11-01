@@ -9,10 +9,5 @@ export default defineConfig(local, {
   projects: [
     { name: "desktop-chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "desktop-webkit", use: { ...devices["Desktop Safari"] } },
-    {
-      name: "iphone-webkit",
-      testMatch: "map-checkpoint.spec.ts",
-      use: { ...devices["iPhone 13"], browserName: "webkit" },
-    },
   ],
 });

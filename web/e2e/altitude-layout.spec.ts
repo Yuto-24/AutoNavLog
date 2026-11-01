@@ -1,11 +1,11 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 
 async function importRoute(page: Page, fixture: string) {
   await page.goto("/");
   await enterImportWorkflow(page);
-  await page.locator('input[type="file"]').setInputFiles(resolve(`../tests/fixtures/${fixture}`));
+  await page.locator('input[type="file"]').setInputFiles(fileURLToPath(new URL(`../../tests/fixtures/${fixture}`, import.meta.url)));
   await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.getByLabel("気象モード").selectOption("FTD");

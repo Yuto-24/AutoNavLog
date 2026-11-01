@@ -64,8 +64,9 @@ Linux の setup / cleanup と隔離 runtime の手順は
 - ローカル / Legacy runtime: [development_worktrees.md](development_worktrees.md)
 
 ローカル検証、hosted CI、実機受入、本番公開の結果は、それぞれの証拠に基づいて報告します。
-ドキュメント・エージェント指示だけの変更は PR の `Release: not-required` と理由を記し、
-VERSION / CHANGELOG を更新しません。ブラウザ検証の適用条件と Compose・PR の完了条件は
+通常の機能追加・修正・文書変更は PR の `Release: not-required` と理由を記し、
+VERSION / CHANGELOG を更新しません。次回リリース向けのメモは PR 本文に記録し、
+明示的なリリース準備 PR でまとめて確定します。ブラウザ検証の適用条件と Compose・PR の完了条件は
 AGENTS.md に従います。
 
 Codex の設定仕様は変更されるため、設定を変更するときは

@@ -56,6 +56,7 @@ export interface ImportState {
 }
 
 export interface RouteNode {
+  reference_snapshot?: import("./referencePoints").ReferencePointSnapshot | null;
   id: string;
   sequence: number;
   name: string;
@@ -140,6 +141,7 @@ export interface Project {
   acknowledged_warning_codes: string[];
   metadata: {
     ui_state?: {
+      departure_vor?: { identifier: string; airport_id: string } | null;
       arrival_plan?: ArrivalPlan | null;
     };
     [key: string]: unknown;
@@ -609,6 +611,7 @@ export interface WorkingRecovery {
 }
 
 export interface WebState {
+  roundingMode?: boolean;
   storageWarning?: string;
   workingRecovery?: WorkingRecovery;
   runtime: RuntimeState;

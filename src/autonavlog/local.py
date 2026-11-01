@@ -37,6 +37,7 @@ from autonavlog.weather.msm_fixture import FIXTURE_WEATHER_LABEL, fixture_weathe
 from autonavlog.web.facade import AutoNavLogWebApplication, WebApplicationError
 from autonavlog.web.models import (
     AcknowledgeRequest,
+    CalculationRequest,
     ConfirmRouteRequest,
     ImportRouteRequest,
     RenameRouteNodeRequest,
@@ -76,6 +77,8 @@ class _LocalFacade(AutoNavLogWebApplication):
 
 class LocalApplication:
     def __init__(self, data_root: Path, *, forecast_fixture: Path | None = None) -> None:
+        self._data_root = data_root
+        self._forecast_fixture = forecast_fixture
         self.local_weather = None if forecast_fixture else LocalMsmWeather()
         local_weather = self.local_weather
 
@@ -113,6 +116,21 @@ class LocalApplication:
             "local-poc", restore_persisted=False, persist_working=False
         )
 
+    def new_work(self) -> str:
+        """Replace all mutable work while keeping the interpreter and installed packages."""
+        replacement = LocalApplication(self._data_root, forecast_fixture=self._forecast_fixture)
+        try:
+            state = replacement.dispatch("state")
+        except Exception:
+            replacement.close()
+            raise
+        self._temporary.cleanup()
+        self._temporary = replacement._temporary
+        self.local_weather = replacement.local_weather
+        self.app = replacement.app
+        self.session = replacement.session
+        return state
+
     def requires_weather(self) -> bool:
         return bool(
             self.local_weather
@@ -120,10 +138,13 @@ class LocalApplication:
             and self.session.project.weather_mode == "FORECAST"
         )
 
-    def weather_plan(self, catalog_json: str) -> str:
+    def weather_plan(
+        self, catalog_json: str, calculation: dict[str, Any] | None = None,
+    ) -> str:
         """Adapter preflight, called by the Worker before synchronous calculation."""
         assert self.local_weather is not None and self.session.project is not None
         try:
+            rounding_mode = _validate_request(CalculationRequest, calculation or {}).rounding_mode
             project = self.session.project.model_copy(deep=True)
             self.app._normalize_rjfm_departure(project)
             requirement = (
@@ -133,7 +154,9 @@ class LocalApplication:
             )
             return self.local_weather.plan(
                 project, requirement, catalog_json,
-                refresh_forecast=self.app.forecast_refresh_requested(self.session, project),
+                refresh_forecast=self.app.forecast_refresh_requested(
+                    self.session, project, rounding_mode=rounding_mode
+                ),
             )
         except LocalWeatherError as error:
             return json.dumps({"error": {"code": error.code, "message": str(error)}})
@@ -165,6 +188,8 @@ class LocalApplication:
     def dispatch(self, path: str, body: dict[str, Any] | None = None) -> str:
         """Execute application operations using the existing facade on transient MEMFS."""
         payload = body or {}
+        if path == "newWork":
+            return self.new_work()
         if path == "prepareSyncResolution":
             record = migrate_record(payload["record"])
             last = record.lastCalculation
@@ -196,13 +221,21 @@ class LocalApplication:
             return migrate_record(payload).model_dump_json()
         if path == "state":
             state = self.app.present(self.session)
-        elif path in {"bootstrap", "adoptSavedProject"}:
+        elif path in {"bootstrap", "refreshSavedWork", "adoptSavedProject"}:
+            recovery_payload = payload if path == "bootstrap" else payload["working"]
+            refresh_mode = _validate_request(
+                CalculationRequest, {"rounding_mode": payload.get("rounding_mode")}
+            ).rounding_mode
             pending_refresh = (
                 self.session.forecast_update_fingerprint if path == "adoptSavedProject" else None
             )
             state = (
-                self.app.restore_working(self.session, _validate_request(WorkingRecovery, payload))
-                if payload
+                self.app.restore_working(
+                    self.session, _validate_request(WorkingRecovery, recovery_payload),
+                    reset_rounding=path == "bootstrap",
+                    rounding_mode=bool(refresh_mode),
+                )
+                if recovery_payload
                 else self.app.present(self.session)
             )
             # Explicit Save adopts name/revision changes in the same working
@@ -210,7 +243,9 @@ class LocalApplication:
             if (
                 pending_refresh is not None
                 and self.session.project is not None
-                and pending_refresh == forecast_selection_fingerprint(self.session.project)
+                and pending_refresh == forecast_selection_fingerprint(
+                    self.session.project, rounding_mode=self.session.rounding_mode
+                )
             ):
                 self.session.forecast_update_fingerprint = pending_refresh
         elif path == "importRoute":
@@ -254,7 +289,10 @@ class LocalApplication:
         elif path == "calculate":
             if self.session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
-            state = self.app.calculate(self.session)
+            calculation_request = _validate_request(CalculationRequest, payload)
+            state = self.app.calculate(
+                self.session, rounding_mode=calculation_request.rounding_mode
+            )
         elif path == "replaceCheckPoints":
             state = self.app.replace_check_points(
                 self.session, _validate_request(ReplaceCheckPointsRequest, payload)

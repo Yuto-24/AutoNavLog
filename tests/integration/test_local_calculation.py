@@ -352,7 +352,8 @@ def test_internal_failure_semantics_match_legacy_and_preserve_draft(
 
     try:
         legacy = asyncio.run(legacy_response())
-        error = json.loads(local.dispatch_response(operation, update))["error"]
+        request_body = update if operation == "updateAndRecalculate" else {}
+        error = json.loads(local.dispatch_response(operation, request_body))["error"]
         assert error == legacy
         assert "secret" not in json.dumps(error)
         assert error["code"] != "VALIDATION_FAILED"
@@ -586,6 +587,315 @@ def test_sync_resolution_retains_only_matching_calculation_and_reidentifies_copy
     assert record["lastCalculation"] is not None
 
 
+def test_new_work_replaces_all_mutable_state_and_preserves_recovery(local):
+    calculated = calculate(local)
+    working = calculated["workingRecovery"]
+    old_app, old_session = local.app, local.session
+    old_storage = Path(local._temporary.name)
+    for _ in range(3):
+        state = json.loads(local.dispatch("newWork"))
+        assert state["project"] is None
+        assert state["outcome"] is None
+        assert not state["import"]["candidates"]
+        assert state["workingRecovery"]["last_calculation"] is None
+        assert local.app is not old_app
+        assert local.session is not old_session
+        assert not old_storage.exists()
+        restored = json.loads(local.dispatch("bootstrap", working))
+        assert restored["project"]["id"] == calculated["project"]["id"]
+        assert restored["workingRecovery"]["last_calculation"] == working["last_calculation"]
+        old_app, old_session = local.app, local.session
+        old_storage = Path(local._temporary.name)
+
+
+def test_new_work_replaces_forecast_and_destination_taf_state():
+    local = LocalApplication(ROOT / "data")
+    try:
+        old_weather = local.local_weather
+        old_provider = local.app.destination_wind_provider
+        old_service = local.session.calculation_service
+        local.dispatch("newWork")
+        assert local.local_weather is not old_weather
+        assert local.app.destination_wind_provider is not old_provider
+        assert local.session.calculation_service is not old_service
+        assert not local.requires_weather()
+    finally:
+        local.close()
+
+
+def test_failed_new_work_construction_keeps_previous_work(local, monkeypatch):
+    import autonavlog.local as module
+
+    local.dispatch("importRoute", {
+        "filename": "previous.kml",
+        "kml_text": (ROOT / "tests/fixtures/issue_43_golden.kml").read_text(),
+    })
+    before = json.loads(local.dispatch("state"))
+    storage = Path(local._temporary.name)
+
+    def failed(*args, **kwargs):
+        raise RuntimeError("initialization failed")
+
+    monkeypatch.setattr(module, "LocalApplication", failed)
+    assert json.loads(local.dispatch_response("newWork"))["error"]["code"] == "REQUEST_FAILED"
+    assert storage.exists()
+    assert json.loads(local.dispatch("state")) == before
+
+
+@pytest.mark.parametrize("failure", ["presentation", "serialization"])
+def test_failed_new_work_response_keeps_previous_work(local, monkeypatch, failure):
+    import autonavlog.local as module
+
+    calculated = calculate(local)
+    before = local.dispatch("state")
+    old_app, old_session, old_weather = local.app, local.session, local.local_weather
+    storage = Path(local._temporary.name)
+    sentinel = storage / "previous-work.txt"
+    sentinel.write_text("previous work")
+    replacements = []
+
+    def replacement(*args, **kwargs):
+        candidate = LocalApplication(*args, **kwargs)
+        replacements.append(candidate)
+        present = candidate.app.present
+
+        def failed(session):
+            if failure == "presentation":
+                raise RuntimeError("presentation failed")
+            state = present(session)
+            state["unserializable"] = object()
+            return state
+
+        monkeypatch.setattr(candidate.app, "present", failed)
+        return candidate
+
+    monkeypatch.setattr(module, "LocalApplication", replacement)
+    assert json.loads(local.dispatch_response("newWork"))["error"]["code"] == "REQUEST_FAILED"
+    assert local.app is old_app
+    assert local.session is old_session
+    assert local.local_weather is old_weather
+    assert sentinel.read_text() == "previous work"
+    assert local.dispatch("state") == before
+    assert not Path(replacements[0]._temporary.name).exists()
+    assert json.loads(local.dispatch("calculate"))["outcome"] == calculated["outcome"]
+
+
+@pytest.mark.parametrize("forecast", [False, True], ids=["ftd", "forecast"])
+def test_rounding_mode_uses_common_calculation_wind_and_only_projects_toat(local, forecast):
+    from autonavlog.domain.project import ManualWind
+    from autonavlog.nav.wind_triangle import solve_wind_triangle
+
+    calculate(local, forecast=forecast)
+    project = local.session.project
+    first = project.sections[0]
+    first.manual_wind_by_phase[first.phase] = ManualWind(direction_deg_from=355, speed_kt=21)
+    first.manual_temperature_c_by_phase[first.phase] = -1.5
+    raw_inputs = project.model_dump(mode="json")
+    off = json.loads(local.dispatch("calculate"))
+    rounded = json.loads(local.dispatch("calculate", {"rounding_mode": True}))
+    assert rounded["roundingMode"] is True
+    assert rounded["readiness"]["calculationIsCurrent"]
+    assert local.session.project.sections[0].model_dump() == first.model_dump()
+    assert rounded["project"]["ftd_weather"] == raw_inputs["ftd_weather"]
+    assert rounded["project"]["sections"] == raw_inputs["sections"]
+
+    def adopted(value):
+        return (
+            value["manual_override"]
+            if value["adopted_source"] == "MANUAL"
+            else value["automatic_value"]
+        )
+
+    for zone in rounded["outcome"]["sections"]:
+        direction = adopted(zone["wind_direction_deg_from"])
+        speed = adopted(zone["wind_speed_kt"])
+        assert direction is None or direction % 10 == 0
+        if speed is None:
+            continue
+        result = solve_wind_triangle(
+            adopted(zone["true_course_deg"]), adopted(zone["tas_kt"]), direction, speed
+        )
+        assert adopted(zone["ground_speed_kt"]) == pytest.approx(result.ground_speed_kt)
+        assert adopted(zone["wca_deg"]) == pytest.approx(result.wca_deg)
+        assert adopted(zone["magnetic_heading_deg"]) == pytest.approx(
+            (adopted(zone["magnetic_course_deg"]) + result.wca_deg) % 360
+        )
+        assert zone["wind_direction_deg_from"]["automatic_metadata"]["rounding_mode"] is True
+    assert adopted(rounded["outcome"]["sections"][0]["wind_direction_deg_from"]) == 0
+    assert adopted(rounded["outcome"]["sections"][0]["temperature_c"]) == -1.5
+    assert (
+        rounded["outcome"]["sections"][0]["ground_speed_kt"]
+        != off["outcome"]["sections"][0]["ground_speed_kt"]
+    )
+    toat = [
+        row["toat"] for row in rounded["outcome"]["display_rows"] if row["toat"]["text"] is not None
+    ]
+    assert any(cell["text"] == "-2" and cell["effective_value"] == -1.5 for cell in toat)
+    assert all(
+        "." not in cell["text"]
+        for cell in toat
+        if isinstance(cell["effective_value"], (int, float))
+    )
+    assert (
+        json.loads(local.dispatch("calculate", {"rounding_mode": False}))["outcome"]
+        == off["outcome"]
+    )
+
+
+def test_rounding_failure_is_atomic_and_reload_resets_without_relabeling_result(local, monkeypatch):
+    calculate(local)
+    rounded = json.loads(local.dispatch("calculate", {"rounding_mode": True}))
+    original_calculate = local.session.calculation_service.calculate
+
+    def fail(*args, **kwargs):
+        raise ValueError("injected rounding calculation failure")
+
+    monkeypatch.setattr(local.session.calculation_service, "calculate", fail)
+    assert "error" in json.loads(local.dispatch_response("calculate", {"rounding_mode": False}))
+    retained = json.loads(local.dispatch("state"))
+    assert retained["roundingMode"] is True
+    assert retained["outcome"] == rounded["outcome"]
+    monkeypatch.setattr(local.session.calculation_service, "calculate", original_calculate)
+    # The ordinary save refresh remains in the current work; it is not a reload.
+    saved = json.loads(
+        local.dispatch(
+            "refreshSavedWork",
+            {
+                "working": retained["workingRecovery"],
+                "rounding_mode": True,
+            },
+        )
+    )
+    assert saved["roundingMode"] is True and saved["outcome"] == rounded["outcome"]
+    restored = json.loads(local.dispatch("bootstrap", saved["workingRecovery"]))
+    assert restored["roundingMode"] is False
+    assert restored["outcome"] is None
+    assert restored["workingRecovery"]["last_calculation"] is None
+    assert not restored["readiness"]["calculationIsCurrent"]
+    assert restored["project"]["sections"] == saved["project"]["sections"]
+
+
+def test_legacy_rounding_jobs_validate_options_and_commit_mode_with_result(local, tmp_path):
+    from autonavlog.web.app import SESSION_COOKIE_NAME, create_app
+    from autonavlog.web.runtime import WebRuntimeConfig
+
+    calculate(local)
+    app = create_app(
+        WebRuntimeConfig(
+            data_root=ROOT / "data",
+            storage_root=tmp_path / "legacy-rounding",
+            weather_mode="fake",
+            trusted_local_identity="issue234",
+            session_cookie_secure=False,
+        )
+    )
+    web = app.state.web_application
+    session = web.create_session("issue234")
+    session.project = local.session.project.model_copy(deep=True)
+    session.project.metadata["web_owner_id"] = session.owner_id
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="https://test",
+            cookies={SESSION_COOKIE_NAME: session.token},
+        ) as client:
+            invalid = await client.post("/api/calculation-jobs", json={"rounding_mode": "ON"})
+            assert invalid.status_code == 422
+            created = await client.post("/api/calculation-jobs", json={"rounding_mode": True})
+            assert created.status_code == 202
+            job_id = created.json()["job_id"]
+            for _ in range(300):
+                job = (await client.get(f"/api/calculation-jobs/{job_id}")).json()
+                if job["status"] in {"failed", "succeeded"}:
+                    break
+                await asyncio.sleep(0.01)
+            assert job["status"] == "succeeded", job
+            state = job["state"]
+            assert state["roundingMode"] is True
+            assert (
+                state["outcome"]["sections"][0]["wind_direction_deg_from"]["automatic_metadata"][
+                    "rounding_mode"
+                ]
+                is True
+            )
+            assert "rounding_mode" not in state["project"]
+            renewed = await client.post(
+                "/api/application-session?rounding_mode=true", json=state["workingRecovery"]
+            )
+            assert renewed.status_code == 200
+            assert renewed.json()["state"]["roundingMode"] is True
+            assert renewed.json()["state"]["outcome"] == state["outcome"]
+            restored = await client.post("/api/application-session", json=state["workingRecovery"])
+            assert restored.status_code == 200
+            assert restored.json()["state"]["roundingMode"] is False
+            assert restored.json()["state"]["outcome"] is None
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("blocker_count", [1, 4])
+def test_blocker_during_mode_transition_keeps_previous_mode_and_result(
+    local, monkeypatch, blocker_count
+):
+    from autonavlog.domain.calculation import Issue
+    from autonavlog.domain.enums import IssueSeverity
+
+    previous = calculate(local)
+    messages = [f"blocked wind triangle {index + 1}" for index in range(blocker_count)]
+    blocked = local.session.outcome.model_copy(
+        update={
+            "issues": [
+                Issue(
+                    code="WIND_TRIANGLE_FAILED",
+                    severity=IssueSeverity.BLOCKER,
+                    message=message,
+                )
+                for message in messages
+            ]
+        }
+    )
+    monkeypatch.setattr(local.app, "_calculate_outcome", lambda *args, **kwargs: (blocked, None))
+    failed = json.loads(local.dispatch_response("calculate", {"rounding_mode": True}))
+    assert failed["error"]["code"] == "CALCULATION_FAILED"
+    assert failed["error"]["message"] == "計算に失敗しました。" + " / ".join(messages[:3])
+    current = json.loads(local.dispatch("state"))
+    assert current["roundingMode"] is False
+    assert current["outcome"] == previous["outcome"]
+
+
+def test_unprepared_weather_preflight_keeps_last_good_stale():
+    from datetime import UTC, datetime, timedelta
+
+    fixture = ROOT / "tests/fixtures/msm-portable"
+    application = LocalApplication(ROOT / "data")
+    try:
+        before = calculate(application)
+        draft = json.loads(application.dispatch("updateProject", {
+            "weather_mode": "FORECAST", "flight_date": "2026-09-16",
+            "departure_time_jst": "18:00",
+            "total_usable_fuel_gal": before["project"]["total_usable_fuel_gal"],
+            "default_variation_deg_east": before["project"]["default_variation_deg_east"],
+        }))
+        assert not draft["readiness"]["calculationIsCurrent"]
+        catalog = json.loads((fixture / "catalog.json").read_text())
+        now = datetime.now(UTC)
+        catalog.update(generated_at=now.isoformat(),
+                       expires_at=(now + timedelta(hours=1)).isoformat())
+        asset = json.loads(application.weather_plan(json.dumps(catalog)))
+        assert "error" not in asset
+        result = json.loads(application.accept_weather(
+            (fixture / asset["file"]).read_bytes(), asset["sha256"]))
+        assert result["error"]["code"] == "WEATHER_PREPARED_UNAVAILABLE"
+        after = json.loads(application.dispatch("bootstrap"))
+        assert not after["readiness"]["calculationIsCurrent"]
+        assert after["project"]["weather_mode"] == "FORECAST"
+        for key in before["outcome"].keys() - {"status"}:
+            assert after["outcome"][key] == before["outcome"][key]
+    finally:
+        application.close()
+
+
 def _pin_old_forecast(local):
     calculate(local, forecast=True)
     local.session.project.selected_forecast_run_id = "20260912000000"
@@ -725,7 +1035,7 @@ def test_portable_forecast_refresh_acquires_new_run_before_shared_calculation(sa
                 recovery = js_numbers(result["workingRecovery"])
                 recovery["project"]["name"] = "Forecast refresh"
                 recovery["project"]["revision"] += 1
-                local.dispatch("adoptSavedProject", recovery)
+                local.dispatch("adoptSavedProject", {"working": recovery, "rounding_mode": False})
                 assert local.session.forecast_update_fingerprint is not None
         assert "FORECAST_UPDATE_AVAILABLE" not in {
             issue["code"] for issue in result["outcome"]["issues"]
@@ -754,14 +1064,20 @@ def test_forecast_refresh_persisted_repository_matches_snapshot(local):
 
 
 @pytest.mark.parametrize("changed", [False, True])
-def test_explicit_save_adoption_preserves_only_unchanged_forecast_intent(local, changed):
+@pytest.mark.parametrize("rounding_mode", [False, True])
+def test_explicit_save_adoption_preserves_only_unchanged_forecast_intent(
+    local, changed, rounding_mode
+):
     first = _pin_old_forecast(local)
+    if rounding_mode:
+        first = json.loads(local.dispatch("calculate", {"rounding_mode": True}))
     recovery = first["workingRecovery"]
     recovery["project"]["name"] = "Saved forecast"
     recovery["project"]["revision"] += 1
     if changed:
         recovery["project"]["sections"][0]["planned_altitude_ft_msl"] = 6000
-    local.dispatch("adoptSavedProject", recovery)
+    local.dispatch("adoptSavedProject", {"working": recovery, "rounding_mode": rounding_mode})
+    assert local.session.rounding_mode is rounding_mode
     assert (local.session.forecast_update_fingerprint is not None) is (not changed)
     result = json.loads(local.dispatch("calculate"))
     assert result["outcome"]["selected_forecast_run_id"] == (
@@ -788,3 +1104,44 @@ def test_invalid_planning_clears_refresh_intent_and_preserves_state_error(
         local.app.present(local.session)
     assert local.session.forecast_update_fingerprint is None
     assert local.session.project.metadata["ui_state"]["arrival_plan"] is invalid_plan
+
+
+@pytest.mark.parametrize("first_mode", [False, True])
+def test_forecast_rounding_change_requires_new_first_click(local, first_mode):
+    _pin_old_forecast(local)
+    if first_mode:
+        local.dispatch("calculate", {"rounding_mode": True})
+    switched = json.loads(local.dispatch("calculate", {"rounding_mode": not first_mode}))
+    _assert_forecast_snapshot(switched, "20260912000000")
+    assert "FORECAST_UPDATE_AVAILABLE" in {issue["code"] for issue in switched["outcome"]["issues"]}
+    refreshed = json.loads(local.dispatch("calculate", {"rounding_mode": not first_mode}))
+    _assert_forecast_snapshot(refreshed, "20260912030000")
+
+
+def test_portable_rounding_change_preflight_and_calculation_keep_the_same_pin():
+    from datetime import UTC, datetime, timedelta
+
+    from scripts.local_reference import reference_state
+
+    feed = ROOT / "tests/fixtures/msm-portable"
+    initial = reference_state(feed=str(feed), pinned=True)
+    catalog = json.loads((feed / "catalog.json").read_text())
+    now = datetime.now(UTC)
+    catalog.update(generated_at=now.isoformat(), expires_at=(now + timedelta(hours=1)).isoformat())
+    local = LocalApplication(ROOT / "data")
+    try:
+        local.dispatch("bootstrap", initial["workingRecovery"])
+        for mode, expected in [
+            (False, "20260915180000"), (True, "20260915180000"), (True, "20260915210000"),
+        ]:
+            options = {"rounding_mode": mode}
+            asset = json.loads(local.weather_plan(json.dumps(catalog), options))
+            assert asset["run"] == expected
+            assert json.loads(local.accept_weather(
+                (feed / asset["file"]).read_bytes(), asset["sha256"]
+            )) == {}
+            state = json.loads(local.dispatch("calculate", options))
+            _assert_forecast_snapshot(state, expected)
+            assert state["roundingMode"] is mode
+    finally:
+        local.close()

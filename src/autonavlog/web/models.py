@@ -10,13 +10,23 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from autonavlog.domain.calculation import CalculationOutcome
 from autonavlog.domain.enums import FlightPhase
 from autonavlog.domain.planning import ArrivalAltitudeMode
-from autonavlog.domain.project import FtdWeatherSettings, ManualWind, Project
+from autonavlog.domain.project import (
+    FtdWeatherSettings,
+    ManualWind,
+    Project,
+    ReferencePointSnapshot,
+)
 from autonavlog.importers.kml import KmlImportResult
 from autonavlog.weather.destination_taf import DestinationWindForecast
 
 
 class WebRequestModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class CalculationRequest(WebRequestModel):
+    # Application Session option, deliberately absent from the Project schema.
+    rounding_mode: bool | None = Field(default=None, strict=True)
 
 
 class ImportRouteRequest(WebRequestModel):
@@ -37,6 +47,7 @@ class ImportRouteRequest(WebRequestModel):
 
 
 class MapRoutePoint(WebRequestModel):
+    reference_snapshot: ReferencePointSnapshot | None = None
     original_node_id: UUID | None = None
     name: str = Field(min_length=1)
     latitude_deg: float = Field(ge=-90, le=90, allow_inf_nan=False)
@@ -45,14 +56,22 @@ class MapRoutePoint(WebRequestModel):
 
 
     @model_validator(mode="after")
-    def bound_new_point_name(self) -> MapRoutePoint:
-        # Existing domain names are unbounded; the facade verifies their identity/name.
+    def validate_reference(self) -> MapRoutePoint:
+        snapshot = self.reference_snapshot
+        if snapshot is not None and (
+            self.airport_id is not None
+            or (self.name != snapshot.name and self.original_node_id is None)
+            or self.latitude_deg != snapshot.latitude_deg
+            or self.longitude_deg != snapshot.longitude_deg
+        ):
+            raise ValueError("Reference selection must match its snapshot and cannot be an airport")
         if self.original_node_id is None and len(self.name) > 100:
             raise ValueError("new MAP point names must not exceed 100 characters")
         return self
 
 
 class ConfirmRouteRequest(WebRequestModel):
+    departure_origin: Literal["AIRPORT", "VOR"] = "AIRPORT"
     candidate_kind: Literal["line", "connected_lines", "polygon", "points", "map"]
     edit_project_id: UUID | None = None
     map_points: list[MapRoutePoint] = Field(default_factory=list, max_length=500)
@@ -132,6 +151,7 @@ class SectionUpdate(WebRequestModel):
 
 
 class UpdateProjectRequest(WebRequestModel):
+    departure_origin: Literal["AIRPORT", "VOR"] | None = None
     flight_date: date
     departure_time_jst: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     pilot_name: str | None = Field(default=None, max_length=100)

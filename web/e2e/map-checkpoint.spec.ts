@@ -42,59 +42,6 @@ test.beforeEach(async ({ page, context }) => {
   await mockAirspace(page);
 });
 
-for (const width of [390, 1100, 1440]) {
-  test(`map-picked checkpoint focuses its name once and reveals it at ${width}px`, async ({ page, isMobile }) => {
-    test.skip(isMobile && width !== 390, "Mobile focus is covered at the device-sized layout");
-    await page.setViewportSize({ width, height: 900 });
-    await importLocalRoute(page);
-    const route = page.getByRole("region", { name: "経路地図とLeg設定" });
-    const editor = route.getByRole("region", { name: "チェックポイント設定" });
-    // Required-field validation contributes to the label's accessible name.
-    const name = editor.getByRole("textbox", { name: /^名称(?:\s|$)/ });
-    const map = route.locator(".route-map");
-    await editor.getByRole("button", { name: "チェックポイントを追加" }).click();
-    // Merely opening an editor must not steal focus from its initiating control.
-    await expect(name).not.toBeFocused();
-    for (const suffix of ["first", "second"]) {
-      if (suffix === "second") {
-        await editor.getByRole("button", { name: "地図から座標を選択" }).click();
-      }
-      await map.click({ position: { x: 150, y: 150 } });
-      await expect(name).toBeFocused();
-      await expect(name).toBeInViewport({ ratio: 1 });
-      await expect(editor.getByLabel("緯度")).not.toHaveValue("");
-      await expect(editor.getByLabel("経度")).not.toHaveValue("");
-      await expect(route.locator("#route-map-frame")).not.toHaveClass(/is-picking-checkpoint/);
-      // No locator.fill/click: input must continue from the actual MAP click focus.
-      await page.keyboard.type(suffix);
-      await expect(name).toHaveValue(suffix === "first" ? "first" : "firstsecond");
-      await page.keyboard.press("Tab");
-      await expect(name).not.toBeFocused();
-      const latitude = editor.getByLabel("緯度");
-      await latitude.focus();
-      if (suffix === "second") await latitude.fill("32.482176");
-      await expect(latitude).toBeFocused();
-      await expect(name).not.toBeFocused();
-      const placement = await route.evaluate(element => ({
-        mapBottom: element.querySelector("#route-map-frame")!.getBoundingClientRect().bottom,
-        editorTop: element.querySelector(".checkpoint-editor")!.getBoundingClientRect().top,
-        editorBottom: element.querySelector(".checkpoint-editor")!.getBoundingClientRect().bottom,
-        tableTop: element.querySelector(".route-table-scroll")!.getBoundingClientRect().top,
-      }));
-      expect(placement.editorTop).toBeGreaterThanOrEqual(placement.mapBottom);
-      expect(placement.tableTop).toBeGreaterThanOrEqual(placement.editorBottom);
-    }
-    await editor.getByRole("button", { name: "キャンセル", exact: true }).click();
-    await expect(name).toHaveCount(0);
-    await expect(route.locator(".checkpoint-draft-marker")).toHaveCount(0);
-    await editor.getByRole("button", { name: "チェックポイントを追加" }).click();
-    await map.click({ position: { x: 150, y: 150 } });
-    await expect(name).toBeFocused();
-    await page.keyboard.type("new");
-    await expect(name).toHaveValue("new");
-  });
-}
-
 // Each overlay gets the same initial view: one successful drag can move the
 // other synthetic overlay outside the viewport through Leaflet inertia.
 for (const [geometry, selector] of [

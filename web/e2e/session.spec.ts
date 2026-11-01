@@ -1,3 +1,4 @@
+import { selectAirport } from "./helpers/mapCandidates";
 import { enterImportWorkflow, expectImportedDraft, confirmImportedDraft } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { resolve } from "node:path";
@@ -7,7 +8,19 @@ const isLocal = () => test.info().config.metadata.applicationMode === "local";
 const snapshot = (page: Page) => page.evaluate(k => JSON.parse(sessionStorage.getItem(k)!), key);
 
 test.beforeEach(async ({ context }) => {
-  if (isLocal()) await context.route("**/api/**", route => route.abort());
+  if (isLocal()) {
+    await context.route("**/api/**", route => route.abort());
+    await context.addInitScript(() => {
+      const Original = Worker;
+      (window as any).runtimeCount = 0;
+      window.Worker = class extends Original {
+        constructor(url: string | URL, options?: WorkerOptions) {
+          super(url, options);
+          (window as any).runtimeCount++;
+        }
+      };
+    });
+  }
 });
 async function open(page: Page) {
   await page.goto("/");
@@ -99,11 +112,25 @@ test("new discards recovery; new tabs including opener clones never inherit work
   await expect(second.getByLabel("TGL", { exact: true })).toHaveValue("7");
   await page.reload();
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("3");
-  page.once("dialog", dialog => dialog.accept());
+  // Cancel preserves current inputs; accepting repeatedly resets UI and Python work,
+  // but neither reloads the document nor creates another same-account runtime.
+  page.once("dialog", dialog => dialog.dismiss());
   await page.getByRole("button", { name: "新規", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
-  await expect(page.getByLabel("TGL", { exact: true })).toHaveCount(0);
-  expect((await snapshot(page)).form.tglCount).toBe("0");
+  await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("3");
+  const runtimeCount = await page.evaluate(() => (window as any).runtimeCount);
+  if (isLocal()) await page.evaluate(() => { (window as any).sameWorkDocument = true; });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt === 0) page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "KML/KMZから開始", exact: true })).toHaveCount(0);
+    await expect.poll(async () => (await snapshot(page))?.form.tglCount).toBe("0");
+    expect((await snapshot(page)).working.project).toBeNull();
+    if (isLocal()) {
+      expect(await page.evaluate(() => (window as any).sameWorkDocument)).toBe(true);
+      expect(await page.evaluate(() => (window as any).runtimeCount)).toBe(runtimeCount);
+    }
+  }
   await page.reload();
   expect((await snapshot(page)).working.project).toBeNull();
   await expect(second.getByLabel("TGL", { exact: true })).toHaveValue("7");
@@ -171,6 +198,7 @@ test("KMZ document choice resumes after reload with modal closed", async ({ page
     "import io,zipfile,sys; b=io.BytesIO(); z=zipfile.ZipFile(b,'w'); s=open('../tests/fixtures/issue_43_golden.kml').read(); z.writestr('a.kml',s); z.writestr('b.kml',s); z.close(); sys.stdout.buffer.write(b.getvalue())"]);
   await open(page);
   await page.locator('input[type="file"]').setInputFiles({ name: "routes.kmz", mimeType: "application/vnd.google-earth.kmz", buffer: bytes });
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByLabel("KML文書").selectOption("b.kml");
   await page.reload();
@@ -324,3 +352,25 @@ for (const width of [1100, 1440]) {
     expect((await snapshot(page)).working.project.id).toBe(before.working.project.id);
   });
 }
+
+
+test("confirmed route extension relocates arrival phases and preserves retained inputs", async ({ page }) => {
+  test.setTimeout(360_000);
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await calculated(page);
+  const before = (await snapshot(page)).working;
+  await page.getByRole("button", { name: "経路を編集", exact: true }).click();
+  await expect(page.getByRole("list", { name: "経路リスト" })).toBeVisible();
+  await selectAirport(page, "RJFK");
+  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await expect(page.getByRole("list", { name: "経路リスト" })).toHaveCount(0);
+  const after = (await snapshot(page)).working;
+  expect(after.project.sections.map((section: any) => section.phase)).toEqual([
+    "CLIMB", "CRUISE", "CRUISE", "DESCENT", "VISUAL_ARRIVAL",
+  ]);
+  for (let i = 0; i < before.project.sections.length; i++) {
+    expect(after.project.sections[i].id).toBe(before.project.sections[i].id);
+    expect(after.project.sections[i].planned_altitude_ft_msl).toBe(before.project.sections[i].planned_altitude_ft_msl);
+  }
+  expect(after.last_calculation).toEqual(before.last_calculation);
+});

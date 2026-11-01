@@ -1,9 +1,12 @@
+import { localMode } from "./executionMode";
+import type { ReferencePointSnapshot } from "./referencePoints";
 import { importCandidateToMapDraft } from "./importRouteDraft";
 import { canConfirmMapDraft, nextWaypointName, routeDraftFromProject, type MapRoutePoint } from "./mapRouteDraft";
 import { AccountSyncControl } from "./components/AccountSyncControl";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApplicationError } from "./application";
+import { WorkChangeQueue } from "./workChangeQueue";
 import type { AutoNavLogApplication, UpdateProjectInput } from "./application";
 import { readSession, writeSession, clearSession, RECOVERY_FAILED, emptyCheckPointDraft, projectDraft, restoreProjectDraft } from "./applicationSession";
 import type { ApplicationSession, PendingKmz, NodeNameDraft, VorColumn } from "./applicationSession";
@@ -89,7 +92,9 @@ function patternRequestBasis(next: WebState): string | null {
   ].join("|");
 }
 
-function App({ application, platform, FileInput }: { application: AutoNavLogApplication; platform: PlatformCapabilities; FileInput: ComponentType<FileInputProps> }) {
+type AppProps = { application: AutoNavLogApplication; platform: PlatformCapabilities; FileInput: ComponentType<FileInputProps> };
+
+function App({ application, platform, FileInput, onNewWork }: AppProps & { onNewWork?: () => void }) {
   const [informationState] = useState(() => createInformationState(platform.persistence.values));
   const { hasUnreadInformation, hasUnreadKnownIssues, markInformationSeen } = informationState;
   const [recovery] = useState(() => readSession(platform.session));
@@ -98,9 +103,13 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [nodeNameDraft, setNodeNameDraft] = useState<NodeNameDraft>({ id: null, name: "" });
   const [sessionReady, setSessionReady] = useState(false);
   const sessionDiscarded = useRef(false);
+  const [workChanges] = useState(() => new WorkChangeQueue());
+  const syncResolutionGeneration = useRef(workChanges.capture());
   const latestSession = useRef<ApplicationSession | null>(null);
   const restoredPattern = useRef<string | null>(null);
   const lifecycle = useRef(0);
+  const calculationInFlight = useRef(false);
+  const mounted = useRef(true);
   const restoredCandidate = useRef<string | null>(null);
   const [kmzOpen, setKmzOpen] = useState(false);
   const [state, setState] = useState<WebState | null>(null);
@@ -115,7 +124,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [pendingImportDraft, setPendingImportDraft] = useState(false);
   const [importFitCoordinates, setImportFitCoordinates] = useState<[number, number][] | null>(null);
   const [selectedImportCandidate, setSelectedImportCandidate] = useState("");
-  const confirmDiscardMapDraft = () => (mapRouteDraft.length === 0 && !pendingImportDraft) || window.confirm("作成中の経路を破棄しますか？");
+  const confirmDiscardMapDraft = () => (mapRouteDraft.length === 0 && !pendingImportDraft) || window.confirm("作成中の変更を破棄しますか？");
   const [form, setForm] = useState<PlanningForm>(() => initialPlanningForm());
   const [altitudeInputs, setAltitudeInputs] = useState<Record<string, string>>({});
   const [navLogDrafts, setNavLogDrafts] = useState<NavLogEditDrafts>({});
@@ -127,7 +136,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const [navLogEditStatus, setNavLogEditStatus] = useState<{
     kind: "idle" | "pending" | "saving" | "saved" | "error";
     message: string;
-  }>({ kind: "idle", message: "入力欄を編集すると自動再計算します。" });
+  }>({ kind: "idle", message: "" });
   const [busy, setBusy] = useState(false);
   const [activeOperation, setActiveOperation] = useState<ActiveOperation>(null);
   const [calculationProgress, setCalculationProgress] = useState({
@@ -231,7 +240,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     setNavLogEditVersion(0);
     setNavLogEditStatus({
       kind: "idle",
-      message: "入力欄を編集すると自動再計算します。",
+      message: "",
     });
   };
 
@@ -388,6 +397,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
 
   useEffect(() => {
     let active = true;
+    mounted.current = true;
     lifecycle.current += 1;
     const bootstrap = async () => {
       let restored = recovery.session;
@@ -444,7 +454,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     void bootstrap().catch((reason: unknown) => {
       if (active) setError(reason instanceof Error ? reason.message : "起動に失敗しました。");
     });
-    return () => { active = false; lifecycle.current += 1; };
+    return () => { active = false; mounted.current = false; lifecycle.current += 1; };
   }, [application, bootstrapAttempt]);
 
   useLayoutEffect(() => {
@@ -463,7 +473,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   }, [state?.outcome]);
 
   useLayoutEffect(() => {
-    if (!sessionReady || !state?.workingRecovery || sessionDiscarded.current) return;
+    if (!sessionReady || !state?.workingRecovery) return;
     const snapshot: ApplicationSession = {
       mapRouteDraft, editingRouteProjectId, legacyRouteInput, pendingImportDraft, selectedImportCandidate, checkPointDraft, nodeNameDraft, vorColumns,
       version: 1, working: state.workingRecovery, form, altitudeInputs, navLogDrafts,
@@ -471,6 +481,9 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       projectName, selectedProjectId, pendingKmz, selectedKmzDocument,
     };
     latestSession.current = snapshot;
+    // A queued New may suppress storage before this render commits. Keep its
+    // failure recovery aligned with the displayed work even while writes stop.
+    if (sessionDiscarded.current) return;
     if (!writeSession(snapshot, platform.session.storage)) {
       setNotice("作業状態を一時保存できません。再読み込みすると未保存の作業を失う可能性があります。");
     }
@@ -618,6 +631,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     if (draft.status === "ready") {
       setMapRouteDraft(draft.points);
       setPendingImportDraft(false);
+      setNotice("経路候補を読み込みました。地図と記載順を確認してください。");
     } else {
       setPendingImportDraft(true);
     }
@@ -626,6 +640,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   const stageImportedRoute = (next: WebState) => {
     // A failed/cancelled candidate selection must not erase the current Map Draft.
     applyState(next, { freshImport: true, preserveMapDraft: true });
+    setNotice(null);
     setSelectedImportCandidate("");
     setPendingImportDraft(next.import.candidates.length > 0);
     if (!next.import.candidates.length) setError("KMLを読み込めません。内容を確認してください。");
@@ -651,7 +666,6 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       });
       if (epoch !== lifecycle.current) return;
       stageImportedRoute(next);
-      setNotice("経路候補を読み込みました。地図と記載順を確認してください。");
       setPendingKmz(null);
       setSelectedKmzDocument("");
     } catch (reason) {
@@ -727,7 +741,6 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         }
         if (epoch !== lifecycle.current) return;
         stageImportedRoute(next);
-        setNotice("貼付KMLから経路候補を読み込みました。");
         setPasteOpen(false);
       });
     } finally {
@@ -744,6 +757,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     const defaults = initialPlanningForm(state.airports);
     const from = state.airports.find(airport => airport.id === points[0]?.airport_id);
     const confirmed = await run(() => application.confirmRoute({
+      departure_origin: form.departureOrigin,
       edit_project_id: editingRouteProjectId ?? undefined,
       candidate_kind: "map", map_points: points.map(({ id: _id, ...point }) => point),
       route_use_confirmed: true, use_penultimate_as_vrep: true,
@@ -802,6 +816,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           ftd_weather: form.weatherMode === "FTD" ? ftdWeather : null,
           run_up_included: form.runUpIncluded,
           nose_fairing_enabled: form.noseFairingEnabled,
+          departure_origin: form.departureOrigin,
           air_conditioning_enabled: form.airConditioningEnabled,
           descent_rate_fpm: form.descentRateFpm,
           tgl_count: tglCount,
@@ -1027,6 +1042,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       ftd_weather: weatherMode === "FTD" ? ftdWeather : null,
       run_up_included: form.runUpIncluded,
       nose_fairing_enabled: form.noseFairingEnabled,
+      departure_origin: form.departureOrigin,
       air_conditioning_enabled: form.airConditioningEnabled,
       descent_rate_fpm: form.descentRateFpm,
       tgl_count: tglCount,
@@ -1434,7 +1450,9 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     return () => window.clearTimeout(timeout);
   }, [altitudeInputs, application, form, navLogDrafts, navLogEditVersion, state?.outcome, state?.project]);
 
-  const handleCalculate = async () => {
+  const handleCalculate = async (roundingMode?: boolean) => {
+    if (busy || calculationInFlight.current) return;
+    calculationInFlight.current = true;
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
     scrollToCalculatedNavLogRef.current = null;
@@ -1442,7 +1460,10 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     const calculated = await run(async () => {
       const saved = await flushDraftAutosave(true);
       if (!saved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-      const next = await application.calculate(setCalculationProgress);
+      const next = await application.calculate(
+        setCalculationProgress,
+        roundingMode === undefined ? undefined : { roundingMode },
+      );
       scrollToCalculatedNavLogRef.current = next.outcome;
       return next;
     }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
@@ -1450,6 +1471,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       operation: "calculate",
     });
     if (!calculated?.outcome) scrollToCalculatedNavLogRef.current = null;
+    calculationInFlight.current = false;
   };
 
   const handleSave = async (name: string) => {
@@ -1540,7 +1562,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
     const reset = await runTask(
-      async () => {
+      () => workChanges.reset(async () => {
         await discardPendingDraftAutosave();
         try {
           clearSession(platform.session.storage);
@@ -1556,11 +1578,12 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           throw reason;
         }
         return true;
-      },
+      }),
       { fallbackError: "新規作業を開始できませんでした。" },
     );
     if (reset) {
-      window.location.reload();
+      if (onNewWork) onNewWork();
+      else window.location.reload();
     }
   };
 
@@ -1573,8 +1596,8 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   if (!state) {
     return (
       <main className="loading-screen">
-        <div className="loading-mark">A</div>
-        <strong>AutoNavLogを起動しています</strong>
+        <div className="loading-mark">N</div>
+        <strong>NavMateを起動しています</strong>
         {error && (
           <>
             <p role="alert">{error}</p>
@@ -1654,6 +1677,14 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       id: crypto.randomUUID(), name: airport.icao, airport_id: airport.id,
       latitude_deg: airport.latitudeDeg, longitude_deg: airport.longitudeDeg,
     }]),
+    onReference: (reference: ReferencePointSnapshot) => setMapRouteDraft(current => current.length === 0 || current.length >= 500 ? current : [...current, {
+      id: crypto.randomUUID(), name: reference.name, airport_id: null,
+      latitude_deg: reference.latitude_deg, longitude_deg: reference.longitude_deg,
+      reference_snapshot: structuredClone(reference),
+    }]),
+    onNamedPoint: (name: string, latitude: number, longitude: number) => setMapRouteDraft(current => current.length === 0 || current.length >= 500 ? current : [...current, {
+      id: crypto.randomUUID(), name, airport_id: null, latitude_deg: latitude, longitude_deg: longitude,
+    }]),
     onPoint: (latitude: number, longitude: number) => setMapRouteDraft(current => [...current, {
       id: crypto.randomUUID(), name: nextWaypointName(current), airport_id: null,
       latitude_deg: latitude, longitude_deg: longitude,
@@ -1665,23 +1696,39 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
 
   return (
     <div className="app-shell">
-      <AccountSyncControl sync={application.sync} onBeforeResolve={confirmDiscardMapDraft} onChange={() => {
+      <AccountSyncControl sync={application.sync} onBeforeResolve={() => {
+        if (!confirmDiscardMapDraft()) return false;
+        syncResolutionGeneration.current = workChanges.capture();
+        return true;
+      }} onChange={() => {
         if (application.refreshProjects) void application.refreshProjects().then(next => {
           setState(current => current ? { ...current, savedProjects: next.savedProjects, storageWarning: next.storageWarning } : current);
         }).catch(() => {});
       }} onResolved={async id => {
+        const epoch = lifecycle.current;
+        const generation = syncResolutionGeneration.current;
+        const active = () => mounted.current && !sessionDiscarded.current && epoch === lifecycle.current;
+        if (!active() || !workChanges.isCurrent(generation)) return;
         cancelPendingRecalculation();
         await discardPendingDraftAutosave();
+        if (!active() || !workChanges.isCurrent(generation)) return;
         const next = await application.refreshProjects?.();
-        if (next?.savedProjects.some(project => project.id === id)) {
-          const loaded = await application.loadProject(id);
-          setMapRouteDraft([]);
-          setEditingRouteProjectId(null);
-          applyState(loaded, { syncCalculationInputs: true });
-        } else {
-          await application.newWork();
-          applyState(await application.bootstrap(), { syncCalculationInputs: true });
-        }
+        await workChanges.resolve(generation, async () => {
+          if (!active()) return;
+          if (next?.savedProjects.some(project => project.id === id)) {
+            const loaded = await application.loadProject(id);
+            if (active()) {
+              setMapRouteDraft([]);
+              setEditingRouteProjectId(null);
+              applyState(loaded, { syncCalculationInputs: true });
+            }
+          } else {
+            await application.newWork();
+            if (!active()) return;
+            const blank = await application.bootstrap();
+            if (active()) applyState(blank, { syncCalculationInputs: true });
+          }
+        });
       }} />
       <Header
         onBeforeAccountChange={confirmDiscardMapDraft}
@@ -1738,7 +1785,6 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           {!editingRouteProjectId && <>
           {pastedKml && !pasteOpen && <button className="secondary-button" onClick={() => setPasteOpen(true)}>貼り付けたKMLの編集を続ける</button>}
           {pendingKmz && !kmzOpen && <button className="secondary-button" onClick={() => setKmzOpen(true)}>KMZからの選択を続ける</button>}
-          <p>FROMの空港から飛行順に地点を選択します。</p>
           {state.import.warnings.map((warning, index) => <p className="inline-warning" key={`${index}:${warning}`}>{warning}</p>)}
           {pendingImportDraft && <button className="secondary-button" disabled={busy} onClick={() => { if (confirmDiscardMapDraft()) setPendingImportDraft(false); }}>キャンセル</button>}
           {pendingImportedDraft?.status === "unmatched-endpoints" && <p role="alert">{
@@ -1748,7 +1794,6 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           }</p>}
           <FileInput busy={busy} onFile={handleFile} inputRef={routeFileInput} />
           <button className="secondary-button" disabled={busy} onClick={() => void handlePasteImport("clipboard")}>KMLを取り込む</button>
-          <p className="quiet-state">ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。</p>
           </>}
         </aside> : <ImportPlanPanel
           panelRef={planningPanelRef}
@@ -1836,11 +1881,12 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           readiness={state.readiness}
           projectExists={Boolean(state.project)}
           weatherMode={state.project?.weather_mode ?? form.weatherMode}
+          forecastRunId={state.outcome?.selected_forecast_run_id ?? null}
           canCalculate={canCalculate}
           outcomeExists={Boolean(state.outcome)}
           busy={busy}
           activeOperation={activeOperation}
-          onCalculate={handleCalculate}
+          onCalculate={() => void handleCalculate()}
           onAcknowledge={handleAcknowledge}
         />}
       </main>
@@ -1853,6 +1899,9 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           aria-label="計算済みNAV LOG"
         >
           <NavLogTable
+            roundingMode={state.roundingMode ?? false}
+            roundingDisabled={busy || !calculationInputsAreLocallyCurrent || hasNavLogEditErrors(navLogEditErrors) || (!(state.roundingMode ?? false) && !canCalculate) || navLogEditStatus.kind === "saving"}
+            onRoundingChange={(enabled) => void handleCalculate(enabled)}
             vorColumns={vorColumns}
             setVorColumns={setVorColumns}
             outcome={state.outcome}
@@ -1907,11 +1956,6 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           </p>
         </aside>
       )}
-
-      <footer className="app-footer">
-        <span>AutoNavLogは非公式の地上準備支援ツールです。</span>
-        <span>参照 {state.runtime.referenceRevision} / 性能 {state.runtime.performanceRevision}</span>
-      </footer>
 
       {activeOperation === "calculate" && (
         <CalculationProgressOverlay {...calculationProgress}
@@ -2020,4 +2064,10 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   );
 }
 
-export default App;
+export default function ApplicationWorkspace(props: AppProps) {
+  const [generation, setGeneration] = useState(0);
+  // Remount every UI draft/ref and invalidate pending component callbacks, without
+  // replacing the same-account Application. Legacy retains its page-reload boundary.
+  return <App key={generation} {...props}
+    onNewWork={localMode ? () => setGeneration(value => value + 1) : undefined} />;
+}
