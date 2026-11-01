@@ -172,6 +172,8 @@ test("confirmed route can resume a pasted draft without offering an unavailable 
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  // Wait for asynchronous confirmation before testing the confirmed-route action.
+  await expect(page.getByRole("heading", { name: "確定済み経路", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "貼り付けたKMLの編集を続ける" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await expect(dialog.getByRole("textbox")).toHaveValue(kml);
