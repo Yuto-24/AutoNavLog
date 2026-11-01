@@ -20,6 +20,7 @@ interface State {
   pending?: { after: string; target: string; at: number; commit: string };
 }
 interface Run { id: number; status: string; conclusion: string | null; created_at: string; display_title: string }
+interface DispatchRun { workflow_run_id: number; run_url: string; html_url: string }
 interface Freshness { schema_version: number; run: string; generated_at: string; expires_at: string; app_commit: string }
 const targets = {
   canonical_freshness: "navmate.yuto24.com",
@@ -76,6 +77,19 @@ async function request(stage: Stage, url: string, fetcher: typeof fetch, diagnos
 }
 /** Decode metadata bytes for subsequent JSON or listing validation. */
 const decode = (bytes: Uint8Array): string => decoder.decode(bytes);
+/** Validate the 2026-03-10 dispatch receipt; it identifies a run, not its outcome. */
+function dispatchRun(bytes: Uint8Array): DispatchRun {
+  let value: Partial<DispatchRun> | null;
+  try { value = JSON.parse(decode(bytes)); }
+  catch { throw new Fault("INVALID_DISPATCH_RESPONSE"); }
+  requireThat(value !== null && typeof value === "object" && !Array.isArray(value) &&
+    typeof value.workflow_run_id === "number" && Number.isSafeInteger(value.workflow_run_id) &&
+    value.workflow_run_id > 0, "INVALID_DISPATCH_RESPONSE");
+  const path = `/Yuto-24/AutoNavLog/actions/runs/${value.workflow_run_id}`;
+  requireThat(value.run_url === `https://api.github.com/repos${path}` &&
+    value.html_url === `https://github.com${path}`, "INVALID_DISPATCH_RESPONSE");
+  return { workflow_run_id: value.workflow_run_id, run_url: value.run_url, html_url: value.html_url };
+}
 /** Read a small untrusted scheduling hint. This never establishes publication success. */
 async function freshness(fetcher: typeof fetch, now: number, diagnose: Diagnose) {
   const { bytes } = await request("canonical_freshness", FRESHNESS, fetcher, diagnose, { cache: "no-store" }, FRESHNESS_LIMIT);
@@ -148,32 +162,37 @@ export async function tick(env: Env, fetcher: typeof fetch = fetch, now = Date.n
   // Preserve legacy target/pending evidence; failed or ambiguous POSTs keep the slot.
   await env.STATE.put(KEY, JSON.stringify(state));
   requireThat(Date.now() - reservationStarted <= 10_000, "RESERVATION_EXPIRED");
-  const { response } = await request("dispatch", `${API}/dispatches`, fetcher, diagnose, {
+  const { response, bytes } = await request("dispatch", `${API}/dispatches`, fetcher, diagnose, {
     method: "POST", headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({ ref: "main", inputs: { feed_refresh: true, request_id: String(now), publish: true } }),
   });
-  requireThat(response.status === 204, "DISPATCH_UNCONFIRMED");
-  return result("DISPATCH_ACCEPTED");
+  requireThat(response.status === 200, "DISPATCH_UNCONFIRMED");
+  return { ...result("DISPATCH_ACCEPTED"), request_id: String(now), ...dispatchRun(bytes) };
 }
 export default {
   /** Keep the Worker HTTP entrypoint closed; only scheduled events perform checks. */
   async fetch() { return new Response("Not found", { status: 404 }); },
   /** Run a scheduled check with redacted errors and an optional liveness-only heartbeat. */
   async scheduled(_event: unknown, env: Env) {
-    let result;
-    const diagnose: Diagnose = record => console.log(JSON.stringify(record));
-    try { result = await tick(env, fetch, Date.now(), diagnose); }
-    catch (error) {
-      // Never expose native errors, request headers, API responses or secret URLs.
-      console.log(JSON.stringify({ status: "UNKNOWN", reason: error instanceof Fault ? error.message : "IO_OR_VALIDATION_FAILED" }));
-      throw new Error("MSM trigger check failed");
-    }
-    console.log(JSON.stringify(result));
-    if (env.HEARTBEAT_URL) {
-      // Liveness only; #273 owns weather incidents and recovery notification deduplication.
-      requireThat(/^https:\/\/hc-ping\.com\/[a-f0-9-]{36}$/.test(env.HEARTBEAT_URL), "INVALID_HEARTBEAT");
-      try { await request("heartbeat", env.HEARTBEAT_URL, fetch, diagnose, {}, 4096); }
-      catch { throw new Error("MSM trigger heartbeat failed"); }
+    let result: Record<string, unknown> = { status: "UNKNOWN" };
+    const diagnostics: Diagnostic[] = [];
+    const diagnose: Diagnose = record => diagnostics.push(record);
+    try {
+      try { result = await tick(env, fetch, Date.now(), diagnose); }
+      catch (error) {
+        // Never expose native errors, request headers, API responses or secret URLs.
+        result = { status: "UNKNOWN", reason: error instanceof Fault ? error.message : "IO_OR_VALIDATION_FAILED" };
+        throw new Error("MSM trigger check failed");
+      }
+      if (env.HEARTBEAT_URL) {
+        // Liveness only; #273 owns weather incidents and recovery notification deduplication.
+        requireThat(/^https:\/\/hc-ping\.com\/[a-f0-9-]{36}$/.test(env.HEARTBEAT_URL), "INVALID_HEARTBEAT");
+        try { await request("heartbeat", env.HEARTBEAT_URL, fetch, diagnose, {}, 4096); }
+        catch { throw new Error("MSM trigger heartbeat failed"); }
+      }
+    } finally {
+      // One log crossing instead of one per HTTP stage. Keep every bounded diagnostic.
+      console.log(JSON.stringify({ ...result, diagnostics }));
     }
   },
 };

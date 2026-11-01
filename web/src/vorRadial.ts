@@ -1,4 +1,5 @@
 import vorStationData from "./data/vorStations.json" with { type: "json" };
+import { roundHalfUp } from "./displayRounding";
 
 const METERS_PER_NM = 1852;
 const WGS84_A_METERS = 6378137;
@@ -359,6 +360,7 @@ export function formatVorRadialDistance(
   station: VorStation,
   latitudeDeg: number | null | undefined,
   longitudeDeg: number | null | undefined,
+  roundingMode = false,
 ): string {
   if (latitudeDeg == null || longitudeDeg == null) return "— / —";
   const inverse = wgs84Inverse(
@@ -372,6 +374,8 @@ export function formatVorRadialDistance(
     inverse.initialTrueBearingDeg + station.variation_west_deg,
   );
   const roundedRadial = Math.round(magneticRadial) % 360 || 360;
-  const distance = (Math.round((inverse.distanceNm + Number.EPSILON) * 10) / 10).toFixed(1);
+  const distance = roundingMode
+    ? (inverse.distanceNm < 0.25 ? 0 : roundHalfUp(inverse.distanceNm, 0.5)).toFixed(1)
+    : (Math.round((inverse.distanceNm + Number.EPSILON) * 10) / 10).toFixed(1);
   return `${roundedRadial.toString().padStart(3, "0")} / ${distance}`;
 }

@@ -50,19 +50,20 @@ Before authorization, review the exact target, SHA, public configuration and pla
 
 After explicit authorization, the operator configures:
 
-1. GitHub `static-production` environment for unattended recurring feed updates,
-   restricted to `main` without required reviewers after explicit recurring-policy
-   approval. Use a separate `static-publication` environment, restricted to `main`
-   with required reviewers, for one-off `publish=true` dispatches. Build-only
-   dispatches use `static-validation`. A pending reviewer on every scheduled run is
-   not unattended operation. Do not silently remove publication protection to
-   unblock a run.
+1. GitHub `static-production` environment for all unattended forecast-only updates,
+   restricted to `main` without required reviewers. Both preflight and build use it
+   for schedules and every `publish=true` dispatch, including the external Worker
+   and manual recovery. Build-only dispatches retain `static-validation`. This
+   forecast-only policy was explicitly authorized on 2026-10-28; it does not authorize
+   app upgrades, configuration changes or new schedule activation. Leave the existing
+   `static-publication` environment and its protection unchanged; this workflow no
+   longer selects it. App releases retain the separate reviewed-plan approval path.
 2. Repository variables `STATIC_ORIGIN=https://navmate.yuto24.com`, `STATIC_APPROVED_SHA`
    (the full canonical production SHA), and the six public `VITE_*` settings documented
    in #121. Keep these in repository variables so build and monitor see the same values;
    do not shadow them with different environment values. No credentials in `VITE_*`.
 3. `CLOUDFLARE_ACCOUNT_ID`; install environment secret `CLOUDFLARE_PAGES_TOKEN` in
-   both `static-production` and `static-publication`, scoped only to Pages edit in
+   `static-production`, scoped only to Pages edit in
    the intended account. Keep #145 Worker credentials and configuration outside
    this workflow. Never expose the Pages token to the application build.
 4. Enable catalog freshness monitoring with `STATIC_MONITOR_ENABLED=true` only after
@@ -413,7 +414,7 @@ connection settings unchanged. This is the existing whole-artifact Pages Direct
 Upload path; #270 and #273 are independent follow-up enhancements. The app-release
 wrapper and its Rules-transition approval are unnecessary for a same-app renewal.
 
-Before requesting publication approval:
+Before a same-app forecast recovery:
 
 1. Read canonical `release.json` and catalog; compare the approved SHA, clean
    source, public settings, catalog hash/bytes and actual expiry. Record each
@@ -437,15 +438,16 @@ Before requesting publication approval:
    what passed, what remains UNKNOWN, and what needs operator approval. Do not
    change production, merge a PR or enable schedules during preparation.
 
-After **separate explicit approval** and an acceptable final merge-gate check,
-merge the recovery tooling PR. Reconfirm the merged workflow/checker and repeat
+If recovery requires a tooling PR, merge it only after **explicit merge approval**
+and an acceptable final merge-gate check. Reconfirm the workflow/checker and repeat
 current target/configuration/idle reads, including the full Actions run inventory.
 Keep other operators from uploading during the approved window; GET inventory
 does not provide a remote lock. Resolve target uncertainty or competing work
 before proceeding. Dispatch `static-production.yml` on main with the same full
-approved application SHA and `publish=true`; approve `static-publication` through
-its existing required reviewer. A new feed is generated in that run, so a previous
-build-only catalog is never promoted after expiry.
+approved application SHA and `publish=true`. Forecast-only publication uses the
+unattended `static-production` environment, with no per-run human approval. A new
+feed is generated in that run, so a previous build-only catalog is never promoted
+after expiry.
 
 Verify the canonical inventory and catalog with the bounded same-response
 hash/bytes/freshness check, then the independent monitor. Complete the live-origin
@@ -490,7 +492,9 @@ Its timestamps are historical evidence, not current publication authorization.
 
 `scripts/static_ops/app_release.sh` は、既存 Python gate を呼ぶ薄い入口。
 **prepare は provider を変更しない。publish は別途承認後だけ実行する。**
-GitHub の release 作成、main の最新版、MSM-only dispatch はアプリ更新の承認を代用しない。
+以下は個別の手動公開手順。別途有効化する[正式Releaseの自動反映](automatic_app_releases.md)では、
+Rules等が同一の通常更新だけ正式Releaseを公開権限として扱う。Rules変更の個別承認と互換性確認は維持する。
+main の最新版や MSM-only dispatch はアプリ更新の承認を代用しない。
 PR #259 の毎時 MSM 判定と共通 workflow は変更せず、既存の
 `STATIC_AUTOMATION_ENABLED` 停止 → idle 確認 → 公開 → `STATIC_APPROVED_SHA` 切替 → 再開を使う。
 
@@ -1357,5 +1361,6 @@ resources. See [Workers rollback limitations](https://developers.cloudflare.com/
 credential-free tests, independent request/publication checks, staged CLI operations,
 free-tier estimates and activation acceptance. All feed renewal dispatches now share
 the new-complete-Run preflight with schedule and repeat the newer-than-canonical check
-immediately before upload. Existing app identity, six-hour lifetime, publication
-approval and shared concurrency remain mandatory. Worker code delivery is not activation.
+immediately before upload. Existing app identity, six-hour lifetime and shared
+concurrency remain mandatory. Forecast-only publication needs no per-run human
+approval; app-release and activation approvals are unchanged. Worker code delivery is not activation.

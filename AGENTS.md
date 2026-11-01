@@ -14,7 +14,7 @@
 - Any layout change needs browser coverage around 1,100 px and above 1,240 px, asserting workflow-region order/position rather than visibility alone. See `docs/web-design/README.md` for the UI reference.
 - For release-management, version metadata, documentation, or CI changes without user-facing behavior or layout changes, skip browser automation, screenshots, and visual checks unless the user explicitly requests them. Use focused source, build, and health checks instead.
 - Docker Compose is the supported local/Legacy runtime; the production delivery path is Static Web as described in `README.md` and `docs/static_production.md`. Local Compose health does not establish Static Web production acceptance. Preserve the `autonavlog-data` volume: routine updates and stops must not use `docker compose down -v`. Follow `README.md` and `docs/cloudflare_tunnel.md` for environment-specific startup and exposure rules.
-- For a release-required Issue, update root `VERSION` and the latest `CHANGELOG.md` section directly. `VERSION` is the sole NavMate version source; do not place it in web package manifests or README. Run `python scripts/validate_release.py`, `pytest tests/unit/test_version.py`, and `npm --prefix web run typecheck`. Do not change the separately managed `src/autonavlog/version.py` or `jma-msm-wind` version.
+- Ordinary feature/fix PRs use `Release: not-required` with a `Reason:` and keep root `VERSION` and `CHANGELOG.md` unchanged. Record pending release notes in the PR body under `## Pending release notes`, or explicitly state `None` when there are none. Only an explicit release-preparation PR uses `Release: required`, increments `VERSION`, and adds the finalized `CHANGELOG.md` section; do not rewrite published release notes. This applies to both `main` and `release/1.x`. `VERSION` is the sole NavMate version source; do not place it in web package manifests or README. Run `python scripts/validate_release.py`, `pytest tests/unit/test_version.py`, and `npm --prefix web run typecheck`. Do not change the separately managed `src/autonavlog/version.py` or `jma-msm-wind` version.
 
 ## Codex worktrees
 
@@ -37,3 +37,13 @@
 - Before any additional request, record its reason, the reviewed commit, current HEAD, remaining findings, and whether automatic review already covers the diff. If a completed automatic review already covers the target diff and no outstanding finding requires another reviewer response, do not request it again; if such a review is queued or running, wait. Do not claim that an older review covers a newer commit without checking and reporting the intervening changes.
 - Respect rate limits and the stated retry time. A quota reset alone is not a reason to re-request; reassess whether review is still necessary. Do not post repeated requests while waiting or change paid plans to obtain more reviews.
 - Preserve all existing independent-review requirements and actual repository gates. Required latest-commit approval, required checks, unresolved conversations, and effective change requests take precedence over the optimization above. Do not dismiss reviews, weaken protection, or mark unreviewed work as approved to bypass a gate; report any required gate that cannot be verified or satisfied. Merge and deployment still require their existing authorization.
+
+When a repository's documentation and its existing code disagree, follow the conventions used in the existing code, and in your final reply point out each inconsistency you found between the documentation and the code
+
+## Reusable knowledge
+
+Before work, consult [the shared knowledge index](docs/knowledge/INDEX.md) and only the entries relevant to the task; follow [the knowledge workflow](docs/knowledge/README.md) to verify applicability and preserve non-obvious findings with evidence through incremental updates. Keep detailed lessons out of this file, reuse existing canonical documents, and do not create an entry when nothing reusable was learned.
+
+## Reader-facing writing
+
+Before creating or updating PR bodies, Issue bodies, comments, ROADMAPs, work reports, or final replies for this project, read and follow [the writing standard](docs/writing-style.md). This applies to GitHub and chat messages as well as repository files. Run its submission checklist before sending or publishing. Keep the standard canonical rather than duplicating its detailed rules here. Writing rules do not authorize changes, publication, or additional notifications.

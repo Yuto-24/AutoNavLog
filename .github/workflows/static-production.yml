@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       feed_refresh:
-        description: 'External MSM fallback; requires separate opt-in and publication approval'
+        description: 'External MSM fallback; requires separate opt-in'
         type: boolean
         default: false
       request_id:
@@ -20,7 +20,7 @@ on:
         description: 'Reviewed full application commit SHA (empty = approved feed-refresh source)'
         type: string
       publish:
-        description: 'Publish after production environment approval; false is build/test only'
+        description: 'Publish; false is build/test only'
         type: boolean
         default: false
 
@@ -32,7 +32,9 @@ permissions:
 concurrency:
   group: static-production
   cancel-in-progress: false
+  queue: max
 
+# Forecast-only publication is unattended for every trigger; app-release approval is separate.
 jobs:
   preflight:
     outputs:
@@ -42,7 +44,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.STATIC_AUTOMATION_ENABLED == 'true') && (!inputs.feed_refresh || (vars.STATIC_EXTERNAL_TRIGGER_ENABLED == 'true' && vars.STATIC_AUTOMATION_ENABLED == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: ${{ github.event_name == 'schedule' && 'static-production' || inputs.publish && 'static-publication' || 'static-validation' }}
+    environment: ${{ (github.event_name == 'schedule' || inputs.publish) && 'static-production' || 'static-validation' }}
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
@@ -98,7 +100,7 @@ jobs:
     name: msm-detected/${{ needs.preflight.outputs.upstream_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    environment: ${{ github.event_name == 'schedule' && 'static-production' || inputs.publish && 'static-publication' || 'static-validation' }}
+    environment: ${{ (github.event_name == 'schedule' || inputs.publish) && 'static-production' || 'static-validation' }}
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
@@ -166,6 +168,7 @@ jobs:
             --env VITE_TAF_PROXY_URL --env VITE_LEGACY_MIGRATION_URL \
             --env AUTONAVLOG_MSM_FEED=/feed \
             --env AUTONAVLOG_REFERENCE_PYTHON=python3 \
+            --env ARTIFACT_UID="$(id -u)" --env ARTIFACT_GID="$(id -g)" \
             autonavlog-static-build sh -eu -c '
               git config --global --add safe.directory /app
               python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
@@ -182,6 +185,12 @@ jobs:
               trap "kill $server_pid" EXIT
               curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4121/ >/dev/null
               npm --prefix web run test:static
+              # Only these outputs need host-side writes; payloads remain read-only to the runner.
+              set -- web/dist-static/release.json web/dist-static/weather/msm
+              if [ -f web/dist-static/weather/msm/freshness.json ]; then
+                set -- "$@" web/dist-static/weather/msm/freshness.json
+              fi
+              chown --no-dereference "$ARTIFACT_UID:$ARTIFACT_GID" "$@"
             '
       - name: Include deployment-local freshness hint without changing the approved app
         run: python3 tooling/scripts/static_ops/freshness.py --dist app/web/dist-static

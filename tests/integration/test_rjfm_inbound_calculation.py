@@ -333,7 +333,8 @@ def test_inbound_display_ete_children_sum_to_once_rounded_profile_total(
     summary = [
         row
         for row in outcome.display_rows
-        if row.row_type == "PHYSICAL_LEG_SUMMARY" and row.phase is FlightPhase.DESCENT
+        if row.row_type == "PHYSICAL_LEG_SUMMARY"
+        and row.from_node_id == project.ordered_nodes()[1].id
     ]
     child_minutes = sum(float(row.ete.text or "nan") for row in children)
     total_exact = sum(
@@ -343,17 +344,20 @@ def test_inbound_display_ete_children_sum_to_once_rounded_profile_total(
     )
     expected_minutes = round(total_exact / 60 * 2) / 2
     assert child_minutes == pytest.approx(expected_minutes, abs=1e-9)
-    assert sum(float(row.ete.text.split(" / ", 1)[0]) for row in summary) == pytest.approx(
-        expected_minutes,
-        abs=1e-9,
+    assert len(summary) == 1
+    grouped_ids = {section.id for section in project.ordered_sections()[1:-1]}
+    grouped_children = [
+        row
+        for row in outcome.display_rows
+        if row.row_type == "CALCULATION_ZONE" and row.section_id in grouped_ids
+    ]
+    assert float(summary[0].ete.text.split(" / ")[0]) == pytest.approx(
+        sum(float(row.ete.text) for row in grouped_children)
     )
     assert outcome.summary is not None
-    parent_rows = [
-        row for row in outcome.display_rows if row.row_type == "PHYSICAL_LEG_SUMMARY"
-    ]
+    parent_rows = [row for row in outcome.display_rows if row.row_type == "PHYSICAL_LEG_SUMMARY"]
     assert outcome.summary.time.effective_value == pytest.approx(
-        sum(float(row.ete.text.split(" / ", 1)[0]) for row in parent_rows) * 60,
-        abs=1e-9,
+        sum(float(row.ete.text.split(" / ")[0]) for row in parent_rows) * 60
     )
     assert outcome.summary.distance.text == parent_rows[-1].distance.text.split(" / ", 1)[1]
 
@@ -522,21 +526,71 @@ def test_inbound_checkpoint_segmentation_preserves_exact_operational_sum(
             linked_section_id=section.id,
         )
     )
-    assert apply_rjfm_inbound_exception(
-        project, refs, adopted_vrep_altitude_ft_msl=1500,
-    ) is not None
+    assert (
+        apply_rjfm_inbound_exception(
+            project,
+            refs,
+            adopted_vrep_altitude_ft_msl=1500,
+        )
+        is not None
+    )
 
     outcome = _service(airports, performance_repository).calculate(
-        project, FakeWeatherProvider(),
+        project,
+        FakeWeatherProvider(),
     )
 
     assert not outcome.blockers
     assert any(result.to_name == "CP:INBOUND CP" for result in outcome.sections)
     inbound = [
-        result for result in outcome.sections
+        result
+        for result in outcome.sections
         if result.performance_metadata.get("type") == "rjfm_inbound_operational_descent"
     ]
     assert len(inbound) >= 3
     assert sum(result.zone_ete_seconds.adopted() or 0.0 for result in inbound) == pytest.approx(
-        (4500 - 1500) / 500 * 60 + 60, abs=1e-6,
+        (4500 - 1500) / 500 * 60 + 60,
+        abs=1e-6,
     )
+
+
+def test_roundtrip_keeps_both_exception_parents(airports, performance_repository) -> None:
+    from uuid import uuid4
+
+    from autonavlog.application.rjfm_departure_plan import (
+        RjfmPlanReferences,
+        apply_rjfm_departure_exception,
+    )
+
+    project, refs = _inbound_project()
+    nodes = project.ordered_nodes()
+    nodes[0].latitude_deg = 31.877
+    nodes[0].longitude_deg = 131.449
+    project.departure_airport_id = "RJFM"
+    first_umk = nodes[2].model_copy(deep=True, update={"id": uuid4()})
+    nodes.insert(1, first_umk)
+    for index, node in enumerate(nodes):
+        node.sequence = index
+    project.route_nodes = nodes
+    sections = project.ordered_sections()
+    to_omaru = sections[0].model_copy(deep=True, update={
+        "id": uuid4(), "from_node_id": first_umk.id,
+    })
+    sections[0].to_node_id = first_umk.id
+    sections.insert(1, to_omaru)
+    for index, section in enumerate(sections):
+        section.sequence = index
+    project.sections = sections
+    outbound = apply_rjfm_departure_exception(project, RjfmPlanReferences(
+        revision=refs.revision, content_fingerprint=refs.content_fingerprint,
+        umk=refs.umk, omaru=refs.omaru, over_field=refs.umk,
+    ))
+    inbound = apply_rjfm_inbound_exception(project, refs)
+    assert outbound is not None and inbound is not None
+    service = _service(airports, performance_repository)
+    legs = service._navlog_physical_legs(service._build_geometry(project, []), outbound, inbound)
+    assert len(legs) == 3
+    assert (legs[0].start_node_id, legs[0].end_node_id) == (nodes[0].id, nodes[2].id)
+    assert (legs[1].start_node_id, legs[1].end_node_id) == (nodes[2].id, nodes[-2].id)
+    assert legs[0].show_child_courses and legs[1].show_child_courses
+    assert [identity for leg in legs for identity in leg.section_ids] == [s.id for s in sections]

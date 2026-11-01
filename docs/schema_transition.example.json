@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "reference-snapshot-writer-fence",
+  "current_sha": "REPLACE_WITH_CANONICAL_APPROVED_FULL_SHA",
+  "sha": "REPLACE_WITH_REVIEWED_FIXED_APP_FULL_SHA",
+  "tooling_sha": "REPLACE_WITH_CLEAN_REVIEWED_MAIN_TOOLING_FULL_SHA",
+  "project": "REPLACE_WITH_VERIFIED_EXISTING_FIREBASE_PROJECT",
+  "origin": "https://navmate.yuto24.com",
+  "configuration_digest": "REPLACE_WITH_PUBLIC_CONFIGURATION_FINGERPRINT",
+  "before_blob": "REPLACE_WITH_CURRENT_PROJECT_SCHEMA_GIT_BLOB",
+  "after_blob": "REPLACE_WITH_CANDIDATE_PROJECT_SCHEMA_GIT_BLOB",
+  "writer_blob": "REPLACE_WITH_CANDIDATE_LOCAL_REPOSITORY_GIT_BLOB",
+  "database_version": 2,
+  "direction": "old-to-new",
+  "recovery": "forward-fix; preserve Project data",
+  "checks": {
+    "old_to_new": { "result": "UNVERIFIED", "reviewed_by": "", "summary": "", "record": { "path": "old-to-new.txt", "sha256": "" } },
+    "old_writer_fenced": { "result": "UNVERIFIED", "reviewed_by": "", "summary": "", "record": { "path": "old-writer-fenced.txt", "sha256": "" } },
+    "storage_sync_roundtrip": { "result": "UNVERIFIED", "reviewed_by": "", "summary": "", "record": { "path": "storage-sync-roundtrip.txt", "sha256": "" } }
+  }
+}

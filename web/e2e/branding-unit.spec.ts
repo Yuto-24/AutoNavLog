@@ -10,7 +10,6 @@ test("NavMate display name leaves compatibility identities intact", () => {
     ["../src/components/InformationDialog.tsx", "NavMateのお知らせ"],
     ["../src/App.tsx", "NavMateを起動しています"],
     ["../src/App.tsx", '<div className="loading-mark">N</div>'],
-    ["../src/App.tsx", "NavMateは非公式の地上準備支援ツールです。"],
     ["../static/404.html", "NavMateを再読み込み"],
     ["../src/localProjectRepository.ts", '"autonavlog.projects"'],
     ["../src/applicationSession.ts", '"autonavlog.working-session.v1"'],
@@ -24,6 +23,7 @@ test("NavMate display name leaves compatibility identities intact", () => {
   ]) {
     expect(read(path), path).toContain(expected);
   }
+  expect(read("../src/App.tsx")).not.toContain("NavMateは非公式の地上準備支援ツールです。");
 });
 
 test("adopted NavMate icon metadata uses same-origin assets without offline claims", () => {

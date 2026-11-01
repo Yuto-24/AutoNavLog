@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useMap, useMapEvents } from "react-leaflet";
 import type { KeyValueStorage } from "../platform";
 
@@ -49,9 +49,15 @@ export function MapViewport({ storage, scope, projectId, coordinates, preserveVi
     previousProject.current = projectId;
     save();
   }, [map, storage, projectKey, preserveViewport, coordinates]);
-  useEffect(() => {
-    const observer = new ResizeObserver(() => map.invalidateSize({ animate: false }));
-    observer.observe(map.getContainer());
+  useLayoutEffect(() => {
+    const container = map.getContainer();
+    const observer = new ResizeObserver(() => {
+      // New remounts Local work without navigating. Ignore the old map's 0x0
+      // removal notification so it cannot overwrite the view being restored.
+      if (!container.isConnected || !container.clientWidth || !container.clientHeight) return;
+      map.invalidateSize({ animate: false });
+    });
+    observer.observe(container);
     return () => observer.disconnect();
   }, [map]);
   return null;

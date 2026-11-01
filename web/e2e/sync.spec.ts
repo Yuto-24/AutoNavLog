@@ -1,17 +1,49 @@
 import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { test, expect, type Page } from "@playwright/test";
 import { resolve } from "node:path";
-import { backend, waitForSyncAccount } from "./helpers/sync-auth";
+import { backend, signInSyncAccount, waitForSyncAccount } from "./helpers/sync-auth";
 async function start(page: Page, subject: string) {
   await page.goto("/e2e/auth-harness/index.html?sync");
-  await expect.poll(() => page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
-  await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
-  // Vite may reload the first page while generated Local assets settle in CI.
+  await signInSyncAccount(page, subject);
+  // Preserve the exact-account check across a reload after successful sign-in.
   await waitForSyncAccount(page, subject);
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
 
 }
+
+test("sync sign-in waits for initial UI across a reload", async ({ page }) => {
+  const calls: { subject: string; ready: boolean }[] = [];
+  await page.exposeFunction("recordSignIn", (subject: string, ready: boolean) => { calls.push({ subject, ready }); });
+  let ready = false;
+  await page.route("https://readiness.example/", route => route.fulfill({
+    contentType: "text/html; charset=utf-8",
+    body: `<!doctype html><meta charset="utf-8">${ready ? '<button aria-label="アカウント">Account</button>' : '<p>Loading</p>'}
+      <script>window.authTest = { signIn: subject => window.recordSignIn(subject, ${ready}) };</script>`,
+  }));
+  await page.goto("https://readiness.example/");
+  const signingIn = signInSyncAccount(page, "expected");
+  // The harness is already callable, but its initial App is not ready yet.
+  expect(await page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
+  expect(calls).toEqual([]);
+  ready = true;
+  await page.reload();
+  expect(await page.evaluate(() => document.characterSet)).toBe("UTF-8");
+  await signingIn;
+  expect(calls).toEqual([{ subject: "expected", ready: true }]);
+});
+
+test("sync sign-in propagates auth errors without retry", async ({ page }) => {
+  await page.setContent(`<button aria-label="アカウント">Account</button><script>
+    window.signInCalls = 0;
+    window.authTest = { signIn() {
+      window.signInCalls++;
+      return Promise.reject(new Error("auth/network-request-failed"));
+    } };
+  </script>`);
+  await expect(signInSyncAccount(page, "expected")).rejects.toThrow("auth/network-request-failed");
+  expect(await page.evaluate(() => (window as any).signInCalls)).toBe(1);
+});
 
 test("sync account readiness survives a reload while the account is pending", async ({ page }) => {
   let restored = false;
@@ -270,4 +302,58 @@ for (const operation of ["resolve", "import"] as const) test("draft guard preced
   await action.click();
   await expect(page.locator(".account-sync-dialog")).not.toBeVisible();
   await expect(page.getByRole("alert").filter({ hasText: "Projectの再読み込みに失敗しました" })).toBeVisible();
+});
+
+test("New rejects a delayed sync-resolution continuation in the retained runtime", async ({ browser, page, context }) => {
+  await backend(context);
+  const subject = `new-work-${crypto.randomUUID()}`;
+  await start(page, subject); await create(page, "Reset race");
+  const other = await browser.newContext(); await backend(other);
+  const second = await other.newPage();
+  try {
+    await start(second, subject); await open(second, "Reset race");
+    await other.setOffline(true);
+    await second.getByLabel("FUEL gal", { exact: true }).fill("78");
+    await expect.poll(() => second.evaluate(async () =>
+      (await (window as any).authTest.contexts.at(-1).refreshProjects()).project?.total_usable_fuel_gal)).toBe(78);
+    await page.getByLabel("FUEL gal", { exact: true }).fill("76");
+    await expect.poll(() => page.evaluate(async () => {
+      const rows = await (window as any).authTest.contexts.at(-1).repository.rows();
+      return rows.some((row: any) => row.draft.total_usable_fuel_gal === 76 && !row.sync.dirty);
+    })).toBe(true);
+    await other.setOffline(false);
+    await expect(second.getByRole("dialog", { name: "他の端末の変更と競合しています" })).toBeVisible();
+    await second.evaluate(() => {
+      const app = (window as any).authTest.contexts.at(-1);
+      const resolve = app.sync.resolve.bind(app.sync);
+      const refresh = app.refreshProjects.bind(app);
+      let hold = false;
+      const releases: (() => void)[] = [];
+      app.sync.resolve = async (...args: any[]) => { const id = await resolve(...args); hold = true; return id; };
+      app.refreshProjects = async () => {
+        const result = await refresh();
+        if (hold) {
+          await new Promise<void>(release => {
+            releases.push(release);
+            (window as any).releaseResolvedRefresh = () => {
+              hold = false;
+              for (const pending of releases) pending();
+            };
+          });
+        }
+        return result;
+      };
+    });
+    await second.getByRole("button", { name: "両方残す", exact: true }).click();
+    await expect.poll(() => second.evaluate(() => typeof (window as any).releaseResolvedRefresh)).toBe("function");
+    second.once("dialog", dialog => dialog.accept());
+    await second.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(second.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await second.evaluate(() => (window as any).releaseResolvedRefresh());
+    const blank = await second.evaluate(async () => (window as any).authTest.contexts.at(-1).refreshProjects());
+    expect(blank.project).toBeNull();
+    expect(blank.outcome).toBeNull();
+    await expect(second.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await expect(second.locator("#saved-project option")).toHaveCount(3);
+  } finally { await other.close(); }
 });

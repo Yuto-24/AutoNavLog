@@ -186,7 +186,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
             for row in calculated["outcome"]["display_rows"]
             if row["row_type"] == "PHYSICAL_LEG_SUMMARY"
             and row["from_node_id"] == physical_node_ids[1]
-            and row["to_node_id"] == physical_node_ids[2]
+            and row["to_node_id"] == physical_node_ids[-1]
         )
         assert navlog_inbound["pa"]["text"] == "4500"
         inbound_guidance = calculated["outcome"]["rjfm_inbound_guidance"]
@@ -293,16 +293,15 @@ async def test_production_available_reference_returns_numeric_v2_guidance(
             },
         )
         assert confirmed.status_code == 200, confirmed.text
-        # Issue #103 now correctly previews the final RJFM VREP at 1,500 ft.
-        # This historic numeric-guidance fixture instead exercises the valid
-        # higher manual arrival plan that preserves numeric-guidance feasibility coverage.
+        # The agreed ARITA return now uses 1,500 ft and exactly six minutes;
+        # the validated real-reference solver can provide an extension candidate.
         confirmed_project = confirmed.json()["project"]
         assert confirmed_project["sections"][-1]["planned_altitude_ft_msl"] == 1500
         automatic_outcome = (await _wait_for_calculation(client))["outcome"]
         automatic_guidance = automatic_outcome["rjfm_inbound_guidance"]
         assert automatic_guidance is not None
-        assert automatic_guidance["status"] == "NO_SOLUTION"
-        assert automatic_guidance["reason_code"] == "NO_FEASIBLE_KS43_AVOIDANCE"
+        assert automatic_guidance["status"] == "AVAILABLE"
+        assert automatic_guidance["reason_code"] is None
         manual = await client.put(
             "/api/project",
             json={
@@ -321,6 +320,12 @@ async def test_production_available_reference_returns_numeric_v2_guidance(
         assert manual.json()["project"]["sections"][-1]["planned_altitude_ft_msl"] == 2500
         calculated = await _wait_for_calculation(client)
         outcome = calculated["outcome"]
+        assert outcome["arrival_altitude"]["adopted_altitude_ft_msl"] == 1500
+        assert all(
+            section["performance_metadata"]["planned_duration_seconds"] == 360
+            for section in outcome["sections"]
+            if section["performance_metadata"].get("type") == "rjfm_inbound_operational_descent"
+        )
         guidance = outcome["rjfm_inbound_guidance"]
         assert guidance is not None
         assert guidance["status"] == "AVAILABLE", guidance

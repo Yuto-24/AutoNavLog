@@ -24,6 +24,11 @@ class WebRequestModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+class CalculationRequest(WebRequestModel):
+    # Application Session option, deliberately absent from the Project schema.
+    rounding_mode: bool | None = Field(default=None, strict=True)
+
+
 class ImportRouteRequest(WebRequestModel):
     filename: str = Field(default="pasted.kml", min_length=1, max_length=255)
     content_base64: str | None = None

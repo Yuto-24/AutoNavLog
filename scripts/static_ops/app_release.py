@@ -22,7 +22,7 @@ from urllib.request import Request, build_opener
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
-from scripts.static_ops import pages_target, probe_providers  # noqa: E402
+from scripts.static_ops import freshness, pages_target, probe_providers  # noqa: E402
 from scripts.static_ops import publication_gate as gate  # noqa: E402
 from scripts.static_ops.operations import (  # noqa: E402
     NoRedirect,
@@ -37,6 +37,7 @@ from scripts.static_ops.validate_feed import validate_feed  # noqa: E402
 
 REPO = "Yuto-24/AutoNavLog"
 WORKFLOW = "static-production.yml"
+APP_WORKFLOW = "static-app-release.yml"
 VARIABLES = (
     *gate.CONFIGURATION,
     "CLOUDFLARE_ACCOUNT_ID",
@@ -239,7 +240,8 @@ class Journal:
     def finish(self, success: bool) -> None:
         self.value["status"] = "OK" if success else "BLOCKED"
         self.value["required_action"] = (
-            "Review plan; publication needs separate authorization"
+            ("Publish under stable-release policy" if self.value.get("authorization")
+             else "Review plan; publication needs separate authorization")
             if success and self.value["mode"] == "prepare"
             else "None"
             if success
@@ -255,9 +257,12 @@ class Journal:
 
 
 class Operator:
-    def __init__(self, root: Path = ROOT, *, rules_transition: Path | None = None):
+    def __init__(self, root: Path = ROOT, *, rules_transition: Path | None = None,
+                 schema_transition: Path | None = None):
         self.root = root
         self.rules_transition = rules_transition
+        self.schema_transition = schema_transition
+        self.schema_receipt: dict | None = None
         self.rules_receipt: dict | None = None
         self.env = dict(os.environ)
         self.wrangler = root / "services/taf-proxy/node_modules/.bin/wrangler"
@@ -354,12 +359,17 @@ class Operator:
         return self.gh("actions/workflows/" + WORKFLOW)
 
     def idle(self) -> None:
+        # Manual publication must also exclude the unattended app publisher.
+        for workflow in (WORKFLOW, APP_WORKFLOW):
+            self.workflow_idle(workflow)
+
+    def workflow_idle(self, workflow: str) -> None:
         # A single unfiltered inventory cannot lose queued -> waiting transitions
         # between separate status queries. Scan every declared page without an
         # arbitrary historical ceiling; incomplete/changed history fails closed.
         page, count, seen = 1, None, set()
         while True:
-            value = self.gh(f"actions/workflows/{WORKFLOW}/runs?per_page=100&page={page}")
+            value = self.gh(f"actions/workflows/{workflow}/runs?per_page=100&page={page}")
             total, rows = value["total_count"], value["workflow_runs"]
             require(
                 type(total) is int
@@ -569,13 +579,101 @@ class Operator:
         )
         return {"path": str(path), "sha256": digest(raw), "record": record, "evidence": evidence}
 
+    def reviewed_schema(self, sha: str, current: str, variables: dict) -> dict | None:
+        """One-way reference-snapshot transition; never an automatic schema override."""
+        if self.schema_transition is None:
+            return None
+        path = self.schema_transition.resolve()
+        try:
+            raw = path.read_bytes()
+            require(0 < len(raw) <= 1024 * 1024, "Schema transition record too large")
+            record = json.loads(raw)
+        except (OSError, ValueError):
+            raise Blocked("Schema transition record unavailable or invalid") from None
+        require(isinstance(record, dict), "Invalid schema transition record")
+        require(
+            type(record.get("schema_version")) is int and record["schema_version"] == 1
+            and record.get("kind") == "reference-snapshot-writer-fence"
+            and record.get("sha") == sha and record.get("current_sha") == current
+            and record.get("tooling_sha") == self.git("rev-parse", "HEAD")
+            and record.get("project") == variables["VITE_FIREBASE_PROJECT_ID"]
+            and record.get("origin") == gate.ORIGIN
+            and record.get("configuration_digest") == fingerprint(public_configuration(variables))
+            and record.get("direction") == "old-to-new"
+            and record.get("recovery") == "forward-fix; preserve Project data"
+            and type(record.get("database_version")) is int and record["database_version"] == 2,
+            "Schema transition identity, configuration or one-way recovery mismatch",
+        )
+        schema = "data/schemas/project.schema.json"
+        writer = "web/src/localProjectRepository.ts"
+        require(
+            record.get("before_blob") == self.source_digest(current, schema)
+            and record.get("after_blob") == self.source_digest(sha, schema)
+            and record["before_blob"] != record["after_blob"]
+            and record.get("writer_blob") == self.source_digest(sha, writer),
+            "Schema transition source identity mismatch",
+        )
+        try:
+            before = json.loads(self.git("show", f"{current}:{schema}"))
+            after = json.loads(self.git("show", f"{sha}:{schema}"))
+            definitions = after["$defs"]
+            require(isinstance(definitions.pop("ReferencePointSnapshot"), dict)
+                    and isinstance(definitions.pop("ReferencePointSource"), dict),
+                    "Reference snapshot definitions required")
+            addition = definitions["RouteNode"]["properties"].pop("reference_snapshot")
+            require(addition == {"anyOf": [{"$ref": "#/$defs/ReferencePointSnapshot"},
+                                          {"type": "null"}], "default": None}
+                    and before == after,
+                    "Only the reviewed optional reference snapshot is supported")
+        except (KeyError, TypeError, ValueError):
+            raise Blocked("Unsupported Project schema transition") from None
+        source = self.git("show", f"{sha}:{writer}")
+        previous = self.git("show", f"{current}:{writer}")
+        # Presence is a prerequisite, NOT proof of safety. Reviewed browser/SDK
+        # evidence below must cover the complete pinned candidate, including races.
+        require(
+            ", 1)" in previous
+            and "export const LOCAL_DATABASE_VERSION = 2;" in source
+            and ", LOCAL_DATABASE_VERSION)" in source,
+            "Candidate must contain the version-1 to version-2 writer fence",
+        )
+        checks = record.get("checks")
+        require(isinstance(checks, dict), "Schema compatibility evidence required")
+        evidence = {}
+        for role in ("old_to_new", "old_writer_fenced", "storage_sync_roundtrip"):
+            check = checks.get(role)
+            require(isinstance(check, dict) and check.get("result") == "PASS"
+                    and all(isinstance(check.get(key), str) and check[key].strip()
+                            for key in ("reviewed_by", "summary")),
+                    "Reviewed one-way read, writer and browser/SDK evidence required")
+            reference = check.get("record")
+            require(isinstance(reference, dict)
+                    and isinstance(reference.get("path"), str) and reference["path"].strip()
+                    and isinstance(reference.get("sha256"), str)
+                    and re.fullmatch(r"[0-9a-f]{64}", reference["sha256"]),
+                    "Schema evidence file and SHA-256 required")
+            source_path = (path.parent / reference["path"]).resolve()
+            try:
+                content = source_path.read_bytes()
+            except OSError:
+                raise Blocked("Schema compatibility evidence unavailable") from None
+            require(0 < len(content) <= 8 * 1024 * 1024 and content.strip()
+                    and digest(content) == reference["sha256"],
+                    "Schema compatibility evidence changed or missing")
+            evidence[role] = {"path": str(source_path), "sha256": digest(content)}
+        return {"path": str(path), "sha256": digest(raw), "record": record, "evidence": evidence}
+
     def compatibility(self, sha: str, current: str, variables: dict) -> str:
         transition = self.transition(sha, current, variables["VITE_FIREBASE_PROJECT_ID"])
+        schema_transition = self.reviewed_schema(sha, current, variables)
+        self.schema_receipt = schema_transition
         for path in COMPATIBILITY:
             if transition and path == "firebase/firestore.rules":
                 continue  # Both exact sources were checked above; other contracts remain identical.
+            if schema_transition and path == "data/schemas/project.schema.json":
+                continue  # Exact sources and reviewed one-way evidence were checked above.
             require(
-                self.git("show", f"{sha}:{path}") == self.git("show", f"{current}:{path}"),
+                self.source_digest(sha, path) == self.source_digest(current, path),
                 "Rules/indexes/Project schema changed; separately reviewed migration required",
             )
         project = variables["VITE_FIREBASE_PROJECT_ID"]
@@ -587,7 +685,8 @@ class Operator:
         files = ruleset["source"]["files"]
         require(
             len(files) == 1
-            and files[0]["content"].strip() == self.git("show", f"{sha}:firebase/firestore.rules"),
+            and digest(files[0]["content"].encode("utf-8"))
+            == self.source_digest(sha, "firebase/firestore.rules"),
             "Deployed Firestore Rules differ; no automatic Rules deploy",
         )
         if transition:
@@ -610,7 +709,24 @@ class Operator:
         receipt = {"release": live, "content": files[0]["content"].strip()}
         if transition:
             receipt["transition"] = transition
+        if schema_transition:
+            receipt["schema_transition"] = schema_transition
         return fingerprint(receipt)
+
+    def source_digest(self, sha: str, path: str) -> str:
+        """Compare source bytes, including whitespace and line endings."""
+        if path == "firebase/firestore.rules":
+            return digest(self.rules_source(sha).encode("utf-8"))
+        raw = self.git("rev-parse", f"{sha}:{path}")
+        require(re.fullmatch(r"[0-9a-f]{40}", raw), "Compatibility source unavailable")
+        return raw  # Git blob identity includes the exact bytes.
+
+    def source_branch(self, sha: str) -> str:
+        from scripts.release_content import version_tuple
+
+        major = version_tuple(self.git("show", f"{sha}:VERSION"))[0]
+        require(major in (1, 2), "Unsupported release line")
+        return "release/1.x" if major == 1 else "main"
 
     def snapshot(self, sha: str, current: str, *, paused: bool = False) -> dict:
         require(
@@ -623,14 +739,16 @@ class Operator:
         )
         require(
             self.git("remote", "get-url", "origin")
-            in ("https://github.com/" + REPO + ".git", "git@github.com:" + REPO + ".git"),
+            in ("https://github.com/" + REPO, "https://github.com/" + REPO + ".git",
+                "git@github.com:" + REPO + ".git"),
             "Unexpected repository remote",
         )
-        self.git("fetch", "origin", "main")
+        branch = self.source_branch(sha)
+        self.git("fetch", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}")
         require(
             self.git("rev-parse", sha + "^{commit}") == sha, "Target is not the requested commit"
         )
-        self.git("merge-base", "--is-ancestor", sha, "origin/main")
+        self.git("merge-base", "--is-ancestor", sha, "origin/" + branch)
         variables = self.variables()
         repo = self.gh("")
         require(
@@ -646,10 +764,10 @@ class Operator:
         require(
             variables["STATIC_AUTOMATION_ENABLED"] in ("true", "false"), "Unknown automation state"
         )
-        if self.rules_transition is not None:
+        if self.rules_transition is not None or self.schema_transition is not None:
             require(
                 variables["STATIC_AUTOMATION_ENABLED"] == "false",
-                "Pause recurring publication before the reviewed Rules transition",
+                "Pause recurring publication before the reviewed contract transition",
             )
         require(
             self.env.get("CLOUDFLARE_API_TOKEN"), "Existing Pages upload authentication unavailable"
@@ -676,6 +794,7 @@ class Operator:
             "target": target,
             "rules_digest": rules,
             "rules_receipt": self.rules_receipt,
+            "schema_receipt": self.schema_receipt,
             "tooling_sha": self.git("rev-parse", "HEAD"),
             "version": self.git("show", f"{sha}:VERSION"),
         }
@@ -731,6 +850,10 @@ class Operator:
             "AUTONAVLOG_MSM_FEED=/feed",
             "--env",
             "AUTONAVLOG_REFERENCE_PYTHON=python3",
+            "--env",
+            f"ARTIFACT_UID={os.getuid()}",
+            "--env",
+            f"ARTIFACT_GID={os.getgid()}",
             image,
             "sh",
             "-eu",
@@ -748,11 +871,17 @@ class Operator:
             timeout=2700,
         )
         expected = {"commit": sha, "configuration": config}
-        candidate = gate.artifact(app, expected)
+        candidate = self.seal_build(app, expected)
         require(candidate["version"] == snapshot["version"], "Candidate version mismatch")
         gate.upload_context(app, destination / "upload", expected)
         self.validate_build(destination, sha, snapshot)
         return candidate
+
+    def seal_build(self, app: Path, expected: dict) -> dict:
+        # Validate the untrusted tree before any host-side write (including symlinks).
+        gate.artifact(app, expected)
+        freshness.write(app / "web/dist-static")
+        return gate.artifact(app, expected)
 
     def validate_build(self, destination: Path, sha: str, snapshot: dict) -> dict:
         stage = destination / "upload"
@@ -885,6 +1014,7 @@ def unchanged(before: dict, after: dict, *, paused: bool = False, deployment: bo
 def prepare(operator: Operator, sha: str, current: str, store: Path, journal: Journal) -> dict:
     snapshot = operator.snapshot(sha, current)
     journal.value["rules_receipt"] = snapshot.get("rules_receipt")
+    journal.value["schema_receipt"] = snapshot.get("schema_receipt")
     journal.save()
     journal.stage("build-test")
     operator.build(sha, snapshot, store / "prepared")
@@ -921,6 +1051,7 @@ def publish(
     )
     snapshot = operator.snapshot(sha, current)
     journal.value["rules_receipt"] = snapshot.get("rules_receipt")
+    journal.value["schema_receipt"] = snapshot.get("schema_receipt")
     journal.save()
     unchanged(plan["snapshot"], snapshot)
     require(
@@ -1001,6 +1132,10 @@ def main() -> int:
         type=Path,
         help="Reviewed candidate-specific compatibility record; live Rules must already match",
     )
+    parser.add_argument(
+        "--schema-transition", type=Path,
+        help="Reviewed one-way reference-snapshot/writer-fence record; manual publication only",
+    )
     args = parser.parse_args()
     store = args.store.resolve()
     require(
@@ -1027,7 +1162,8 @@ def main() -> int:
         journal = Journal(report, args.mode, args.sha)
         success = False
         try:
-            operator = Operator(rules_transition=args.rules_transition)
+            operator = Operator(rules_transition=args.rules_transition,
+                                schema_transition=args.schema_transition)
             if args.mode == "prepare":
                 prepare(operator, args.sha, args.current_sha, store, journal)
                 journal.value["plan_sha256"] = digest((store / "plan.json").read_bytes())

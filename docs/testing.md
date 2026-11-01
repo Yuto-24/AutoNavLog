@@ -2,7 +2,11 @@
 
 ## ドキュメント変更時の CI
 
-`test.yml` は PR と main への push で起動し、`release-sources` を常に実行します。
+`test.yml` は PR と main / release/1.x への push で起動し、`release-sources` を常に実行します。
+PRのrelease契約は、checkoutした合成mergeが2親を持ち、第2親がイベントのPR headと
+一致することを検証してから、第1親（実際に検証したbase）と比較します。イベントのbase SHAが
+古い場合にmain側のrelease変更をPR変更と誤認しないためです。不一致のcheckoutは失敗させ、
+PR自身のVERSION/CHANGELOG変更の検査と、非PR push時のsource検査は維持します。
 Python 3.12 上で変更判定とソース契約のテスト、VERSION / CHANGELOG と PR の Release 契約を
 確認します。このジョブには Docker build やアプリの依存関係のインストールは不要です。
 
@@ -29,10 +33,11 @@ workflow 全体の `paths-ignore` は使わず、既存の check 名を維持し
 [公式ドキュメント](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)
 を参照してください。
 
-判定とソース契約だけを確認するコマンド（Python 3.12、pytest が必要）:
+判定とソース契約だけを確認するコマンド（Python 3.12、pytest、Git が必要）:
 
 ```bash
 python -m pytest --noconftest tests/integration/check_ci_changes.py \
+  tests/integration/check_release_merge.py \
   tests/unit/test_release_ci.py tests/unit/test_supported_runtime_contract.py \
   tests/unit/test_version.py::test_version_is_the_only_release_version_source
 ```
@@ -297,3 +302,83 @@ Playwrightの依存導入が急に変わらないようにする。`local-browse
 移行の検証は維持する。両ジョブでChromium / WebKitを導入する。キャンセル時はcheck annotationと
 失敗stepを確認する。ブラウザ依存のdownloadでtimeoutした場合、後続のテストは未実行であり、
 テスト失敗やconcurrencyによる中止とは区別する。
+
+### Local browser worker count
+
+`local-browser`のLocal regression、NAV LOG scroll、browser acceptanceだけは、CIの起動引数で
+`--workers=2`を指定する。各suiteは引き続き順番に起動し、同じファイル内のテスト順序を保つ。
+`fullyParallel`、retry、timeout、assertion、選択するテスト、失敗時のtrace/artifactは変更しない。
+認証、TAF、Firestore Rules、storage-upgrade、migrationは従来のworker設定を保つ。
+`account-sync`内の`test:sync`だけは、[同条件の比較結果](evidence/ci/account-sync-workers-20261101.md)に基づきCI引数で`--workers=2`を指定する。
+共有emulatorを使うsuiteの順番・テスト範囲は変えず、各ブラウザの同期データは既存のランダムsubjectとcontextで分離する。
+ローカルのPlaywright configの既定値も1 workerのままとする。
+
+同期テストの初回ログインは、テスト用`authTest`の存在だけでなく、初期画面の
+「アカウント」ボタン表示を待つ。この表示は匿名Applicationのworker bootstrap完了後で、
+実際の利用者が認証操作を始められる時点に対応する。初期化前のVite再読込とログインが
+重なった失敗を[PR #326のCI](https://github.com/Yuto-24/AutoNavLog/actions/runs/41266357658/job/124729915595)で確認した。
+認証は1回だけ実行し、認証エラーは伝播させる。初期UI前の再読込と認証失敗を回帰テストで検査し、
+ログイン後の期待accountとの一致確認も維持する。任意の時点で起こる再読込を防ぐ保証ではない。
+初期化待ちの回帰2件を3ブラウザに追加したため現在は計39件で、上記の時間比較は追加前の33件に限る。
+
+2026-10-29、main `3ea6481d9fb02f7893edc3adb89c57d30e7dd40b`の同一Local artifactで、
+1 worker、次に2 workersを逐次計測した。WSL / Node 24.19.0 / Python 3.12.3 /
+Playwright 1.62.1、`CI=1`、子プロセスとHTTP serverを含め`taskset -c 0-3`で4 logical CPUsに
+固定した。重い別検査はこの計測と同時に起動していない。時間は各コマンドの起動から終了までのwall time。
+
+| Suite | Tests | 1 worker | 2 workers |
+| --- | ---: | ---: | ---: |
+| `test:local`の既存CI選択 | 21 | 216.5 s | 124.4 s |
+| `playwright.navlog-scroll.config.ts` | 3 | 23.9 s | 15.7 s |
+| `playwright.browser-acceptance.config.ts` | 6 | 95.7 s | 56.0 s |
+| 合計 | 30 | 336.1 s | 196.1 s |
+
+両方で同じfile/title/projectの30件がretry 0で成功し、skip、unexpected、flakyは0件。
+ソース・依存・ビルド・実行順を固定し、worker数以外にはreport/outputの保存先だけを分けた。
+合計140.1秒（41.7%）短縮した1組のローカル観測であり、hosted CI全体の短縮率や
+異なるrunnerの性能を保証する値ではない。比較元mainの
+[run 40789264289](https://github.com/Yuto-24/AutoNavLog/actions/runs/40789264289)では、
+この3群のPlaywright報告時間は約620秒、`local-browser` job全体は1057秒だった。
+依存導入・認証・TAFは今回の短縮対象外で、hosted CIの成否と実時間はPRで別途確認する。
+
+再計測時は`AUTONAVLOG_TEST_FIXTURES=1 npm --prefix web run build:local`を一度だけ実行し、
+同じ`web/dist-local`を専用HTTP serverで配信する。`AUTONAVLOG_LOCAL_URL`と
+`AUTONAVLOG_REFERENCE_PYTHON`を両方のrunで揃え、上記3コマンドにそれぞれ
+`--workers=1` / `--workers=2`を渡す（`npm run test:local`では引数の前に`--`を置く）。
+`--reporter=line,json`とrun/suite別の`PLAYWRIGHT_JSON_OUTPUT_FILE`、`--output`を指定すると、
+実行されたfile/title/project、result/retry、suite時間を機械的に比較できる。
+テスト数・結果が一致しない観測を短縮の根拠にしない。
+
+### Browser-job pip cache
+
+`local-browser`と`account-sync`は`setup-python@v5`の`cache: pip`を使用する。
+保存対象は`pip cache dir`のHTTP応答とbuilt wheelで、venvやsite-packagesではない。
+既存の`pip install`はcache hit時も実行し、checkoutの`.`をビルド・導入する。
+依存版は固定していないため、cacheはlockfileやオフライン導入の代わりにはならない。
+
+keyは`pyproject.toml`、vendor wheel、install引数を含む`test.yml`のhashを使う。
+setup-python v5がOS、architecture、Linux distribution/version、解決したPython版を追加する。
+同じ環境では両jobで共有できる。hash変更時には環境prefixでのfallback restoreもあり得るが、
+pipが現在の要件を再評価する。VERSIONやアプリソースをkeyに含める必要はない。
+cache miss/evictionでは通常取得へ戻る。cacheを保存するのは成功jobのpost stepである。
+
+2026-10-29、同じcheckoutと既存installコマンドを使い、WSL / CPython 3.12.3 /
+pip 24.0の新規venvで逐次計測した。専用`PIP_CACHE_DIR`でcold 41.71秒、warm 17.21秒、
+別の空cacheでの消失再現43.33秒。3環境の52 package（pipを含む）の名前・版が一致した。
+最終wheel payload処理開始からアプリwheel build開始までの区間は空cache 10.737秒、
+warm 0.257秒。warmでは外部wheelの再取得0件、cache容量は約107 MiBだった。
+同一パス・同一アプリ版のfixtureでソースを変更し、古いapp wheelがcacheに存在する状態でも
+新しいmarkerが導入された。実checkoutのcold/warmログでもアプリwheelは毎回ビルドされた。
+
+再計測時は新規venvと専用cacheを使い、次の既存コマンドを同じソースで実行する。
+`PIP_LOG`をrun別に指定すると取得区間の時刻を確認できる。
+
+```bash
+python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
+```
+
+cold/warmの`pip list --format=json`、wheel取得ログ、アプリbuildログを照合する。
+GitHub側ではsetup-pythonのrestoreとpost saveを含めて測る。上記ローカル値にはActionsの
+転送・圧縮コストを含まない。通常時のhosted downloadは約2秒の既存観測もあるため、
+この比較からhosted CIの平均短縮や、過去の遅延の再発頻度は主張しない。
+採用目的は約100 MBの外部wheel再取得への依存を減らすことである。
