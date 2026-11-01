@@ -346,9 +346,13 @@ for (const width of [1100, 1440]) {
     await expect(page.locator(".nav-log-table")).toBeVisible();
     await expect(page.locator(".nav-log-table")).toContainText("MZE");
     await expect(page.getByLabel("TO", { exact: true })).toHaveValue(/^RJFS/);
-    const input = (await page.locator(".input-rail").boundingBox())!;
-    const route = (await page.locator(".route-workspace").boundingBox())!;
-    const readiness = (await page.locator(".status-rail").boundingBox())!;
+    // One frame: calculation may still be smoothly scrolling the viewport.
+    const [input, route, readiness] = await page.evaluate(() =>
+      [".input-rail", ".route-workspace", ".status-rail"].map(selector => {
+        const { x, y, width, height } = document.querySelector(selector)!.getBoundingClientRect();
+        return { x, y, width, height };
+      }),
+    );
     if (width <= 1240) {
       expect(input.y + input.height).toBeLessThanOrEqual(route.y + 2);
       expect(route.y + route.height).toBeLessThanOrEqual(readiness.y + 2);
