@@ -330,8 +330,10 @@ test("Legacy waits past thirty seconds, reconnects and resumes before saving edi
   const started = Date.now();
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
   await expect(page.locator(".calculation-progress-backdrop")).toBeVisible();
-  await expect(page.getByText(/経過時間 0:3/)).toBeVisible({ timeout: 40_000 });
-  await expect(page.locator(".calculation-progress-backdrop")).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByText(/経過時間/)).toHaveCount(0);
+  await expect(page.locator(".calculation-progress-backdrop progress")).toHaveAttribute("value", "25");
+  await expect(page.locator(".calculation-progress-backdrop")).toBeHidden({ timeout: 40_000 });
+  expect(Date.now() - started).toBeGreaterThanOrEqual(32_000);
   expect(posts).toBe(beforePosts);
   expect(saves).toBe(beforeSaves);
   await expect(page.getByLabel("ETD JST", { exact: true })).toHaveValue("15:00");

@@ -1826,7 +1826,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       </footer>
 
       {activeOperation === "calculate" && (
-        <CalculationProgressOverlay {...calculationProgress} showElapsed={activeOperation === "calculate"}
+        <CalculationProgressOverlay {...calculationProgress}
           onSignOut={application.auth?.getState().account
             ? () => { void application.auth!.signOut().catch(() => {}); } : undefined} />
       )}
