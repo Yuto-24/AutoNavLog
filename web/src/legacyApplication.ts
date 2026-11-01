@@ -39,12 +39,19 @@ type Job = {
 export class LegacyApplication implements AutoNavLogApplication {
   private async fetch(path: string, options: RequestInit): Promise<Response> {
     try { return await fetch(path, options); }
-    catch { throw new ApplicationError("サーバーに接続できませんでした。再試行してください。", "APPLICATION_UNAVAILABLE"); }
+    catch { throw new ApplicationError("サーバーとの通信に失敗しました。再試行してください。", "APPLICATION_UNAVAILABLE"); }
   }
 
   private async readJson<T>(response: Response): Promise<T> {
     try { return await response.json() as T; }
-    catch { throw new ApplicationError("処理結果を読み取れませんでした。", "APPLICATION_RESPONSE_INVALID"); }
+    catch (reason) {
+      // Fetch may resolve at headers before the response body disconnects or times out.
+      // This reader only receives internal timeout signals, never a user-cancel signal.
+      if (reason instanceof TypeError || reason instanceof DOMException && ["AbortError", "TimeoutError"].includes(reason.name)) {
+        throw new ApplicationError("サーバーとの通信に失敗しました。再試行してください。", "APPLICATION_UNAVAILABLE");
+      }
+      throw new ApplicationError("処理結果を読み取れませんでした。", "APPLICATION_RESPONSE_INVALID");
+    }
   }
 
   private calculationJob: Job | null = null;
@@ -150,14 +157,14 @@ export class LegacyApplication implements AutoNavLogApplication {
       this.checkCalculationSession(epoch);
       onProgress?.({ percent: job.progress_percent, message: job.progress_message });
       if (Date.now() >= deadline) {
-        throw new ApplicationError("状況確認がタイムアウトした", "CALCULATION_TIMEOUT");
+        throw new ApplicationError("計算状況の確認がタイムアウトしました。この画面のまま再試行してください。", "CALCULATION_TIMEOUT");
       }
       await new Promise(resolve => setTimeout(resolve, 1_000));
       const remaining = deadline - Date.now();
       if (remaining <= 0) continue;
       try {
         const next = await this.jobRequest(`/api/calculation-jobs/${encodeURIComponent(job.job_id)}`, "GET", Math.min(30_000, remaining), epoch);
-        if (!next) throw new ApplicationError("計算結果がありません。", "CALCULATION_RESULT_MISSING");
+        if (!next) throw new ApplicationError("計算結果を取得できませんでした。", "CALCULATION_RESULT_MISSING");
         job = next;
         this.calculationJob = job;
       } catch (reason) {
@@ -171,7 +178,7 @@ export class LegacyApplication implements AutoNavLogApplication {
     if (job.status === "failed") {
       throw new ApplicationError(job.error?.message ?? "計算に失敗しました。", job.error?.code ?? "CALCULATION_JOB_FAILED");
     }
-    if (!job.state) throw new ApplicationError("計算結果がありません。", "CALCULATION_RESULT_MISSING");
+    if (!job.state) throw new ApplicationError("計算結果を取得できませんでした。", "CALCULATION_RESULT_MISSING");
     this.recovery = job.state.workingRecovery;
     return job.state;
   }
@@ -206,7 +213,7 @@ export class LegacyApplication implements AutoNavLogApplication {
         job = await this.jobRequest("/api/calculation-jobs/active", "GET", 30_000, epoch);
         if (!job) throw reason; // An unknown POST outcome is never automatically replayed.
       }
-      if (!job) throw new ApplicationError("計算結果がありません。", "CALCULATION_RESULT_MISSING");
+      if (!job) throw new ApplicationError("計算結果を取得できませんでした。", "CALCULATION_RESULT_MISSING");
       return this.followJob(job, onProgress);
     })();
     this.calculationInFlight = pending;
@@ -231,15 +238,31 @@ export class LegacyApplication implements AutoNavLogApplication {
     this.recovery = undefined;
   }
 
-  importRoute(input: ImportRouteInput) { return this.request<WebState>("/api/import", { method: "POST", body: input }); }
-  confirmRoute(input: ConfirmRouteInput) { return this.request<WebState>("/api/route/confirm", { method: "POST", body: input }); }
+  private async replaceProjectContext(path: string, body: unknown): Promise<WebState> {
+    const state = await this.request<WebState>(path, { method: "POST", body });
+    // A successful context switch makes a previously timed-out job obsolete.
+    // Failed/busy switches and ordinary same-project edits keep reconnectability.
+    this.calculationJob = null;
+    this.calculationSession = undefined;
+    return state;
+  }
+
+  importRoute(input: ImportRouteInput) { return this.replaceProjectContext("/api/import", input); }
+  confirmRoute(input: ConfirmRouteInput) { return this.replaceProjectContext("/api/route/confirm", input); }
   updateProject(input: UpdateProjectInput) { return this.request<WebState>("/api/project", { method: "PUT", body: input }); }
   updateAndRecalculate(input: UpdateProjectInput) { return this.request<WebState>("/api/project/recalculate", { method: "POST", body: input }); }
   renameRouteNode(nodeId: string, name: string) { return this.request<WebState>(`/api/project/route-nodes/${encodeURIComponent(nodeId)}/name`, { method: "PUT", body: { name } }); }
   replaceCheckPoints(checkPoints: CheckPointInput[]) { return this.request<WebState>("/api/project/check-points", { method: "PUT", body: { check_points: checkPoints } }); }
   acknowledge(key: string, checked: boolean) { return this.request<WebState>(`/api/acknowledgements/${encodeURIComponent(key)}`, { method: "PUT", body: { checked } }); }
   saveProject(name: string) { return this.request<WebState>("/api/projects/save", { method: "POST", body: { name } }); }
-  loadProject(projectId: string) { return this.request<WebState>("/api/projects/load", { method: "POST", body: { project_id: projectId } }); }
-  deleteProject(projectId: string) { return this.request<WebState>(`/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" }); }
+  loadProject(projectId: string) { return this.replaceProjectContext("/api/projects/load", { project_id: projectId }); }
+  async deleteProject(projectId: string) {
+    const state = await this.request<WebState>(`/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" });
+    if (!state.project) {
+      this.calculationJob = null;
+      this.calculationSession = undefined;
+    }
+    return state;
+  }
 
 }

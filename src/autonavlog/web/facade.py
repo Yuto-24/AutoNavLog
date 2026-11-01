@@ -250,7 +250,8 @@ class AutoNavLogWebApplication:
         with self.owner_operation(session.owner_id):
             if not session.lock.acquire(blocking=False):
                 raise WebApplicationError(
-                    "OPERATION_IN_PROGRESS", "計算中のため、まだ保存できていません。",
+                    "OPERATION_IN_PROGRESS",
+                    "他の処理が実行中のため操作を完了できませんでした。時間をおいて再試行してください。",
                     status_code=409,
                 )
             try:

@@ -362,7 +362,7 @@ test("Legacy tracking deadline retains the job for an explicit retry", async () 
   };
   try {
     const app = new LegacyApplication();
-    await expect(app.calculate()).rejects.toMatchObject({ code: "CALCULATION_TIMEOUT" });
+    await expect(app.calculate()).rejects.toMatchObject({ code: "CALCULATION_TIMEOUT", message: "計算状況の確認がタイムアウトしました。この画面のまま再試行してください。" });
     expect(await app.resumeCalculation()).toEqual(state);
     expect(posts).toBe(1);
   } finally { Date.now = originalNow; }
@@ -390,3 +390,149 @@ test("Legacy rejects a job response after ordinary recovery replaces its session
   release();
   await expect(pending).rejects.toMatchObject({ code: "SESSION_REQUIRED" });
 });
+
+test("Legacy missing results use approved wording and keep server failure detail", async () => {
+  for (const response of [
+    new Response(null, { status: 204 }),
+    json({ job_id: "missing", status: "succeeded", progress_percent: 100, progress_message: "done" }),
+  ]) {
+    responses(response);
+    await expect(new LegacyApplication().calculate()).rejects.toMatchObject({
+      code: "CALCULATION_RESULT_MISSING", message: "計算結果を取得できませんでした。",
+    });
+  }
+  responses(json({ job_id: "failed", status: "failed", error: { code: "SPECIFIC_FAILURE", message: "specific server detail" }, progress_percent: 100, progress_message: "done" }));
+  await expect(new LegacyApplication().calculate()).rejects.toMatchObject({ code: "SPECIFIC_FAILURE", message: "specific server detail" });
+});
+
+for (const failure of [new TypeError("body disconnected"), new DOMException("body timeout", "AbortError"), new DOMException("timeout", "TimeoutError")]) {
+  test(`Legacy retries GET body transport failure ${failure.name} without a new start`, async () => {
+    let posts = 0, reads = 0;
+    globalThis.fetch = async (_path, options) => {
+      if (options?.method === "POST") {
+        posts++;
+        return json({ job_id: "body-retry", status: "calculating", progress_percent: 30, progress_message: "calculating" });
+      }
+      if (++reads === 1) {
+        const response = json({});
+        response.json = async () => { throw failure; };
+        return response;
+      }
+      return json({ job_id: "body-retry", status: "succeeded", state, progress_percent: 100, progress_message: "done" });
+    };
+    expect(await new LegacyApplication().calculate()).toEqual(state);
+    expect(posts).toBe(1);
+    expect(reads).toBe(2);
+  });
+
+  test(`Legacy resolves POST body transport failure ${failure.name} through active lookup only`, async () => {
+    let posts = 0, reads = 0;
+    globalThis.fetch = async (path, options) => {
+      if (options?.method === "POST") {
+        posts++;
+        const response = json({});
+        response.json = async () => { throw failure; };
+        return response;
+      }
+      reads++;
+      expect(String(path)).toBe("/api/calculation-jobs/active");
+      return new Response(null, { status: 204 });
+    };
+    await expect(new LegacyApplication().calculate()).rejects.toMatchObject({ code: "APPLICATION_UNAVAILABLE" });
+    expect(posts).toBe(1);
+    expect(reads).toBe(1);
+  });
+}
+
+test("Legacy malformed JSON is not retried or treated as an unknown start", async () => {
+  const calls = responses(new Response("{broken", { status: 200 }));
+  await expect(new LegacyApplication().calculate()).rejects.toMatchObject({ code: "APPLICATION_RESPONSE_INVALID" });
+  expect(calls).toHaveLength(1);
+});
+
+test("an older calculation retains edited VREP arrival inputs without reverting server metadata", async () => {
+  const { preserveArrivalInputs } = await import("../src/calculationResult");
+  const arrival = {
+    visual_reporting_point_node_id: "vrep", selected_pattern_altitude_ft_msl: 1500,
+    selected_pattern_altitude_source: "AUTOMATIC", altitude_mode: "STANDARD_DISTANCE_RULE",
+    manual_vrep_altitude_ft_msl: null, manual_override_reason: null,
+  };
+  const next = { id: "same", metadata: { calculation_fingerprint: "new-result", ui_state: { arrival_plan: arrival } } } as unknown as NonNullable<WebState["project"]>;
+  const current = { id: "same", metadata: { calculation_fingerprint: "old-result", ui_state: { arrival_plan: { ...arrival,
+    altitude_mode: "MANUAL_NON_STANDARD_ENTRY", manual_vrep_altitude_ft_msl: 2400, manual_override_reason: "edited VREP",
+  } } } } as unknown as NonNullable<WebState["project"]>;
+  const merged = preserveArrivalInputs(next, current);
+  expect(merged.metadata.ui_state?.arrival_plan).toMatchObject({ altitude_mode: "MANUAL_NON_STANDARD_ENTRY", manual_vrep_altitude_ft_msl: 2400, manual_override_reason: "edited VREP" });
+  expect(merged.metadata.calculation_fingerprint).toBe("new-result");
+  expect(merged.metadata.ui_state?.arrival_plan?.selected_pattern_altitude_source).toBe("AUTOMATIC");
+  expect(next.metadata.ui_state?.arrival_plan?.altitude_mode).toBe("STANDARD_DISTANCE_RULE");
+  expect(preserveArrivalInputs(next, { ...current, id: "other" })).toBe(next);
+});
+
+test("Legacy malformed polling JSON remains an invalid response without retry", async () => {
+  const calls = responses(
+    json({ job_id: "bad-json", status: "calculating", progress_percent: 30, progress_message: "calculating" }),
+    new Response("{broken", { status: 200 }),
+  );
+  await expect(new LegacyApplication().calculate()).rejects.toMatchObject({ code: "APPLICATION_RESPONSE_INVALID" });
+  expect(calls.map(call => call.path)).toEqual(["/api/calculation-jobs", "/api/calculation-jobs/bad-json"]);
+});
+
+for (const operation of ["load", "import", "confirm", "delete-current"] as const) {
+  test(`Legacy successful ${operation} discards a timed-out job from the previous project`, async () => {
+    const originalNow = Date.now;
+    let now = originalNow(), reads = 0;
+    Date.now = () => now;
+    const projectB = { ...state, project: { id: "project-b" } } as WebState;
+    globalThis.fetch = async path => {
+      if (String(path) === "/api/calculation-jobs") return json({ job_id: "project-a-job", status: "calculating", progress_percent: 30, progress_message: "calculating" });
+      if (String(path) === "/api/calculation-jobs/project-a-job") {
+        reads++;
+        now += 600_001;
+        throw new TypeError("tracking timeout");
+      }
+      if (String(path) === "/api/calculation-jobs/active") return new Response(null, { status: 204 });
+      return json(operation === "delete-current" ? state : projectB);
+    };
+    try {
+      const app = new LegacyApplication();
+      await expect(app.calculate()).rejects.toMatchObject({ code: "CALCULATION_TIMEOUT" });
+      if (operation === "load") await app.loadProject("project-b");
+      else if (operation === "import") await app.importRoute({ text: "synthetic" } as any);
+      else if (operation === "confirm") await app.confirmRoute({ ...update, candidate_kind: "map", route_use_confirmed: true } as any);
+      else await app.deleteProject("project-a");
+      expect(await app.resumeCalculation()).toBeNull();
+      expect(reads).toBe(1);
+    } finally { Date.now = originalNow; }
+  });
+}
+
+for (const operation of ["busy-load", "busy-import", "busy-confirm", "busy-delete", "delete-other", "save", "update"] as const) {
+  test(`Legacy ${operation} preserves a timed-out job for reconnection`, async () => {
+    const originalNow = Date.now;
+    let now = originalNow(), reads = 0;
+    Date.now = () => now;
+    globalThis.fetch = async path => {
+      if (String(path) === "/api/calculation-jobs") return json({ job_id: "retained", status: "calculating", progress_percent: 30, progress_message: "calculating" });
+      if (String(path) === "/api/calculation-jobs/retained") {
+        if (++reads === 1) { now += 600_001; throw new TypeError("tracking timeout"); }
+        return json({ job_id: "retained", status: "succeeded", state, progress_percent: 100, progress_message: "done" });
+      }
+      if (operation.startsWith("busy-")) return json({ error: { code: "OPERATION_IN_PROGRESS", message: "busy" } }, 409);
+      return json(operation === "delete-other" ? { ...state, project: { id: "retained-project" } } : state);
+    };
+    try {
+      const app = new LegacyApplication();
+      await expect(app.calculate()).rejects.toMatchObject({ code: "CALCULATION_TIMEOUT" });
+      if (operation === "busy-load") await expect(app.loadProject("other")).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+      else if (operation === "busy-import") await expect(app.importRoute({ text: "synthetic" } as any)).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+      else if (operation === "busy-confirm") await expect(app.confirmRoute({ ...update, candidate_kind: "map", route_use_confirmed: true } as any)).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+      else if (operation === "busy-delete") await expect(app.deleteProject("retained-project")).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+      else if (operation === "delete-other") await app.deleteProject("other-project");
+      else if (operation === "save") await app.saveProject("same project");
+      else await app.updateProject(update);
+      expect(await app.resumeCalculation()).toEqual(state);
+      expect(reads).toBe(2);
+    } finally { Date.now = originalNow; }
+  });
+}

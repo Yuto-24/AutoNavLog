@@ -6,7 +6,7 @@ import json
 import sqlite3
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from threading import RLock
 from typing import Any, Protocol
@@ -101,7 +101,9 @@ class LegacyMigration:
 
     def read_status(self, owner: str) -> dict[str, Any]:
         """Read committed state without the operation lock or lease-repair writes."""
-        with sqlite3.connect(f"{self.path.as_uri()}?mode=ro", uri=True, timeout=0.25) as db:
+        with closing(sqlite3.connect(
+            f"{self.path.as_uri()}?mode=ro", uri=True, timeout=0.25,
+        )) as db:
             db.row_factory = sqlite3.Row
             row = db.execute("SELECT * FROM links WHERE owner=?", (owner,)).fetchone()
         value = dict(row) if row else None
@@ -145,7 +147,8 @@ class LegacyMigration:
         lock = self.lock(owner)
         if not lock.acquire(blocking=False):
             raise WebApplicationError(
-                "OPERATION_IN_PROGRESS", "計算中のため、まだ保存できていません。",
+                "OPERATION_IN_PROGRESS",
+                "他の処理が実行中のため操作を完了できませんでした。時間をおいて再試行してください。",
                 status_code=409,
             )
         try:

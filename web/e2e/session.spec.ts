@@ -322,10 +322,10 @@ test("Legacy waits past thirty seconds, reconnects and resumes before saving edi
   });
   await page.route("**/api/project", async route => {
     if (route.request().method() === "PUT") saves++;
-    await route.fulfill({ status: 409, json: { error: { code: "OPERATION_IN_PROGRESS", message: "計算中のため、まだ保存できていません。" } } });
+    await route.fulfill({ status: 409, json: { error: { code: "OPERATION_IN_PROGRESS", message: "他の処理が実行中のため操作を完了できませんでした。時間をおいて再試行してください。" } } });
   });
   await page.getByLabel("ETD JST", { exact: true }).fill("15:00");
-  await expect(page.getByText("計算中のため、まだ保存できていません。", { exact: true })).toBeVisible();
+  await expect(page.getByText("他の処理が実行中のため操作を完了できませんでした。時間をおいて再試行してください。", { exact: true })).toBeVisible();
   const beforeSaves = saves, beforePosts = posts;
   const started = Date.now();
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();

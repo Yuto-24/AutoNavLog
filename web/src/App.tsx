@@ -4,6 +4,7 @@ import { AccountSyncControl } from "./components/AccountSyncControl";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApplicationError } from "./application";
+import { preserveArrivalInputs } from "./calculationResult";
 import type { AutoNavLogApplication, UpdateProjectInput } from "./application";
 import { readSession, writeSession, clearSession, RECOVERY_FAILED, emptyCheckPointDraft, projectDraft, restoreProjectDraft } from "./applicationSession";
 import type { ApplicationSession, PendingKmz, NodeNameDraft, VorColumn } from "./applicationSession";
@@ -238,6 +239,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     options: {
       syncCalculationInputs?: boolean;
       syncDerivedArrival?: boolean;
+      preserveArrivalInputs?: boolean;
       freshImport?: boolean;
       preserveRouteViewport?: boolean;
     } = {},
@@ -292,7 +294,9 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         return {
           ...next,
           project: {
-            ...next.project,
+            ...(options.preserveArrivalInputs
+              ? preserveArrivalInputs(next.project, current.project)
+              : next.project),
             sections: current.project.sections.map(
               (section) => derivedArrivalSections?.get(section.id) ?? section,
             ),
@@ -1380,11 +1384,11 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
       }, {
         apply: next => {
           const sync = generation === calculationInputGenerationRef.current && !(resumed && hadUnsavedInputs);
-          applyState(next, { syncCalculationInputs: sync });
+          applyState(next, { syncCalculationInputs: sync, preserveArrivalInputs: !sync });
           if (!sync) setCalculationInputsAreLocallyCurrent(false);
           scrollToCalculatedNavLogRef.current = next.outcome;
         },
-        success: "NAV LOGを計算しました。準備状況と各値を確認してください。",
+        success: "NAV LOGの計算結果を取得しました。準備状況と各値を確認してください。",
         operation: "calculate",
       });
       if (!calculated?.outcome) scrollToCalculatedNavLogRef.current = null;

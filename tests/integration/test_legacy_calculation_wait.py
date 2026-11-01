@@ -99,6 +99,9 @@ async def test_migration_enabled_long_calculation_keeps_progress_responsive(
                 )
                 assert response.status_code == 409
                 assert response.json()["error"]["code"] == "OPERATION_IN_PROGRESS"
+                assert response.json()["error"]["message"] == (
+                    "他の処理が実行中のため操作を完了できませんでした。時間をおいて再試行してください。"
+                )
             await asyncio.sleep(31)
             response = await asyncio.wait_for(
                 client.get(f"/api/calculation-jobs/{job_id}"), timeout=1
@@ -182,3 +185,38 @@ async def test_session_lock_conflict_is_fast(waiting_app):
     finally:
         release.set()
         await holder
+
+
+@pytest.mark.parametrize("query_fails", [False, True])
+def test_read_status_closes_readonly_connection(waiting_app, monkeypatch, query_fails):
+    import sqlite3
+
+    from autonavlog.storage.repository import owner_storage_key
+
+    app, _, _ = waiting_app
+    connections = []
+    real_connect = sqlite3.connect
+
+    class TrackedConnection(sqlite3.Connection):
+        def execute(self, *args, **kwargs):
+            if query_fails:
+                raise sqlite3.OperationalError("synthetic read failure")
+            return super().execute(*args, **kwargs)
+
+    def connect(*args, **kwargs):
+        assert kwargs["uri"] is True
+        assert "mode=ro" in args[0]
+        connection = real_connect(*args, factory=TrackedConnection, **kwargs)
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    migration = app.state.legacy_migration
+    if query_fails:
+        with pytest.raises(sqlite3.OperationalError, match="synthetic read failure"):
+            migration.read_status(owner_storage_key(OWNER))
+    else:
+        assert migration.read_status(owner_storage_key(OWNER))["state"] == "UNLINKED"
+    assert len(connections) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        connections[0].cursor()

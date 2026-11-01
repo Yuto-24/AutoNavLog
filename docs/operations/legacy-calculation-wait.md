@@ -52,3 +52,38 @@ Retain the previous compatible image and the current data separately for recover
 Validate both the PR source and any v1.23.0 backport. Use isolated storage and synthetic
 identity for authenticated calculation acceptance; do not weaken production Access or
 reuse an actual user's session. Verify the production image/health/mount independently.
+
+## UI wording verification (PR #332)
+
+The nine affected or reused UI strings were checked through the existing WSL agy
+route with `--model gemini-3.8-flash-medium` in plan/sandbox/print mode on
+2026-11-01, 11:32:17.719982–11:32:54.259251 UTC. The parent task supplied the
+verified result: exit 0, `SUCCESS`, empty stderr; conversation
+`c162416d-e5a0-4fd9-9248-22e186dee86e`. The response did not separately expose a
+backend model identifier.
+
+The approved changes distinguish operation contention from calculation-only locks,
+tracking timeout from cancellation, missing response data from absent calculations,
+and result retrieval from a new calculation. The other five strings remain unchanged.
+No lock, retry, session, migration, server-error precedence or draft-retention behavior
+is changed by this wording follow-up.
+
+Evidence SHA-256 values supplied by the parent:
+
+- Prompt: `237bea036f8601d1c0af8a6e8d9b96ecb0c33a4ef3bf9d7964f2e0b9e4fc60eb`
+- Raw output: `db1f59741a8942f8060e8d6cfa2f76d72206e9b7b0d9b32b653ec166a555d325`
+- Final JSON: `c6e1b894576f731dfb493050f8403c19012562c9b9a6a5a6d44d48375ec7f6a7`
+
+The same Gemini route additionally checked response-body transport failures on
+2026-11-01, 11:39:21.835653–11:39:48.975466 UTC (exit 0, `SUCCESS`, no separately
+reported backend model ID). It selected
+`サーバーとの通信に失敗しました。再試行してください。` for transport failures and
+retained `処理結果を読み取れませんでした。` for malformed JSON.
+Prompt SHA-256: `dcc92fd11889d3ae69685ecc2d3137693c82a8e6e58d8a9b9e446096910f4ad5`;
+raw output: `ca4658495a8fa2fa5daad38a8b7da0997776f5c2a5d2fafc63635fa14ac464de`.
+
+Pre-merge review follow-ups also cover body-read disconnects/timeouts (retry GET or
+look up an unacknowledged POST, never replay it), deterministic closure of read-only
+SQLite connections, preservation of the three locally editable VREP arrival fields,
+and discarding a cached job after a successful Project-context switch. Busy/failed
+switches and same-Project saves/edits retain the job for explicit reconnection.
