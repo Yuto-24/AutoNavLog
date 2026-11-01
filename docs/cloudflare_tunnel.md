@@ -6,16 +6,10 @@ originをInternetへ直接listenさせません。
 
 ## 1. ローカルorigin
 
-公開serviceではAccess applicationのTeam domainとAudience tagを設定して起動します。
-どちらもCloudflare dashboardで確認できる識別子で、tokenや秘密鍵ではありません。
-
-```bash
-export AUTONAVLOG_CLOUDFLARE_TEAM_DOMAIN='https://<team>.cloudflareaccess.com'
-export AUTONAVLOG_CLOUDFLARE_ACCESS_AUDIENCE='<Access application AUD tag>'
-unset AUTONAVLOG_TRUSTED_LOCAL_IDENTITY
-AUTONAVLOG_BIND_ADDRESS=127.0.0.1 docker compose up -d --build
-docker compose ps
-```
+公開serviceのComposeと環境設定は[Legacy本番のCompose運用](operations/legacy-compose.md)を正本とします。
+Access applicationのTeam domainとAudience、Firebase設定、NavMate URLは、稼働中の正しい値を
+専用checkoutの `.env` に保持します。通常起動時のshell overrideは使いません。
+初回の構成整理・切替には同文書の確認と別途の本番承認が必要です。
 
 Tunnelを使わずloopbackでUI操作まで試す場合だけ、固定identityを明示します。
 
@@ -28,7 +22,7 @@ docker compose up -d --build
 このoverrideはCloudflare Access headerを使わないローカル試験専用です。設定したまま
 Tunnelへ公開すると全利用者が同じ所有者になるため、公開serviceでは必ず未設定にします。
 
-Cloudflare用コマンドは、通常の開発用default（`0.0.0.0`）を明示的に上書きし、container内の
+本番の `.env` は、通常の開発用default（`0.0.0.0`）を明示的に上書きし、container内の
 `0.0.0.0:8000` をhostの `127.0.0.1:8123` だけへpublishします。
 Projectと参照データをnamed volume `autonavlog-data` に保存します。別terminalで確認します。
 

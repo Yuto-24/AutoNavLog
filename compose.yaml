@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runtime
-    image: autonavlog:local
+    image: "${AUTONAVLOG_IMAGE:-autonavlog:local}"
     restart: unless-stopped
     init: true
     ports:
@@ -39,3 +39,5 @@ services:
 
 volumes:
   autonavlog-data:
+    name: "${AUTONAVLOG_DATA_VOLUME:-${COMPOSE_PROJECT_NAME:-autonavlog}_autonavlog-data}"
+    external: ${AUTONAVLOG_DATA_EXTERNAL:-false}

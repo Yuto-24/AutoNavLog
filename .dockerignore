@@ -6,6 +6,9 @@
 !.github/workflows/static-production.yml
 .venv
 .autonavlog-data
+.env
+.env.*
+.autonavlog-worktree
 .codex
 .claude
 .coverage
