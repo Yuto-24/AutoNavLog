@@ -4,7 +4,8 @@ export async function signInSyncAccount(page: Page, subject: string) {
   // authTest exists before the anonymous App finishes its worker bootstrap.
   // Wait for the same UI a user needs before signing in; Vite can reload while
   // that initial App is loading. Auth errors must still reject without a retry.
-  await expect(page.getByRole("button", { name: "アカウント", exact: true })).toBeVisible();
+  // Use the existing initial UI budget from enterImportWorkflow, not auth's 40s.
+  await expect(page.getByRole("button", { name: "アカウント", exact: true })).toBeVisible({ timeout: 120_000 });
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
 }
 

@@ -17,7 +17,7 @@ test("sync sign-in waits for initial UI across a reload", async ({ page }) => {
   await page.exposeFunction("recordSignIn", (subject: string, ready: boolean) => { calls.push({ subject, ready }); });
   let ready = false;
   await page.route("https://readiness.example/", route => route.fulfill({
-    contentType: "text/html",
+    contentType: "text/html; charset=utf-8",
     body: `${ready ? '<button aria-label="アカウント">Account</button>' : '<p>Loading</p>'}
       <script>window.authTest = { signIn: subject => window.recordSignIn(subject, ${ready}) };</script>`,
   }));
