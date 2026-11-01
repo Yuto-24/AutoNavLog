@@ -6,6 +6,7 @@ Only the upstream library selects Runs and interprets their meteorological cover
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -35,6 +36,11 @@ class LocalWeatherError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+def coverage_message(reason_codes: Iterable[str]) -> str:
+    messages = {"NO_SPEC_COMPATIBLE_RUN": "選択した日時のMSM予報は利用できません。"}
+    return ", ".join(messages.get(code, code) for code in reason_codes)
 
 
 class PreparedAsset(BaseModel):
@@ -108,7 +114,9 @@ class LocalMsmClient(MsmClient):  # type: ignore[misc]
     ) -> Any:
         coverage = self.check_coverage(requirements, run=selected_run)
         if coverage.outside_spec:
-            raise LocalWeatherError("WEATHER_OUT_OF_COVERAGE", ", ".join(coverage.reason_codes))
+            raise LocalWeatherError(
+                "WEATHER_OUT_OF_COVERAGE", coverage_message(coverage.reason_codes)
+            )
         status = super().resolve_run(requirements, selected_run, available_runs)
         if not status.selected_run_covers_request:
             raise LocalWeatherError(
@@ -190,7 +198,9 @@ class LocalMsmWeather:
             ),
         )
         if coverage.outside_spec:
-            raise LocalWeatherError("WEATHER_OUT_OF_COVERAGE", ", ".join(coverage.reason_codes))
+            raise LocalWeatherError(
+                "WEATHER_OUT_OF_COVERAGE", coverage_message(coverage.reason_codes)
+            )
         status = self.client.resolve_run(native, selected_run=selected)
         asset = next(
             (item for item in catalog.assets if item.run == str(status.selected_run)), None

@@ -81,6 +81,7 @@ def test_full_run_keeps_latest_short_and_long_horizon_and_segment_boundaries(ful
     with pytest.raises(LocalWeatherError) as error:
         prepare_at(client, tmp_path, RUN + timedelta(hours=78, minutes=1), RunId(RUN))
     assert error.value.code == "WEATHER_OUT_OF_COVERAGE"
+    assert str(error.value) == "選択した日時のMSM予報は利用できません。"
 
 
 def test_partial_feed_reports_unprepared_coverage_not_corruption(full_source, tmp_path):
