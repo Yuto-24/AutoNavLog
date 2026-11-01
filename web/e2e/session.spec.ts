@@ -35,6 +35,7 @@ async function imported(page: Page) {
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await expect(page.getByLabel("DATE", { exact: true })).toHaveValue("2026-09-11");
   await expect(page.getByLabel("気象モード")).toHaveValue("FTD");
@@ -196,6 +197,7 @@ test("KMZ document choice resumes after reload with modal closed", async ({ page
     "import io,zipfile,sys; b=io.BytesIO(); z=zipfile.ZipFile(b,'w'); s=open('../tests/fixtures/issue_43_golden.kml').read(); z.writestr('a.kml',s); z.writestr('b.kml',s); z.close(); sys.stdout.buffer.write(b.getvalue())"]);
   await open(page);
   await page.locator('input[type="file"]').setInputFiles({ name: "routes.kmz", mimeType: "application/vnd.google-earth.kmz", buffer: bytes });
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByLabel("KML文書").selectOption("b.kml");
   await page.reload();

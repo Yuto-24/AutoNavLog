@@ -381,3 +381,31 @@ for (const method of ["file", "paste"] as const) {
     await expect(strip).toHaveCount(0);
   });
 }
+
+test("delayed replacement import retains planning edits before route confirmation", async ({ page }) => {
+  await open(page);
+  await enterImportWorkflow(page);
+  await page.getByLabel("DATE", { exact: true }).fill("2026-09-16");
+  await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
+  await page.getByLabel("気象モード").selectOption("FORECAST");
+  await page.evaluate(() => {
+    const original = File.prototype.arrayBuffer;
+    File.prototype.arrayBuffer = async function () {
+      await new Promise<void>(resolve => Object.assign(window, { releaseImportRead: resolve }));
+      return original.call(this);
+    };
+  });
+  const file = page.locator('input[type="file"]');
+  await file.setInputFiles({ name: "delayed.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(kml) });
+  await expect(file).toBeDisabled();
+  // The prior candidate remains rendered while the replacement is pending.
+  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await page.evaluate(() => (window as unknown as { releaseImportRead: () => void }).releaseImportRead());
+  await expect(file).toBeEnabled();
+  await expect(page.locator(".imported-file")).toContainText("delayed.kml");
+  await expect(page.getByLabel("DATE", { exact: true })).toHaveValue("2026-09-16");
+  await expect(page.getByLabel("ETD JST", { exact: true })).toHaveValue("12:00");
+  await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeEnabled();
+});

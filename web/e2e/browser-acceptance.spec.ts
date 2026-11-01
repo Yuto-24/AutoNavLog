@@ -30,6 +30,7 @@ test("Static Local workflow saves and restores a calculated Project across lifec
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
   await page.locator('input[type="file"]').setInputFiles(fixture);
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await expect(page.locator(".route-workspace .leaflet-container")).toBeVisible();
   await page.getByLabel("地図とKML記載順を確認しました").check();
