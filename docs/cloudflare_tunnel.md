@@ -1,6 +1,6 @@
-# Cloudflare TunnelでAutoNavLog Webを公開する
+# Cloudflare TunnelでNavMate Webを公開する
 
-AutoNavLogはローカルoriginを `127.0.0.1:8123` で起動し、既存の
+NavMateはローカルoriginを `127.0.0.1:8123` で起動し、既存の
 Cloudflare Tunnel connectorから同じhostの `http://localhost:8123` へ転送します。
 originをInternetへ直接listenさせません。
 
@@ -61,7 +61,7 @@ remotely-managed tunnelはorigin側でtokenだけを使って接続し、route�
 
 公開hostnameと同じdomainをCloudflare Accessのself-hosted applicationへ登録し、
 利用を許可するidentity／email groupだけのAllow policyを作成します。Accessがoriginへ付与する
-`Cf-Access-Jwt-Assertion` をAutoNavLog自身でも検証します。検証対象はRS256署名、Team domainの
+`Cf-Access-Jwt-Assertion` をNavMate自身でも検証します。検証対象はRS256署名、Team domainの
 `iss`、設定済みapplication `aud`、`exp` です。署名鍵はTeam domainのJWKSから`kid`で選び、
 検証済み`email` claimだけをsession所有者と保存Projectの `web_owner_id` に使用します。
 `Cf-Access-Authenticated-User-Email` 単独のrequestは拒否します。

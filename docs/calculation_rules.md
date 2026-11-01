@@ -1,6 +1,6 @@
 # 計算規則
 
-この文書は、AutoNavLogが実際に採用する計算・表示Policyの正本です。
+この文書は、NavMateが実際に採用する計算・表示Policyの正本です。
 
 一部のPolicyは航空大学校の内部運用資料を参照して設計・検証していますが、このRepositoryでは原資料の章節、ページ、原文要約、hashとの対応を保持しません。公開範囲の考え方は[出典・provenance方針](source_policy.md)を参照してください。
 
@@ -16,6 +16,14 @@ SR22性能値については、Cirrus Design SR22 AFM/POH P/N 13772-006 Revision
 - 東偏差を正として`MC = TC + VAR`、右WCAを正として`MH = MC + WCA`とします。
 - NAV LOGへ表示するMHは、同じ行に表示する丸め済みMCとWCAから作り、画面上の算術を一致させます。
 - VFR巡航高度候補の方向判定は、NAV LOGへ表示する1°単位のMCを使用します。359.5°以上は表示360°、判定上は0°側とします。
+
+## 四捨五入モード
+
+計算後のNAV LOG上部で切り替え、切替時には再計算します。互換維持の暫定既定はOFFです。
+ON時は共通採用風向を10° half-upへ丸めて航法計算と表示に使用し、MH・GS自身は10刻みにしません。
+DMEは0.5 NM、TOATは1℃の表示投影だけを行い、内部距離・気温を保持します。
+OFFの従来表示・計算は維持します。モードは同じ作業中のみ保持し、新規作業・Project読込・再読込でOFFへ戻します。
+境界値・失敗時の扱いと保存設定の未確定範囲は[四捨五入モード](rounding_mode_helpers.md)を参照してください。
 
 ## Phaseと代表気象
 
@@ -56,19 +64,19 @@ Flight Phaseは`CLIMB`、`CRUISE`、`DESCENT`、`VISUAL_ARRIVAL`を扱います�
 - EOCは降下に必要な時間を逆算して経路上へ配置します。
 - EOCとPhysical Turn Pointの経路上距離差が0.5 NM未満なら、内部計算上もTurn Pointへsnapします。ちょうど0.5 NMではsnapしません。
 - snap後も、計画高度差から求めた降下時間とlevel-off後の60秒は保持します。
-- EOC後の風、WCA、MH、GSは継承境界として最初のDESCENT行へ明示します。
+- EOC後のTOAT、風、WCA、MH、GSは継承境界として最初のDESCENT行へ明示します。TOATはそのCalculation ZoneのDESCENT phaseの実効値を使い、直前と同値でも省略しません。以後の通常区間は既存の継承表示を維持します。
 
 ## VISUAL ARRIVAL
 
 - VREPから目的空港まではCAS 121 ktを使用します。
 - 航法計算上の風はCALM固定で、WCA=0、GS=TASです。
 - 目的地TAF風は独立した目的空港情報として表示しますが、この区間の航法計算には使用しません。
-- VREP高度はAutoNavLogのstandard distance ruleまたは利用者のmanual overrideで決定します。
+- VREP高度はNavMateのstandard distance ruleまたは利用者のmanual overrideで決定します。
 - RJFMのARITA / SHIRAHAMAについては専用Policyを適用します。
 
 ## 燃料計画
 
-AutoNavLogの固定Fuel Plan Policyは次のとおりです。
+NavMateの固定Fuel Plan Policyは次のとおりです。
 
 - TAXI/RUN UP: 10分、1.5 gal。RUN UPなしの場合は0分、0 galです。
 - CLIMB: POH上昇性能から算出します。
@@ -86,12 +94,13 @@ AutoNavLogの固定Fuel Plan Policyは次のとおりです。
 
 ## RJFM北行き専用Policy
 
-RJFMから大分方面へ北上する一部経路では、AutoNavLogのRJFM専用Policyを適用します。
+RJFMから大分方面へ北上する一部経路では、NavMateのRJFM専用Policyを適用します。
 
 - UMK / OMARUは名称ではなく参照座標と距離で識別します。
 - 適用中はRJFM→UMKをCLIMB、UMK→OMARUをCRUISEとして扱い、目標高度を5,500 ft MSLに固定します。
 - 経路にOMARUがない場合は、条件を満たす経路へOMARUを補います。
-- OMARUから開始する経路では物理UMKを挿入せず、参照位置を仮想RCAとして扱います。
+- RJFMの次がOMARUの経路では実UMKを自動挿入し、RJFM→UMKとUMK→OMARUを物理区間として計算します。明示UMKは名称・座標・手入力を保持し、重複させません。
+- 生成UMKで分割する元Legの手入力距離は、2つの物理区間の測地線距離比で按分し、合計を保持します。元Legの手入力コースは分割区間には使わず、各区間の座標からTCを計算します。自動補完を解除し、元の隣接関係に戻った場合は元の距離・コースを復元します。
 - NAV LOG主表ではRJFM→OMARUを1つの親Legとして表示し、UMK/RCAを内部境界として扱います。
 - RJFM→UMK/RCAのETEと燃料は、同じ気温補正を適用したPOHの5,500 ft到達値を優先します。この専用区間では`DIST / GS = ETE`を要求しません。
 - 利用者が取り込んだKMLに対応するUMK / OMARU座標がある場合は、その座標を同梱参照値より優先します。
@@ -127,7 +136,7 @@ RJFMのRWY09 / RWY27について、NAV LOG本体とは独立した参考経路�
 
 ## 使用制限
 
-- AutoNavLogは公式規程、公式様式、運航承認を代替しません。
+- NavMateは公式規程、公式様式、運航承認を代替しません。
 - SEA、DEM、地形・障害物は現行計算対象外です。
 - 参照値、気象、航空情報、ATC指示は利用時に最新情報と照合してください。
 - POH性能頁についても、対象機の製造番号、日本承認AFM/POH、Supplementへの適用性は別途確認が必要です。

@@ -324,6 +324,17 @@ def calculate_arrival_altitude(
         adopted = manual_adopted
         source = AdoptedSource.MANUAL
 
+    # The agreed OMARU return profile hits ARITA at 1,500 ft. Preserve manual
+    # entry fields in ArrivalPlan; this operational policy sets the effective target.
+    inbound = ui_state.rjfm_inbound_plan
+    if inbound is not None:
+        from .rjfm_inbound_plan import is_arita_node, rjfm_inbound_plan_matches_project
+
+        if is_arita_node(vrep) and rjfm_inbound_plan_matches_project(project, inbound):
+            adopted = 1500
+            source = AdoptedSource.AUTOMATIC
+            reason = None
+
     result = ArrivalAltitudeResult(
         vrep_node_id=vrep.id,
         destination_airport_id=destination.id,

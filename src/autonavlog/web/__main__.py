@@ -12,7 +12,7 @@ from .runtime import WebRuntimeConfig, environment_bool
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the local AutoNavLog Web application.",
+        description="Run the local NavMate Web application.",
     )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)

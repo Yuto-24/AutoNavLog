@@ -10,7 +10,8 @@ a new button, model field, schema version, or GSM selection policy.
 
 `forecast_selection_fingerprint` binds refresh intent to the working Project,
 flight timing, airports, route, section altitude/phase/manual inputs, TGL,
-descent rate, aircraft settings, and relevant planning/reference state. It
+descent rate, aircraft settings, relevant planning/reference state (including
+adopted departure VOR provenance), and the session-only rounding mode. It
 excludes the selected Run, save/revision bookkeeping, and acknowledgements.
 Planning metadata is revalidated through its typed domain model before hashing,
 so JavaScript JSON roundtrips (`1000.0` to `1000`) cannot invalidate an unchanged
@@ -31,7 +32,10 @@ The calculation service defaults to pinned selection; only an explicit
 It does not implement model specifications, discovery, or coverage itself.
 Local acquisition uses the same intent before downloading the portable payload,
 so the second click acquires the new Run rather than preparing the old payload
-and then trying to calculate with another Run.
+and then trying to calculate with another Run. A rounding-mode change discards
+the previous refresh intent in both acquisition and calculation: it keeps the
+pin on that calculation, and only the next calculation in the same mode can
+refresh. Saving preserves both the active rounding mode and matching intent.
 
 Successful calculation uses the existing readiness and persistence boundaries
 to synchronize Project, CalculationOutcome, Last Calculation and forecast

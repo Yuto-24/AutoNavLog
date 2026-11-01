@@ -15,7 +15,7 @@ const reference = (pinned = false) => JSON.parse(execFileSync(
 ));
 const state = (page: Page) => page.evaluate(() => (window as any).weatherStates.at(-1));
 const record = (page: Page) => page.evaluate(() => new Promise<any>((resolve, reject) => {
-  const opening = indexedDB.open("autonavlog.projects", 1);
+  const opening = indexedDB.open("autonavlog.projects");
   opening.onerror = () => reject(opening.error);
   opening.onsuccess = () => {
     const db = opening.result;
@@ -31,6 +31,7 @@ async function setup(page: Page) {
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
   await page.getByLabel("気象モード").selectOption("FORECAST");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
@@ -103,7 +104,8 @@ test("portable real MSM: cold, warm after reload, Python reference and saved NAV
   expect((await record(page)).lastCalculation.outcome.summary).toEqual(before.outcome.summary);
 });
 
-test("saved Run stays fixed on first click and refreshes snapshot on second click", async ({ page }) => {
+for (const switchRounding of [false, true]) {
+test(`saved Run stays fixed on first click and refreshes snapshot on second click${switchRounding ? " after rounding change" : ""}`, async ({ page }) => {
   const native = reference(true);
   const recovery = native.workingRecovery;
   for (const project of [recovery.project, recovery.last_calculation.project]) delete project.metadata.web_owner_id;
@@ -111,7 +113,8 @@ test("saved Run stays fixed on first click and refreshes snapshot on second clic
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await page.evaluate(recovery => new Promise<void>((resolve, reject) => {
-    const opening = indexedDB.open("autonavlog.projects", 1);
+    const opening = indexedDB.open("autonavlog.projects");
+    opening.onerror = () => reject(opening.error);
     opening.onsuccess = () => {
       const db = opening.result;
       const tx = db.transaction("projects", "readwrite");
@@ -131,6 +134,15 @@ test("saved Run stays fixed on first click and refreshes snapshot on second clic
   expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915180000");
   expect((await state(page)).outcome.issues.map((i: any) => i.code)).toContain("FORECAST_UPDATE_AVAILABLE");
   compare(calculationCoreGolden(await state(page)), calculationCoreGolden(native));
+  if (switchRounding) {
+    const mode = page.getByRole("radio", { name: "四捨五入", exact: true });
+    await mode.click();
+    await expect(mode).toBeChecked();
+    await expect(mode).toBeEnabled();
+    expect((await state(page)).roundingMode).toBe(true);
+    expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915180000");
+    expect((await state(page)).outcome.issues.map((i: any) => i.code)).toContain("FORECAST_UPDATE_AVAILABLE");
+  }
   await page.getByLabel("プロジェクト", { exact: true }).fill("Forecast refresh");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect.poll(async () => (await record(page)).checkpoint?.name).toBe("Forecast refresh");
@@ -145,9 +157,16 @@ test("saved Run stays fixed on first click and refreshes snapshot on second clic
   expect(saved.project.selected_forecast_run_id).toBe("20260915210000");
   expect(saved.outcome.selected_forecast_run_id).toBe("20260915210000");
   await page.reload();
-  await expect(page.locator(".nav-log-table")).toBeVisible();
+  if (switchRounding) {
+    await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+    await expect(page.locator(".nav-log-table")).toHaveCount(0);
+    expect((await state(page)).roundingMode).toBe(false);
+  } else {
+    await expect(page.locator(".nav-log-table")).toBeVisible();
+  }
   expect((await record(page)).lastCalculation).toEqual(saved);
 });
+}
 
 test("Project quota retry releases the actual Weather cache and keeps Last Calculation", async ({ page }) => {
   await setup(page); await calculate(page);

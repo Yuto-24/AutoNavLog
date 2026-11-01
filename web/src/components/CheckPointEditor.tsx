@@ -50,6 +50,8 @@ export function CheckPointEditor({
 }: CheckPointEditorProps) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const composingRef = useRef(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const focusedCoordinateRef = useRef<PickedCoordinate | null>(null);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
@@ -109,14 +111,14 @@ export function CheckPointEditor({
   }, [pickedCoordinate, onPickingFromMapChange]);
 
   useEffect(() => {
-    // Consume each MAP pick once, after the conditional form has mounted. Draft
-    // edits and manual focus changes must not retrigger this interaction.
+    // Consume a MAP pick once, after the conditional form mounts. Ordinary
+    // draft edits and manual focus changes must not retrigger this interaction.
     if (!editorOpen || !pickedCoordinate || focusedCoordinateRef.current === pickedCoordinate) return;
     const input = nameInputRef.current;
     if (!input) return;
     focusedCoordinateRef.current = pickedCoordinate;
     input.focus({ preventScroll: true });
-    input.scrollIntoView({ block: "nearest", inline: "nearest" });
+    input.scrollIntoView({ block: "center", inline: "nearest" });
   }, [editorOpen, pickedCoordinate]);
 
   const reset = () => {
@@ -146,7 +148,9 @@ export function CheckPointEditor({
     : saving ? "追加中…" : "追加";
 
   const save = async () => {
-    if (!draftValid) return;
+    if (!draftValid || busy || savingRef.current) return;
+    // Lock synchronously: another key/click can arrive before React renders saving.
+    savingRef.current = true;
     const updated: CheckPointInput = {
       ...(draft.id ? { id: draft.id } : {}),
       name: draft.name.trim(),
@@ -163,6 +167,7 @@ export function CheckPointEditor({
       );
       if (succeeded) reset();
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -172,7 +177,6 @@ export function CheckPointEditor({
       <div className="section-heading-row">
         <div>
           <h3>チェックポイント</h3>
-          <p>偏流と到着予定時刻を確認する地点を、地図または座標から追加します。</p>
         </div>
         <button
           className="secondary-button checkpoint-add-button"
@@ -211,6 +215,16 @@ export function CheckPointEditor({
               aria-invalid={nameIsBlocking || undefined}
               aria-describedby={nameIsBlocking ? "checkpoint-name-warning" : undefined}
               onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+              onCompositionStart={() => { composingRef.current = true; }}
+              onCompositionEnd={() => { composingRef.current = false; }}
+              onBlur={() => { composingRef.current = false; }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                // Some IMEs end composition before the confirming keydown (keyCode 229).
+                if (composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+                event.preventDefault();
+                if (!event.repeat) void save();
+              }}
               placeholder="例: 岩瀬ダム"
             />
             {nameIsBlocking && (
@@ -301,9 +315,7 @@ export function CheckPointEditor({
         </div>
       )}
 
-      {!checkPoints.length ? (
-        <p className="checkpoint-empty">まだチェックポイントはありません。</p>
-      ) : (
+      {checkPoints.length > 0 && (
         <div className="checkpoint-list">
           {checkPoints.map((item) => {
             const projection = projectionById.get(item.id);
@@ -365,7 +377,6 @@ export function CheckPointEditor({
           })}
         </div>
       )}
-      <small className="checkpoint-guidance">巡航区間では15〜20 NM程度の間隔が配置の目安です。abeam点がLeg線分内にあり、横ずれ10 NM以内となる区間を候補とし、1件なら自動選択します。</small>
     </section>
   );
 }

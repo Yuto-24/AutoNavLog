@@ -39,3 +39,9 @@ services/taf-proxy/wrangler.local.jsonc
 web/dist-static/
 /.wrangler/
 /web/.wrangler/
+
+services/msm-trigger/node_modules/
+services/msm-trigger/dist/
+services/msm-trigger/.wrangler/
+services/msm-trigger/.state/
+services/msm-trigger/.dev.vars*

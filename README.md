@@ -1,6 +1,6 @@
-# AutoNavLog
+# NavMate
 
-AutoNavLog は、航空大学校の宮崎課程 NAV2 で使う航法 LOG の地上準備を支援する、
+NavMate は、航空大学校の宮崎課程 NAV2 で使う航法 LOG の地上準備を支援する、
 SR22 G6 向けの Web アプリです。KML または KMZ の経路を読み込み、NAV LOG の計算結果を
 Web 画面に表示します。
 
@@ -74,7 +74,7 @@ markerが欠落・破損している場合や所有者が一致しない場合�
 
 未確定経路は同じタブの再読み込みで復元します。クリアやProject切替では破棄前に確認します。
 確定済みProjectはPlanningから再開します。MAP表示範囲はProjectごとにこの端末へ保持します。
-KMLの既存入力は「KML/KMZから開始」から利用できます。
+KML/KMZのファイル選択・ドロップと「Google Earth からペースト」は初期MAP画面から直接利用できます。
 実装境界と検証は [MAP Route creation](docs/map_route_builder.md) を参照してください。
 
 ## 経路を取り込む
@@ -83,7 +83,7 @@ Web 画面では、KML/KMZ のファイル選択とドラッグ＆ドロップ�
 経路を取り込めます。どの方法でも同じ規則で候補を作り、KMZ では選ばれた KML にも
 同じ規則を適用します。
 
-「KMLを貼り付け」を押すと、クリップボードのKMLを直接読み込んで経路候補を表示します。
+「Google Earth からペースト」を押すと、クリップボードのKMLを直接読み込んで経路候補を表示します。
 ブラウザから許可や貼り付けの操作を求められた場合は、その案内に従ってください。
 読み取りが許可されない環境やテキストが空の場合は、手動で貼り付ける入力欄が開きます。
 確認をキャンセルした場合も同じ入力欄からファイル選択へ切り替えられます。
@@ -226,7 +226,7 @@ Local Static Webでは[TAF専用Serverless Proxy](docs/taf_proxy.md)を使いま
 
 RJFMから大分方面へ北上する経路で、最初のWaypointがUMKまたはOMARUの参照座標から
 1.0 NM以内なら、UMK 5,500 ftのRCA例外を自動適用します。経路表と内部Route Graphは
-UMKとOMARUを保持しますが、NAV LOGでは `RJFM → OMARU` を1つの親Legとし、その中に
+UMKとOMARUを保持し、UMK省略時も実UMKを自動補完します。NAV LOGでは `RJFM → OMARU` を1つの親Legとし、その中に
 `UMK/RCA 5,500 ft` の境界を表示します。親LegのDIST・ETE・燃料は子区間の合計、
 TC・VAR・MCはRJFMからOMARUへの直行測地線値です。
 
@@ -245,7 +245,7 @@ MAP内の経路線と凡例は残ります。画面幅1,240 px以下では「入
 NAV LOG → RJFM案内」の1列順となり、上下に往復せず確認できます。適用条件と制限は
 [計算規則](docs/calculation_rules.md#rjfm大分方面のumkrca例外)を参照してください。
 
-RJFM帰路でOMARU→UMK→最終VREPの座標条件を満たす場合、OMARU→UMKは4,500 ft固定です。UMK以降の運用降下ETE・燃料は選択降下率とlevel off後60秒から求め、物理DIST/TC/MC/CUM DISTは変えません。NAV LOG下の西方延長案内は別のwarning-only診断であり、現在の計算結果だけに表示します。同梱したAIP Japan ENR 5.3-21のKS4-3水平境界と、ENR 4.1-15のMZE DMEを、固定ハッシュ・ページ・正規化手順でfail-closed検証して数値案内に使います。根拠と制限は[RJFM inbound guidance](docs/rjfm_inbound_guidance.md)を参照してください。
+RJFM帰路の小丸→RJFM・小丸→有田→RJFMでは不足するUMK・有田を自動補完し、小丸→RJFMを親Leg、各実区間を子Legとして表示します。小丸→UMKは4,500 ft固定、有田は1,500 ft HITです。UMK→有田のETE・燃料は選択降下率500/1000 fpmから求め（6分/3分）、距離÷GSやlevel off後60秒を加えません。物理DIST/TC/MC/CUM DISTに仮想延長は加算しません。他の最終VREPへの従来profileは維持します。NAV LOG下の西方延長案内は別のwarning-only診断であり、現在の計算結果だけに表示します。同梱したAIP Japan ENR 5.3-21のKS4-3水平境界と、ENR 4.1-15のMZE DMEを、固定ハッシュ・ページ・正規化手順でfail-closed検証して数値案内に使います。根拠と制限は[RJFM inbound guidance](docs/rjfm_inbound_guidance.md)を参照してください。
 
 RJFMのMAPには宮崎特別管制区（PCA）の水平境界と9 km中心除外円を同梱参照値から描画します。
 民間訓練試験空域KS4は、国土交通省が案内する国土地理院GeoJSONを表示時に取得します。
@@ -357,16 +357,20 @@ docker run --rm autonavlog:test
 docker build --target runtime --tag autonavlog:runtime .
 ```
 
-Release対象PRでは root [`VERSION`](VERSION) と [`CHANGELOG.md`](CHANGELOG.md) を直接更新します。
-`VERSION` はAutoNavLog全体の唯一のVersion原本です。InformationにはCHANGELOGの「利用者向け」と [既知の不具合](KNOWN_ISSUES.md) を表示し、GitHub Release本文には同じVersionの利用者向け・開発者向けを掲載します。
+通常の機能追加・修正 PR は `Release: not-required` と `Reason: <理由>` を記載し、
+root [`VERSION`](VERSION) と [`CHANGELOG.md`](CHANGELOG.md) は変更しません。
+次回リリース向けの変更内容は PR 本文の Pending release notes に記録します。
+明示的なリリース準備 PR だけが `Release: required` を指定し、VERSION を増加させ、
+対象バージョンの CHANGELOG セクションを確定します。公開済みのセクションは変更しません。
+この契約は `main` と `release/1.x` の両方に適用します。
 
-PR本文には `Release: required` を記載します。Release不要の場合は `Release: not-required` と
-`Reason: <理由>` を記載し、`VERSION` は変更しません。docs・test・コメントのみの変更や、配布物を
-変えないCI設定変更などが該当します。UI文言の変更はRelease対象です。
-CIはVersionの増加とCHANGELOGの形式・整合性、および明確なruntime変更を検証します。
-major / minor / patchの選択と、変更の意味に基づくRelease要否は作成者とレビューで判断します。
-mainへのmerge後はGitHub Actionsが `vX.Y.Z` tagとGitHub Releaseを作成します。
-公開日時はGitHub Releaseが保持し、CHANGELOGへ書き戻しません。
+`VERSION` は製品全体の唯一の Version 原本です。Information には CHANGELOG の「利用者向け」と
+[既知の不具合](KNOWN_ISSUES.md) を表示し、GitHub Release 本文には同じ Version の
+利用者向け・開発者向けを掲載します。CI は VERSION / CHANGELOG の形式・整合性と PR 契約を検証します。
+VERSION を変更するリリース準備 PR の merge 後に GitHub Actions が `vX.Y.Z` tag と GitHub Release を
+作成します。通常 PR の merge は新規リリースを作成しません。
+版系列と公開手順は [release_lines.md](docs/release_lines.md) を参照してください。
+公開日時は GitHub Release が保持し、CHANGELOG へ書き戻しません。
 
 `src/autonavlog/version.py` は固定値を持たず、インストール済み Package Metadata から版番号を取得します。Python package metadataはroot `VERSION` から生成します。
 `jma-msm-wind==0.2.1` は別製品の版なので変更しません。

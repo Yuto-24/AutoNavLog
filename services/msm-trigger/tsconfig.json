@@ -1,0 +1,1 @@
+{"compilerOptions":{"target":"ES2023","module":"NodeNext","strict":true,"lib":["ES2023","DOM"],"noEmit":true,"allowImportingTsExtensions":true},"include":["worker.ts","entrypoint.ts"]}

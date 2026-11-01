@@ -1,9 +1,11 @@
+import { validReferenceSnapshot, type ReferencePointSnapshot } from "./referencePoints";
 export interface MapRoutePoint {
   id: string;
   name: string;
   latitude_deg: number;
   longitude_deg: number;
   airport_id: string | null;
+  reference_snapshot?: ReferencePointSnapshot | null;
 }
 export function validMapDraft(value: unknown): value is MapRoutePoint[] {
   if (!Array.isArray(value) || value.length > 500) return false;
@@ -14,6 +16,11 @@ export function validMapDraft(value: unknown): value is MapRoutePoint[] {
         !Number.isFinite(point.latitude_deg) || Math.abs(point.latitude_deg) > 90 ||
         !Number.isFinite(point.longitude_deg) || Math.abs(point.longitude_deg) > 180 ||
         !(point.airport_id === null || typeof point.airport_id === "string" && point.airport_id.length > 0)) return false;
+    if (point.reference_snapshot != null && (point.airport_id !== null ||
+        !validReferenceSnapshot(point.reference_snapshot) ||
+        point.reference_snapshot.name !== point.name ||
+        point.reference_snapshot.latitude_deg !== point.latitude_deg ||
+        point.reference_snapshot.longitude_deg !== point.longitude_deg)) return false;
     ids.add(point.id);
     return true;
   }) && (value.length === 0 || Boolean(value[0].airport_id));

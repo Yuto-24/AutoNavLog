@@ -1,17 +1,17 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { resolve } from "node:path";
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { fileURLToPath } from "node:url";
 
 async function importRoute(page: Page, fixture: string) {
   await page.goto("/");
-  await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles(fileURLToPath(new URL(`../../tests/fixtures/${fixture}`, import.meta.url)));
+  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地上風向 ° FROM").fill("360");
   await page.getByLabel("地上風速 kt").fill("15");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
-  await page.locator('input[type="file"]').setInputFiles(resolve(`../tests/fixtures/${fixture}`));
   await expect(page.getByLabel("飛行経路候補")).not.toHaveValue("");
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();

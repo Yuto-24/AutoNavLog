@@ -1,23 +1,80 @@
 # 変更履歴
 
-AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
+NavMate のRelease履歴です。公開日時はGitHub Releaseを正本とします。
 
-## 1.22.10
+## 2.1.3
 
 ### 利用者向け
 
 #### 修正
 
-- KS4 表示が地図のドラッグやクリックを妨げないようにする。
-- 地図で地点を選んだ後、チェックポイント名の入力欄にフォーカスする。
-- 経路表の高度選択欄を各行の垂直中央に揃える。
-- NAVLOG の太線と通常行の点線を紙の様式の列区切りに合わせる。
-- クリップボードの読み取りに失敗したとき、前回の KML を手動貼り付け欄に残さない。
-- MSM 更新通知後、同じ条件で再計算すると最新予報を取得する。
+- MSMの予報一覧では利用可能な日時でも、配信データの収録範囲が足りず計算できない問題を修正しました。各Runの予報範囲までデータを準備します。
+- 配信データの不足と破損を区別し、予報対象期間外では「選択した日時のMSM予報は利用できません。」と表示します。
 
 ### 開発者向け
 
-- #271 / #272 / #275 / #276 / #213 / #277: 地図操作、入力フォーカス、経路表・NAVLOG 表示、インポート失敗時の状態、MSM 再計算の回帰検証を追加。
+- #333のMSM収録範囲修正をv2.1.2へ最小限で反映しました。最新の短期Runに加え、必要な場合は最長の予報範囲を持つRunを準備します。一律の予報時間延長ではありません。
+- Run・SHA・取得元の整合性検査、公開時の鮮度制限、保存済み計算結果の保持を維持します。収録範囲が足りない有効キャッシュを破損扱いで再取得しません。
+- v2.1.2以降の無関係なmain機能は含めません。既存タグ、保存データの構造、Firestore Rules、indexesは変更しません。
+
+## 2.1.2
+
+### 利用者向け
+
+#### 修正
+
+- v1.23.2から2.1系への更新で、端末内の保存データを維持する互換修正を含みます。v2.1.1から製品機能の追加はありません。
+
+### 開発者向け
+
+- #317で1.xへ反映済みの公開テスト修正を2.1系にも反映しました。経路取込み画面への遷移と、起動失敗を意図的に起こす検証の前提を整えます。
+- v2.1.1の本番反映は公開前のbuild/test段階で停止したため、新しい不変タグで修正候補を公開します。既存タグは移動しません。
+
+## 2.1.1
+
+### 利用者向け
+
+#### 修正
+
+- v1.23.2で保存した端末内データを、2.1系でも引き続き読み込み・保存できるようにしました。
+
+### 開発者向け
+
+- v2.1.0を基準に、Project保存とアカウント削除処理のIndexedDBアクセスをversion 2へ統一しました。既存レコードを作り直さず、旧version 1の書込み制限を維持します。
+- 保存済みProject・作業中データ・計算結果の保持と、匿名／アカウント別DBの再読込みを検証します。Project schema、Firestore Rules、indexesは変更しません。
+- v2.1.0以降の新機能は含めません。公開対象はv2.1.1タグが指す候補commitです。
+
+## 2.1.0
+
+### 利用者向け
+
+#### 追加
+
+- 地図上で登録済みのVREPを選択し、経路に直接追加できる機能を追加しました。
+
+#### 改善
+
+- 地図の視認性向上のため、空港とVREPのアイコンを選択状況に応じて白抜き・塗りつぶし表示とし、VREP候補を小さな二重丸に変更しました。
+
+### 開発者向け
+
+- #169: Add the approved 115 derived VREP positions for 16 of the 17 scoped airports; Kanoya has no entries in the supplied AD2. Keep raw bearings, distances, ARPs and source provenance in the repository catalog.
+- Cluster unselected airports and VREPs together during new route creation. Preserve selected occurrences and selection-time reference snapshots through Project persistence; never refresh saved coordinates from the catalog.
+- Confirmed-route re-edit acceptance remains dependent on unmerged #175 / #283. No integration of #282 / #283 and no production deployment are included.
+
+## 2.0.0
+
+### 利用者向け
+
+#### 変更
+
+- AutoNavLog → NavMate
+
+### 開発者向け
+
+- #199 / #187 / #240: Display branding and user-adopted application icon only. Add favicon, Apple touch icon and web manifest; preserve the approved PNG source and deterministic derivatives.
+- Base this release on main 1.22.9. PR #282 / #283 features are explicitly excluded and remain separate unmerged work.
+- Preserve legacy import, persisted identifiers, Project schema, Firebase configuration, production Rules and domain. Production publication remains a separately reviewed gate.
 
 ## 1.22.9
 

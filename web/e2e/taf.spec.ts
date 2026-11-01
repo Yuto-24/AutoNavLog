@@ -10,7 +10,8 @@ const navigation = (outcome: any) => outcome.sections.map((section: any) => Obje
 ));
 const working = (page: Page) => page.evaluate(() => JSON.parse(sessionStorage.getItem("autonavlog.working-session.v1")!).working);
 const records = (page: Page): Promise<any[]> => page.evaluate(() => new Promise((resolve, reject) => {
-  const open = indexedDB.open("autonavlog.projects", 1);
+  const open = indexedDB.open("autonavlog.projects");
+  open.onerror = () => reject(open.error);
   open.onsuccess = () => {
     const tx = open.result.transaction("projects");
     const read = tx.objectStore("projects").getAll();
@@ -56,6 +57,7 @@ test("Static Local TAF success, quota/timeout/outage and recovery preserve navig
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
   await page.getByLabel("気象モード").selectOption("FORECAST");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
