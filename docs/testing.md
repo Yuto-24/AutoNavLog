@@ -3,6 +3,10 @@
 ## ドキュメント変更時の CI
 
 `test.yml` は PR と main / release/1.x への push で起動し、`release-sources` を常に実行します。
+PRのrelease契約は、checkoutした合成mergeが2親を持ち、第2親がイベントのPR headと
+一致することを検証してから、第1親（実際に検証したbase）と比較します。イベントのbase SHAが
+古い場合にmain側のrelease変更をPR変更と誤認しないためです。不一致のcheckoutは失敗させ、
+PR自身のVERSION/CHANGELOG変更の検査と、非PR push時のsource検査は維持します。
 Python 3.12 上で変更判定とソース契約のテスト、VERSION / CHANGELOG と PR の Release 契約を
 確認します。このジョブには Docker build やアプリの依存関係のインストールは不要です。
 
@@ -29,10 +33,11 @@ workflow 全体の `paths-ignore` は使わず、既存の check 名を維持し
 [公式ドキュメント](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)
 を参照してください。
 
-判定とソース契約だけを確認するコマンド（Python 3.12、pytest が必要）:
+判定とソース契約だけを確認するコマンド（Python 3.12、pytest、Git が必要）:
 
 ```bash
 python -m pytest --noconftest tests/integration/check_ci_changes.py \
+  tests/integration/check_release_merge.py \
   tests/unit/test_release_ci.py tests/unit/test_supported_runtime_contract.py \
   tests/unit/test_version.py::test_version_is_the_only_release_version_source
 ```
@@ -303,8 +308,18 @@ Playwrightの依存導入が急に変わらないようにする。`local-browse
 `local-browser`のLocal regression、NAV LOG scroll、browser acceptanceだけは、CIの起動引数で
 `--workers=2`を指定する。各suiteは引き続き順番に起動し、同じファイル内のテスト順序を保つ。
 `fullyParallel`、retry、timeout、assertion、選択するテスト、失敗時のtrace/artifactは変更しない。
-認証、TAF、共有Firestore emulatorを使う同期・移行は従来のworker設定を保つ。
+認証、TAF、Firestore Rules、storage-upgrade、migrationは従来のworker設定を保つ。
+`account-sync`内の`test:sync`だけは、[同条件の比較結果](evidence/ci/account-sync-workers-20261101.md)に基づきCI引数で`--workers=2`を指定する。
+共有emulatorを使うsuiteの順番・テスト範囲は変えず、各ブラウザの同期データは既存のランダムsubjectとcontextで分離する。
 ローカルのPlaywright configの既定値も1 workerのままとする。
+
+同期テストの初回ログインは、テスト用`authTest`の存在だけでなく、初期画面の
+「アカウント」ボタン表示を待つ。この表示は匿名Applicationのworker bootstrap完了後で、
+実際の利用者が認証操作を始められる時点に対応する。初期化前のVite再読込とログインが
+重なった失敗を[PR #326のCI](https://github.com/Yuto-24/AutoNavLog/actions/runs/41266357658/job/124729915595)で確認した。
+認証は1回だけ実行し、認証エラーは伝播させる。初期UI前の再読込と認証失敗を回帰テストで検査し、
+ログイン後の期待accountとの一致確認も維持する。任意の時点で起こる再読込を防ぐ保証ではない。
+初期化待ちの回帰2件を3ブラウザに追加したため現在は計39件で、上記の時間比較は追加前の33件に限る。
 
 2026-10-29、main `3ea6481d9fb02f7893edc3adb89c57d30e7dd40b`の同一Local artifactで、
 1 worker、次に2 workersを逐次計測した。WSL / Node 24.19.0 / Python 3.12.3 /
