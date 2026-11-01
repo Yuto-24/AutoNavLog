@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LocalWeatherTransport, type PreparedAsset } from "../src/localWeather";
+import { LocalWeatherTransport, WeatherError, type PreparedAsset } from "../src/localWeather";
 
 const digest = "a".repeat(64);
 const asset: PreparedAsset = {
@@ -92,4 +92,28 @@ test("corrupt prepared cache is reacquired once and reports cache corruption if 
     code: "WEATHER_CACHE_CORRUPT",
   });
   expect(fetches).toBe(2);
+});
+
+
+test("valid cached payload outside prepared coverage stays cached and is not reacquired", async () => {
+  const cache = new MemoryCache();
+  const bytes = Uint8Array.of(1, 2, 3, 4);
+  await cache.put(assetUrl, cachedResponse(bytes));
+  let fetches = 0;
+  install(cache, async () => {
+    fetches++;
+    throw new Error("offline");
+  });
+  const transport = new LocalWeatherTransport(base);
+  await expect(transport.prepared(asset, actual => {
+    expect([...actual]).toEqual([...bytes]);
+    throw new WeatherError("WEATHER_PREPARED_UNAVAILABLE", "unprepared test time");
+  })).rejects.toMatchObject({ code: "WEATHER_PREPARED_UNAVAILABLE" });
+  expect(fetches).toBe(0);
+  expect(await cache.match(assetUrl)).toBeDefined();
+  // A subsequent covered request still uses the same valid cached snapshot.
+  let accepted = false;
+  await transport.prepared(asset, () => { accepted = true; });
+  expect(accepted).toBe(true);
+  expect(fetches).toBe(0);
 });

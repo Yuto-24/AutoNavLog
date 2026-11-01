@@ -819,6 +819,7 @@ class Operator:
                     str(destination / "cache"),
                     "--hours",
                     str(PUBLICATION_GENERATION_HOURS),
+                    "--full-run",
                 ],
                 timeout=1800,
             )
