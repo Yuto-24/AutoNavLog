@@ -18,7 +18,7 @@ test("sync sign-in waits for initial UI across a reload", async ({ page }) => {
   let ready = false;
   await page.route("https://readiness.example/", route => route.fulfill({
     contentType: "text/html; charset=utf-8",
-    body: `${ready ? '<button aria-label="アカウント">Account</button>' : '<p>Loading</p>'}
+    body: `<!doctype html><meta charset="utf-8">${ready ? '<button aria-label="アカウント">Account</button>' : '<p>Loading</p>'}
       <script>window.authTest = { signIn: subject => window.recordSignIn(subject, ${ready}) };</script>`,
   }));
   await page.goto("https://readiness.example/");
@@ -28,6 +28,7 @@ test("sync sign-in waits for initial UI across a reload", async ({ page }) => {
   expect(calls).toEqual([]);
   ready = true;
   await page.reload();
+  expect(await page.evaluate(() => document.characterSet)).toBe("UTF-8");
   await signingIn;
   expect(calls).toEqual([{ subject: "expected", ready: true }]);
 });
