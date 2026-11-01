@@ -303,7 +303,9 @@ Playwrightの依存導入が急に変わらないようにする。`local-browse
 `local-browser`のLocal regression、NAV LOG scroll、browser acceptanceだけは、CIの起動引数で
 `--workers=2`を指定する。各suiteは引き続き順番に起動し、同じファイル内のテスト順序を保つ。
 `fullyParallel`、retry、timeout、assertion、選択するテスト、失敗時のtrace/artifactは変更しない。
-認証、TAF、共有Firestore emulatorを使う同期・移行は従来のworker設定を保つ。
+認証、TAF、Firestore Rules、storage-upgrade、migrationは従来のworker設定を保つ。
+`account-sync`内の`test:sync`だけは、[同条件の比較結果](evidence/ci/account-sync-workers-20261101.md)に基づきCI引数で`--workers=2`を指定する。
+共有emulatorを使うsuiteの順番・テスト範囲は変えず、各ブラウザの同期データは既存のランダムsubjectとcontextで分離する。
 ローカルのPlaywright configの既定値も1 workerのままとする。
 
 2026-10-29、main `3ea6481d9fb02f7893edc3adb89c57d30e7dd40b`の同一Local artifactで、
