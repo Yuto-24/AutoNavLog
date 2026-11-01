@@ -3,6 +3,10 @@
 ## ドキュメント変更時の CI
 
 `test.yml` は PR と main / release/1.x への push で起動し、`release-sources` を常に実行します。
+PRのrelease契約は、checkoutした合成mergeが2親を持ち、第2親がイベントのPR headと
+一致することを検証してから、第1親（実際に検証したbase）と比較します。イベントのbase SHAが
+古い場合にmain側のrelease変更をPR変更と誤認しないためです。不一致のcheckoutは失敗させ、
+PR自身のVERSION/CHANGELOG変更の検査と、非PR push時のsource検査は維持します。
 Python 3.12 上で変更判定とソース契約のテスト、VERSION / CHANGELOG と PR の Release 契約を
 確認します。このジョブには Docker build やアプリの依存関係のインストールは不要です。
 
@@ -29,10 +33,11 @@ workflow 全体の `paths-ignore` は使わず、既存の check 名を維持し
 [公式ドキュメント](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)
 を参照してください。
 
-判定とソース契約だけを確認するコマンド（Python 3.12、pytest が必要）:
+判定とソース契約だけを確認するコマンド（Python 3.12、pytest、Git が必要）:
 
 ```bash
 python -m pytest --noconftest tests/integration/check_ci_changes.py \
+  tests/integration/check_release_merge.py \
   tests/unit/test_release_ci.py tests/unit/test_supported_runtime_contract.py \
   tests/unit/test_version.py::test_version_is_the_only_release_version_source
 ```
