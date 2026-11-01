@@ -4,15 +4,15 @@
 
 Split the remaining Account Sync critical path across ordinary GitHub-hosted runners without
 reducing tests. PR #326's readiness/encoding and verified release-base fixes are now in main
-at `f7516c0cccbb65f29a2e382eed665fee50775ded` and are inherited unchanged, not duplicated in
-this diff. This PR targets main. PR #330's Local/Python split remains independent and is not
-included. No paid runner, permissions/protection change, main merge, or deployment is part
+at `b42f1b3c082b60452aa016c807d68000cc3bdf6b` and are inherited unchanged, not duplicated in
+this diff. This PR targets main, which now includes PR #330's Local/Python split and PR #333's MSM forecast coverage. The PR diff itself remains limited to Account Sync sharding. No paid runner, permissions/protection change, main merge, or deployment is part
 of this change.
 
-The main synchronization is conflict-free and retains main's VERSION and CHANGELOG unchanged.
+The main synchronization resolves adjacent workflow job names, documentation, and runtime matrix
+assertions by preserving all three shard configurations. Main's VERSION and CHANGELOG are unchanged.
 The release-source regression suite includes all 109 checks from the merged dependency.
 Fresh hosted CI is required for this synchronized head; earlier stack CI is not evidence for
-the new main-based head or for the eventual combined Local/Python/Account Sync configuration.
+the new integrated Local/Python/Account Sync configuration.
 
 ## Suites and independent state
 

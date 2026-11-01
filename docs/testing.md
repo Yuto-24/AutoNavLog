@@ -296,8 +296,8 @@ IndexedDB Project / Last Calculation保持を確認する。通常の`test:local
 
 ## Browser CI runners
 
-`local-browser`と`account-sync-tests`は`ubuntu-24.04`を明示し、`ubuntu-latest`のOS移行で
-Playwrightの依存導入が急に変わらないようにする。`local-browser`の25分上限、認証・Local保存・
+`local-browser-tests`と`account-sync-tests`は`ubuntu-24.04`を明示し、`ubuntu-latest`のOS移行で
+Playwrightの依存導入が急に変わらないようにする。`local-browser-tests`の25分上限、認証・Local保存・
 計算・NAV LOG・ブラウザ受入・TAFの検証と、`account-sync-tests`の20分上限、Firestore Rules・同期・
 移行の検証は維持する。両ジョブでChromium / WebKitを導入する。キャンセル時はcheck annotationと
 失敗stepを確認する。ブラウザ依存のdownloadでtimeoutした場合、後続のテストは未実行であり、
@@ -305,8 +305,9 @@ Playwrightの依存導入が急に変わらないようにする。`local-browse
 
 ### Local browser worker count
 
-`local-browser`のLocal regression、NAV LOG scroll、browser acceptanceだけは、CIの起動引数で
-`--workers=2`を指定する。各suiteは引き続き順番に起動し、同じファイル内のテスト順序を保つ。
+`local-browser-tests`のLocal regression、NAV LOG scroll、browser acceptanceだけは、CIの起動引数で
+`--workers=2`を指定する。Local regressionと、認証→NAV LOG scroll→browser acceptance→TAFを別runnerで実行する。
+同じファイル内のテスト順序は保つ。
 `fullyParallel`、retry、timeout、assertion、選択するテスト、失敗時のtrace/artifactは変更しない。
 認証、TAF、Firestore Rules、storage-upgrade、migrationは従来のworker設定を保つ。
 `account-sync-tests`内の`test:sync`だけは、[同条件の比較結果](evidence/ci/account-sync-workers-20261101.md)に基づきCI引数で`--workers=2`を指定する。
@@ -387,3 +388,31 @@ GitHub側ではsetup-pythonのrestoreとpost saveを含めて測る。上記ロ�
 転送・圧縮コストを含まない。通常時のhosted downloadは約2秒の既存観測もあるため、
 この比較からhosted CIの平均短縮や、過去の遅延の再発頻度は主張しない。
 採用目的は約100 MBの外部wheel再取得への依存を減らすことである。
+
+
+### Independent CI shards
+
+`local-browser-tests` uses two ordinary GitHub-hosted runners: `local` runs the existing
+Local regression selection; `acceptance` runs auth, scroll, every browser/device acceptance
+project, and TAF. Each runner owns its server and build directory; the TAF-specific rebuild
+cannot change the Local regression artifact. Worker counts and selected tests are unchanged.
+The `local-browser` aggregate retains the existing check name and fails unless every suite succeeds.
+
+`pytest-tests` uses two independent Docker test-stage runners. The existing lint, typing,
+release/data/schema validation and package build remain in `run_ci_checks.sh` on both shards.
+The pytest plugin partitions the complete collected test list by file, using measured file
+durations and longest-first balancing. New files are included automatically; tests within each
+file retain collection order. Local runs without `CI_PYTEST_SHARD` still run the complete suite.
+The timing file controls balance, not membership: no allowlist can silently omit new tests.
+
+The `pytest` aggregate checks that both shards collected the same complete test list and that
+their selected lists cover it exactly once. Both coverage files are mandatory and are combined
+before the complete report is produced. Coverage combines map installed-package paths inside Docker back to `src/autonavlog` in
+the checkout; the Docker tests still exercise the installed package. A failing, missing, or cancelled shard cannot
+make either aggregate green. Existing docs-only classification remains unchanged.
+
+This reduces elapsed time by using more simultaneous standard runners, not by reducing test
+coverage. Queue time, cold dependency downloads, and runner variation can still exceed ten
+minutes. Account Sync runs in separate project and contracts runners as described above.
+The complete workflow combines all three partitions; use hosted timings to assess the ten-minute target. Timing evidence
+and the refresh procedure are in [the shard evidence](evidence/ci/independent-shards-20261101.md).

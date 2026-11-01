@@ -862,3 +862,35 @@ def test_blocker_during_mode_transition_keeps_previous_mode_and_result(
     current = json.loads(local.dispatch("state"))
     assert current["roundingMode"] is False
     assert current["outcome"] == previous["outcome"]
+
+
+def test_unprepared_weather_preflight_keeps_last_good_stale():
+    from datetime import UTC, datetime, timedelta
+
+    fixture = ROOT / "tests/fixtures/msm-portable"
+    application = LocalApplication(ROOT / "data")
+    try:
+        before = calculate(application)
+        draft = json.loads(application.dispatch("updateProject", {
+            "weather_mode": "FORECAST", "flight_date": "2026-09-16",
+            "departure_time_jst": "18:00",
+            "total_usable_fuel_gal": before["project"]["total_usable_fuel_gal"],
+            "default_variation_deg_east": before["project"]["default_variation_deg_east"],
+        }))
+        assert not draft["readiness"]["calculationIsCurrent"]
+        catalog = json.loads((fixture / "catalog.json").read_text())
+        now = datetime.now(UTC)
+        catalog.update(generated_at=now.isoformat(),
+                       expires_at=(now + timedelta(hours=1)).isoformat())
+        asset = json.loads(application.weather_plan(json.dumps(catalog)))
+        assert "error" not in asset
+        result = json.loads(application.accept_weather(
+            (fixture / asset["file"]).read_bytes(), asset["sha256"]))
+        assert result["error"]["code"] == "WEATHER_PREPARED_UNAVAILABLE"
+        after = json.loads(application.dispatch("bootstrap"))
+        assert not after["readiness"]["calculationIsCurrent"]
+        assert after["project"]["weather_mode"] == "FORECAST"
+        for key in before["outcome"].keys() - {"status"}:
+            assert after["outcome"][key] == before["outcome"][key]
+    finally:
+        application.close()
