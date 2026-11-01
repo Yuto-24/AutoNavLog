@@ -138,3 +138,34 @@ def test_vor_mapping_covers_the_registered_airports_and_matches_evidence():
         assert adopted.latitude_deg == station["latitude_deg"]
         assert adopted.longitude_deg == station["longitude_deg"]
         assert adopted.source_revision == station["source_sha256"]
+
+
+@pytest.mark.parametrize("initial_mode", ["AIRPORT", "VOR"])
+def test_mode_roundtrip_cannot_revalidate_an_old_calculation(initial_mode):
+    app = LocalApplication(ROOT / "data")
+    try:
+        app.dispatch(
+            "importRoute",
+            {
+                "filename": "route.kml",
+                "kml_text": (ROOT / "tests/fixtures/issue_43_golden.kml").read_text(),
+            },
+        )
+        app.dispatch("confirmRoute", {**INPUT["confirm"], "departure_origin": initial_mode})
+        calculated = json.loads(app.dispatch("calculate"))
+        assert calculated["readiness"]["calculationIsCurrent"]
+        project = calculated["project"]
+        other_mode = "VOR" if initial_mode == "AIRPORT" else "AIRPORT"
+        changed = json.loads(app.dispatch("updateProject", update(project, other_mode)))
+        assert not changed["readiness"]["calculationIsCurrent"]
+        returned = json.loads(app.dispatch("updateProject", update(project, initial_mode)))
+        assert not returned["readiness"]["calculationIsCurrent"]
+        assert returned["project"]["metadata"]["ui_state"]["calculated_against_fingerprint"] is None
+        restored = json.loads(app.dispatch("bootstrap", returned["workingRecovery"]))
+        assert not restored["readiness"]["calculationIsCurrent"]
+        refreshed = json.loads(app.dispatch("calculate"))
+        assert refreshed["readiness"]["calculationIsCurrent"]
+        unchanged = json.loads(app.dispatch("updateProject", update(project, initial_mode)))
+        assert unchanged["readiness"]["calculationIsCurrent"]
+    finally:
+        app.close()

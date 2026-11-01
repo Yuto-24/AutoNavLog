@@ -1005,7 +1005,10 @@ class AutoNavLogWebApplication:
         node.reference_snapshot = None
         self.project_service.set_ui_state(
             project,
-            state.model_copy(update={"departure_vor": vor}),
+            state.model_copy(update={
+                "departure_vor": vor,
+                "calculated_against_fingerprint": None,
+            }),
             reconfirmed=True,
         )
 
