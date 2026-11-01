@@ -32,6 +32,7 @@ test.beforeEach(async ({ page, context }) => {
   await expect(page).toHaveTitle(/NavMate/);
   await enterImportWorkflow(page);
   await page.locator('input[type="file"]').setInputFiles({ name: "checkpoint.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(kml) });
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地図とKML記載順を確認しました").check();

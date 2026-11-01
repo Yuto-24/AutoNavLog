@@ -102,7 +102,7 @@ export function ImportPlanPanel({
               disabled={busy}
             >
               <ClipboardPaste aria-hidden="true" size={17} />
-              KMLを貼り付け
+              Google Earth からペースト
             </button>
           </>
         )}

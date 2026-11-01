@@ -37,14 +37,14 @@ async function expectBaseWorkflow(page: Page) {
 async function createEditCalculateAndSave(page: Page) {
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
-  if (await page.getByRole("button", { name: "KMLを貼り付け" }).count() === 0) {
+  if (await page.getByRole("button", { name: "Google Earth からペースト" }).count() === 0) {
     page.once("dialog", (dialog) => void dialog.accept());
     await Promise.all([
       page.waitForNavigation(),
       page.getByRole("button", { name: "新規", exact: true }).click(),
     ]);
   }
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
   const pasteDialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await pasteDialog.getByRole("textbox").fill(routeKml);
   await pasteDialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
@@ -329,5 +329,5 @@ test("compact header still saves, loads, deletes and starts a new project", asyn
   await expect(selector.locator(`option[value="${id}"]`)).toHaveCount(0);
   page.once("dialog", (dialog) => void dialog.accept());
   await Promise.all([page.waitForNavigation(), page.getByRole("button", { name: "新規", exact: true }).click()]);
-  await expect(page.getByRole("button", { name: "KMLを貼り付け" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Google Earth からペースト" })).toBeVisible();
 });

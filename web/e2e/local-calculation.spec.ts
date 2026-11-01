@@ -72,6 +72,7 @@ for (const width of [390, 1100, 1440]) {
     await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
     await page.getByLabel("5,000 ft風速 kt").fill("30");
     await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+    await expect(page.locator('input[type="file"]')).toBeEnabled();
     await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
     await page.getByLabel("地図とKML記載順を確認しました").check();
     await page.getByRole("button", { name: "経路を確定", exact: true }).click();
@@ -310,6 +311,7 @@ test("strong FTD wind preserves Python Warning and Blocker results", async ({ pa
   await page.getByLabel("5,000 ft風向 ° FROM").fill("360");
   await page.getByLabel("5,000 ft風速 kt").fill("200");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
@@ -352,6 +354,7 @@ test("actual MSM FORECAST reaches NAV LOG with Python provenance and no fallback
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
   await page.getByLabel("気象モード").selectOption("FORECAST");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {

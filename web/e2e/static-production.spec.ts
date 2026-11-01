@@ -54,6 +54,7 @@ test("production artifact calculates with its served real MSM feed and retains N
   await page.getByLabel("ETD JST", { exact: true }).fill(departure.slice(11, 16));
   await page.getByLabel("気象モード").selectOption("FORECAST");
   await page.locator('input[type="file"]').setInputFiles("../tests/fixtures/issue_43_golden.kml");
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {

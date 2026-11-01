@@ -35,7 +35,12 @@ async function imported(page: Page) {
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await expect(page.getByLabel("DATE", { exact: true })).toHaveValue("2026-09-11");
+  await expect(page.getByLabel("気象モード")).toHaveValue("FTD");
+  await expect(page.getByLabel("地上風速 kt")).toHaveValue("15");
+  await expect(page.getByLabel("5,000 ft風速 kt")).toHaveValue("30");
 }
 async function confirmed(page: Page) {
   await imported(page);
@@ -117,8 +122,8 @@ test("new discards recovery; new tabs including opener clones never inherit work
     if (attempt === 0) page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button", { name: "新規", exact: true }).click();
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
-    await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("0");
+    await expect(page.getByRole("button", { name: "KML/KMZから開始", exact: true })).toHaveCount(0);
+    await expect.poll(async () => (await snapshot(page))?.form.tglCount).toBe("0");
     expect((await snapshot(page)).working.project).toBeNull();
     if (isLocal()) {
       expect(await page.evaluate(() => (window as any).sameWorkDocument)).toBe(true);
@@ -192,6 +197,7 @@ test("KMZ document choice resumes after reload with modal closed", async ({ page
     "import io,zipfile,sys; b=io.BytesIO(); z=zipfile.ZipFile(b,'w'); s=open('../tests/fixtures/issue_43_golden.kml').read(); z.writestr('a.kml',s); z.writestr('b.kml',s); z.close(); sys.stdout.buffer.write(b.getvalue())"]);
   await open(page);
   await page.locator('input[type="file"]').setInputFiles({ name: "routes.kmz", mimeType: "application/vnd.google-earth.kmz", buffer: bytes });
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByLabel("KML文書").selectOption("b.kml");
   await page.reload();
@@ -199,6 +205,8 @@ test("KMZ document choice resumes after reload with modal closed", async ({ page
   await page.getByRole("button", { name: "KMZからの選択を続ける" }).click();
   await expect(page.getByLabel("KML文書")).toHaveValue("b.kml");
   await page.getByRole("button", { name: "選択したKMLを読み込む" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await page.getByLabel("FUEL gal", { exact: true }).focus();
   await page.keyboard.press("Tab");
@@ -299,7 +307,7 @@ test("pasted KML draft resumes without reading a changed clipboard", async ({ pa
   await page.evaluate(() => Object.defineProperty(navigator, "clipboard", {
     configurable: true, value: { readText: async () => { throw new Error("denied"); } },
   }));
-  await page.getByRole("button", { name: "KMLを貼り付け", exact: true }).click();
+  await page.getByRole("button", { name: "Google Earth からペースト", exact: true }).click();
   await page.getByRole("dialog").getByRole("textbox").fill("<kml>入力途中");
   await page.reload();
   await expect(page.getByRole("dialog")).toHaveCount(0);

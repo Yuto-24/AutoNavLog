@@ -1,3 +1,4 @@
+import { selectAirport } from "./helpers/mapCandidates";
 import { enterImportWorkflow } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
@@ -8,14 +9,15 @@ const isLocal = () => test.info().config.metadata.applicationMode === "local";
 const kml = readFileSync(resolve("../tests/fixtures/issue_43_golden.kml"), "utf8");
 const key = "autonavlog.working-session.v1";
 const snapshot = (page: Page) => page.evaluate(k => JSON.parse(sessionStorage.getItem(k)!), key);
-const paste = (page: Page) => page.getByRole("button", { name: "KMLを貼り付け", exact: true });
+const paste = (page: Page) => page.getByRole("button", { name: "Google Earth からペースト", exact: true });
 
 test.beforeEach(async ({ context }) => {
   if (isLocal()) await context.route("**/api/**", route => route.abort());
 });
 async function open(page: Page) {
   await page.goto("/");
-  await enterImportWorkflow(page);
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "KML/KMZから開始", exact: true })).toHaveCount(0);
   await expect(paste(page)).toBeEnabled();
 }
 async function drop(page: Page, name: string, content: string) {
@@ -86,7 +88,7 @@ test(`pending platform Paste confirmation can be cancelled and recovered with fi
   if (entry === "map") {
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
-  } else await open(page);
+  } else { await open(page); await enterImportWorkflow(page); }
   await expect(page.getByText("ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。")).toHaveCount(0);
   await expect(paste(page)).toBeEnabled();
   await paste(page).click();
@@ -125,13 +127,13 @@ test("download and Clipboard export the displayed result, survive denial, and re
   await open(page);
   // Loaded Local assets can calculate/import/export without a connectivity gate.
   if (isLocal()) await context.setOffline(true);
+  await drop(page, "route.kml", kml);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地上風向 ° FROM").fill("360");
   await page.getByLabel("地上風速 kt").fill("15");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
-  await drop(page, "route.kml", kml);
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
@@ -261,8 +263,9 @@ test("source links open without an opener and cannot unlock a pending save", asy
     }) });
   });
   await open(page);
-  await page.getByLabel("気象モード").selectOption("FTD");
   await drop(page, "route.kml", kml);
+  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   const link = page.getByRole("link", { name: "国土交通省", exact: true });
@@ -314,4 +317,96 @@ test("source links open without an opener and cannot unlock a pending save", asy
     else release();
   }
   await expect(save).toBeEnabled();
+});
+
+for (const width of [1100, 1440]) {
+  test(`direct import controls retain workflow region order at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await open(page);
+    await expect(page.getByText("ファイルを選択", { exact: true })).toBeVisible();
+    const initial = await page.locator(".input-rail").boundingBox();
+    const initialMap = await page.locator(".route-workspace").boundingBox();
+    if (width <= 1240) expect(initialMap!.y).toBeGreaterThanOrEqual(initial!.y + initial!.height);
+    else expect(initialMap!.x).toBeGreaterThanOrEqual(initial!.x + initial!.width);
+    await drop(page, "route.kml", kml);
+    await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+    await expect(page.getByRole("heading", { name: "準備状況", exact: true })).toBeVisible();
+    await expect(paste(page)).toBeVisible();
+    const regions = await page.evaluate(() => [".input-rail", ".route-workspace", ".status-rail"].map(selector => {
+      const rect = document.querySelector(selector)!.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom };
+    }));
+    for (let i = 1; i < regions.length; i++) {
+      if (width <= 1240) expect(regions[i].y).toBeGreaterThanOrEqual(regions[i - 1].bottom);
+      else expect(regions[i].x).toBeGreaterThanOrEqual(regions[i - 1].right);
+    }
+  });
+}
+
+test("previous empty compatibility session restores the renamed paste and file controls", async ({ page }) => {
+  await open(page);
+  await expect.poll(() => snapshot(page)).not.toBeNull();
+  await page.evaluate(key => {
+    const session = JSON.parse(sessionStorage.getItem(key)!);
+    session.legacyRouteInput = true;
+    sessionStorage.setItem(key, JSON.stringify(session));
+  }, key);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "経路を取り込む", exact: true })).toBeVisible();
+  await expect(paste(page)).toBeEnabled();
+  await expect(page.getByText("ファイルを選択", { exact: true })).toBeVisible();
+  await drop(page, "restored.kml", kml);
+  await expect(page.locator(".imported-file")).toContainText("restored.kml");
+});
+
+for (const method of ["file", "paste"] as const) {
+  test(`direct ${method} import preserves MAP draft when replacement is cancelled`, async ({ page }) => {
+    await page.addInitScript(text => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: async () => text } });
+    }, kml);
+    await open(page);
+    await selectAirport(page, "RJFM");
+    const strip = page.getByRole("list", { name: "経路リスト" });
+    await expect(strip.getByRole("listitem")).toHaveCount(1);
+    const importRoute = async () => {
+      if (method === "file") await page.locator('input[type="file"]').setInputFiles({ name: "replacement.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(kml) });
+      else await paste(page).click();
+    };
+    page.once("dialog", dialog => dialog.dismiss());
+    await importRoute();
+    await expect(strip.getByRole("listitem")).toHaveCount(1);
+    await expect(page.locator(".imported-file")).toHaveCount(0);
+    page.once("dialog", dialog => dialog.accept());
+    await importRoute();
+    await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+    await expect(strip).toHaveCount(0);
+  });
+}
+
+test("delayed replacement import retains planning edits before route confirmation", async ({ page }) => {
+  await open(page);
+  await enterImportWorkflow(page);
+  await page.getByLabel("DATE", { exact: true }).fill("2026-09-16");
+  await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
+  await page.getByLabel("気象モード").selectOption("FORECAST");
+  await page.evaluate(() => {
+    const original = File.prototype.arrayBuffer;
+    File.prototype.arrayBuffer = async function () {
+      await new Promise<void>(resolve => Object.assign(window, { releaseImportRead: resolve }));
+      return original.call(this);
+    };
+  });
+  const file = page.locator('input[type="file"]');
+  await file.setInputFiles({ name: "delayed.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(kml) });
+  await expect(file).toBeDisabled();
+  // The prior candidate remains rendered while the replacement is pending.
+  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await page.evaluate(() => (window as unknown as { releaseImportRead: () => void }).releaseImportRead());
+  await expect(file).toBeEnabled();
+  await expect(page.locator(".imported-file")).toContainText("delayed.kml");
+  await expect(page.getByLabel("DATE", { exact: true })).toHaveValue("2026-09-16");
+  await expect(page.getByLabel("ETD JST", { exact: true })).toHaveValue("12:00");
+  await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
+  await page.getByLabel("地図とKML記載順を確認しました").check();
+  await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeEnabled();
 });

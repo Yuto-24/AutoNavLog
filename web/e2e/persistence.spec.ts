@@ -38,6 +38,7 @@ async function start(page: Page) {
 async function confirm(page: Page) {
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
@@ -135,13 +136,13 @@ test("Latest replacement, promotion, opening another Project and explicit delete
   await save(page, "Named");
   page.on("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "新規", exact: true }).click();
-  await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await confirm(page);
   expect((await records(page)).filter(row => !row.checkpoint)).toHaveLength(1);
   const oldLatest = (await working(page)).project.id;
   await page.getByRole("button", { name: "新規", exact: true }).click();
-  await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await confirm(page);
   const replaced = await records(page);
