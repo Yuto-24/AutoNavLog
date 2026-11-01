@@ -14,9 +14,9 @@ function LegacyAccountDialog({ busy, notice = false, onClose }: { busy: boolean;
   useEffect(() => {
     let active = true;
     void prepareLegacyLink().then(operation => { if (active) setLinkOperation(() => operation); })
-      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "認証を準備できません。"); });
+      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "認証の準備ができませんでした。画面を再読み込みしてください。"); });
     void legacyLinkStatus().then(result => { if (active) setStatus(result); })
-      .catch(() => { if (active) setError("この環境ではアカウント紐付けが設定されていません。"); });
+      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "アカウントの紐付け状態を取得できませんでした。画面を再読み込みしてください。"); });
     return () => { active = false; operation.current?.abort(); };
   }, []);
   const link = async () => {
@@ -25,16 +25,16 @@ function LegacyAccountDialog({ busy, notice = false, onClose }: { busy: boolean;
     operation.current = controller;
     setPending(true); setError(undefined);
     try { const result = await linkOperation(controller.signal); if (!controller.signal.aborted && result) setStatus(result); }
-    catch (reason) { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "紐付けに失敗しました。"); }
+    catch (reason) { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "アカウントの紐付けに失敗しました。もう一度お試しください。"); }
     finally { if (!controller.signal.aborted) setPending(false); }
   };
   return <div className={notice ? "modal-backdrop legacy-migration-notice" : "modal-backdrop"}>
     <section ref={dialog} tabIndex={-1} className="modal-panel account-dialog" role="dialog" aria-modal="true" aria-labelledby="legacy-account-title" onKeyDown={event => { if (event.key === "Escape" && !pending && !notice) onClose(); }}>
-      <div className="modal-heading"><h2 id="legacy-account-title">{notice ? "NavMate" : "アカウント"}</h2>{!notice && <button type="button" className="icon-button" aria-label="アカウントを閉じる" disabled={pending} onClick={onClose}><X size={20} /></button>}</div>
-      {notice && <p>旧画面は12月を目途に停止する</p>}
-      <p>現在のデータをGoogleアカウントに紐付けます。紐付け後も、引き続きこの画面で編集・保存・計算が可能です。</p>
-      <p>NavMateへの初回ログイン時に、その時点のプロジェクトと計算結果を自動で引き継ぎます。引継ぎ中は現在の画面操作を一時停止し、完了後にNavMateへ移動します。</p>
-      {status && status.state !== "UNLINKED" ? <><p>紐付け済みです。</p><a className={notice ? "primary-button" : undefined} href={status.navmateUrl}>NavMateを開く</a></> :
+      <div className="modal-heading"><h2 id="legacy-account-title">{notice ? "NavMateへの移行" : "アカウント"}</h2>{!notice && <button type="button" className="icon-button" aria-label="アカウントダイアログを閉じる" disabled={pending} onClick={onClose}><X size={20} /></button>}</div>
+      {notice && <p>旧画面は2026年12月を目途に提供終了を予定しています（確定日は未定です）。</p>}
+      <p>現在のデータをGoogleアカウントに紐付けます。紐付け後も、移行を開始するまではこの画面で編集・保存・計算を続けられます。</p>
+      <p>紐付けたGoogleアカウントでNavMateに初めてログインすると、その時点のプロジェクトと計算結果を引き継ぎます。移行中は本画面の操作を一時停止し、完了後はNavMateへ移動します。</p>
+      {status && status.state !== "UNLINKED" ? <><p>Googleアカウントに紐付け済みです。</p><a className={notice ? "primary-button" : undefined} href={status.navmateUrl}>NavMateを開く</a></> :
         <button type="button" className="primary-button" disabled={busy || pending || !status || !linkOperation} onClick={() => { void link(); }}>Googleアカウントを紐付ける</button>}
       {error && <p role="alert">{error}</p>}
       {notice && <button type="button" className="legacy-migration-dismiss" onClick={onClose}>今回は旧画面を使う</button>}

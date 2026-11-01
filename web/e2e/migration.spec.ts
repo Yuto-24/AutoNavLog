@@ -76,7 +76,7 @@ test("activation failure never creates account Application; retry progresses aut
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await page.evaluate(() => (window as any).authTest.signIn("migration-retry"));
-  await expect(page.getByRole("alert")).toContainText("接続を確認して再試行してください");
+  await expect(page.getByRole("alert")).toContainText("通信状態を確認して再試行してください");
   expect(await page.evaluate(() => (window as any).authTest.contexts.length)).toBe(1);
   await expect(page.getByLabel("DATE", { exact: true })).toHaveCount(0);
   fail = false;
@@ -98,7 +98,7 @@ test("Legacy account UI preserves 1100/1300 workflow order and locks then redire
     await route.fulfill({ response });
   });
   await page.goto("http://127.0.0.1:5180/");
-  await expect(page.getByRole("dialog", { name: "NavMate", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "NavMateへの移行", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "今回は旧画面を使う" }).click();
   await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
@@ -117,8 +117,8 @@ test("Legacy account UI preserves 1100/1300 workflow order and locks then redire
   }
   await page.getByRole("button", { name: "アカウント", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "アカウント", exact: true })).toBeVisible();
-  await expect(page.getByText("紐付け済みです。", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "アカウントを閉じる", exact: true }).click();
+  await expect(page.getByText("Googleアカウントに紐付け済みです。", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "アカウントダイアログを閉じる", exact: true }).click();
   const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
   const now = Math.floor(Date.now() / 1000);
   const token = `${part({ alg: "none" })}.${part({ sub: `firebase-${subject}`, aud: "demo-autonavlog-sync", iss: "https://securetoken.google.com/demo-autonavlog-sync", iat: now, exp: now + 3600, auth_time: now, firebase: { sign_in_provider: "google.com", identities: { "google.com": [subject] } } })}.`;

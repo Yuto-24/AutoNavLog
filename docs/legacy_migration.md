@@ -182,9 +182,10 @@ a link already accepted by the server is not undone. The link POST has a 30-seco
 request deadline. Neither mechanism cancels a server-side migration or deletes data.
 
 The user's target is December 2026, with the exact retirement day undecided. The
-notice uses the user's supplied retirement text and existing Account copy because
-Gemini CLI was unavailable; any additional polished copy remains unresolved, not
-invented by the implementation agent. This is guidance only, not a scheduled cutoff.
+notice and fallback messages use the confirmed Gemini/agy wording; see the
+[review evidence](evidence/pr-335-migration-wording.md). This is guidance only,
+not a scheduled cutoff. Existing wording reuse and specification approval do not
+replace this wording review.
 The Legacy server remains available as a weather-acquisition backup. Existing
 registry, Projects, backup/recovery procedures and retirement gates are unchanged.
 

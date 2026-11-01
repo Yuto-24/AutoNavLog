@@ -7,8 +7,11 @@ for (const width of [390, 1100, 1440]) {
     await context.route("**/api/account-link/config", route => route.fulfill({ status: 404, json: {} }));
     await context.route("**/api/account-link", route => route.fulfill({ json: { state: "UNLINKED", completed: 0, total: 0, navmateUrl: "/navmate" } }));
     await page.goto(path);
-    const notice = page.getByRole("dialog", { name: "NavMate", exact: true });
+    const notice = page.getByRole("dialog", { name: "NavMateへの移行", exact: true });
     await expect(notice).toBeVisible();
+    await expect(notice).toContainText("旧画面は2026年12月を目途に提供終了を予定しています（確定日は未定です）。");
+    await expect(notice).toContainText("紐付けたGoogleアカウントでNavMateに初めてログインすると");
+    await expect(notice.getByRole("alert")).toHaveText("アカウント設定情報を取得できませんでした。時間をおいて再読み込みしてください。");
     expect(await page.locator(".legacy-migration-notice").boundingBox()).toEqual({ x: 0, y: 0, width, height: 800 });
     expect(await page.getByText("Legacy workspace").evaluate(el => !!el.closest("[inert]"))).toBe(true);
     await expect(notice.getByRole("link")).toHaveCount(0);
@@ -28,7 +31,7 @@ for (const width of [390, 1100, 1440]) {
     await expect(notice).toBeVisible();
     const second = await context.newPage();
     await second.goto(path);
-    await expect(second.getByRole("dialog", { name: "NavMate", exact: true })).toBeVisible();
+    await expect(second.getByRole("dialog", { name: "NavMateへの移行", exact: true })).toBeVisible();
   });
 }
 
