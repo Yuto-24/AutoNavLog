@@ -4,7 +4,7 @@
 
 Split the remaining Account Sync critical path across ordinary GitHub-hosted runners without
 reducing tests. This change stacks on PR #326's `ci/account-sync-two-workers` branch at
-`0b546bdb08053b02e3ead682fbba4de2fa7f5523`. Its readiness/encoding fixes are inherited unchanged,
+`0753b9ca8c6ce21861e06ef7ece0b68d149a46ad`. Its readiness/encoding fixes are inherited unchanged,
 not duplicated in this diff. PR #330's Local/Python split is independent and is not included.
 No paid runner, permissions/protection change, merge, or deployment is part of this change.
 

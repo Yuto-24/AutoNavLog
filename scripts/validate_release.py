@@ -66,8 +66,24 @@ def parse_contract(body: str) -> str:
     return kind
 
 
-def validate(root: Path, base: str | None = None, pr_body: str | None = None) -> None:
+def checked_pr_base(root: Path, pr_head: str) -> str:
+    # checkout@v4 tests GitHub's synthetic PR merge, whose first parent is the
+    # base actually tested. Event base.sha can lag a newly merged release.
+    parents = git(root, "rev-list", "--parents", "-n", "1", "HEAD").split()
+    if len(parents) != 3 or not pr_head or parents[2] != pr_head:
+        raise ValueError("PR checkout must be a two-parent merge with the expected PR head")
+    return parents[1]
+
+
+def validate(
+    root: Path, base: str | None = None, pr_body: str | None = None,
+    pr_head: str | None = None,
+) -> None:
     current = validate_sources(root)
+    if pr_head is not None:
+        if not base:
+            raise ValueError("PR validation requires an event base")
+        base = checked_pr_base(root, pr_head)
     if not base:
         return
     if pr_body is None:
@@ -94,11 +110,12 @@ def validate(root: Path, base: str | None = None, pr_body: str | None = None) ->
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base")
+    parser.add_argument("--pr-head", help="Verify the synthetic merge and use its actual base")
     parser.add_argument("--pr-body-file")
     args = parser.parse_args()
     body = Path(args.pr_body_file).read_text(encoding="utf-8") if args.pr_body_file else None
     try:
-        validate(Path(__file__).resolve().parents[1], args.base, body)
+        validate(Path(__file__).resolve().parents[1], args.base, body, args.pr_head)
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Release validation failed: {error}\n")
     print("Release sources are valid.")
