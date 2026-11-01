@@ -125,10 +125,18 @@ test("PCA notice uses converted feet while operational limits, geometry and acqu
     await pending;
     await route.fallback();
   });
-  await importLocalRoute(page);
   const legend = page.getByRole("group", { name: "RJFMガイダンス凡例" });
-  await expect(legend).toContainText("空域情報を取得中…");
-  release();
+  await Promise.all([
+    importLocalRoute(page),
+    (async () => {
+      try {
+        // Observe immediately, allowing the same cold-start budget as import setup.
+        await expect(legend).toContainText("空域情報を取得中…", { timeout: 120_000 });
+      } finally {
+        release();
+      }
+    })(),
+  ]);
   await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
   await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(12);
   await expect(legend).not.toContainText("空域情報を取得中…");
