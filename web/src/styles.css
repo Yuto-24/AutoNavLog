@@ -551,12 +551,12 @@ input:disabled, select:disabled { color: #657789; background: #edf1f4; }
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.descent-rate-segments label:has(input:focus-visible) {
+.descent-rate-segments label:has(input:focus) {
   z-index: 1;
   outline: 3px solid var(--brand-accent);
   outline-offset: -3px;
 }
-.descent-rate-segments input:checked:focus-visible + span {
+.descent-rate-segments input:checked:focus + span {
   box-shadow: inset 0 0 0 3px #ffffff;
 }
 .descent-rate-note {
@@ -1237,7 +1237,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .nav-log-rounding-options label:has(input:checked) {
   background: var(--brand-accent); color: #ffffff; font-weight: 700;
 }
-.nav-log-rounding-options label:has(input:checked:focus-visible) { box-shadow: inset 0 0 0 3px #ffffff; }
+.nav-log-rounding-options label:has(input:checked:focus) { box-shadow: inset 0 0 0 3px #ffffff; }
 .nav-log-rounding-options label:has(input:disabled) { cursor: default; opacity: .65; }
 .nav-log-rounding-options input {
   width: 14px; height: 14px; min-height: 0; padding: 0; margin: 0;

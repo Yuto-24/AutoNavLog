@@ -199,6 +199,9 @@ test("green theme keeps readable controls, keyboard selection and aviation color
     await expect(selected).toHaveCSS("text-decoration-line", "underline");
     const standard = page.locator('.descent-rate-segments input[value="500"]');
     await standard.focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(standard).toBeFocused();
     await page.keyboard.press("ArrowRight");
     await expect(page.locator('.descent-rate-segments input[value="1000"]')).toBeChecked();
     await page.keyboard.press("ArrowLeft");
@@ -208,6 +211,8 @@ test("green theme keeps readable controls, keyboard selection and aviation color
     await page.locator(".descent-rate-control").screenshot({ path: info.outputPath(`green-selection-${width}.png`) });
     const newButton = header.getByRole("button", { name: "新規", exact: true });
     await newButton.focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
     await expect(newButton).toBeFocused();
     await expect(newButton).toHaveCSS("outline-style", "solid");
     await expect(newButton).toHaveCSS("outline-color", "rgb(255, 255, 255)");

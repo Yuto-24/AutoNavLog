@@ -33,6 +33,9 @@ and actions remain code-native and accessible.
 The green brand palette is separate from warning, error, aviation-map, VREP,
 and manual-value colors. Selected controls retain checked markers or underlines;
 keyboard focus uses a solid outline, white on the Header and selected segments.
+Custom radio controls use `:focus` for their visible focus treatment: WebKit
+can clear `:focus-visible` after arrow-key selection while retaining DOM focus.
+`map-checkpoint.spec.ts` covers Tab entry and arrow-key selection in both engines.
 The historical fidelity ledger below predates the green theme.
 
 The primary background is true white. There are no gradients, glow effects, or
