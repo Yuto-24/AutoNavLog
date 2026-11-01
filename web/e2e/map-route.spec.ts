@@ -353,6 +353,10 @@ for (const width of [1100, 1440]) {
         return { x, y, width, height };
       }),
     );
+    for (const region of [input, route, readiness]) {
+      expect(region.width).toBeGreaterThan(0);
+      expect(region.height).toBeGreaterThan(0);
+    }
     if (width <= 1240) {
       expect(input.y + input.height).toBeLessThanOrEqual(route.y + 2);
       expect(route.y + route.height).toBeLessThanOrEqual(readiness.y + 2);
