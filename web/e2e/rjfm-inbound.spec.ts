@@ -98,7 +98,7 @@ test("real RJFO inbound KML keeps physical route and places EOC at UMK", async (
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(inboundKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();

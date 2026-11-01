@@ -135,13 +135,13 @@ test("Latest replacement, promotion, opening another Project and explicit delete
   await save(page, "Named");
   page.on("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "新規", exact: true }).click();
-  await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await confirm(page);
   expect((await records(page)).filter(row => !row.checkpoint)).toHaveLength(1);
   const oldLatest = (await working(page)).project.id;
   await page.getByRole("button", { name: "新規", exact: true }).click();
-  await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
+  await enterImportWorkflow(page);
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await confirm(page);
   const replaced = await records(page);

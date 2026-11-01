@@ -30,8 +30,9 @@ Opening a confirmed Project without a saved device viewport fits its route once.
 Draft confirmation retains its current view. Selecting FROM never fits/recenters the map. Resizing invalidates the Leaflet canvas
 without fitting the route. Existing KML candidate preview retains its fit behavior.
 
-The KML compatibility workflow is still available through `KML/KMZから開始` and the
-existing import controls. It is not integrated into Map Draft in this issue (#176).
+KML/KMZ file selection and drop, and `Google Earth からペースト`, are available
+directly beside the initial MAP; no separate compatibility-mode button is needed.
+Previously saved compatibility-mode sessions still restore their input panel. It is not integrated into Map Draft in this issue (#176).
 Confirmed-route editing (#175), undo, search, reorder, reference-point catalogs and
 marker dragging are not implemented here.
 

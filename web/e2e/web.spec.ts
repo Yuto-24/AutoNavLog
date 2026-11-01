@@ -931,7 +931,7 @@ async function calculateNavLog(
   forceBacktrackedEoc = false,
   useFtdWeather = false,
 ): Promise<void> {
-  const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
+  const openPaste = page.getByRole("button", { name: "Google Earth からペースト" });
   await openPaste.click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   const textbox = dialog.getByRole("textbox");
@@ -1100,7 +1100,7 @@ async function reloadWithCurrentRjfmGuidance(
 }
 
 async function importKmlCandidate(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
@@ -2850,7 +2850,7 @@ test("RJFM inbound guidance remains below NAV LOG at intermediate and wide width
 
 test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays editable", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(rjfmPhysicalUmkOmaruKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
@@ -3702,7 +3702,7 @@ test("VOR/DME reference columns can be added, configured independently, and remo
 test("climb and descent legs show magnetic-course altitude candidates", async ({ page }) => {
   await page.goto("/");
 
-  const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
+  const openPaste = page.getByRole("button", { name: "Google Earth からペースト" });
   await openPaste.click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kml);
@@ -4126,7 +4126,7 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   await expect(page.locator(".candidate-control")).not.toHaveClass(/is-required/);
   await page.getByLabel("地図とKML記載順を確認しました").check();
 
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(twoConnectedRouteCandidatesKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
@@ -4232,7 +4232,7 @@ test("same-named grouped routes remain distinguishable in the selector", async (
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(sameNamedConnectedRouteCandidatesKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
@@ -4303,7 +4303,7 @@ test("KML endpoints automatically determine read-only FROM and TO", async ({ pag
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
 
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kmlFromRjfk);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
@@ -4479,7 +4479,7 @@ test("500 and 1000 fpm descent rates recalculate, render, and persist", async ({
 
 test("Issue 129 preserves one imported 小丸 route node after browser confirmation and reload", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(issue129OmaruPointKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
@@ -4571,7 +4571,7 @@ test("Japanese startup and import errors preserve retry and editable input", asy
   await expect(page.getByRole("alert")).toContainText("サーバーに接続できませんでした。再試行してください。");
   await page.getByRole("button", { name: "起動を再試行" }).click();
   await expect(page.getByRole("button", { name: "新規", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "KMLを貼り付け", exact: true }).click();
+  await page.getByRole("button", { name: "Google Earth からペースト", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill("not a KML document");
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();

@@ -117,8 +117,8 @@ test("new discards recovery; new tabs including opener clones never inherit work
     if (attempt === 0) page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button", { name: "新規", exact: true }).click();
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "KML/KMZから開始", exact: true }).click();
-    await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("0");
+    await expect(page.getByRole("button", { name: "KML/KMZから開始", exact: true })).toHaveCount(0);
+    await expect.poll(async () => (await snapshot(page)).form.tglCount).toBe("0");
     expect((await snapshot(page)).working.project).toBeNull();
     if (isLocal()) {
       expect(await page.evaluate(() => (window as any).sameWorkDocument)).toBe(true);
@@ -299,7 +299,7 @@ test("pasted KML draft resumes without reading a changed clipboard", async ({ pa
   await page.evaluate(() => Object.defineProperty(navigator, "clipboard", {
     configurable: true, value: { readText: async () => { throw new Error("denied"); } },
   }));
-  await page.getByRole("button", { name: "KMLを貼り付け", exact: true }).click();
+  await page.getByRole("button", { name: "Google Earth からペースト", exact: true }).click();
   await page.getByRole("dialog").getByRole("textbox").fill("<kml>入力途中");
   await page.reload();
   await expect(page.getByRole("dialog")).toHaveCount(0);

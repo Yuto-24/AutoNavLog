@@ -5,7 +5,7 @@ const kml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>RJFM-RJFO</name><LineString><coordinates>
 131.4486111111,31.8772222222,0 131.5000000000,32.4000000000,0 131.6500000000,33.1000000000,0 131.7372222222,33.4794444444,0
 </coordinates></LineString></Placemark></Document></kml>`;
-const pasteButton = (page: Page) => page.getByRole("button", { name: "KMLを貼り付け", exact: true });
+const pasteButton = (page: Page) => page.getByRole("button", { name: "Google Earth からペースト", exact: true });
 const pasteDialog = (page: Page) => page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
 
 async function clipboardText(page: Page, text: string) {

@@ -1,9 +1,14 @@
 import { expect, type Page } from "@playwright/test";
+import { resolve } from "node:path";
 
-// Existing KML-based regression scenarios explicitly opt into the compatibility input.
+// Planning inputs now follow a real import, rather than an empty compatibility screen.
 export async function enterImportWorkflow(page: Page) {
-  const start = page.getByRole("button", { name: "KML/KMZから開始", exact: true });
+  const map = page.getByRole("heading", { name: "経路作成", exact: true });
   const date = page.getByLabel("DATE", { exact: true });
-  await expect(start.or(date)).toBeVisible({ timeout: 120_000 });
-  if (await start.isVisible()) await start.click();
+  await expect(map.or(date)).toBeVisible({ timeout: 120_000 });
+  if (await date.isVisible()) return;
+  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await expect(date).toBeVisible({ timeout: 120_000 });
+  // Leave route choice to each scenario, as in the former empty input workflow.
+  await page.getByLabel("飛行経路候補").selectOption("");
 }
