@@ -36,6 +36,10 @@ async function imported(page: Page) {
   await page.getByLabel("5,000 ft風速 kt").fill("30");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await expect(page.getByLabel("DATE", { exact: true })).toHaveValue("2026-09-11");
+  await expect(page.getByLabel("気象モード")).toHaveValue("FTD");
+  await expect(page.getByLabel("地上風速 kt")).toHaveValue("15");
+  await expect(page.getByLabel("5,000 ft風速 kt")).toHaveValue("30");
 }
 async function confirmed(page: Page) {
   await imported(page);

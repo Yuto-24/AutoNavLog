@@ -1318,7 +1318,7 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
     paddingLeft: "0px",
     paddingRight: "0px",
   });
-  await expect(page.getByLabel("TO")).toHaveValue("");
+  await expect(page.getByLabel("TO")).toHaveValue(/^RJFS\b/);
   await expect(page.getByLabel("RUN UP あり")).toBeChecked();
   await expect(page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)")).not.toBeChecked();
   await expect(page.getByLabel("A/C ON (巡航速度 -2 kt)")).toBeChecked();

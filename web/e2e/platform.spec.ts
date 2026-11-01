@@ -328,6 +328,8 @@ for (const width of [1100, 1440]) {
     if (width <= 1240) expect(initialMap!.y).toBeGreaterThanOrEqual(initial!.y + initial!.height);
     else expect(initialMap!.x).toBeGreaterThanOrEqual(initial!.x + initial!.width);
     await drop(page, "route.kml", kml);
+    await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+    await expect(page.getByRole("heading", { name: "準備状況", exact: true })).toBeVisible();
     await expect(paste(page)).toBeVisible();
     const regions = await page.evaluate(() => [".input-rail", ".route-workspace", ".status-rail"].map(selector => {
       const rect = document.querySelector(selector)!.getBoundingClientRect();
