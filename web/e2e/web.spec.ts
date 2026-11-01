@@ -3726,9 +3726,10 @@ test("climb and descent legs show magnetic-course altitude candidates", async ({
   await expect(descentCandidate).toBeVisible();
   await expect(climbCandidate.locator("option")).not.toHaveCount(0);
   await expect(descentCandidate.locator("option")).not.toHaveCount(0);
+  // Static explanatory copy was removed; the controls retain the altitude basis.
   await expect(
     page.getByText(/上昇のALTは上昇先、降下のALTは降下開始時の巡航高度/),
-  ).toBeVisible();
+  ).toHaveCount(0);
 
   const climbAltitude = await climbCandidate.locator("option").first().getAttribute("value");
   const descentAltitude = await descentCandidate.locator("option").first().getAttribute("value");
@@ -3737,8 +3738,11 @@ test("climb and descent legs show magnetic-course altitude candidates", async ({
   }
   await climbCandidate.selectOption(climbAltitude);
   await descentCandidate.selectOption(descentAltitude);
+  const climbRow = climbCandidate.locator("xpath=ancestor::tr");
   const descentRow = descentCandidate.locator("xpath=ancestor::tr");
   const descentInput = descentRow.getByLabel(/出発Legの計画高度/);
+  await expect(climbRow.getByLabel(/出発Legの計画高度/)).toHaveValue(climbAltitude);
+  await expect(descentInput).toHaveValue(descentAltitude);
 
   await descentInput.fill("3000");
   await expect(descentCandidate).toHaveValue("custom");
