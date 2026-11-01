@@ -947,6 +947,7 @@ async function calculateNavLog(
   await openPaste.click();
   await textbox.fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
 
   if (useFtdWeather) {
     await page.getByLabel("気象モード").selectOption("FTD");
@@ -1104,6 +1105,7 @@ async function importKmlCandidate(page: Page): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
 }
 
@@ -2854,6 +2856,7 @@ test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays e
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(rjfmPhysicalUmkOmaruKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
 
@@ -3707,6 +3710,7 @@ test("climb and descent legs show magnetic-course altitude candidates", async ({
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
 
@@ -4130,6 +4134,7 @@ test("grouped LineStrings require an explicit route candidate selection", async 
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(twoConnectedRouteCandidatesKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
 
   await expect(candidateSelect).toHaveValue("");
   const candidateControl = page.locator(".candidate-control");
@@ -4236,6 +4241,7 @@ test("same-named grouped routes remain distinguishable in the selector", async (
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(sameNamedConnectedRouteCandidatesKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
 
   const candidateSelect = page.getByLabel("飛行経路候補");
   await expect(candidateSelect).toHaveValue("");
@@ -4262,6 +4268,8 @@ test("file picker, drop, and KMZ use the same grouped-route candidate flow", asy
     buffer: Buffer.from(twoConnectedRouteCandidatesKml),
   };
   await page.locator("#route-file").setInputFiles(groupedRouteFile);
+  await expect(page.locator("#route-file")).toBeEnabled();
+  await expect(page.locator(".imported-file")).toContainText("grouped-routes.kml");
   await expect(candidateSelect).toHaveValue("");
   await expect(candidateSelect.locator("option")).toHaveCount(3);
 
@@ -4280,6 +4288,8 @@ test("file picker, drop, and KMZ use the same grouped-route candidate flow", asy
   }, twoConnectedRouteCandidatesKml);
   await page.locator(".drop-zone").dispatchEvent("drop", { dataTransfer });
   await dataTransfer.dispose();
+  await expect(page.locator("#route-file")).toBeEnabled();
+  await expect(page.locator(".imported-file")).toContainText("dropped-grouped-routes.kml");
 
   await expect(candidateSelect).toHaveValue("");
   await expect(candidateSelect.locator("option")).toHaveCount(3);
@@ -4291,6 +4301,8 @@ test("file picker, drop, and KMZ use the same grouped-route candidate flow", asy
     mimeType: "application/vnd.google-earth.kmz",
     buffer: twoConnectedRouteCandidatesKmz,
   });
+  await expect(page.locator("#route-file")).toBeEnabled();
+  await expect(page.locator(".imported-file")).toContainText("grouped-routes.kmz");
   await expect(candidateSelect).toHaveValue("");
   await expect(candidateSelect.locator("option")).toHaveCount(3);
   await expect(candidateSelect.locator("option").nth(1)).toContainText(
@@ -4307,6 +4319,7 @@ test("KML endpoints automatically determine read-only FROM and TO", async ({ pag
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kmlFromRjfk);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
 
   const departure = page.getByLabel("FROM");
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
@@ -4483,6 +4496,7 @@ test("Issue 129 preserves one imported 小丸 route node after browser confirmat
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(issue129OmaruPointKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
   await page.getByLabel("飛行経路候補").selectOption("");
   await page.getByLabel("飛行経路候補").selectOption("connected_lines:0");
   await expect(page.getByLabel("FROM")).toHaveValue(/RJFM/);

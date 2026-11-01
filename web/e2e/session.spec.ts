@@ -205,6 +205,8 @@ test("KMZ document choice resumes after reload with modal closed", async ({ page
   await page.getByRole("button", { name: "KMZからの選択を続ける" }).click();
   await expect(page.getByLabel("KML文書")).toHaveValue("b.kml");
   await page.getByRole("button", { name: "選択したKMLを読み込む" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(page.locator('input[type="file"]')).toBeEnabled();
   await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await page.getByLabel("FUEL gal", { exact: true }).focus();
   await page.keyboard.press("Tab");
