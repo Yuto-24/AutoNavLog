@@ -73,8 +73,10 @@ def test_workflow_preserves_aggregate_gates_and_all_browser_suites():
     workflow = (ROOT / ".github/workflows/test.yml").read_text()
     assert "needs: [release-sources, pytest-tests]" in workflow
     assert "needs: [release-sources, local-browser-tests]" in workflow
-    assert workflow.count('run: test "$RESULT" = success') == 2
-    assert workflow.count("if: ${{ always() && (needs.release-sources.result") == 2
+    for job, following in (("pytest", "runtime"), ("local-browser", "account-sync-tests")):
+        block = workflow.split(f"  {job}:\n", 1)[1].split(f"  {following}:\n", 1)[0]
+        assert 'run: test "$RESULT" = success' in block
+        assert "if: ${{ always() && (needs.release-sources.result" in block
     assert "fail-fast: false" in workflow
     for command in (
         "npm --prefix web run test:auth",
