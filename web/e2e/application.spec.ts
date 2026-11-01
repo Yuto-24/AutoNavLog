@@ -340,11 +340,12 @@ test("Legacy reconnects polling and shares double clicks without replacing the s
 });
 
 test("Legacy active lookup is optional and never creates a session", async () => {
-  const calls = responses(new Response(null, { status: 204 }), json({ error: { code: "SESSION_NOT_FOUND", message: "expired" } }, 401));
+  const calls = responses(new Response(null, { status: 204 }), json({ error: { code: "SESSION_NOT_FOUND", message: "expired" } }, 401), json({ error: { code: "SESSION_OWNER_MISMATCH", message: "wrong owner" } }, 401));
   const app = new LegacyApplication();
   expect(await app.resumeCalculation()).toBeNull();
-  await expect(app.resumeCalculation()).rejects.toMatchObject({ code: "SESSION_NOT_FOUND" });
-  expect(calls.map(x => x.path)).toEqual(["/api/calculation-jobs/active", "/api/calculation-jobs/active"]);
+  expect(await app.resumeCalculation()).toBeNull();
+  await expect(app.resumeCalculation()).rejects.toMatchObject({ code: "SESSION_OWNER_MISMATCH" });
+  expect(calls.map(x => x.path)).toEqual(["/api/calculation-jobs/active", "/api/calculation-jobs/active", "/api/calculation-jobs/active"]);
 });
 
 test("Legacy tracking deadline retains the job for an explicit retry", async () => {
@@ -536,3 +537,38 @@ for (const operation of ["busy-load", "busy-import", "busy-confirm", "busy-delet
     } finally { Date.now = originalNow; }
   });
 }
+
+for (const code of ["SESSION_NOT_FOUND", "CALCULATION_JOB_NOT_FOUND"]) {
+  test(`Legacy drops a terminal ${code} job before the next explicit attempt`, async () => {
+    const calls = responses(
+      json({ job_id: "expired", status: "calculating", progress_percent: 30, progress_message: "calculating" }),
+      json({ error: { code, message: "expired" } }, code === "SESSION_NOT_FOUND" ? 401 : 404),
+      new Response(null, { status: 204 }),
+    );
+    const app = new LegacyApplication();
+    await expect(app.calculate()).rejects.toMatchObject({ code });
+    expect(await app.resumeCalculation()).toBeNull();
+    expect(calls.map(call => call.path)).toEqual(["/api/calculation-jobs", "/api/calculation-jobs/expired", "/api/calculation-jobs/active"]);
+  });
+}
+
+test("Legacy expired-session preflight reaches ordinary save recovery before one calculation POST", async () => {
+  const recoveryState = { ...state, workingRecovery: { marker: "last-good" } } as unknown as WebState;
+  const calls = responses(
+    json({ token: "old-session", state: recoveryState }),
+    json({ error: { code: "SESSION_NOT_FOUND", message: "expired" } }, 401),
+    json({ error: { code: "SESSION_NOT_FOUND", message: "expired" } }, 401),
+    json({ token: "new-session", state: recoveryState }),
+    json(recoveryState),
+    json({ job_id: "new-job", status: "succeeded", state: recoveryState, progress_percent: 100, progress_message: "done" }),
+  );
+  const app = new LegacyApplication();
+  await app.bootstrap();
+  expect(await app.resumeCalculation()).toBeNull();
+  // handleCalculate forces this ordinary draft save before starting a new job.
+  await app.updateProject(update);
+  expect(await app.calculate()).toEqual(recoveryState);
+  expect(calls.map(call => call.path)).toEqual(["/api/application-session", "/api/calculation-jobs/active", "/api/project", "/api/application-session", "/api/project", "/api/calculation-jobs"]);
+  expect(calls[3].options?.body).toBe(JSON.stringify(recoveryState.workingRecovery));
+  expect(calls[5].options?.headers).toMatchObject({ "X-AutoNavLog-Session": "new-session" });
+});

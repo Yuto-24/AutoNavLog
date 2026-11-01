@@ -168,6 +168,10 @@ export class LegacyApplication implements AutoNavLogApplication {
         job = next;
         this.calculationJob = job;
       } catch (reason) {
+        if (reason instanceof ApplicationError && ["SESSION_NOT_FOUND", "CALCULATION_JOB_NOT_FOUND"].includes(reason.code)) {
+          this.calculationJob = null;
+          this.calculationSession = undefined;
+        }
         if (!(reason instanceof ApplicationError) || reason.code !== "APPLICATION_UNAVAILABLE" && !reason.details.retryable) throw reason;
         // GET is safe to retry; retain both the job and its original session.
       }
@@ -196,7 +200,16 @@ export class LegacyApplication implements AutoNavLogApplication {
   async resumeCalculation(onProgress?: ProgressListener): Promise<WebState | null> {
     if (this.calculationInFlight) return this.calculationInFlight;
     if (this.calculationJob && this.calculationSession !== this.token) this.calculationJob = null;
-    const job = this.calculationJob ?? await this.jobRequest("/api/calculation-jobs/active");
+    if (this.calculationJob) return this.trackJob(this.calculationJob, onProgress);
+    let job: Job | null;
+    try {
+      job = await this.jobRequest("/api/calculation-jobs/active");
+    } catch (reason) {
+      // With no job to follow, let the caller's ordinary forced draft save recover
+      // an expired session. Do not recreate a session or replay a calculation here.
+      if (reason instanceof ApplicationError && reason.code === "SESSION_NOT_FOUND") return null;
+      throw reason;
+    }
     return job ? this.trackJob(job, onProgress) : null;
   }
 
