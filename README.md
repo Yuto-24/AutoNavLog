@@ -115,6 +115,10 @@ LineStringがないPoint-only KMLでは従来のPoint候補を利用できます
 
 ## Legacy環境
 
+公開中のLegacy本番は、[Compose運用の正本と切替手順](docs/operations/legacy-compose.md)に従います。
+専用の `release/1.x` checkoutで `compose.yaml` と `.env` を使い、通常更新は
+`docker compose build` → `docker compose up -d` です。以下のローカル・LAN用設定を本番へ混ぜないでください。
+
 - Docker Engine
 - Docker Compose v2
 - JavaScript と Cookie を有効にした新しいブラウザ

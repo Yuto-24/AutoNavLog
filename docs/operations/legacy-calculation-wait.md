@@ -34,6 +34,12 @@ for responsive job polling.
 
 ## Production startup and restoration
 
+Normal production builds and the transition to a dedicated `release/1.x` checkout
+are described in [Legacy Compose operations](legacy-compose.md). Once that transition
+is approved and completed, use its single `compose.yaml` / `.env` pair for ordinary
+`docker compose build` then `docker compose up -d`. Retain the pinned runtime below
+as the rollback path; until the transition, it remains the current startup path.
+
 A plain `docker compose up --force-recreate` in an older checkout can recreate the
 service using its old mutable `autonavlog:local` image. It does not mean “restart the
 currently deployed release.” For a restart only, restart the existing named service.
