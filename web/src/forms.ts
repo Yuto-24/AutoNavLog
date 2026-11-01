@@ -10,6 +10,7 @@ export interface PlanningForm {
   flightDate: string;
   departureTimeJst: string;
   departureAirportId: string;
+  departureOrigin: "AIRPORT" | "VOR";
   destinationAirportId: string;
   destinationPatternAltitudeFtMsl: string;
   totalUsableFuelGal: string;
@@ -166,6 +167,7 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     flightDate: tomorrowIso(),
     departureTimeJst: "09:00",
     departureAirportId: departure?.id ?? "",
+    departureOrigin: "AIRPORT",
     destinationAirportId: "",
     destinationPatternAltitudeFtMsl: "",
     totalUsableFuelGal: "90",
@@ -202,6 +204,7 @@ export function formFromProject(
     flightDate: project.flight_date,
     departureTimeJst: project.planned_departure_time_jst.slice(11, 16),
     departureAirportId: project.departure_airport_id,
+    departureOrigin: project.metadata.ui_state?.departure_vor ? "VOR" : "AIRPORT",
     destinationAirportId: project.destination_airport_id,
     destinationPatternAltitudeFtMsl: String(
       arrival?.selected_pattern_altitude_ft_msl ??

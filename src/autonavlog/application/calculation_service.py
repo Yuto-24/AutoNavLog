@@ -31,6 +31,7 @@ from autonavlog.domain.planning import (
     AirportSelection,
     ArrivalAltitudeResult,
     CheckPointProjection,
+    DepartureVorSelection,
     PersistedUiState,
     RjfmDeparturePlan,
     RjfmInboundPlan,
@@ -484,9 +485,23 @@ class CalculationService:
                 check_point_projections,
                 arrival_altitude,
             )
+        departure_origin: Airport | DepartureVorSelection = departure
+        if ui_state is not None and ui_state.departure_vor is not None:
+            if ui_state.departure_vor.airport_id != working.departure_airport_id:
+                issues.append(
+                    Issue(
+                        code="PROJECT_STATE_INVALID",
+                        severity=IssueSeverity.BLOCKER,
+                        message="保存済みUI状態を安全に読み込めません。",
+                    )
+                )
+                return self._empty_outcome(
+                    working, issues, check_point_projections, arrival_altitude
+                )
+            departure_origin = ui_state.departure_vor
         departure_gap_nm = geodesic_leg(
-            departure.latitude_deg,
-            departure.longitude_deg,
+            departure_origin.latitude_deg,
+            departure_origin.longitude_deg,
             geometries[0].start.latitude_deg,
             geometries[0].start.longitude_deg,
         ).distance_nm

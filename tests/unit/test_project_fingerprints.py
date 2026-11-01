@@ -190,3 +190,25 @@ def test_defaults_review_includes_descent_rate(project: Project) -> None:
         )
         != baseline
     )
+
+
+def test_adopted_departure_vor_and_provenance_are_calculation_inputs(
+    project: Project, performance_repository: Any,
+) -> None:
+    from autonavlog.domain.airport_vor import AIRPORT_VORS
+
+    def fingerprint(state: PersistedUiState) -> str:
+        return current_calculation_input_fingerprint(
+            project, ui_state=state, performance=performance_repository,
+            calculation_policy_version="nav2-v2", performance_table_version="fixture-v1",
+            autonavlog_version="0.2.0", msm_package_version="0.2.1",
+        )
+
+    airport = PersistedUiState()
+    vor = airport.model_copy(update={"departure_vor": AIRPORT_VORS["RJFM"]})
+    revised = vor.model_copy(update={"departure_vor": AIRPORT_VORS["RJFM"].model_copy(
+        update={"source_revision": "new verified edition"},
+    )})
+    assert fingerprint(airport) != fingerprint(vor)
+    assert fingerprint(vor) != fingerprint(revised)
+    assert fingerprint(airport.model_copy(update={"departure_vor": None})) == fingerprint(airport)

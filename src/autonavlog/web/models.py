@@ -68,6 +68,7 @@ class MapRoutePoint(WebRequestModel):
 
 
 class ConfirmRouteRequest(WebRequestModel):
+    departure_origin: Literal["AIRPORT", "VOR"] = "AIRPORT"
     candidate_kind: Literal["line", "connected_lines", "polygon", "points", "map"]
     map_points: list[MapRoutePoint] = Field(default_factory=list, max_length=500)
     candidate_index: int = Field(default=0, ge=0)
@@ -144,6 +145,7 @@ class SectionUpdate(WebRequestModel):
 
 
 class UpdateProjectRequest(WebRequestModel):
+    departure_origin: Literal["AIRPORT", "VOR"] | None = None
     flight_date: date
     departure_time_jst: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     pilot_name: str | None = Field(default=None, max_length=100)

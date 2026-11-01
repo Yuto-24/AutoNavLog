@@ -191,6 +191,13 @@ test("session decoding preserves invalid text and rejects incompatible UI shapes
     nodeNameDraft: { id: null, name: "" }, vorColumns: [{ id: 0, stationIdentifier: null }],
   };
   expect(decodeSession(JSON.stringify(session))).toEqual(session);
+  const legacy = structuredClone(session) as typeof session & { form: Record<string, unknown> };
+  Reflect.deleteProperty(legacy.form, "departureOrigin");
+  expect(decodeSession(JSON.stringify(legacy))).toEqual(session);
+  expect(decodeSession(JSON.stringify({ ...session, form: { ...session.form, departureOrigin: "VOR" } })).form.departureOrigin).toBe("VOR");
+  for (const departureOrigin of [null, 0, "UNKNOWN"]) {
+    expect(() => decodeSession(JSON.stringify({ ...session, form: { ...session.form, departureOrigin } }))).toThrow();
+  }
   for (const malformed of [
     { ...session, version: 99 }, { ...session, form: {} },
     { ...session, navLogDrafts: { a: null } }, { ...session, pendingKmz: {} },
