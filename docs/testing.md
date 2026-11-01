@@ -308,6 +308,14 @@ Playwrightの依存導入が急に変わらないようにする。`local-browse
 共有emulatorを使うsuiteの順番・テスト範囲は変えず、各ブラウザの同期データは既存のランダムsubjectとcontextで分離する。
 ローカルのPlaywright configの既定値も1 workerのままとする。
 
+同期テストの初回ログインは、テスト用`authTest`の存在だけでなく、初期画面の
+「アカウント」ボタン表示を待つ。この表示は匿名Applicationのworker bootstrap完了後で、
+実際の利用者が認証操作を始められる時点に対応する。初期化前のVite再読込とログインが
+重なった失敗を[PR #326のCI](https://github.com/Yuto-24/AutoNavLog/actions/runs/41266357658/job/124729915595)で確認した。
+認証は1回だけ実行し、認証エラーは伝播させる。初期UI前の再読込と認証失敗を回帰テストで検査し、
+ログイン後の期待accountとの一致確認も維持する。任意の時点で起こる再読込を防ぐ保証ではない。
+初期化待ちの回帰2件を3ブラウザに追加したため現在は計39件で、上記の時間比較は追加前の33件に限る。
+
 2026-10-29、main `3ea6481d9fb02f7893edc3adb89c57d30e7dd40b`の同一Local artifactで、
 1 worker、次に2 workersを逐次計測した。WSL / Node 24.19.0 / Python 3.12.3 /
 Playwright 1.62.1、`CI=1`、子プロセスとHTTP serverを含め`taskset -c 0-3`で4 logical CPUsに

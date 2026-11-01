@@ -1,4 +1,12 @@
-import type { BrowserContext, Page } from "@playwright/test";
+import { expect, type BrowserContext, type Page } from "@playwright/test";
+
+export async function signInSyncAccount(page: Page, subject: string) {
+  // authTest exists before the anonymous App finishes its worker bootstrap.
+  // Wait for the same UI a user needs before signing in; Vite can reload while
+  // that initial App is loading. Auth errors must still reject without a retry.
+  await expect(page.getByRole("button", { name: "アカウント", exact: true })).toBeVisible();
+  await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
+}
 
 export async function waitForSyncAccount(page: Page, subject: string, timeout = 40_000) {
   // The frame task resumes in the new execution context after a Vite reload.
