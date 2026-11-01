@@ -77,11 +77,15 @@ jobs:
             python scripts/validate_release.py
           fi
 
-  pytest:
+  pytest-tests:
     needs: release-sources
     # Missing/failed classification runs the full checks; only proven docs-only changes skip.
     if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,10 +94,49 @@ jobs:
       - name: Run tests with the capability workflow contract
         run: >-
           docker run --rm
+          --env CI_PYTEST_SHARD=${{ matrix.shard }}/2
+          --env COVERAGE_FILE=/ci-results/.coverage
+          --env CI_PYTEST_MANIFEST=/ci-results/collection.json
+          --mount type=bind,source=${{ runner.temp }},target=/ci-results
           --mount type=bind,source="$PWD/.github/workflows/static-provider-probe.yml",target=/opt/autonavlog/.github/workflows/static-provider-probe.yml,readonly
           --mount type=bind,source="$PWD/.github/workflows/static-monitor.yml",target=/opt/autonavlog/.github/workflows/static-monitor.yml,readonly
           --mount type=bind,source="$PWD/.github/workflows/static-app-release.yml",target=/opt/autonavlog/.github/workflows/static-app-release.yml,readonly
           autonavlog:test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pytest-coverage-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/.coverage
+            ${{ runner.temp }}/collection.json
+          include-hidden-files: true
+          if-no-files-found: error
+
+  pytest:
+    needs: [release-sources, pytest-tests]
+    if: ${{ always() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Python shard
+        env:
+          RESULT: ${{ needs.pytest-tests.result }}
+        run: test "$RESULT" = success
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install 'coverage>=7.5,<8'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pytest-coverage-*
+          path: coverage-shards
+      - name: Verify complete collection and combine coverage
+        run: |
+          python scripts/check_pytest_shards.py coverage-shards 2
+          python -m coverage combine coverage-shards/*/.coverage
+          python -m coverage report --rcfile=pyproject.toml
 
   runtime:
     needs: release-sources
@@ -192,13 +235,17 @@ jobs:
           MINIFLARE_ASSERT_BODIES_CONSUMED: "true"
       - run: npm --prefix services/taf-proxy run check
 
-  local-browser:
+  local-browser-tests:
     needs: release-sources
     # Missing/failed classification runs the full checks; only proven docs-only changes skip.
     if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     # Keep browser dependencies on the established image during ubuntu-latest migrations.
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [local, acceptance]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -224,6 +271,7 @@ jobs:
         env:
           AUTONAVLOG_TEST_FIXTURES: "1"
       - run: npm --prefix web run test:auth
+        if: matrix.suite == 'acceptance'
       - name: Verify Local persistence and session/calculation regression without FastAPI
         env:
           AUTONAVLOG_REFERENCE_PYTHON: python3
@@ -232,8 +280,11 @@ jobs:
           local_server_pid=$!
           trap 'kill "$local_server_pid"' EXIT
           curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4174/ > /dev/null
-          # Measured with the same artifact and four CPUs; retain per-file ordering.
-          npm --prefix web run test:local -- --workers=2
+          # Independent runners retain the existing per-file order and worker counts.
+          if [ "${{ matrix.suite }}" = local ]; then
+            npm --prefix web run test:local -- --workers=2
+            exit 0
+          fi
           npm --prefix web exec -- playwright test --config web/playwright.navlog-scroll.config.ts --workers=2
           npm --prefix web exec -- playwright test --config web/playwright.browser-acceptance.config.ts --workers=2
           AUTONAVLOG_TEST_FIXTURES=1 VITE_TAF_PROXY_URL=https://taf.example/taf npm --prefix web run build:local
@@ -241,7 +292,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: local-browser-failure
+          name: local-browser-${{ matrix.suite }}-failure
           path: |
             /tmp/autonavlog-issue117-playwright
             /tmp/autonavlog-navlog-scroll-browser
@@ -249,6 +300,16 @@ jobs:
             /tmp/autonavlog-taf-playwright
             /tmp/local-server.log
             /tmp/autonavlog-auth-tests
+
+  local-browser:
+    needs: [release-sources, local-browser-tests]
+    if: ${{ always() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Local browser suite
+        env:
+          RESULT: ${{ needs.local-browser-tests.result }}
+        run: test "$RESULT" = success
 
   account-sync:
     needs: release-sources
