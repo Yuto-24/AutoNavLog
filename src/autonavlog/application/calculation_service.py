@@ -7,6 +7,7 @@ from math import isfinite
 from typing import Any
 from uuid import UUID
 
+from autonavlog.diagnostics import timed_stage
 from autonavlog.domain.calculation import (
     CalculationOutcome,
     DerivedRoutePoint,
@@ -677,7 +678,9 @@ class CalculationService:
                 tuple(final.representative_times.values()),
                 arrival_time_utc=final.arrival_time_utc,
             )
-            run_status = provider.inspect_run_status(selected_run_id, final_requirement)
+            run_status = timed_stage("weather_discovery")(provider.inspect_run_status)(
+                selected_run_id, final_requirement,
+            )
             if not run_status.selected_run_covers_requirement:
                 issues.append(
                     self._blocker(
@@ -826,11 +829,11 @@ class CalculationService:
         try:
             initial_time_utc: datetime | None = None
             if project.selected_forecast_run_id is None:
-                run = provider.resolve_run(requirement)
+                run = timed_stage("weather_discovery")(provider.resolve_run)(requirement)
                 selected_run_id = run.id
                 initial_time_utc = run.initial_time_utc.astimezone(UTC)
             else:
-                status = provider.inspect_run_status(
+                status = timed_stage("weather_discovery")(provider.inspect_run_status)(
                     project.selected_forecast_run_id,
                     requirement,
                 )
@@ -863,7 +866,9 @@ class CalculationService:
                             },
                         )
                     )
-            prepared = provider.prepare_run(selected_run_id, requirement)
+            prepared = timed_stage("weather_preparation")(provider.prepare_run)(
+                selected_run_id, requirement,
+            )
             metadata = dict(prepared.metadata)
             metadata["forecast_run_id"] = selected_run_id
             if initial_time_utc is not None:
@@ -2303,6 +2308,7 @@ class CalculationService:
                 )
         return points
 
+    @timed_stage("navigation")
     def _calculate_iteration(
         self,
         project: Project,

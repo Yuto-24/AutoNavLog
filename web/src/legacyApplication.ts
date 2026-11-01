@@ -23,20 +23,41 @@ async function parseError(response: Response): Promise<ApplicationError> {
   return new ApplicationError(
     payload.error?.message?.trim() || "処理に失敗しました。",
     payload.error?.code ?? "REQUEST_FAILED",
-    { ...payload.error?.details, ...(payload.error?.candidates ? { candidates: payload.error.candidates } : {}) },
+    { ...payload.error?.details, ...([502, 503, 504].includes(response.status) ? { retryable: true } : {}), ...(payload.error?.candidates ? { candidates: payload.error.candidates } : {}) },
   );
 }
+
+type Job = {
+  job_id: string;
+  status: "queued" | "preparing_weather" | "calculating" | "succeeded" | "failed";
+  state?: WebState;
+  error?: { code?: string; message?: string };
+  progress_percent: number;
+  progress_message: string;
+};
 
 export class LegacyApplication implements AutoNavLogApplication {
   private async fetch(path: string, options: RequestInit): Promise<Response> {
     try { return await fetch(path, options); }
-    catch { throw new ApplicationError("サーバーに接続できませんでした。再試行してください。", "APPLICATION_UNAVAILABLE"); }
+    catch { throw new ApplicationError("サーバーとの通信に失敗しました。再試行してください。", "APPLICATION_UNAVAILABLE"); }
   }
 
   private async readJson<T>(response: Response): Promise<T> {
     try { return await response.json() as T; }
-    catch { throw new ApplicationError("処理結果を読み取れませんでした。", "APPLICATION_RESPONSE_INVALID"); }
+    catch (reason) {
+      // Fetch may resolve at headers before the response body disconnects or times out.
+      // This reader only receives internal timeout signals, never a user-cancel signal.
+      if (reason instanceof TypeError || reason instanceof DOMException && ["AbortError", "TimeoutError"].includes(reason.name)) {
+        throw new ApplicationError("サーバーとの通信に失敗しました。再試行してください。", "APPLICATION_UNAVAILABLE");
+      }
+      throw new ApplicationError("処理結果を読み取れませんでした。", "APPLICATION_RESPONSE_INVALID");
+    }
   }
+
+  private calculationJob: Job | null = null;
+  private calculationSession: string | undefined;
+  private sessionEpoch = 0;
+  private calculationInFlight: Promise<WebState> | null = null;
 
   private bootstrapInFlight: Promise<WebState> | null = null;
 
@@ -58,6 +79,9 @@ export class LegacyApplication implements AutoNavLogApplication {
     if (typeof payload.token !== "string" || !payload.token || !payload.state) {
       throw new ApplicationError("処理結果を読み取れませんでした。", "APPLICATION_RESPONSE_INVALID");
     }
+    this.sessionEpoch += 1;
+    this.calculationJob = null;
+    this.calculationInFlight = null;
     this.token = payload.token;
     this.recovery = payload.state.workingRecovery;
     return payload.state;
@@ -67,6 +91,7 @@ export class LegacyApplication implements AutoNavLogApplication {
     path: string,
     options: { method?: string; body?: unknown },
     retryOnUnauthorized: boolean,
+    timeoutMs = 30_000,
   ): Promise<T> {
     const headers: Record<string, string> = this.token ? { "X-AutoNavLog-Session": this.token } : {};
     if (options.body !== undefined) {
@@ -77,7 +102,7 @@ export class LegacyApplication implements AutoNavLogApplication {
       credentials: "same-origin",
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.status === 401 && retryOnUnauthorized) {
       await this.createSession(this.recovery);
@@ -86,6 +111,7 @@ export class LegacyApplication implements AutoNavLogApplication {
     if (!response.ok) {
       throw await parseError(response);
     }
+    if (response.status === 204) return null as T;
     return await this.readJson<T>(response);
   }
 
@@ -108,40 +134,104 @@ export class LegacyApplication implements AutoNavLogApplication {
     return result;
   }
 
-  async calculate(
-    onProgress?: ProgressListener,
-  ): Promise<WebState> {
-    type Job = {
-      job_id: string;
-      status: "queued" | "preparing_weather" | "calculating" | "succeeded" | "failed";
-      state?: WebState;
-      error?: { code?: string; message?: string; status?: number };
-      progress_percent: number;
-      progress_message: string;
-    };
-    const created = await this.request<Job>("/api/calculation-jobs", { method: "POST" });
+  private checkCalculationSession(epoch: number): void {
+    if (epoch !== this.sessionEpoch) {
+      throw new ApplicationError("画面を再読み込みしてセッションを作成してください。", "SESSION_REQUIRED");
+    }
+  }
+
+  private async jobRequest(path: string, method = "GET", timeoutMs = 30_000, epoch = this.sessionEpoch): Promise<Job | null> {
+    // Never replace a session while following its job: that would lose ownership.
+    this.checkCalculationSession(epoch);
+    const result = await this.fetchJson<Job | null>(path, { method }, false, timeoutMs);
+    this.checkCalculationSession(epoch);
+    return result;
+  }
+
+  private async followJob(job: Job, onProgress?: ProgressListener): Promise<WebState> {
+    const epoch = this.sessionEpoch;
+    this.calculationSession = this.token;
+    this.calculationJob = job;
     const deadline = Date.now() + 10 * 60_000;
-    let job = created;
-    onProgress?.({ percent: job.progress_percent, message: job.progress_message });
     while (job.status !== "succeeded" && job.status !== "failed") {
-      if (Date.now() >= deadline) {
-        throw new ApplicationError("気象準備と計算がタイムアウトしました。", "CALCULATION_TIMEOUT");
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-      job = await this.request<Job>(`/api/calculation-jobs/${encodeURIComponent(job.job_id)}`);
+      this.checkCalculationSession(epoch);
       onProgress?.({ percent: job.progress_percent, message: job.progress_message });
+      if (Date.now() >= deadline) {
+        throw new ApplicationError("計算状況の確認がタイムアウトしました。この画面のまま再試行してください。", "CALCULATION_TIMEOUT");
+      }
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) continue;
+      try {
+        const next = await this.jobRequest(`/api/calculation-jobs/${encodeURIComponent(job.job_id)}`, "GET", Math.min(30_000, remaining), epoch);
+        if (!next) throw new ApplicationError("計算結果を取得できませんでした。", "CALCULATION_RESULT_MISSING");
+        job = next;
+        this.calculationJob = job;
+      } catch (reason) {
+        if (reason instanceof ApplicationError && ["SESSION_NOT_FOUND", "CALCULATION_JOB_NOT_FOUND"].includes(reason.code)) {
+          this.calculationJob = null;
+          this.calculationSession = undefined;
+        }
+        if (!(reason instanceof ApplicationError) || reason.code !== "APPLICATION_UNAVAILABLE" && !reason.details.retryable) throw reason;
+        // GET is safe to retry; retain both the job and its original session.
+      }
     }
+    this.checkCalculationSession(epoch);
+    onProgress?.({ percent: job.progress_percent, message: job.progress_message });
+    this.calculationJob = null;
     if (job.status === "failed") {
-      throw new ApplicationError(
-        job.error?.message ?? "計算に失敗しました。",
-        job.error?.code ?? "CALCULATION_JOB_FAILED",
-      );
+      throw new ApplicationError(job.error?.message ?? "計算に失敗しました。", job.error?.code ?? "CALCULATION_JOB_FAILED");
     }
-    if (!job.state) {
-      throw new ApplicationError("計算結果がありません。", "CALCULATION_RESULT_MISSING");
-    }
+    if (!job.state) throw new ApplicationError("計算結果を取得できませんでした。", "CALCULATION_RESULT_MISSING");
     this.recovery = job.state.workingRecovery;
     return job.state;
+  }
+
+  private trackJob(job: Job, onProgress?: ProgressListener): Promise<WebState> {
+    if (this.calculationInFlight) return this.calculationInFlight;
+    const pending = this.followJob(job, onProgress);
+    this.calculationInFlight = pending;
+    void pending.finally(() => {
+      if (this.calculationInFlight === pending) this.calculationInFlight = null;
+    }).catch(() => {});
+    return pending;
+  }
+
+  async resumeCalculation(onProgress?: ProgressListener): Promise<WebState | null> {
+    if (this.calculationInFlight) return this.calculationInFlight;
+    if (this.calculationJob && this.calculationSession !== this.token) this.calculationJob = null;
+    if (this.calculationJob) return this.trackJob(this.calculationJob, onProgress);
+    let job: Job | null;
+    try {
+      job = await this.jobRequest("/api/calculation-jobs/active");
+    } catch (reason) {
+      // With no job to follow, let the caller's ordinary forced draft save recover
+      // an expired session. Do not recreate a session or replay a calculation here.
+      if (reason instanceof ApplicationError && reason.code === "SESSION_NOT_FOUND") return null;
+      throw reason;
+    }
+    return job ? this.trackJob(job, onProgress) : null;
+  }
+
+  async calculate(onProgress?: ProgressListener): Promise<WebState> {
+    if (this.calculationInFlight) return this.calculationInFlight;
+    // Reserve the in-flight promise before the first await to prevent double submission.
+    const epoch = this.sessionEpoch;
+    const pending = (async () => {
+      let job: Job | null;
+      try {
+        job = await this.jobRequest("/api/calculation-jobs", "POST", 30_000, epoch);
+      } catch (reason) {
+        if (!(reason instanceof ApplicationError) || !["APPLICATION_UNAVAILABLE", "CALCULATION_JOB_ALREADY_ACTIVE"].includes(reason.code)) throw reason;
+        job = await this.jobRequest("/api/calculation-jobs/active", "GET", 30_000, epoch);
+        if (!job) throw reason; // An unknown POST outcome is never automatically replayed.
+      }
+      if (!job) throw new ApplicationError("計算結果を取得できませんでした。", "CALCULATION_RESULT_MISSING");
+      return this.followJob(job, onProgress);
+    })();
+    this.calculationInFlight = pending;
+    try { return await pending; }
+    finally { if (this.calculationInFlight === pending) this.calculationInFlight = null; }
   }
 
   async newWork(): Promise<void> {
@@ -154,19 +244,38 @@ export class LegacyApplication implements AutoNavLogApplication {
     if (!response.ok && response.status !== 401) {
       throw await parseError(response);
     }
+    this.sessionEpoch += 1;
+    this.calculationJob = null;
+    this.calculationInFlight = null;
     this.token = undefined;
     this.recovery = undefined;
   }
 
-  importRoute(input: ImportRouteInput) { return this.request<WebState>("/api/import", { method: "POST", body: input }); }
-  confirmRoute(input: ConfirmRouteInput) { return this.request<WebState>("/api/route/confirm", { method: "POST", body: input }); }
+  private async replaceProjectContext(path: string, body: unknown): Promise<WebState> {
+    const state = await this.request<WebState>(path, { method: "POST", body });
+    // A successful context switch makes a previously timed-out job obsolete.
+    // Failed/busy switches and ordinary same-project edits keep reconnectability.
+    this.calculationJob = null;
+    this.calculationSession = undefined;
+    return state;
+  }
+
+  importRoute(input: ImportRouteInput) { return this.replaceProjectContext("/api/import", input); }
+  confirmRoute(input: ConfirmRouteInput) { return this.replaceProjectContext("/api/route/confirm", input); }
   updateProject(input: UpdateProjectInput) { return this.request<WebState>("/api/project", { method: "PUT", body: input }); }
   updateAndRecalculate(input: UpdateProjectInput) { return this.request<WebState>("/api/project/recalculate", { method: "POST", body: input }); }
   renameRouteNode(nodeId: string, name: string) { return this.request<WebState>(`/api/project/route-nodes/${encodeURIComponent(nodeId)}/name`, { method: "PUT", body: { name } }); }
   replaceCheckPoints(checkPoints: CheckPointInput[]) { return this.request<WebState>("/api/project/check-points", { method: "PUT", body: { check_points: checkPoints } }); }
   acknowledge(key: string, checked: boolean) { return this.request<WebState>(`/api/acknowledgements/${encodeURIComponent(key)}`, { method: "PUT", body: { checked } }); }
   saveProject(name: string) { return this.request<WebState>("/api/projects/save", { method: "POST", body: { name } }); }
-  loadProject(projectId: string) { return this.request<WebState>("/api/projects/load", { method: "POST", body: { project_id: projectId } }); }
-  deleteProject(projectId: string) { return this.request<WebState>(`/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" }); }
+  loadProject(projectId: string) { return this.replaceProjectContext("/api/projects/load", { project_id: projectId }); }
+  async deleteProject(projectId: string) {
+    const state = await this.request<WebState>(`/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" });
+    if (!state.project) {
+      this.calculationJob = null;
+      this.calculationSession = undefined;
+    }
+    return state;
+  }
 
 }

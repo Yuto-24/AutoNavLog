@@ -198,6 +198,16 @@ class CalculationJobQueue:
                 progress_message=job.progress_message,
             )
 
+    def active_snapshot(
+        self, *, owner_id: str, session_token: str,
+    ) -> CalculationJobSnapshot | None:
+        with self._lock:
+            for job in self._jobs.values():
+                if (job.owner_id == owner_id and job.session_token == session_token
+                        and job.status not in {"succeeded", "failed"}):
+                    return self.snapshot(job.id, owner_id=owner_id, session_token=session_token)
+        return None
+
     def get(self, job_id: str, *, owner_id: str, session_token: str) -> CalculationJob | None:
         """Return an authorized mutable job for internal compatibility."""
         with self._lock:

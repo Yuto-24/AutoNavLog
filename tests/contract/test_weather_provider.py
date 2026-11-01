@@ -243,3 +243,41 @@ def test_msm_calm_normalization_preserves_source_and_failure(
         assert raw.values['wind_speed_kt'] == speed_kt
     else:
         assert result.values == raw.values
+
+
+def test_weather_stage_timings_are_only_emitted_by_calculation(
+    monkeypatch, tmp_path, caplog,
+):
+    import logging
+
+    from autonavlog.application.calculation_service import CalculationService
+    from autonavlog.weather.prewarm import WeatherPrewarmer
+
+    module = _stub_msm_module()
+    monkeypatch.setitem(sys.modules, "jma_gpv_weather", module)
+    run = module.RunId(datetime(2026, 11, 1, tzinfo=UTC))
+
+    class Client:
+        def resolve_run(self, requirement, selected_run=None):
+            return SimpleNamespace(selected_run=run)
+
+        def prepare_run(self, *args, **kwargs):
+            return SimpleNamespace(query_many=lambda queries: [])
+
+    provider = MsmWeatherProvider(tmp_path, client=Client())
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        WeatherPrewarmer(provider).run_once()
+        assert not [r for r in caplog.records if "calculation_stage=" in r.message]
+        service = CalculationService.__new__(CalculationService)
+        issues = []
+        requirement = ForecastRequirement(
+            valid_times_utc=(datetime(2026, 11, 1, tzinfo=UTC),),
+        )
+        assert service._select_and_prepare_run(
+            SimpleNamespace(selected_forecast_run_id=None), provider, requirement, issues,
+        ) == str(run)
+    assert issues == []
+    events = [r.message for r in caplog.records if "calculation_stage=" in r.message]
+    assert len(events) == 4
+    assert sum("calculation_stage=weather_discovery" in event for event in events) == 2
+    assert sum("calculation_stage=weather_preparation" in event for event in events) == 2

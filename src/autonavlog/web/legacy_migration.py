@@ -6,7 +6,7 @@ import json
 import sqlite3
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from threading import RLock
 from typing import Any, Protocol
@@ -99,6 +99,34 @@ class LegacyMigration:
             row = db.execute("SELECT * FROM links WHERE owner=?", (owner,)).fetchone()
             return dict(row) if row else None
 
+    def read_status(self, owner: str) -> dict[str, Any]:
+        """Read committed state without the operation lock or lease-repair writes."""
+        with closing(sqlite3.connect(
+            f"{self.path.as_uri()}?mode=ro", uri=True, timeout=0.25,
+        )) as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute("SELECT * FROM links WHERE owner=?", (owner,)).fetchone()
+        value = dict(row) if row else None
+        if (value and value["state"] == "MIGRATING"
+                and value["expires"] is not None and value["expires"] < time.time()):
+            # Match _row's effective state without changing the database on a read.
+            value.update(state="LINKED", run=None, error="移行が中断されました。再試行できます。")
+        return self.public(value)
+
+    def check_legacy_access(self, identity: str) -> None:
+        state = self.read_status(owner_storage_key(identity))["state"]
+        self._check_legacy_state(state)
+
+    @staticmethod
+    def _check_legacy_state(state: str) -> None:
+        if state in {"MIGRATING", "NAVMATE_ACTIVE"}:
+            raise WebApplicationError(
+                "LEGACY_" + state,
+                "NavMateへ移行中です。" if state == "MIGRATING"
+                else "NavMateへ移行済みです。NavMateを開いてください。",
+                status_code=423,
+            )
+
     def status(self, owner: str) -> dict[str, Any]:
         with self.lock(owner):
             row = self._row(owner)
@@ -116,17 +144,19 @@ class LegacyMigration:
     @contextmanager
     def legacy_operation(self, identity: str) -> Iterator[None]:
         owner = owner_storage_key(identity)
-        with self.lock(owner):
+        lock = self.lock(owner)
+        if not lock.acquire(blocking=False):
+            raise WebApplicationError(
+                "OPERATION_IN_PROGRESS",
+                "他の処理が実行中のため操作を完了できませんでした。時間をおいて再試行してください。",
+                status_code=409,
+            )
+        try:
             row = self._row(owner)
-            if row and row["state"] in {"MIGRATING", "NAVMATE_ACTIVE"}:
-                raise WebApplicationError(
-                    "LEGACY_" + row["state"],
-                    "NavMateへ移行中です。"
-                    if row["state"] == "MIGRATING"
-                    else "NavMateへ移行済みです。NavMateを開いてください。",
-                    status_code=423,
-                )
+            self._check_legacy_state(row["state"] if row else "UNLINKED")
             yield
+        finally:
+            lock.release()
 
     def link(self, owner_identity: str, identity: GoogleIdentity) -> dict[str, Any]:
         owner = owner_storage_key(owner_identity)

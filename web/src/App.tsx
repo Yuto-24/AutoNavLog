@@ -4,6 +4,7 @@ import { AccountSyncControl } from "./components/AccountSyncControl";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { ApplicationError } from "./application";
+import { preserveArrivalInputs } from "./calculationResult";
 import type { AutoNavLogApplication, UpdateProjectInput } from "./application";
 import { readSession, writeSession, clearSession, RECOVERY_FAILED, emptyCheckPointDraft, projectDraft, restoreProjectDraft } from "./applicationSession";
 import type { ApplicationSession, PendingKmz, NodeNameDraft, VorColumn } from "./applicationSession";
@@ -120,6 +121,8 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   }>({ kind: "idle", message: "入力欄を編集すると自動再計算します。" });
   const [busy, setBusy] = useState(false);
   const [activeOperation, setActiveOperation] = useState<ActiveOperation>(null);
+  const calculationClickInFlight = useRef(false);
+  const draftAutosaveErrorRef = useRef<ApplicationError | null>(null);
   const [calculationProgress, setCalculationProgress] = useState({
     percent: 0,
     message: "計算を開始しています。",
@@ -236,6 +239,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     options: {
       syncCalculationInputs?: boolean;
       syncDerivedArrival?: boolean;
+      preserveArrivalInputs?: boolean;
       freshImport?: boolean;
       preserveRouteViewport?: boolean;
     } = {},
@@ -290,7 +294,9 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         return {
           ...next,
           project: {
-            ...next.project,
+            ...(options.preserveArrivalInputs
+              ? preserveArrivalInputs(next.project, current.project)
+              : next.project),
             sections: current.project.sections.map(
               (section) => derivedArrivalSections?.get(section.id) ?? section,
             ),
@@ -996,6 +1002,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
         try {
           const next = await application.updateProject(request.payload);
           saved = true;
+          draftAutosaveErrorRef.current = null;
           if (request.projectId === projectIdRef.current && next.project) {
             canonicalProjectRef.current = next.project;
             const queued = pendingDraftAutosave();
@@ -1018,12 +1025,14 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
             setDraftAutosaveVersion(0);
             setError((current) => current === DRAFT_AUTOSAVE_FAILURE ? null : current);
           }
-        } catch {
+        } catch (reason) {
           if (
             request.projectId === projectIdRef.current
             && request.generation === draftAutosaveGenerationRef.current
           ) {
-            showDraftAutosaveFailure();
+            draftAutosaveErrorRef.current = reason instanceof ApplicationError && reason.code === "OPERATION_IN_PROGRESS" ? reason : null;
+            if (draftAutosaveErrorRef.current) setError(draftAutosaveErrorRef.current.message);
+            else showDraftAutosaveFailure();
           }
         } finally {
           draftAutosaveRunningRef.current = null;
@@ -1353,21 +1362,39 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
   }, [altitudeInputs, application, form, navLogDrafts, navLogEditVersion, state?.outcome, state?.project]);
 
   const handleCalculate = async () => {
+    if (busy || calculationClickInFlight.current) return;
+    calculationClickInFlight.current = true;
+    const hadUnsavedInputs = draftAutosaveVersion !== 0 || navLogEditPendingRef.current || !calculationInputsAreLocallyCurrent;
     cancelPendingRecalculation();
     invalidateDestinationPatternRequests();
+    const generation = calculationInputGenerationRef.current;
+    let resumed = false;
     scrollToCalculatedNavLogRef.current = null;
     setCalculationProgress({ percent: 0, message: "計算を開始しています。" });
-    const calculated = await run(async () => {
-      const saved = await flushDraftAutosave(true);
-      if (!saved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-      const next = await application.calculate(setCalculationProgress);
-      scrollToCalculatedNavLogRef.current = next.outcome;
-      return next;
-    }, "NAV LOGを計算しました。準備状況と各値を確認してください。", {
-      syncCalculationInputs: true,
-      operation: "calculate",
-    });
-    if (!calculated?.outcome) scrollToCalculatedNavLogRef.current = null;
+    try {
+      const calculated = await runTask(async () => {
+        const existing = await application.resumeCalculation?.(setCalculationProgress);
+        if (existing) {
+          resumed = true;
+          return existing;
+        }
+        const saved = await flushDraftAutosave(true);
+        if (!saved) throw draftAutosaveErrorRef.current ?? new Error(DRAFT_AUTOSAVE_FAILURE);
+        return application.calculate(setCalculationProgress);
+      }, {
+        apply: next => {
+          const sync = generation === calculationInputGenerationRef.current && !(resumed && hadUnsavedInputs);
+          applyState(next, { syncCalculationInputs: sync, preserveArrivalInputs: !sync });
+          if (!sync) setCalculationInputsAreLocallyCurrent(false);
+          scrollToCalculatedNavLogRef.current = next.outcome;
+        },
+        success: "NAV LOGの計算結果を取得しました。準備状況と各値を確認してください。",
+        operation: "calculate",
+      });
+      if (!calculated?.outcome) scrollToCalculatedNavLogRef.current = null;
+    } finally {
+      calculationClickInFlight.current = false;
+    }
   };
 
   const handleSave = async (name: string) => {
@@ -1376,7 +1403,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     const saved = await run(
       async () => {
         const draftSaved = await flushDraftAutosave(true);
-        if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
+        if (!draftSaved) throw draftAutosaveErrorRef.current ?? new Error(DRAFT_AUTOSAVE_FAILURE);
         return application.saveProject(name);
       },
       "プロジェクトを保存しました。",
@@ -1403,7 +1430,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
     const loaded = await run(
       async () => {
         const draftSaved = await flushDraftAutosave(false);
-        if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
+        if (!draftSaved) throw draftAutosaveErrorRef.current ?? new Error(DRAFT_AUTOSAVE_FAILURE);
         return application.loadProject(selectedProjectId);
       },
       undefined,
@@ -1436,7 +1463,7 @@ function App({ application, platform, FileInput }: { application: AutoNavLogAppl
           await discardPendingDraftAutosave();
         } else {
           const draftSaved = await flushDraftAutosave(false);
-          if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
+          if (!draftSaved) throw draftAutosaveErrorRef.current ?? new Error(DRAFT_AUTOSAVE_FAILURE);
         }
         return application.deleteProject(selectedProjectId);
       },

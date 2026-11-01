@@ -3671,7 +3671,7 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   );
   await page.getByRole("button", { name: "NAV LOGを再計算" }).click();
   await manualRecalculation;
-  await expect(page.getByText("NAV LOGを計算しました。準備状況と各値を確認してください。", { exact: true })).toBeVisible();
+  await expect(page.getByText("NAV LOGの計算結果を取得しました。準備状況と各値を確認してください。", { exact: true })).toBeVisible();
   await expect(altitude).toHaveValue("5500");
 
   const windDirection = page.locator(".nav-log-table").getByLabel(/手動風向$/).first();
@@ -4370,7 +4370,7 @@ test("Japanese startup and import errors preserve retry and editable input", asy
   await page.goto("/");
   await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toBeVisible();
   release();
-  await expect(page.getByRole("alert")).toContainText("サーバーに接続できませんでした。再試行してください。");
+  await expect(page.getByRole("alert")).toContainText("サーバーとの通信に失敗しました。再試行してください。");
   await page.getByRole("button", { name: "起動を再試行" }).click();
   await expect(page.getByRole("button", { name: "新規", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "KMLを貼り付け", exact: true }).click();
