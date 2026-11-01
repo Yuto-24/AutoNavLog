@@ -322,21 +322,30 @@ for (const width of [1100, 1440]) {
 
 for (const width of [1100, 1440]) {
   test(`MAP to Planning and NAV LOG: VOR Mode survives reload at ${width}px`, async ({ page }) => {
+    test.setTimeout(240_000);
     await page.setViewportSize({ width, height: 1100 });
     await start(page);
     await revealAirport(page, "RJFM");
     await selectAirport(page, "RJFM");
-    await revealAirport(page, "RJFK");
-    await selectAirport(page, "RJFK");
+    // Match the established valid MAP fixture, including the penultimate arrival VREP.
+    await zoomMapTo(page, 7);
+    await pick(page, 32.115635, 130.337678);
+    await pick(page, 32.893463, 130.536873);
+    await pick(page, 33.029605, 130.444088);
+    await selectAirport(page, "RJFS");
     await page.getByRole("button", { name: "経路を確定", exact: true }).click();
     const vor = page.getByRole("checkbox", { name: "VOR Mode", exact: true });
     await expect(vor).not.toBeChecked();
-    await vor.check();
+    await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
     await page.getByLabel("気象モード").selectOption("FTD");
+    for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
+      await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude!);
+    }
+    await vor.check();
     await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
     await expect(page.locator(".nav-log-table")).toBeVisible();
     await expect(page.locator(".nav-log-table")).toContainText("MZE");
-    await expect(page.getByLabel("TO", { exact: true })).toHaveValue(/^RJFK/);
+    await expect(page.getByLabel("TO", { exact: true })).toHaveValue(/^RJFS/);
     const input = (await page.locator(".input-rail").boundingBox())!;
     const route = (await page.locator(".route-workspace").boundingBox())!;
     const readiness = (await page.locator(".status-rail").boundingBox())!;
@@ -349,6 +358,14 @@ for (const width of [1100, 1440]) {
     }
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
+    const projectId = await page.getByLabel("保存済み", { exact: true }).inputValue();
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await page.getByLabel("保存済み", { exact: true }).selectOption(projectId);
+    await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
+    await expect(vor).toBeChecked();
+    await expect(page.locator(".nav-log-table")).toContainText("MZE");
     await page.reload();
     await expect(vor).toBeChecked({ timeout: 120_000 });
     await expect(page.locator(".nav-log-table")).toContainText("MZE");
