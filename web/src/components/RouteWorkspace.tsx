@@ -1261,11 +1261,6 @@ export function RouteWorkspace({
           </tbody>
         </table>
       </div>
-      {project && (
-        <p className="altitude-guidance-note">
-          {altitudeGuidance.terrainLimitationNote}
-        </p>
-      )}
     </section>
   );
 }

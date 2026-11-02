@@ -41,6 +41,7 @@ async function assertIntervalRows(page: Page) {
         phase: cell(".route-phase-primary"), input: cell(".table-number-input"),
         candidate: cell(".altitude-candidate-select"), detail: cell(".altitude-course"),
         fixed: cell(".fixed-altitude-control"), descent: cell(".descent-rate-result"),
+        containerWidth: element.closest(".route-table-scroll")!.clientWidth,
       };
     });
     expect(geometry.previousId).toBe(geometry.fromId);
@@ -58,8 +59,13 @@ async function assertIntervalRows(page: Page) {
       }
     }
     if (geometry.input && geometry.candidate) {
-      expect(Math.abs(geometry.input.center - geometry.candidate.center)).toBeLessThanOrEqual(1);
-      expect(geometry.candidate.right).toBeLessThanOrEqual(geometry.input.x);
+      if (geometry.containerWidth <= 460) {
+        expect(geometry.input.y).toBeGreaterThanOrEqual(geometry.candidate.bottom);
+        expect(Math.abs(geometry.input.x - geometry.candidate.x)).toBeLessThanOrEqual(1);
+      } else {
+        expect(Math.abs(geometry.input.center - geometry.candidate.center)).toBeLessThanOrEqual(1);
+        expect(geometry.candidate.right).toBeLessThanOrEqual(geometry.input.x);
+      }
     }
     if (geometry.detail && geometry.input) expect(geometry.detail.y).toBeGreaterThanOrEqual(geometry.input.bottom);
     if (geometry.descent) expect(geometry.descent.y).toBeGreaterThanOrEqual(geometry.phase!.bottom);
@@ -116,6 +122,77 @@ async function selectFirstCandidate(row: Locator) {
   expect(value).not.toBeNull();
   await select.selectOption(value!);
   await expect(row.locator(".table-number-input")).toHaveValue(value!);
+}
+
+async function assertFitsContainer(page: Page) {
+  const layout = await page.locator(".route-table-scroll").evaluate(container => ({
+    client: container.clientWidth,
+    scroll: container.scrollWidth,
+    cells: [...container.querySelectorAll("th, td")].map(cell => ({ client: cell.clientWidth, scroll: cell.scrollWidth })),
+    controls: [...container.querySelectorAll("input, select, button, .fixed-altitude-control, .arrival-altitude-control")].map(control => {
+      const box = control.getBoundingClientRect();
+      const cell = control.closest("th, td")!.getBoundingClientRect();
+      return { left: box.left, right: box.right, cellLeft: cell.left, cellRight: cell.right };
+    }),
+  }));
+  expect(layout.scroll).toBeLessThanOrEqual(layout.client + 1);
+  for (const cell of layout.cells) expect(cell.scroll).toBeLessThanOrEqual(cell.client + 1);
+  for (const control of layout.controls) {
+    expect(control.left).toBeGreaterThanOrEqual(control.cellLeft);
+    expect(control.right).toBeLessThanOrEqual(control.cellRight + 1);
+  }
+}
+
+for (const containerWidth of [600, 390]) {
+  test(`inbound table fits an actual ${containerWidth}px container during edits`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1100, height: 1000 });
+    await importRoute(page, "altitude_inbound_compact.kml");
+    await page.getByRole("button", { name: "メッセージを閉じる" }).click();
+    await page.locator(".route-table-scroll").evaluate((element, width) => { element.style.width = `${width}px`; }, containerWidth);
+    await expect(page.getByText("本アプリは地表高を判定しないため、候補外の値は違法判定ではなく要確認表示です。", { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("OMARU出発Legの固定高度")).toContainText("4,500 ft 固定");
+    await expect(page.getByLabel("有田出発Legの計画高度", { exact: true })).toHaveValue("1500");
+    await expect(page.locator(".arrival-airport-reference")).toContainText("19 ft MSL");
+    await expect(page.getByLabel("今回採用する場周経路高度", { exact: true })).toHaveValue("1000");
+    await assertFitsContainer(page);
+    await assertIntervalRows(page);
+    await page.locator(".route-table-scroll").screenshot({ path: testInfo.outputPath(`inbound-container-${containerWidth}.png`) });
+
+    const row = page.locator(".route-leg-row").filter({ has: page.locator(".altitude-candidate-select") }).first();
+    const others = page.locator(".route-leg-row .table-number-input");
+    const before = await others.evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value));
+    for (const value of ["3000", "", "4400"]) {
+      await row.locator(".table-number-input").fill(value);
+      await expect(row.locator(".table-number-input")).toHaveValue(value);
+      await assertFitsContainer(page);
+      await assertIntervalRows(page);
+    }
+    await expect(row.locator(".altitude-course")).toContainText("候補外（警告）");
+    expect((await others.evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value))).slice(1)).toEqual(before.slice(1));
+    const point = page.locator(".route-point-row").filter({ has: page.locator(".route-name-edit, .route-name-editor") }).first();
+    await point.locator(".route-name-edit").click();
+    await point.locator(".route-name-editor input").fill(" ");
+    await point.locator(".route-name-save").click();
+    await expect(point.locator(".field-error")).toBeVisible();
+    await assertFitsContainer(page);
+    await assertIntervalRows(page);
+    await point.locator(".route-name-editor input").fill("長い経路点名称を折り返して区間高度の位置を確認する地点");
+    await point.locator(".route-name-save").click();
+    await expect(point.locator(".route-name-editor")).toHaveCount(0);
+    await assertFitsContainer(page);
+    await assertIntervalRows(page);
+    await page.getByLabel("今回採用する場周経路高度", { exact: true }).fill("50");
+    await expect(page.locator(".arrival-altitude-help.field-error")).toBeVisible();
+    await page.locator(".phase-edit-toggle").click();
+    await assertFitsContainer(page);
+    await assertIntervalRows(page);
+    await page.locator(".route-table-scroll").screenshot({ path: testInfo.outputPath(`inbound-container-${containerWidth}-warnings.png`) });
+    await selectFirstCandidate(row);
+    await expect(row).not.toHaveClass(/altitude-warning-row/);
+    await page.getByLabel("今回採用する場周経路高度", { exact: true }).fill("1000");
+    await assertFitsContainer(page);
+    await assertIntervalRows(page);
+  });
 }
 
 test("inbound route has compact spacing and staggered POINT versus leg separators", async ({ page }, testInfo) => {

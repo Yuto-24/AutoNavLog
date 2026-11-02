@@ -56,13 +56,17 @@ decorative cards. Shadows are reserved for temporary overlays.
 - Desktop map-height separator with pointer and keyboard operation.
 - Editable route/leg table with separate POINT and outgoing-leg rows. Each leg's
   ALT and PHASE controls sit after its FROM point and before its TO point. ALT
-  candidates and numeric input remain side by side; magnetic-course guidance and
+  candidates and numeric input remain side by side in wider tables and stack
+  within their leg when the table container is 460px or narrower; magnetic-course guidance and
   descent results stay below their primary controls. Natural table flow reserves
   room for wrapped point names and helper text without fixed offsets or overlays.
   Compact rows do not reserve an empty copy of the helper-text height above ALT.
   Horizontal separators are staggered by column: POINT divides adjacent legs in
   the ALT/PHASE columns, and the middle of each leg divides the POINT column.
   No full-width rule groups an outgoing leg with its FROM point.
+  Container queries allocate POINT/ALT/PHASE widths below 700px, avoiding a
+  minimum table width or clipped PHASE column when desktop panels narrow the table.
+  Names, edit controls and arrival details wrap without reducing their font sizes.
   Fixed leg altitudes use the same interval placement. Arrival airport elevation
   and the adopted pattern altitude remain on the destination POINT row.
   `web/e2e/altitude-layout.spec.ts` checks endpoint mapping, full control bounds,
