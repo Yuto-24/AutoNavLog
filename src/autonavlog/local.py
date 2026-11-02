@@ -140,6 +140,7 @@ class LocalApplication:
 
     def weather_plan(
         self, catalog_json: str, calculation: dict[str, Any] | None = None,
+        fallback_reason: str | None = None, retained_run: str | None = None,
     ) -> str:
         """Adapter preflight, called by the Worker before synchronous calculation."""
         assert self.local_weather is not None and self.session.project is not None
@@ -154,6 +155,7 @@ class LocalApplication:
             )
             return self.local_weather.plan(
                 project, requirement, catalog_json,
+                fallback_reason=fallback_reason, retained_run=retained_run,
                 refresh_forecast=self.app.forecast_refresh_requested(
                     self.session, project, rounding_mode=rounding_mode
                 ),

@@ -891,6 +891,13 @@ class CalculationService:
             if initial_time_utc is not None:
                 metadata["initial_time_utc"] = initial_time_utc.isoformat().replace("+00:00", "Z")
             self.last_forecast_metadata = metadata
+            if metadata.get("delivery_warning"):
+                issues.append(Issue(
+                    code="WEATHER_DELIVERY_FALLBACK",
+                    severity=IssueSeverity.WARNING,
+                    message=metadata["delivery_warning"],
+                    metadata=dict(metadata["weather_delivery"]),
+                ))
             return selected_run_id
         except Exception as error:
             issues.append(self._blocker("FORECAST_PREPARE_FAILED", str(error)))

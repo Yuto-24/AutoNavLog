@@ -68,15 +68,20 @@ function weatherResult<T>(json: string): T {
 
 async function acquireWeather(pyodide: Awaited<ReturnType<typeof initialize>>) {
   if (!pyodide.runPython("local_application.requires_weather()")) return;
-  const asset = await weather.catalog(catalog => {
+  await weather.acquire((catalog, reason, retainedRun) => {
     pyodide.globals.set("weather_catalog", catalog);
+    pyodide.globals.set("weather_fallback_reason", reason ?? null);
+    pyodide.globals.set("weather_retained_run", retainedRun ?? null);
     try {
       return weatherResult<PreparedAsset>(pyodide.runPython(
-        "local_application.weather_plan(weather_catalog, json.loads(local_body_json))",
+        "local_application.weather_plan(weather_catalog, json.loads(local_body_json), weather_fallback_reason, weather_retained_run)",
       ) as string);
-    } finally { pyodide.globals.delete("weather_catalog"); }
-  });
-  await weather.prepared(asset, bytes => {
+    } finally {
+      pyodide.globals.delete("weather_catalog");
+      pyodide.globals.delete("weather_fallback_reason");
+      pyodide.globals.delete("weather_retained_run");
+    }
+  }, (bytes, asset) => {
     pyodide.globals.set("weather_bytes", bytes);
     pyodide.globals.set("weather_sha256", asset.sha256);
     try {

@@ -25,11 +25,26 @@ from jma_gpv_weather.errors import (
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from autonavlog.domain.enums import Availability
 from autonavlog.domain.project import Project
 from autonavlog.domain.weather import ForecastRequirement
 from autonavlog.weather.msm_adapter import MsmWeatherProvider
 
 CATALOG_CLOCK_SKEW = timedelta(minutes=5)
+ACQUISITION_FAILURES = frozenset({
+    "WEATHER_COMMUNICATION_FAILED", "WEATHER_DISCOVERY_FAILED",
+    "WEATHER_SOURCE_UNAVAILABLE", "WEATHER_DOWNLOAD_FAILED",
+})
+# Final UI wording supplied by Gemini through agy.
+EXPIRED_MESSAGE = (
+    "MSM配信情報の有効期限が切れているため最新予報へ更新できませんでした。"
+    "飛行時間帯をカバーする検証済みの過去予報で計算しています。"
+    "最新の気象情報は別途確認してください。"
+)
+OFFLINE_MESSAGE = (
+    "MSM配信元へ接続できないため、端末内に保持されていた飛行時間帯をカバーする"
+    "検証済みの過去予報で計算しています。最新の気象情報は別途確認してください。"
+)
 
 
 class LocalWeatherError(RuntimeError):
@@ -90,12 +105,26 @@ class LocalMsmClient(MsmClient):  # type: ignore[misc]
         super().__init__()
         self.catalog: WeatherCatalog | None = None
         self.data: MsmPreparedData | None = None
+        self.available_asset_runs: set[str] | None = None
+        self.delivery: dict[str, Any] = {}
 
     def discover_runs(self, requirements: ForecastRequirements, **kwargs: Any) -> Any:
         if self.catalog is None:
             raise LocalWeatherError("WEATHER_DISCOVERY_FAILED", "MSM配信情報がありません。")
         try:
-            return super().discover_runs(requirements, listings=self.catalog.listings)
+            runs = super().discover_runs(requirements, listings=self.catalog.listings)
+            if self.available_asset_runs is not None:
+                runs = tuple(
+                    run for run in runs
+                    if str(RunId(run.run_utc)) in self.available_asset_runs
+                )
+                if not runs:
+                    raise LocalWeatherError(
+                        "WEATHER_PREPARED_UNAVAILABLE", "選択したMSM Runの配信データがありません。"
+                    )
+            return runs
+        except LocalWeatherError:
+            raise
         except NoCompatibleRunError as error:
             # A successful listing with no files is not an offline model exclusion.
             raise LocalWeatherError(
@@ -153,10 +182,55 @@ class LocalMsmClient(MsmClient):  # type: ignore[misc]
             ) from error
 
 
+class LocalMsmProvider(MsmWeatherProvider):
+    def inspect_run_status(self, selected_run_id: str, requirement: ForecastRequirement) -> Any:
+        status = super().inspect_run_status(selected_run_id, requirement)
+        if self.client.data is not None:
+            # The application calls this again after weather-dependent iteration.
+            # Validate actual prepared times/variables, not just the listing horizon.
+            self.client.prepare_run(self._run_id(selected_run_id), self._requirement(requirement))
+        return status
+
+    def prepare_run(self, forecast_run_id: str, requirement: ForecastRequirement) -> Any:
+        prepared = super().prepare_run(forecast_run_id, requirement)
+        delivery = dict(self.client.delivery)
+        if delivery:
+            delivery["selected_run"] = forecast_run_id
+            initial = self._run_id(forecast_run_id).initial_time_utc
+            delivery["forecast_initial_time_utc"] = initial.isoformat()
+            delivery["forecast_age_seconds"] = max(
+                0, (datetime.now(UTC) - initial).total_seconds()
+            )
+            prepared.metadata["weather_delivery"] = delivery
+            if delivery["fallback_reason"] is not None:
+                message = (
+                    OFFLINE_MESSAGE if delivery["source"] == "retained_pair"
+                    else EXPIRED_MESSAGE
+                )
+                hours = delivery["forecast_age_seconds"] / 3600
+                prepared.metadata["delivery_warning"] = (
+                    f'{message} 予報初期時刻 (Forecast Run): {initial.isoformat()}。'
+                    f' 初期時刻から{hours:.1f}時間経過。'
+                    f' 配信情報生成時刻: {delivery["catalog_generated_at"]}。'
+                    f' 配信情報有効期限: {delivery["catalog_expires_at"]}。'
+                )
+        return prepared
+
+    def query_batch(self, forecast_run_id: str, requests: Any) -> Any:
+        results = super().query_batch(forecast_run_id, requests)
+        if self.client.delivery.get("fallback_reason"):
+            # Manual overrides must not make an incomplete fallback appear valid.
+            if any(result.availability != Availability.AVAILABLE for result in results):
+                raise LocalWeatherError(
+                    "WEATHER_PREPARED_UNAVAILABLE", "選択したMSM Runの配信データがありません。"
+                )
+        return results
+
+
 class LocalMsmWeather:
     def __init__(self) -> None:
         self.client = LocalMsmClient()
-        self.provider = MsmWeatherProvider("unused-browser-cache", client=self.client)
+        self.provider = LocalMsmProvider("unused-browser-cache", client=self.client)
         self._planned: tuple[RunId, ForecastRequirements] | None = None
 
     def plan(
@@ -166,10 +240,14 @@ class LocalMsmWeather:
         catalog_json: str,
         *,
         refresh_forecast: bool = False,
+        fallback_reason: str | None = None,
+        retained_run: str | None = None,
     ) -> str:
-        # Never retain arrays from an earlier calculation as an acquisition fallback.
+        # Every attempt must validate the catalog/payload pair again.
         self.client.data = None
         self.client.catalog = None
+        self.client.available_asset_runs = None
+        self.client.delivery = {}
         self._planned = None
         self.provider._prepared.clear()
         try:
@@ -179,13 +257,33 @@ class LocalMsmWeather:
                 "WEATHER_CATALOG_INVALID", "MSM配信情報が破損しています。"
             ) from error
         now = datetime.now(UTC)
-        # Producer and device clocks differ. Tolerate a slightly future generation
-        # timestamp, but never extend the catalog's absolute expiry.
-        if catalog.expires_at <= now or catalog.generated_at > now + CATALOG_CLOCK_SKEW:
+        if fallback_reason is not None and fallback_reason not in ACQUISITION_FAILURES:
+            raise LocalWeatherError("WEATHER_PROCESSING_FAILED", "MSMの端末内処理に失敗しました。")
+        if (fallback_reason is None) != (retained_run is None):
+            raise LocalWeatherError("WEATHER_CATALOG_INVALID", "MSM配信情報が破損しています。")
+        # Expiry is delivery freshness; future generation remains a clock anomaly.
+        if catalog.generated_at > now + CATALOG_CLOCK_SKEW:
             raise LocalWeatherError(
                 "WEATHER_CATALOG_EXPIRED", "MSM配信情報の有効期限を確認してください。"
             )
         self.client.catalog = catalog
+        expired = catalog.expires_at <= now
+        reason = fallback_reason or ("WEATHER_CATALOG_EXPIRED" if expired else None)
+        self.client.delivery = {
+            "source": "retained_pair" if retained_run else "public_feed",
+            "fallback_reason": reason,
+            "catalog_generated_at": catalog.generated_at.isoformat(),
+            "catalog_expires_at": catalog.expires_at.isoformat(),
+            "catalog_expired": expired,
+            "validated_at": now.isoformat(),
+            "requested_fixed_run": project.selected_forecast_run_id,
+            "refresh_requested": refresh_forecast,
+        }
+        if reason is not None:
+            self.client.available_asset_runs = {
+                asset.run for asset in catalog.assets
+                if retained_run is None or asset.run == retained_run
+            }
         native = self.provider._requirement(requirement)
         selected = (
             self.provider._run_id(project.selected_forecast_run_id)
@@ -221,5 +319,9 @@ class LocalMsmWeather:
             if self._planned is None:
                 raise LocalWeatherError("WEATHER_PROCESSING_FAILED", "MSM取得計画がありません。")
             self.client.prepare_run(*self._planned)
+        except LocalWeatherError:
+            self.client.data = None
+            raise
         except CacheIntegrityError as error:
+            self.client.data = None
             raise LocalWeatherError("WEATHER_PAYLOAD_INTEGRITY_FAILED", str(error)) from error
