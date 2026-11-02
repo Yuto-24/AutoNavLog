@@ -261,7 +261,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     } = {},
   ) => {
     setPreserveRouteViewport(Boolean(options.preserveRouteViewport));
-    if (!options.preserveMapDraft && (next.project?.id !== editingRouteProjectIdRef.current || options.freshImport)) {
+    if (!options.preserveMapDraft && ((next.project?.id ?? null) !== editingRouteProjectIdRef.current || options.freshImport)) {
       setPendingImportDraft(false);
       setMapRouteDraft([]);
       setEditingRouteProjectId(null);
@@ -327,7 +327,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       let updated = current;
       if (!current.departureAirportId && next.airports.length) {
         const seeded = initialPlanningForm(next.airports);
-        updated = { ...current, ...seeded };
+        updated = { ...current, ...seeded, candidateKey: current.candidateKey };
       }
       if (next.project && syncCalculationInputs) {
         updated = formFromProject(next.project, updated, next.airports);
@@ -1726,7 +1726,12 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
             await application.newWork();
             if (!active()) return;
             const blank = await application.bootstrap();
-            if (active()) applyState(blank, { syncCalculationInputs: true });
+            if (active()) {
+              setMapRouteDraft([]);
+              setPendingImportDraft(false);
+              setEditingRouteProjectId(null);
+              applyState(blank, { syncCalculationInputs: true });
+            }
           }
         });
       }} />

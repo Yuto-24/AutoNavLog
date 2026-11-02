@@ -374,3 +374,70 @@ test("confirmed route extension relocates arrival phases and preserves retained 
   }
   expect(after.last_calculation).toEqual(before.last_calculation);
 });
+
+
+for (const draftKind of ["map", "import", "unmatched import", "multiple unmatched import"] as const) {
+  test(`deleting another saved Project preserves the new ${draftKind} Draft`, async ({ page }) => {
+    await confirmed(page);
+    await page.getByLabel("プロジェクト", { exact: true }).fill("Saved route");
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
+    const savedId = (await snapshot(page)).working.project.id;
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    if (draftKind === "map") {
+      await selectAirport(page, "RJFM");
+      await selectAirport(page, "RJFO");
+    } else if (draftKind === "import") {
+      await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+      await expectImportedDraft(page);
+    } else {
+      await page.locator('input[type="file"]').setInputFiles({
+        name: "unmatched.kml", mimeType: "application/vnd.google-earth.kml+xml",
+        buffer: Buffer.from('<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><LineString><coordinates>140,40,0 131.2,32,0 130.7194,31.8034,0</coordinates></LineString></Placemark>'
+          + (draftKind === "multiple unmatched import" ? '<Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>131.4486,31.8772,0 131.2,32,0 130.7194,31.8034,0 131.4486,31.8772,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>' : '')
+          + '</Document></kml>'),
+      });
+      if (draftKind === "multiple unmatched import") {
+        const choice = page.getByRole("dialog", { name: "経路選択", exact: true });
+        await choice.getByRole("combobox").selectOption("line:0");
+        await choice.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
+        await expect(choice).toBeHidden();
+      }
+      await expect(page.getByRole("alert")).toContainText("KML始点から5 NM以内");
+    }
+    const strip = page.getByRole("list", { name: "経路リスト" });
+    await expect(strip).toBeVisible();
+    const points = await strip.locator("li").allTextContents();
+    const before = await snapshot(page);
+    expect(before.working.project).toBeNull();
+    if (draftKind.includes("unmatched")) {
+      expect(before.pendingImportDraft).toBe(true);
+      await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeDisabled();
+    }
+    await page.getByLabel("保存済み", { exact: true }).selectOption(savedId);
+    const confirmations: string[] = [];
+    page.on("dialog", dialog => { confirmations.push(dialog.message()); void dialog.accept(); });
+    await page.getByRole("button", { name: "保存済みプロジェクトを削除", exact: true }).click();
+    await expect(page.getByLabel("保存済み", { exact: true }).locator(`option[value="${savedId}"]`)).toHaveCount(0);
+    expect(confirmations).toHaveLength(1);
+    expect(confirmations[0]).toContain("保存済みプロジェクト");
+    await expect(page.getByRole("dialog", { name: "経路選択", exact: true })).toHaveCount(0);
+    await expect(strip.locator("li")).toHaveText(points);
+    expect((await snapshot(page)).form.candidateKey).toBe(before.form.candidateKey);
+    for (const field of ["mapRouteDraft", "pendingImportDraft", "selectedImportCandidate", "editingRouteProjectId"]) {
+      expect((await snapshot(page))[field]).toEqual(before[field]);
+    }
+    await page.reload();
+    await expect(strip.locator("li")).toHaveText(points);
+    expect((await snapshot(page)).working.project).toBeNull();
+    expect((await snapshot(page)).mapRouteDraft).toEqual(before.mapRouteDraft);
+    expect((await snapshot(page)).pendingImportDraft).toEqual(before.pendingImportDraft);
+    expect((await snapshot(page)).form.candidateKey).toBe(before.form.candidateKey);
+    await expect(page.getByRole("dialog", { name: "経路選択", exact: true })).toHaveCount(0);
+    if (draftKind.includes("unmatched")) {
+      await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeDisabled();
+    }
+  });
+}
