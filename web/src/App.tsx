@@ -17,6 +17,7 @@ import { exportNavLog } from "./navLogExport";
 import {
   candidateFromKey,
   departureAirportForCandidate,
+  departureOriginForAirport,
   destinationAirportForCandidate,
   formFromProject,
   ftdWeatherSettings,
@@ -327,7 +328,12 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       let updated = current;
       if (!current.departureAirportId && next.airports.length) {
         const seeded = initialPlanningForm(next.airports);
-        updated = { ...current, ...seeded, candidateKey: current.candidateKey };
+        updated = {
+          ...current, ...seeded,
+          candidateKey: current.candidateKey,
+          departureOrigin: current.departureOriginExplicit ? current.departureOrigin : seeded.departureOrigin,
+          departureOriginExplicit: current.departureOriginExplicit,
+        };
       }
       if (next.project && syncCalculationInputs) {
         updated = formFromProject(next.project, updated, next.airports);
@@ -514,6 +520,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       return {
         ...current,
         departureAirportId,
+        departureOrigin: departureOriginForAirport(current, departureAirportId),
         destinationAirportId,
         destinationPatternAltitudeFtMsl,
         variationDegEast: departure
@@ -757,7 +764,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     const defaults = initialPlanningForm(state.airports);
     const from = state.airports.find(airport => airport.id === points[0]?.airport_id);
     const confirmed = await run(() => application.confirmRoute({
-      departure_origin: form.departureOrigin,
+      departure_origin: departureOriginForAirport(form, from?.id ?? ""),
       edit_project_id: editingRouteProjectId ?? undefined,
       candidate_kind: "map", map_points: points.map(({ id: _id, ...point }) => point),
       route_use_confirmed: true, use_penultimate_as_vrep: true,

@@ -79,6 +79,10 @@ export function decodeSession(raw: string): ApplicationSession {
   if (record(value) && record(value.form) && !("departureOrigin" in value.form)) {
     value.form.departureOrigin = "AIRPORT";
   }
+  // Older sessions already contain a working choice; never replace it with a new default.
+  if (record(value) && record(value.form) && !("departureOriginExplicit" in value.form)) {
+    value.form.departureOriginExplicit = true;
+  }
   if (!record(value) || value.version !== 1 || !record(value.working) ||
       value.working.version !== 1 || !record(value.form) ||
       !Object.entries(initialPlanningForm()).every(([key, seed]) => typeof (value.form as Record<string, unknown>)[key] === typeof seed) ||
