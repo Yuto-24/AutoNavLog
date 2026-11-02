@@ -1,21 +1,36 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 
 async function importRoute(page: Page, fixture: string) {
   await page.goto("/");
+  await enterImportWorkflow(page);
   await page.locator('input[type="file"]').setInputFiles(fileURLToPath(new URL(`../../tests/fixtures/${fixture}`, import.meta.url)));
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
-  await expect(page.locator('input[type="file"]')).toBeEnabled();
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地上風向 ° FROM").fill("360");
   await page.getByLabel("地上風速 kt").fill("15");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
-  await expect(page.getByLabel("飛行経路候補")).not.toHaveValue("");
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
   await expect(page.locator(".route-table .destination-row")).toBeVisible();
+}
+
+async function importInboundRoute(page: Page) {
+  await importRoute(page, "altitude_inbound_compact.kml");
+  // Main generates WP names and defaults RJFO to VOR Tracking. Recreate the
+  // accepted airport-origin route through its existing planning controls.
+  await expect(page.getByRole("checkbox", { name: "VOR Tracking Mode", exact: true })).toBeChecked();
+  await page.getByRole("checkbox", { name: "VOR Tracking Mode", exact: true }).uncheck();
+  await expect(page.locator(".route-point-content strong").first()).toHaveText("RJFO");
+  for (const [index, name] of [[1, "鶴御崎"], [4, "有田"]] as const) {
+    const point = page.locator(".route-point-row").nth(index);
+    await point.locator(".route-name-edit").click();
+    await point.locator(".route-name-editor input").fill(name);
+    await point.locator(".route-name-save").click();
+    await expect(point.locator("strong")).toHaveText(name);
+  }
 }
 
 async function assertIntervalRows(page: Page) {
@@ -146,7 +161,7 @@ async function assertFitsContainer(page: Page) {
 for (const containerWidth of [600, 390]) {
   test(`inbound table fits an actual ${containerWidth}px container during edits`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1100, height: 1000 });
-    await importRoute(page, "altitude_inbound_compact.kml");
+    await importInboundRoute(page);
     await page.getByRole("button", { name: "メッセージを閉じる" }).click();
     await page.locator(".route-table-scroll").evaluate((element, width) => { element.style.width = `${width}px`; }, containerWidth);
     await expect(page.getByText("本アプリは地表高を判定しないため、候補外の値は違法判定ではなく要確認表示です。", { exact: true })).toHaveCount(0);
@@ -197,7 +212,7 @@ for (const containerWidth of [600, 390]) {
 
 test("inbound route has compact spacing and staggered POINT versus leg separators", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 772, height: 1000 });
-  await importRoute(page, "altitude_inbound_compact.kml");
+  await importInboundRoute(page);
   await page.getByRole("button", { name: "メッセージを閉じる" }).click();
   await expect(page.locator(".route-point-content strong")).toHaveText(["RJFO", "鶴御崎", "OMARU", "UMK", "有田", "RJFM"]);
   await expect(page.getByLabel("OMARU出発Legの固定高度")).toContainText("4,500 ft 固定");
@@ -239,6 +254,30 @@ test("inbound route has compact spacing and staggered POINT versus leg separator
     }
   }
   await page.locator(".route-table").screenshot({ path: testInfo.outputPath("inbound-compact-staggered-borders.png") });
+});
+
+test("route editing hides ALT controls and cancelling preserves the planning intervals", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 1000 });
+  await importInboundRoute(page);
+  await page.getByLabel("RJFO出発Legの計画高度", { exact: true }).fill("4400");
+  await page.locator(".phase-edit-toggle").click();
+  await expect(page.locator(".phase-edit-note")).toBeVisible();
+  const before = await page.locator(".route-leg-row .table-number-input")
+    .evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value));
+  await page.getByRole("button", { name: "経路を編集", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+  await expect(page.locator(".route-table-scroll")).toHaveCount(0);
+  await expect(page.locator(".phase-edit-note")).toHaveCount(0);
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await expect(page.locator(".route-table .destination-row")).toBeVisible();
+  await expect(page.locator(".route-point-content strong"))
+    .toHaveText(["RJFO", "鶴御崎", "OMARU", "UMK", "有田", "RJFM"]);
+  expect(await page.locator(".route-leg-row .table-number-input")
+    .evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value))).toEqual(before);
+  await expect(page.getByRole("checkbox", { name: "VOR Tracking Mode", exact: true })).not.toBeChecked();
+  await expect(page.getByLabel("OMARU出発Legの固定高度")).toContainText("4,500 ft 固定");
+  await assertIntervalRows(page);
 });
 
 for (const width of [390, 1100, 1440]) {
@@ -284,7 +323,7 @@ for (const width of [390, 1100, 1440]) {
     await editablePoint.locator(".route-name-save").click();
     await expect(editablePoint.locator("strong")).toHaveText(originalName);
 
-    for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+    for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
       await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude);
     }
     await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();

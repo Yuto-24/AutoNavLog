@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 
 test("production artifact shows storage limits and uses no Service Worker", async ({ page, context }) => {
   const api: string[] = [];
@@ -9,7 +9,7 @@ test("production artifact shows storage limits and uses no Service Worker", asyn
   await context.route("**/api/**", route => route.abort());
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await page.getByRole("button", { name: /^お知らせ/ }).click();
   await expect(page.getByText(/容量不足による自動削除/)).toBeVisible();
   expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)).toBe(0);
@@ -20,7 +20,8 @@ test("production artifact rejects a different build manifest and recovers on rel
   await context.route("**/api/**", route => { throw new Error("Unexpected Legacy request: " + route.request().url()); });
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await page.locator('input[type="file"]').setInputFiles("../tests/fixtures/issue_43_golden.kml");
+  await confirmImportedDraft(page);
   await page.getByLabel("FUEL gal", { exact: true }).fill("76");
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem("autonavlog.working-session.v1"))).toContain("76");
   await context.route("**/local/manifest.json", async route => {
@@ -49,15 +50,14 @@ test("production artifact calculates with its served real MSM feed and retains N
     route => route.fulfill({ status: 503, body: "quota fixture" }));
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles("../tests/fixtures/issue_43_golden.kml");
+  await confirmImportedDraft(page);
   const departure = new Date(Date.now() + 10 * 3600_000).toISOString(); // JST, one hour ahead
   await page.getByLabel("DATE", { exact: true }).fill(departure.slice(0, 10));
   await page.getByLabel("ETD JST", { exact: true }).fill(departure.slice(11, 16));
   await page.getByLabel("気象モード").selectOption("FORECAST");
-  await page.locator('input[type="file"]').setInputFiles("../tests/fixtures/issue_43_golden.kml");
-  await expect(page.locator('input[type="file"]')).toBeEnabled();
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude!);
   }
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();

@@ -15,9 +15,13 @@ and actions remain code-native and accessible.
 
 | Token | Value | Use |
 | --- | ---: | --- |
-| `--color-navy-950` | `#0b1f33` | top bar and primary actions |
-| `--color-navy-800` | `#173b5e` | headings and route line |
-| `--color-teal-700` | `#0c7c78` | selected/VREP/automatic success |
+| `--brand-950` | `#005040` | Header and headings |
+| `--brand-900` | `#006050` | primary actions |
+| `--brand-800` | `#008060` | action hover |
+| `--brand-accent` | `#00745b` | selected controls and focus |
+| `--color-navy-950` | `#0b1f33` | aviation point indices and map tooltip text |
+| `--color-navy-800` | `#173b5e` | route line |
+| `--color-teal-700` | `#0c7c78` | VREP/manual values/automatic success |
 | `--color-amber-700` | `#a8660d` | confirmation items |
 | `--color-red-700` | `#b42318` | blockers and unavailable values |
 | `--color-slate-50` | `#f7f9fb` | utility rails |
@@ -25,6 +29,14 @@ and actions remain code-native and accessible.
 | `--color-white` | `#ffffff` | primary canvas |
 | `--radius-sm` | `6px` | fields and compact controls |
 | `--radius-md` | `10px` | purposeful panels |
+
+The green brand palette is separate from warning, error, aviation-map, VREP,
+and manual-value colors. Selected controls retain checked markers or underlines;
+keyboard focus uses a solid outline, white on the Header and selected segments.
+Custom radio controls use `:focus` for their visible focus treatment: WebKit
+can clear `:focus-visible` after arrow-key selection while retaining DOM focus.
+`map-checkpoint.spec.ts` covers Tab entry and arrow-key selection in both engines.
+The historical fidelity ledger below predates the green theme.
 
 The primary background is true white. There are no gradients, glow effects, or
 decorative cards. Shadows are reserved for temporary overlays.
@@ -202,7 +214,7 @@ image, which was not available in the repository or issue attachments.
   remains reachable.
 - The current bundled RJFM/RJFO reference rows remain `UNVERIFIED`; visual fidelity does not
   override the primary-source release gate.
-- Fake weather remains the local default and prevents a release-ready status by design.
+- New work defaults to FORECAST; saved FTD plans retain their selected weather mode.
 
 ## Provenance disclosure and map credits
 

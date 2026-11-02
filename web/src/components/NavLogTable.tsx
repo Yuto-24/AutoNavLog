@@ -557,9 +557,6 @@ function DestinationWindSummary({
           <code>{forecast.raw_taf}</code>
         </details>
       )}
-      <p>
-        到着区間の計算はCALMです。
-      </p>
     </section>
   );
 }
