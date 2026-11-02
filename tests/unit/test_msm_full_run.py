@@ -19,6 +19,14 @@ RUN = datetime(2026, 10, 31, 0, tzinfo=UTC)
 
 @pytest.fixture
 def full_source(monkeypatch):
+    class FixtureClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            fixed = START.astimezone(tz)
+            return fixed if tz is not None else fixed.replace(tzinfo=None)
+
+    # Discovery must use the same fixed date as feed generation, including future requests.
+    monkeypatch.setattr("jma_gpv_weather.msm.client.datetime", FixtureClock)
     fixture = Path(__file__).parents[1] / "fixtures/msm-portable"
     asset = json.loads((fixture / "catalog.json").read_text())["assets"][0]
     template = MsmPreparedData.from_bytes((fixture / asset["file"]).read_bytes())
