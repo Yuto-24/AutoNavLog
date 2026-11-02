@@ -1059,7 +1059,8 @@ export function RouteWorkspace({
                       data-node-id={node.id}
                     >
                       <td>{pointContent}</td>
-                      <td colSpan={2} />
+                      <td />
+                      <td />
                     </tr>
                   )}
                   <tr

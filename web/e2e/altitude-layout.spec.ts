@@ -118,6 +118,52 @@ async function selectFirstCandidate(row: Locator) {
   await expect(row.locator(".table-number-input")).toHaveValue(value!);
 }
 
+test("inbound route has compact spacing and staggered POINT versus leg separators", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 772, height: 1000 });
+  await importRoute(page, "altitude_inbound_compact.kml");
+  await page.getByRole("button", { name: "メッセージを閉じる" }).click();
+  await expect(page.locator(".route-point-content strong")).toHaveText(["RJFO", "鶴御崎", "OMARU", "UMK", "有田", "RJFM"]);
+  await expect(page.getByLabel("OMARU出発Legの固定高度")).toContainText("4,500 ft 固定");
+  await expect(page.getByLabel("有田出発Legの計画高度", { exact: true })).toHaveValue("1500");
+  await expect(page.locator(".arrival-airport-reference")).toContainText("19 ft MSL");
+  await expect(page.getByLabel("今回採用する場周経路高度", { exact: true })).toHaveValue("1000");
+  await assertIntervalRows(page);
+  const layout = await page.locator(".route-table").evaluate(table => {
+    const points = [...table.querySelectorAll(".route-point-content")].map(point => point.getBoundingClientRect().y);
+    const rows = [...table.querySelectorAll(".route-point-row:not(.destination-row), .route-leg-row")];
+    return {
+      height: table.getBoundingClientRect().height,
+      pointGaps: points.slice(1).map((y, index) => y - points[index]),
+      rows: rows.map(row => ({
+        isPoint: row.classList.contains("route-point-row"),
+        cells: [...row.children].map(cell => {
+          const style = getComputedStyle(cell);
+          const divider = getComputedStyle(cell, "::after");
+          return { bottom: style.borderBottomWidth, divider: divider.content !== "none", dividerWidth: divider.borderTopWidth,
+            dividerTop: Number.parseFloat(divider.top), height: cell.getBoundingClientRect().height };
+        }),
+      })),
+    };
+  });
+  // The rejected layout used ~120px per point interval and ~800px overall.
+  // Bound default density separately from the variable-height editing tests.
+  expect(layout.height).toBeLessThan(670);
+  for (const gap of layout.pointGaps) expect(gap).toBeLessThan(95);
+  for (const row of layout.rows) {
+    expect(row.cells).toHaveLength(3);
+    for (const [index, cell] of row.cells.entries()) {
+      expect(cell.bottom).toBe("0px");
+      const hasDivider = row.isPoint ? index > 0 : index === 0;
+      expect(cell.divider).toBe(hasDivider);
+      if (hasDivider) {
+        expect(cell.dividerWidth).toBe("1px");
+        expect(Math.abs(cell.dividerTop - cell.height / 2)).toBeLessThanOrEqual(1);
+      }
+    }
+  }
+  await page.locator(".route-table").screenshot({ path: testInfo.outputPath("inbound-compact-staggered-borders.png") });
+});
+
 for (const width of [390, 1100, 1440]) {
   test(`altitude controls stay between endpoints with warnings and calculated descent at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 });
