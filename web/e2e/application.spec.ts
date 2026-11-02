@@ -190,6 +190,11 @@ test("session decoding preserves invalid text and rejects incompatible UI shapes
     checkPointDraft: { ...emptyCheckPointDraft(), latitude: "invalid" },
     nodeNameDraft: { id: null, name: "" }, vorColumns: [{ id: 0, stationIdentifier: null }],
   };
+  expect(session.form.weatherMode).toBe("FORECAST");
+  for (const weatherMode of ["FTD", "FORECAST"] as const) {
+    const saved = { ...session, form: { ...session.form, weatherMode } };
+    expect(decodeSession(JSON.stringify(saved)).form.weatherMode).toBe(weatherMode);
+  }
   expect(decodeSession(JSON.stringify(session))).toEqual(session);
   const legacy = structuredClone(session) as typeof session & { form: Record<string, unknown> };
   Reflect.deleteProperty(legacy.form, "departureOrigin");

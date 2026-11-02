@@ -64,6 +64,7 @@ test("Static Local TAF success, quota/timeout/outage and recovery preserve navig
   }
   await page.getByRole("button", { name: "NAV LOGを作る", exact: true }).click();
   await expect(page.getByRole("region", { name: "目的地空港の風予報" })).toContainText("240/18 kt");
+  await expect(page.getByRole("region", { name: "目的地空港の風予報" })).not.toContainText("到着区間の計算はCALMです。");
   const initial = await working(page);
   expect(count).toBe(1);
   await page.getByLabel("プロジェクト", { exact: true }).fill("TAF retained");

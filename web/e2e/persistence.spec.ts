@@ -1,6 +1,6 @@
 import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 import { expect, test, chromium, type Page, type BrowserContext } from "@playwright/test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -35,12 +35,13 @@ async function start(page: Page) {
   await enterImportWorkflow(page);
   await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 }
-async function confirm(page: Page) {
+async function confirm(page: Page, weatherMode: "FORECAST" | "FTD" = "FORECAST") {
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
   await confirmImportedDraft(page);
-  await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
-  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
-  await page.getByLabel("気象モード").selectOption("FTD");
+  await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
+  await page.getByLabel("DATE", { exact: true }).fill(weatherMode === "FORECAST" ? "2026-09-16" : "2026-09-11");
+  await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
+  await page.getByLabel("気象モード").selectOption(weatherMode);
   await expect(page.getByLabel("RJFM出発Legの計画高度", { exact: true })).toBeVisible();
   for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude);
@@ -67,7 +68,21 @@ async function load(page: Page, id: string) {
 function blockApi(context: BrowserContext) {
   return context.route("**/api/**", route => route.abort());
 }
-test.beforeEach(async ({ context }) => { await blockApi(context); });
+async function serveForecast(context: BrowserContext) {
+  const fixture = resolve("../tests/fixtures/msm-portable");
+  const catalog = JSON.parse(readFileSync(resolve(fixture, "catalog.json"), "utf8"));
+  await context.route("**/weather/msm/catalog.json", route => route.fulfill({
+    contentType: "application/json", body: JSON.stringify({ ...catalog,
+      generated_at: new Date(Date.now() - 1000).toISOString(),
+      expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+    }),
+  }));
+  await context.route("**/weather/msm/*.npz", route => route.fulfill({
+    contentType: "application/octet-stream",
+    body: readFileSync(resolve(fixture, new URL(route.request().url()).pathname.split("/").at(-1)!)),
+  }));
+}
+test.beforeEach(async ({ context }) => { await blockApi(context); await serveForecast(context); });
 
 test("browser process restart retains named draft and Last Calculation, opens only explicitly", async ({ baseURL }) => {
   test.setTimeout(180_000);
@@ -80,12 +95,16 @@ test("browser process restart retains named draft and Last Calculation, opens on
   };
   try {
     await observe();
+    await serveForecast(context);
     let page = context.pages()[0]!;
     await start(page); await confirm(page); await calculate(page);
     const initial = (await records(page))[0];
     expect(initial.checkpoint).toBeNull();
     await save(page, "Restart route");
     const saved = (await records(page))[0];
+    expect(saved.draft.weather_mode).toBe("FORECAST");
+    expect(saved.lastCalculation.project.weather_mode).toBe("FORECAST");
+    expect(saved.lastCalculation.outcome.selected_forecast_run_id).toBe("20260915210000");
     expect(saved.draft.revision).toBe(initial.draft.revision + 1);
     expect(Date.parse(saved.draft.updated_at)).toBeGreaterThan(Date.parse(initial.draft.updated_at));
     expect(saved.draft.updated_at).toBe(saved.checkpoint.updated_at);
@@ -97,14 +116,26 @@ test("browser process restart retains named draft and Last Calculation, opens on
     expect(edited.checkpoint.total_usable_fuel_gal).toBe(90);
     expect(edited.draft.revision).toBe(saved.draft.revision);
     expect(edited.lastCalculation).toEqual(saved.lastCalculation);
-    await page.evaluate(async () => {
-      const cache = await caches.open("autonavlog.weather.test");
-      await cache.put("/disposable-weather", new Response("weather"));
-      await caches.delete("autonavlog.weather.test");
+    const weatherCacheUrls = await page.evaluate(async () => {
+      const urls: string[] = [];
+      for (const name of await caches.keys()) {
+        if (!name.startsWith("autonavlog.weather.")) continue;
+        const cache = await caches.open(name);
+        urls.push(...(await cache.keys()).map(request => request.url));
+        await caches.delete(name);
+      }
+      return urls;
     });
+    expect(weatherCacheUrls.some(url => url.endsWith(".npz"))).toBe(true);
+    expect(await page.evaluate(async () => (await caches.keys()).filter(name => name.startsWith("autonavlog.weather.")))).toEqual([]);
     await context.close();
     context = await chromium.launchPersistentContext(profile, { baseURL });
     await observe();
+    const weatherRequests: string[] = [];
+    await context.route("**/weather/msm/**", route => {
+      weatherRequests.push(route.request().url());
+      return route.abort();
+    });
     page = context.pages()[0]!;
     await start(page);
     expect((await working(page)).project).toBeNull();
@@ -126,11 +157,12 @@ test("browser process restart retains named draft and Last Calculation, opens on
     expect((await working(page)).project.id).toBe(saved.id);
     expect((await records(page))[0].draft.total_usable_fuel_gal).toBe(76);
     expect(requests).toEqual([]);
+    expect(weatherRequests).toEqual([]);
   } finally { await context.close(); }
 });
 
 test("Latest replacement, promotion, opening another Project and explicit delete", async ({ page }) => {
-  await start(page); await confirm(page);
+  await start(page); await confirm(page, "FTD");
   const first = (await records(page))[0];
   await save(page, "Named");
   page.on("dialog", dialog => dialog.accept());
@@ -145,7 +177,11 @@ test("Latest replacement, promotion, opening another Project and explicit delete
   const replaced = await records(page);
   expect(replaced).toHaveLength(2);
   expect(replaced.some(row => row.id === oldLatest)).toBe(false);
+  await page.getByLabel("気象モード").selectOption("FORECAST");
   await load(page, first.id);
+  await expect(page.getByLabel("気象モード")).toHaveValue("FTD");
+  await page.reload();
+  await expect(page.getByLabel("気象モード")).toHaveValue("FTD");
   expect((await records(page)).map(row => row.id)).toEqual([first.id]);
   await page.getByRole("button", { name: "保存済みプロジェクトを削除", exact: true }).click();
   await expect.poll(async () => (await records(page)).length).toBe(0);

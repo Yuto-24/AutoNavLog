@@ -1970,9 +1970,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       )}
 
       {activeOperation === "calculate" && (
-        <CalculationProgressOverlay {...calculationProgress}
-          onSignOut={application.auth?.getState().account
-            ? () => { void application.auth!.signOut().catch(() => {}); } : undefined} />
+        <CalculationProgressOverlay {...calculationProgress} />
       )}
 
       <ImportCandidateDialog open={importSelectionOpen} candidates={state.import.candidates}

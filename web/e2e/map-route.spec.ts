@@ -155,6 +155,7 @@ for (const width of [1100, 1440]) {
     if (width <= 1240) { expect(input.y + input.height).toBeLessThanOrEqual(route.y + 2); expect(route.y + route.height).toBeLessThanOrEqual(readiness.y + 2); }
     else { expect(input.x + input.width).toBeLessThanOrEqual(route.x + 2); expect(route.x + route.width).toBeLessThanOrEqual(readiness.x + 2); }
     await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+    await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
     await page.getByLabel("気象モード").selectOption("FTD");
     for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
       await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude!);
