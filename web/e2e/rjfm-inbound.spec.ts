@@ -114,7 +114,7 @@ test("real RJFO inbound KML keeps physical route and places EOC at UMK", async (
   await page.getByLabel("地図とKML記載順を確認しました").check();
   await page.getByRole("button", { name: "経路を確定" }).click();
 
-  const routeRows = page.locator(".route-table tbody tr");
+  const routeRows = page.locator(".route-table tbody .route-point-row");
   await expect(routeRows).toHaveCount(5);
   const confirmed = await readState(page);
   if (!confirmed.project) throw new Error("confirmed project is missing");

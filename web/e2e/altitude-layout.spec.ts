@@ -18,47 +18,64 @@ async function importRoute(page: Page, fixture: string) {
   await expect(page.locator(".route-table .destination-row")).toBeVisible();
 }
 
-async function assertCenteredRows(page: Page) {
-  const rows = page.locator(".route-table tbody tr");
-  expect(await rows.count()).toBeGreaterThan(2);
-  for (const row of await rows.all()) {
+async function assertIntervalRows(page: Page) {
+  const points = page.locator(".route-table .route-point-content");
+  const legs = page.locator(".route-table .route-leg-row");
+  expect(await points.count()).toBeGreaterThan(2);
+  await expect(legs).toHaveCount(await points.count() - 1);
+  for (const row of await legs.all()) {
     const geometry = await row.evaluate(element => {
-      const rect = element.getBoundingClientRect();
-      const read = (selector: string) => {
-        const node = element.querySelector(selector);
+      const read = (node: Element | null) => {
         if (!node) return null;
         const box = node.getBoundingClientRect();
         return { x: box.x, y: box.y, right: box.right, bottom: box.bottom, center: box.y + box.height / 2 };
       };
+      const cell = (selector: string) => read(element.querySelector(selector));
+      const from = document.getElementById(`route-point-${element.getAttribute("data-from-node-id")}`);
+      const to = document.getElementById(`route-point-${element.getAttribute("data-to-node-id")}`);
       return {
-        center: rect.y + rect.height / 2, top: rect.top, bottom: rect.bottom,
-        point: read(".route-point-content"), phase: read(".route-phase-primary"),
-        input: read(".table-number-input"), candidate: read(".altitude-candidate-select"),
-        detail: read(".altitude-course"), fixed: read(".fixed-altitude-control"),
-        descent: read(".descent-rate-result"), arrival: read(".arrival-altitude-control"),
+        row: read(element)!, from: read(from), to: read(to),
+        previousId: element.previousElementSibling?.getAttribute("data-node-id"),
+        nextId: element.nextElementSibling?.getAttribute("data-node-id"),
+        fromId: element.getAttribute("data-from-node-id"), toId: element.getAttribute("data-to-node-id"),
+        phase: cell(".route-phase-primary"), input: cell(".table-number-input"),
+        candidate: cell(".altitude-candidate-select"), detail: cell(".altitude-course"),
+        fixed: cell(".fixed-altitude-control"), descent: cell(".descent-rate-result"),
       };
     });
-    expect(geometry.point).not.toBeNull();
+    expect(geometry.previousId).toBe(geometry.fromId);
+    expect(geometry.nextId).toBe(geometry.toId);
+    expect(geometry.from).not.toBeNull();
+    expect(geometry.to).not.toBeNull();
     expect(geometry.phase).not.toBeNull();
-    for (const primary of [geometry.point, geometry.phase, geometry.input, geometry.candidate]) {
-      if (primary) expect(Math.abs(primary.center - geometry.center)).toBeLessThanOrEqual(1);
-    }
-    if (geometry.input && geometry.candidate) {
-      expect(geometry.candidate.right).toBeLessThanOrEqual(geometry.input.x);
-    }
-    if (geometry.detail && geometry.input) {
-      expect(geometry.detail.y).toBeGreaterThanOrEqual(geometry.input.bottom);
-    }
-    if (geometry.descent && geometry.phase) {
-      expect(geometry.descent.y).toBeGreaterThanOrEqual(geometry.phase.bottom);
-    }
-    for (const content of [geometry.detail, geometry.fixed, geometry.arrival, geometry.descent]) {
+    // The entire leg, not just the center of its input, belongs between endpoints.
+    expect(geometry.row.y).toBeGreaterThanOrEqual(geometry.from!.bottom);
+    expect(geometry.row.bottom).toBeLessThanOrEqual(geometry.to!.y);
+    for (const content of [geometry.phase, geometry.input, geometry.candidate, geometry.detail, geometry.fixed, geometry.descent]) {
       if (content) {
-        expect(content.y).toBeGreaterThanOrEqual(geometry.top);
-        expect(content.bottom).toBeLessThanOrEqual(geometry.bottom);
+        expect(content.y).toBeGreaterThanOrEqual(geometry.row.y);
+        expect(content.bottom).toBeLessThanOrEqual(geometry.row.bottom);
       }
     }
+    if (geometry.input && geometry.candidate) {
+      expect(Math.abs(geometry.input.center - geometry.candidate.center)).toBeLessThanOrEqual(1);
+      expect(geometry.candidate.right).toBeLessThanOrEqual(geometry.input.x);
+    }
+    if (geometry.detail && geometry.input) expect(geometry.detail.y).toBeGreaterThanOrEqual(geometry.input.bottom);
+    if (geometry.descent) expect(geometry.descent.y).toBeGreaterThanOrEqual(geometry.phase!.bottom);
   }
+  const arrival = page.locator(".destination-row");
+  await expect(arrival.locator(".route-point-content")).toHaveCount(1);
+  await expect(arrival.locator(".arrival-altitude-control")).toHaveCount(1);
+  await expect(arrival.locator(".phase-arrival-value")).toHaveCount(1);
+  await expect(arrival).not.toHaveAttribute("data-section-id");
+  const bounds = await arrival.evaluate(element => {
+    const row = element.getBoundingClientRect();
+    const content = element.querySelector(".arrival-altitude-control")!.getBoundingClientRect();
+    return { top: row.top, bottom: row.bottom, contentTop: content.top, contentBottom: content.bottom };
+  });
+  expect(bounds.contentTop).toBeGreaterThanOrEqual(bounds.top);
+  expect(bounds.contentBottom).toBeLessThanOrEqual(bounds.bottom);
 }
 
 async function assertWorkflowOrder(page: Page, width: number) {
@@ -101,19 +118,48 @@ async function selectFirstCandidate(row: Locator) {
   await expect(row.locator(".table-number-input")).toHaveValue(value!);
 }
 
-for (const width of [1100, 1440]) {
-  test(`altitude controls stay centered with warnings and calculated descent at ${width}px`, async ({ page }, testInfo) => {
+for (const width of [390, 1100, 1440]) {
+  test(`altitude controls stay between endpoints with warnings and calculated descent at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 });
     await importRoute(page, "issue_43_golden.kml");
-    await assertCenteredRows(page);
+    await assertIntervalRows(page);
     const candidateRow = page.locator(".route-table tbody tr").filter({ has: page.locator(".altitude-candidate-select") }).first();
     await candidateRow.locator(".table-number-input").fill("4400");
     await expect(candidateRow).toHaveClass(/altitude-warning-row/);
     await expect(candidateRow.locator(".altitude-course")).toContainText("候補外（警告）");
-    await assertCenteredRows(page);
+    await assertIntervalRows(page);
+    // Repeated raw edits keep the same section and neighbouring input values.
+    const neighbours = page.locator(".route-leg-row .table-number-input");
+    const before = await neighbours.evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value));
+    for (const value of ["", "4600", "4400"]) {
+      await candidateRow.locator(".table-number-input").fill(value);
+      await expect(candidateRow.locator(".table-number-input")).toHaveValue(value);
+      await assertIntervalRows(page);
+    }
+    expect((await neighbours.evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value))).slice(1)).toEqual(before.slice(1));
     await selectFirstCandidate(candidateRow);
     await expect(candidateRow).not.toHaveClass(/altitude-warning-row/);
-    await assertCenteredRows(page);
+    await assertIntervalRows(page);
+
+    const editablePoint = page.locator(".route-point-row").filter({ has: page.locator(".route-name-edit, .route-name-editor") }).first();
+    await editablePoint.locator(".route-name-edit").click();
+    await editablePoint.locator(".route-name-editor input").fill(" ");
+    await editablePoint.locator(".route-name-save").click();
+    await expect(editablePoint.locator(".field-error")).toBeVisible();
+    await assertIntervalRows(page);
+    await editablePoint.locator(".route-name-cancel").click();
+    // A saved long name changes natural row height without changing leg ownership.
+    const originalName = await editablePoint.locator("strong").innerText();
+    await editablePoint.locator(".route-name-edit").click();
+    await editablePoint.locator(".route-name-editor input").fill("長い経路点名称を折り返して区間高度の位置を確認する地点");
+    await editablePoint.locator(".route-name-save").click();
+    await expect(editablePoint.locator(".route-name-editor")).toHaveCount(0);
+    await assertIntervalRows(page);
+
+    await editablePoint.locator(".route-name-edit").click();
+    await editablePoint.locator(".route-name-editor input").fill(originalName);
+    await editablePoint.locator(".route-name-save").click();
+    await expect(editablePoint.locator("strong")).toHaveText(originalName);
 
     for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
       await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude);
@@ -121,9 +167,9 @@ for (const width of [1100, 1440]) {
     await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
     await expect(page.locator(".nav-log-table")).toBeVisible();
     await expect(page.locator(".descent-rate-result")).toBeVisible();
-    await assertCenteredRows(page);
+    await assertIntervalRows(page);
     await assertWorkflowOrder(page, width);
-    await page.locator(".route-table").screenshot({ path: testInfo.outputPath(`altitude-centered-${width}.png`) });
+    await page.locator(".route-table").screenshot({ path: testInfo.outputPath(`altitude-interval-${width}.png`) });
   });
 
   test(`fixed and arrival altitude details stay within their rows at ${width}px`, async ({ page }, testInfo) => {
@@ -131,13 +177,16 @@ for (const width of [1100, 1440]) {
     await importRoute(page, "issue_129_omaru_point.kml");
     await expect(page.locator(".fixed-altitude-control").first()).toBeVisible();
     await expect(page.locator(".route-table .vrep-row")).toHaveCount(1);
-    await assertCenteredRows(page);
+    await assertIntervalRows(page);
     const arrival = page.locator(".arrival-altitude-control");
     await expect(arrival.locator(".arrival-airport-reference")).toBeVisible();
+    await page.getByLabel("今回採用する場周経路高度", { exact: true }).fill("50");
+    await expect(arrival.locator(".field-error")).toBeVisible();
+    await assertIntervalRows(page);
     await page.getByLabel("今回採用する場周経路高度", { exact: true }).fill("1300");
     await expect(page.getByLabel("今回採用する場周経路高度", { exact: true })).toHaveValue("1300");
     await expect(arrival.locator(".arrival-altitude-help")).toBeVisible();
-    await assertCenteredRows(page);
+    await assertIntervalRows(page);
     await page.locator(".route-table").screenshot({ path: testInfo.outputPath(`altitude-fixed-arrival-${width}.png`) });
   });
 }

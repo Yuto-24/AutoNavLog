@@ -265,12 +265,12 @@ test("direct airport route survives failed local persistence and can be saved", 
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toBeInViewport();
-  await expect(page.locator(".route-table tbody tr")).toHaveCount(2);
+  await expect(page.locator(".route-table tbody .route-point-row")).toHaveCount(2);
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
   await page.reload();
   await expect(page.getByText("NavMateを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
-  await expect(page.locator(".route-table tbody tr")).toHaveCount(2);
+  await expect(page.locator(".route-table tbody .route-point-row")).toHaveCount(2);
 });
 
 for (const width of [1100, 1440]) {
