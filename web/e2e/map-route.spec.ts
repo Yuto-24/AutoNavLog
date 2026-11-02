@@ -1,5 +1,7 @@
 import { mapZoom, revealAirport, selectAirport, zoomMapTo } from "./helpers/mapCandidates";
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { deferPlanningRender, installPlanningRenderDelay } from "./helpers/planningRender";
 
 test.beforeEach(async ({ page }) => {
@@ -319,6 +321,77 @@ for (const width of [1100, 1440]) {
     await page.screenshot({ path: `/tmp/issue235-omaru-map-${width}.png` });
   });
 }
+
+for (const manualVor of [false, true]) {
+  test(`MAP to Planning and NAV LOG: VOR defaults follow FROM but preserve explicit ${manualVor}`, async ({ page }) => {
+    test.setTimeout(180_000);
+    await start(page);
+    const golden = readFileSync(resolve("../tests/fixtures/issue_43_golden.kml"), "utf8");
+    const coordinates = golden.match(/<coordinates>([\s\S]*?)<\/coordinates>/)![1]!.trim().split(/\s+/);
+    const routes = [coordinates, ["130.7194444444,31.8033333333,0", ...coordinates.slice(1)]];
+    const kml = `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>${routes.map((points, index) =>
+      `<Placemark><name>Departure ${index}</name><LineString><coordinates>${points.join(" ")}</coordinates></LineString></Placemark>`
+    ).join("")}</Document></kml>`;
+    await page.locator('input[type="file"]').setInputFiles({ name: "departures.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(kml) });
+    const candidates = page.getByLabel("飛行経路候補");
+    const vor = page.getByRole("checkbox", { name: "VOR Tracking Mode", exact: true });
+    await candidates.selectOption("line:1");
+    await expect(page.getByLabel("FROM", { exact: true })).toHaveValue(/^RJFK/);
+    await expect(vor).toBeChecked();
+    await candidates.selectOption("line:0");
+    await expect(vor).not.toBeChecked();
+    await candidates.selectOption("line:1");
+    await expect(vor).toBeChecked();
+    // A deliberate off->on action must also mark ON as an explicit choice.
+    await vor.uncheck();
+    if (manualVor) await vor.check();
+    await candidates.selectOption("line:0");
+    await expect(vor).toBeChecked({ checked: manualVor });
+    await candidates.selectOption("line:1");
+    await expect(vor).toBeChecked({ checked: manualVor });
+    await page.reload();
+    await expect(vor).toBeChecked({ checked: manualVor, timeout: 120_000 });
+    await candidates.selectOption("line:0");
+    await expect(vor).toBeChecked({ checked: manualVor });
+    await candidates.selectOption("line:1");
+    await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+    await page.getByLabel("気象モード").selectOption("FTD");
+    await page.getByLabel("地図とKML記載順を確認しました").check();
+    await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+    await expect(vor).toBeChecked({ checked: manualVor });
+    // Confirmed KML routes require valid leg inputs before a named save.
+    await expect(page.getByRole("spinbutton", { name: /出発Legの計画高度$/ }).first()).toBeVisible();
+    for (const altitude of await page.getByRole("spinbutton", { name: /出発Legの計画高度$/ }).all()) {
+      if (await altitude.isEditable() && !(await altitude.inputValue())) await altitude.fill("6500");
+    }
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
+    const projectId = await page.getByLabel("保存済み", { exact: true }).inputValue();
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await page.getByLabel("保存済み", { exact: true }).selectOption(projectId);
+    await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
+    await expect(vor).toBeChecked({ checked: manualVor });
+    await expect(page.getByLabel("FROM", { exact: true })).toHaveValue(/^RJFK/);
+  });
+}
+
+test("MAP to Planning and NAV LOG: new map departures default to VOR except RJFM", async ({ page }) => {
+  test.setTimeout(180_000);
+  await start(page);
+  for (const from of ["RJFK", "RJFM"]) {
+    await selectAirport(page, from);
+    await selectAirport(page, "RJFS");
+    await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+    await expect(page.getByLabel("FROM", { exact: true })).toHaveValue(new RegExp(`^${from}`));
+    await expect(page.getByRole("checkbox", { name: "VOR Tracking Mode", exact: true }))
+      .toBeChecked({ checked: from !== "RJFM" });
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+  }
+});
 
 for (const width of [390, 1100, 1440]) {
   test(`MAP to Planning and NAV LOG: VOR Tracking Mode survives reload at ${width}px`, async ({ page }, info) => {

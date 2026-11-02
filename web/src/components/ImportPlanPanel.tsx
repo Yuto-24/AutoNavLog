@@ -62,7 +62,10 @@ export function ImportPlanPanel({
   onResumePaste,
 }: ImportPlanPanelProps) {
   const update = <Key extends keyof PlanningForm>(key: Key, value: PlanningForm[Key]) => {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => ({
+      ...current, [key]: value,
+      ...(key === "departureOrigin" ? { departureOriginExplicit: true } : {}),
+    }));
   };
   const selectedDeparture = airports.find(
     (airport) => airport.id === form.departureAirportId,

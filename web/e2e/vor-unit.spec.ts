@@ -1,4 +1,18 @@
 import { expect, test } from "@playwright/test";
+import { departureOriginForAirport, initialPlanningForm } from "../src/forms";
+
+test("departure defaults follow FROM until an explicit choice is made", () => {
+  const automatic = initialPlanningForm();
+  expect(departureOriginForAirport(automatic, "RJFM")).toBe("AIRPORT");
+  expect(departureOriginForAirport(automatic, "RJFK")).toBe("VOR");
+  expect(departureOriginForAirport({ ...automatic, departureOrigin: "VOR" }, "RJFM")).toBe("AIRPORT");
+  for (const departureOrigin of ["AIRPORT", "VOR"] as const) {
+    const explicit = { ...automatic, departureOrigin, departureOriginExplicit: true };
+    for (const from of ["RJFM", "RJFK", "RJFS", ""]) {
+      expect(departureOriginForAirport(explicit, from)).toBe(departureOrigin);
+    }
+  }
+});
 import {
   formatVorRadialDistance, nearestVorStation, orderVorStationsForRoute, VOR_STATIONS,
   VOR_DATASET_EFFECTIVE_CYCLE, wgs84Inverse,

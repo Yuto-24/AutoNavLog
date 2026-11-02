@@ -194,6 +194,11 @@ test("session decoding preserves invalid text and rejects incompatible UI shapes
   const legacy = structuredClone(session) as typeof session & { form: Record<string, unknown> };
   Reflect.deleteProperty(legacy.form, "departureOrigin");
   expect(decodeSession(JSON.stringify(legacy))).toEqual(session);
+  Reflect.deleteProperty(legacy.form, "departureOriginExplicit");
+  expect(decodeSession(JSON.stringify(legacy)).form).toEqual({ ...session.form, departureOriginExplicit: true });
+  expect(decodeSession(JSON.stringify({ ...legacy, form: { ...legacy.form, departureOrigin: "VOR" } })).form)
+    .toMatchObject({ departureOrigin: "VOR", departureOriginExplicit: true });
+  expect(() => decodeSession(JSON.stringify({ ...session, form: { ...session.form, departureOriginExplicit: "false" } }))).toThrow();
   expect(decodeSession(JSON.stringify({ ...session, form: { ...session.form, departureOrigin: "VOR" } })).form.departureOrigin).toBe("VOR");
   for (const departureOrigin of [null, 0, "UNKNOWN"]) {
     expect(() => decodeSession(JSON.stringify({ ...session, form: { ...session.form, departureOrigin } }))).toThrow();
