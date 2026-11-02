@@ -321,6 +321,7 @@ class CalculationService:
         progress: Callable[[int, str], None] | None = None,
         *,
         rounding_mode: bool = False,
+        refresh_forecast: bool = False,
     ) -> CalculationOutcome:
         self._rounding_mode = rounding_mode
         report = progress or (lambda _percent, _message: None)
@@ -533,6 +534,7 @@ class CalculationService:
             provider,
             initial_requirement,
             issues,
+            refresh_forecast=refresh_forecast and project.weather_mode == "FORECAST",
         )
         if selected_run_id is None:
             return self._empty_outcome(working, issues, check_point_projections, arrival_altitude)
@@ -840,10 +842,12 @@ class CalculationService:
         provider: WeatherProvider,
         requirement: ForecastRequirement,
         issues: list[Issue],
+        *,
+        refresh_forecast: bool = False,
     ) -> str | None:
         try:
             initial_time_utc: datetime | None = None
-            if project.selected_forecast_run_id is None:
+            if project.selected_forecast_run_id is None or refresh_forecast:
                 run = provider.resolve_run(requirement)
                 selected_run_id = run.id
                 initial_time_utc = run.initial_time_utc.astimezone(UTC)

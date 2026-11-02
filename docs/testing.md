@@ -299,14 +299,16 @@ IndexedDB Project / Last Calculation保持を確認する。通常の`test:local
 `local-browser-tests`と`account-sync-tests`は`ubuntu-24.04`を明示し、`ubuntu-latest`のOS移行で
 Playwrightの依存導入が急に変わらないようにする。`local-browser-tests`の25分上限、認証・Local保存・
 計算・NAV LOG・ブラウザ受入・TAFの検証と、`account-sync-tests`の20分上限、Firestore Rules・同期・
-移行の検証は維持する。両ジョブでChromium / WebKitを導入する。キャンセル時はcheck annotationと
+移行の検証は維持する。Local runnerはChromium / WebKitを導入する。Account Syncは担当projectのengineだけを導入し、
+Chromium群はChromium、iPad/iPhone群はWebKit、storage-upgradeとmigrationを含むcontracts群は両方を導入する。キャンセル時はcheck annotationと
 失敗stepを確認する。ブラウザ依存のdownloadでtimeoutした場合、後続のテストは未実行であり、
 テスト失敗やconcurrencyによる中止とは区別する。
 
 ### Local browser worker count
 
-`local-browser-tests`のLocal regression、NAV LOG scroll、browser acceptanceだけは、CIの起動引数で
-`--workers=2`を指定する。Local regressionと、認証→NAV LOG scroll→browser acceptance→TAFを別runnerで実行する。
+`local-browser-tests`のLocal regression、NAV LOG scroll、browser acceptance、focused UX、Clipboardは、CIの起動引数で
+`--workers=2`を指定する。`local`、`acceptance`、`focused-ux`、`clipboard`の4 suiteを別runnerで実行し、
+`acceptance`内では認証→NAV LOG scroll→browser acceptance→TAFの順序を保つ。
 同じファイル内のテスト順序は保つ。
 `fullyParallel`、retry、timeout、assertion、選択するテスト、失敗時のtrace/artifactは変更しない。
 認証、TAF、Firestore Rules、storage-upgrade、migrationは従来のworker設定を保つ。
@@ -392,10 +394,12 @@ GitHub側ではsetup-pythonのrestoreとpost saveを含めて測る。上記ロ�
 
 ### Independent CI shards
 
-`local-browser-tests` uses two ordinary GitHub-hosted runners: `local` runs the existing
-Local regression selection; `acceptance` runs auth, scroll, every browser/device acceptance
-project, and TAF. Each runner owns its server and build directory; the TAF-specific rebuild
-cannot change the Local regression artifact. Worker counts and selected tests are unchanged.
+`local-browser-tests` uses four ordinary GitHub-hosted runners: `local` runs the Local
+regression selection; `acceptance` runs auth, scroll, every browser/device acceptance
+project, and TAF; `focused-ux` and `clipboard` run their respective Playwright configurations.
+Each runner owns its server and build directory; the TAF-specific rebuild cannot change
+other suites’ artifacts. Local regression, scroll, browser acceptance, focused UX, and
+Clipboard use `--workers=2`; auth and TAF retain their existing worker settings.
 The `local-browser` aggregate retains the existing check name and fails unless every suite succeeds.
 
 `pytest-tests` uses two independent Docker test-stage runners. The existing lint, typing,

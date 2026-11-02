@@ -164,6 +164,8 @@ class LocalMsmWeather:
         project: Project,
         requirement: ForecastRequirement,
         catalog_json: str,
+        *,
+        refresh_forecast: bool = False,
     ) -> str:
         # Never retain arrays from an earlier calculation as an acquisition fallback.
         self.client.data = None
@@ -187,7 +189,7 @@ class LocalMsmWeather:
         native = self.provider._requirement(requirement)
         selected = (
             self.provider._run_id(project.selected_forecast_run_id)
-            if project.selected_forecast_run_id
+            if project.selected_forecast_run_id and not refresh_forecast
             else None
         )
         coverage = self.client.check_coverage(

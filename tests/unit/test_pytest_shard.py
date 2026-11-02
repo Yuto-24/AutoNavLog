@@ -86,7 +86,10 @@ def test_workflow_preserves_aggregate_gates_and_all_browser_suites():
         "npm --prefix web run test:taf",
     ):
         assert workflow.count(command) == 1
-    assert "suite: [local, acceptance]" in workflow
+    package = (ROOT / "web/package.json").read_text()
+    assert "saved Run stays fixed on first click and refreshes snapshot on second click" in package
+    assert "suite: [local, acceptance, focused-ux, clipboard]" in workflow
+    assert '"web/playwright.${{ matrix.suite }}.config.ts" --workers=2' in workflow
     assert "python scripts/check_pytest_shards.py coverage-shards 2" in workflow
     assert "python -m coverage combine coverage-shards/*/.coverage" in workflow
 

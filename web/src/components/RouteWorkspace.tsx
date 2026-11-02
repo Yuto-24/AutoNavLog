@@ -67,6 +67,7 @@ function MapAttributionLayout() {
 
 interface RouteWorkspaceProps {
   mapBuilder?: MapRouteBuilderProps;
+  onEditRoute?: () => void;
   viewportStorage: KeyValueStorage;
   viewportScope: string;
   preserveRouteViewport: boolean;
@@ -204,7 +205,7 @@ function CheckPointMapPicker({
 }
 
 export function RouteWorkspace({
-  mapBuilder, viewportStorage, viewportScope, preserveRouteViewport,
+  mapBuilder, onEditRoute, viewportStorage, viewportScope, preserveRouteViewport,
   onOpenExternalUrl,
   checkPointDraft, setCheckPointDraft, nodeNameDraft: nodeDraft, setNodeNameDraft: setNodeDraft,
   candidate,
@@ -554,6 +555,7 @@ export function RouteWorkspace({
               : mapBuilder ? "地図で経路を作成" : candidate?.name ?? "飛行経路候補を選択すると地図へ表示します"}
           </p>
         </div>
+        {onEditRoute && <button className="secondary-button" disabled={busy} onClick={onEditRoute}>経路を編集</button>}
         {project && <span className="route-count">{nodes.length}点 / {sections.length} Leg</span>}
       </div>
       <div
@@ -637,52 +639,30 @@ export function RouteWorkspace({
               key={airspace.id}
               className="rjfm-training-airspace"
               attribution={airspaceAttribution}
+              interactive={false}
               positions={airspace.positions}
               pathOptions={{
                 fillColor: "#5b83cf",
                 fillOpacity: 0.1,
                 stroke: false,
               }}
-            >
-              <Tooltip sticky>
-                <span>
-                  <strong>{airspace.name}</strong>
-                  <br />
-                  {airspace.lowerLimit} – {airspace.upperLimit}
-                  <br />
-                  {airspace.authority}
-                  <br />
-                  出典: 国土地理院（表示専用）
-                </span>
-              </Tooltip>
-            </Polygon>
+            />
           ))}
           {trainingAirspace.boundaries.map((boundary) => (
             <Polyline
               key={boundary.id}
               className="rjfm-training-airspace-boundary"
               attribution={airspaceAttribution}
+              interactive={false}
               positions={boundary.positions}
               pathOptions={{
                 color: "#315caa",
                 opacity: 0.82,
                 weight: 2,
               }}
-            >
-              <Tooltip sticky>
-                <span>
-                  <strong>{boundary.name}</strong>
-                  <br />
-                  {boundary.lowerLimit} – {boundary.upperLimit}
-                  <br />
-                  {boundary.authority}
-                  <br />
-                  出典: 国土地理院（表示専用）
-                </span>
-              </Tooltip>
-            </Polyline>
+            />
           ))}
-          {coordinates.length >= 2 && (
+          {!mapBuilder && coordinates.length >= 2 && (
             <Polyline positions={coordinates} pathOptions={{ color: "#173b5e", weight: 4 }} />
           )}
           {rjfmGuidance && rjfmGuidance.center_route.length >= 2 && (
@@ -736,7 +716,7 @@ export function RouteWorkspace({
               </Tooltip>
             </CircleMarker>
           ))}
-          {nodes.map((node, index) => {
+          {!mapBuilder && nodes.map((node, index) => {
             const isVrep = node.role === "VISUAL_REPORTING_POINT" || node.reference_snapshot?.kind === "VISUAL_REPORTING_POINT";
             const isAirport = node.role === "AIRPORT" || node.role === "DESTINATION";
             return (
@@ -838,7 +818,7 @@ export function RouteWorkspace({
             </CircleMarker>
           )}
           {mapBuilder && <MapDraftLayers {...mapBuilder} />}
-          <MapViewport storage={viewportStorage} scope={viewportScope} projectId={project?.id ?? null} coordinates={fitCoordinates} preserveViewport={preserveRouteViewport} />
+          <MapViewport storage={viewportStorage} scope={viewportScope} projectId={project?.id ?? null} coordinates={fitCoordinates} preserveViewport={preserveRouteViewport} importFitCoordinates={mapBuilder?.importFitCoordinates} />
           <CheckPointMapPicker active={!mapBuilder && pickingCheckPoint} onPick={handleMapPick} />
           {!mapBuilder && !project && <FitBounds
             coordinates={fitCoordinates}
@@ -917,7 +897,7 @@ export function RouteWorkspace({
         onConfirm={onConfirmRoute}
       />
 
-      {project && (
+      {project && !mapBuilder && (
         <CheckPointEditor
           draft={checkPointDraft}
           setDraft={setCheckPointDraft}
@@ -934,6 +914,7 @@ export function RouteWorkspace({
         />
       )}
 
+      {!mapBuilder && <>
       {project && phaseEditing && (
         <div className="phase-edit-note" role="status">
           CLIMB / DESCENT を別Legへ選ぶと、既存の同Phaseは自動でCRUISEへ戻ります。
@@ -977,7 +958,7 @@ export function RouteWorkspace({
                 </td>
               </tr>
             )}
-            {nodes.map((node, index) => {
+            {!mapBuilder && nodes.map((node, index) => {
               const section = sectionByFromNode.get(node.id);
               const guidance = section
                 ? guidanceBySection.get(section.id)
@@ -1022,63 +1003,65 @@ export function RouteWorkspace({
                   ].filter(Boolean).join(" ")}
                 >
                   <td>
-                    <span className="point-index">{index}</span>
-                    {editingNodeId === node.id ? (
-                      <div className="route-name-editor">
-                        <input
-                          aria-label={`${node.name}の名称`}
-                          autoFocus
-                          disabled={busy || nodeNameSaving}
-                          value={nodeNameDraft}
-                          onChange={(event) => setNodeNameDraft(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              void saveNodeNameEdit();
-                            }
-                            if (event.key === "Escape") {
-                              event.preventDefault();
-                              cancelNodeNameEdit();
-                            }
-                          }}
-                        />
-                        <button
-                          className="route-name-save"
-                          type="button"
-                          disabled={busy || nodeNameSaving}
-                          onClick={() => void saveNodeNameEdit()}
-                        >
-                          {nodeNameSaving ? "保存中" : "保存"}
-                        </button>
-                        <button
-                          className="route-name-cancel"
-                          type="button"
-                          disabled={busy || nodeNameSaving}
-                          onClick={cancelNodeNameEdit}
-                        >
-                          取消
-                        </button>
-                        {nodeNameError && <small className="field-error">{nodeNameError}</small>}
-                      </div>
-                    ) : (
-                      <div className="route-name-display">
-                        <strong>{node.name}</strong>
-                        {node.role !== "AIRPORT" && node.role !== "DESTINATION" && (
-                          <button
-                            className="route-name-edit"
-                            type="button"
-                            disabled={busy}
-                            onClick={() => {
-                              setEditingNodeId(node.id);
-                              setNodeNameDraft(node.name);
-                              setNodeNameError(null);
+                    <div className="route-point-content">
+                      <span className="point-index">{index}</span>
+                      {editingNodeId === node.id ? (
+                        <div className="route-name-editor">
+                          <input
+                            aria-label={`${node.name}の名称`}
+                            autoFocus
+                            disabled={busy || nodeNameSaving}
+                            value={nodeNameDraft}
+                            onChange={(event) => setNodeNameDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                void saveNodeNameEdit();
+                              }
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                cancelNodeNameEdit();
+                              }
                             }}
+                          />
+                          <button
+                            className="route-name-save"
+                            type="button"
+                            disabled={busy || nodeNameSaving}
+                            onClick={() => void saveNodeNameEdit()}
                           >
-                            編集
+                            {nodeNameSaving ? "保存中" : "保存"}
                           </button>
-                        )}
-                      </div>
-                    )}
+                          <button
+                            className="route-name-cancel"
+                            type="button"
+                            disabled={busy || nodeNameSaving}
+                            onClick={cancelNodeNameEdit}
+                          >
+                            取消
+                          </button>
+                          {nodeNameError && <small className="field-error">{nodeNameError}</small>}
+                        </div>
+                      ) : (
+                        <div className="route-name-display">
+                          <strong>{node.name}</strong>
+                          {node.role !== "AIRPORT" && node.role !== "DESTINATION" && (
+                            <button
+                              className="route-name-edit"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                setEditingNodeId(node.id);
+                                setNodeNameDraft(node.name);
+                                setNodeNameError(null);
+                              }}
+                            >
+                              編集
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </td>
                   <td className={hasAltitudeCandidateWarning ? "altitude-warning-cell" : ""}>
                     {section && fixedLabels ? (
@@ -1091,49 +1074,51 @@ export function RouteWorkspace({
                       </div>
                     ) : section ? (
                       <div className="altitude-controls">
-                        {guidance?.appliesToCruisingAltitudeInput && (
-                          <select
-                            className="table-select altitude-candidate-select"
-                            aria-label={
-                              section.phase === "CRUISE"
-                                ? node.name + "出発Legの巡航高度候補"
-                                : node.name +
-                                  "出発Legの" +
-                                  altitudeBasisLabels[section.phase] +
-                                  "候補"
-                            }
-                            value={
-                              isCandidateAltitude
-                                ? String(effectiveAltitude)
-                                : "custom"
-                            }
-                            onChange={(event) => {
-                              if (event.target.value !== "custom") {
-                                onAltitudeInputChange(section.id, event.target.value);
+                        <div className="altitude-input-row">
+                          {guidance?.appliesToCruisingAltitudeInput && (
+                            <select
+                              className="table-select altitude-candidate-select"
+                              aria-label={
+                                section.phase === "CRUISE"
+                                  ? node.name + "出発Legの巡航高度候補"
+                                  : node.name +
+                                    "出発Legの" +
+                                    altitudeBasisLabels[section.phase] +
+                                    "候補"
                               }
-                            }}
-                          >
-                            {guidance.candidateAltitudesFtMsl.map((altitude) => (
-                              <option key={altitude} value={altitude}>
-                                {altitude.toLocaleString("ja-JP")} ft
-                              </option>
-                            ))}
-                            <option value="custom">任意値</option>
-                          </select>
-                        )}
-                        <input
-                          className="table-number-input"
-                          aria-label={node.name + "出発Legの計画高度"}
-                          type="number"
-                          min="100"
-                          max="25000"
-                          step="100"
-                          value={altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)}
-                          placeholder="入力"
-                          onChange={(event) =>
-                            onAltitudeInputChange(section.id, event.target.value)
-                          }
-                        />
+                              value={
+                                isCandidateAltitude
+                                  ? String(effectiveAltitude)
+                                  : "custom"
+                              }
+                              onChange={(event) => {
+                                if (event.target.value !== "custom") {
+                                  onAltitudeInputChange(section.id, event.target.value);
+                                }
+                              }}
+                            >
+                              {guidance.candidateAltitudesFtMsl.map((altitude) => (
+                                <option key={altitude} value={altitude}>
+                                  {altitude.toLocaleString("ja-JP")} ft
+                                </option>
+                              ))}
+                              <option value="custom">任意値</option>
+                            </select>
+                          )}
+                          <input
+                            className="table-number-input"
+                            aria-label={node.name + "出発Legの計画高度"}
+                            type="number"
+                            min="100"
+                            max="25000"
+                            step="100"
+                            value={altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)}
+                            placeholder="入力"
+                            onChange={(event) =>
+                              onAltitudeInputChange(section.id, event.target.value)
+                            }
+                          />
+                        </div>
                         {guidance && (
                           <small className="altitude-course">
                             {guidance.appliesToCruisingAltitudeInput
@@ -1198,56 +1183,60 @@ export function RouteWorkspace({
                     )}
                   </td>
                   <td className="phase-cell">
-                    {section && fixedLabels ? (
-                      <span
-                        className="fixed-phase"
-                        aria-label={`${node.name}出発Legの固定Phase`}
-                      >
-                        {fixedLabels.phase}
-                      </span>
-                    ) : section && phaseLocked ? (
-                      <span
-                        className="phase-locked-value"
-                        aria-label={`${node.name}出発Legの固定Phase`}
-                      >
-                        {phaseLabels[section.phase]}（固定）
-                      </span>
-                    ) : section ? (
-                      <select
-                        className={`table-select phase-select${phaseEditing ? " is-editing" : " is-readonly"}`}
-                        aria-label={`${node.name}出発LegのPhase`}
-                        aria-disabled={!phaseEditing}
-                        tabIndex={phaseEditing ? 0 : -1}
-                        title={
-                          phaseEditing
-                            ? "CLIMBまたはDESCENTを選ぶと同Phaseの基準Legが移動します。"
-                            : undefined
-                        }
-                        value={section.phase}
-                        onPointerDown={(event) => {
-                          if (!phaseEditing) event.preventDefault();
-                        }}
-                        onKeyDown={(event) => {
-                          if (!phaseEditing) event.preventDefault();
-                        }}
-                        onChange={(event) =>
-                          changePhaseBasis(section, event.target.value as FlightPhase)
-                        }
-                      >
-                        {phaseOptionsForSection(section).map((phase) => (
-                          <option key={phase} value={phase}>
-                            {phaseLabels[phase]}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="phase-arrival-value">到着</span>
-                    )}
-                    {section?.phase === "DESCENT" && displayedDescentRate !== null && (
-                      <small className="descent-rate-result">
-                        計算結果 {displayedDescentRate} fpm
-                      </small>
-                    )}
+                    <div className="route-phase-content">
+                      <div className="route-phase-primary">
+                        {section && fixedLabels ? (
+                          <span
+                            className="fixed-phase"
+                            aria-label={`${node.name}出発Legの固定Phase`}
+                          >
+                            {fixedLabels.phase}
+                          </span>
+                        ) : section && phaseLocked ? (
+                          <span
+                            className="phase-locked-value"
+                            aria-label={`${node.name}出発Legの固定Phase`}
+                          >
+                            {phaseLabels[section.phase]}（固定）
+                          </span>
+                        ) : section ? (
+                          <select
+                            className={`table-select phase-select${phaseEditing ? " is-editing" : " is-readonly"}`}
+                            aria-label={`${node.name}出発LegのPhase`}
+                            aria-disabled={!phaseEditing}
+                            tabIndex={phaseEditing ? 0 : -1}
+                            title={
+                              phaseEditing
+                                ? "CLIMBまたはDESCENTを選ぶと同Phaseの基準Legが移動します。"
+                                : undefined
+                            }
+                            value={section.phase}
+                            onPointerDown={(event) => {
+                              if (!phaseEditing) event.preventDefault();
+                            }}
+                            onKeyDown={(event) => {
+                              if (!phaseEditing) event.preventDefault();
+                            }}
+                            onChange={(event) =>
+                              changePhaseBasis(section, event.target.value as FlightPhase)
+                            }
+                          >
+                            {phaseOptionsForSection(section).map((phase) => (
+                              <option key={phase} value={phase}>
+                                {phaseLabels[phase]}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="phase-arrival-value">到着</span>
+                        )}
+                      </div>
+                      {section?.phase === "DESCENT" && displayedDescentRate !== null && (
+                        <small className="descent-rate-result">
+                          計算結果 {displayedDescentRate} fpm
+                        </small>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -1260,6 +1249,7 @@ export function RouteWorkspace({
           {altitudeGuidance.terrainLimitationNote}
         </p>
       )}
+      </>}
     </section>
   );
 }

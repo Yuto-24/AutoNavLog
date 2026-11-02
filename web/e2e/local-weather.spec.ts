@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft, importedMapNames } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -27,21 +27,23 @@ const record = (page: Page) => page.evaluate(() => new Promise<any>((resolve, re
 async function setup(page: Page) {
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-16");
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
   await page.getByLabel("気象モード").selectOption("FORECAST");
-  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await expect(page.locator('input[type="file"]')).toBeEnabled();
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     const field = page.getByLabel(`${name}出発Legの計画高度`, { exact: true });
     await field.fill(altitude!); await field.blur();
   }
 }
 async function calculate(page: Page) {
   const previous = await page.evaluate(() => (window as any).weatherStates.length);
-  await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+  const calculateButton = page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ });
+  await calculateButton.click();
+  // The forced draft save emits a current, last-good state before calculation.
+  // Wait for the operation to finish, not merely for that intermediate RPC reply.
+  await expect(calculateButton).toBeEnabled();
   await page.waitForFunction(count => (window as any).weatherStates.length > count, previous);
   await expect.poll(async () => (await state(page))?.readiness?.calculationIsCurrent).toBe(true);
   await expect(page.locator(".nav-log-table")).toBeVisible();
@@ -84,7 +86,7 @@ test("portable real MSM: cold, warm after reload, Python reference and saved NAV
   const downloads: string[] = [];
   context.on("request", r => { if (r.url().includes("/weather/msm/")) downloads.push(r.url()); });
   await setup(page); await calculate(page);
-  compare(calculationCoreGolden(await state(page)), calculationCoreGolden(reference()));
+  compare(calculationCoreGolden(await state(page)), importedMapNames(calculationCoreGolden(reference())));
   expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915210000");
   expect(downloads.filter(url => url.endsWith(".npz"))).toHaveLength(1);
   const before = (await record(page)).lastCalculation;
@@ -100,13 +102,14 @@ test("portable real MSM: cold, warm after reload, Python reference and saved NAV
   expect((await record(page)).lastCalculation.outcome.summary).toEqual(before.outcome.summary);
 });
 
-test("saved Run stays fixed while a newer Run is available", async ({ page }) => {
+for (const switchRounding of [false, true]) {
+test(`saved Run stays fixed on first click and refreshes snapshot on second click${switchRounding ? " after rounding change" : ""}`, async ({ page }) => {
   const native = reference(true);
   const recovery = native.workingRecovery;
   for (const project of [recovery.project, recovery.last_calculation.project]) delete project.metadata.web_owner_id;
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await page.evaluate(recovery => new Promise<void>((resolve, reject) => {
     const opening = indexedDB.open("autonavlog.projects");
     opening.onerror = () => reject(opening.error);
@@ -129,7 +132,39 @@ test("saved Run stays fixed while a newer Run is available", async ({ page }) =>
   expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915180000");
   expect((await state(page)).outcome.issues.map((i: any) => i.code)).toContain("FORECAST_UPDATE_AVAILABLE");
   compare(calculationCoreGolden(await state(page)), calculationCoreGolden(native));
+  if (switchRounding) {
+    const mode = page.getByRole("radio", { name: "四捨五入", exact: true });
+    await mode.click();
+    await expect(mode).toBeChecked();
+    await expect(mode).toBeEnabled();
+    expect((await state(page)).roundingMode).toBe(true);
+    expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915180000");
+    expect((await state(page)).outcome.issues.map((i: any) => i.code)).toContain("FORECAST_UPDATE_AVAILABLE");
+  }
+  await page.getByLabel("プロジェクト", { exact: true }).fill("Forecast refresh");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect.poll(async () => (await record(page)).checkpoint?.name).toBe("Forecast refresh");
+  await calculate(page);
+  const refreshed = await state(page);
+  expect(refreshed.project.selected_forecast_run_id).toBe("20260915210000");
+  expect(refreshed.outcome.selected_forecast_run_id).toBe("20260915210000");
+  expect(refreshed.outcome.issues.map((i: any) => i.code)).not.toContain("FORECAST_UPDATE_AVAILABLE");
+  await expect.poll(async () => (await record(page)).lastCalculation.forecast_metadata.forecast_run_id)
+    .toBe("20260915210000");
+  const saved = (await record(page)).lastCalculation;
+  expect(saved.project.selected_forecast_run_id).toBe("20260915210000");
+  expect(saved.outcome.selected_forecast_run_id).toBe("20260915210000");
+  await page.reload();
+  if (switchRounding) {
+    await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+    await expect(page.locator(".nav-log-table")).toHaveCount(0);
+    expect((await state(page)).roundingMode).toBe(false);
+  } else {
+    await expect(page.locator(".nav-log-table")).toBeVisible();
+  }
+  expect((await record(page)).lastCalculation).toEqual(saved);
 });
+}
 
 test("Project quota retry releases the actual Weather cache and keeps Last Calculation", async ({ page }) => {
   await setup(page); await calculate(page);

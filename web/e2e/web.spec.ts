@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { confirmImportedDraft, expectImportedDraft, enterImportWorkflow } from "./helpers/importWorkflow";
 import { observeLegacySession } from "./helpers/legacySession";
 import { disableClipboardRead } from "./helpers/clipboard";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
@@ -931,7 +931,7 @@ async function calculateNavLog(
   forceBacktrackedEoc = false,
   useFtdWeather = false,
 ): Promise<void> {
-  const openPaste = page.getByRole("button", { name: "Google Earth からペースト" });
+  const openPaste = page.getByRole("button", { name: "KMLを取り込む" });
   await openPaste.click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   const textbox = dialog.getByRole("textbox");
@@ -949,6 +949,9 @@ async function calculateNavLog(
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
   await expect(dialog).toBeHidden();
 
+  await confirmImportedDraft(page);
+  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
+
   if (useFtdWeather) {
     await page.getByLabel("気象モード").selectOption("FTD");
     await page.getByLabel("地上風向 ° FROM").fill("360");
@@ -957,14 +960,12 @@ async function calculateNavLog(
     await page.getByLabel("5,000 ft風速 kt").fill("30");
   }
 
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
 
   await expect(page.locator(".route-table tbody tr.vrep-row")).toHaveCount(1);
   const altitudeInputs = page.locator(".route-table tbody tr:not(.vrep-row) .table-number-input");
   const vrepAltitudeInput = page.locator(".route-table tbody tr.vrep-row .table-number-input");
+  await expect(altitudeInputs.first()).toHaveValue("3000");
+  await altitudeInputs.first().fill("");
   await expect(altitudeInputs.first()).toHaveValue("");
   await expect(vrepAltitudeInput).toHaveValue("1500");
   for (let index = 0; index < await altitudeInputs.count(); index += 1) {
@@ -1101,12 +1102,12 @@ async function reloadWithCurrentRjfmGuidance(
 }
 
 async function importKmlCandidate(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await expectImportedDraft(page);
 }
 
 test.beforeEach(async ({ page, request }) => {
@@ -1300,7 +1301,7 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await expect(page.locator("body")).not.toBeEmpty();
   const savedProjectButton = page.getByRole("button", { name: "保存済みプロジェクトを開く" });
   const savedProjectButtonLayout = await savedProjectButton.evaluate((button) => {
@@ -1320,10 +1321,8 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
     paddingLeft: "0px",
     paddingRight: "0px",
   });
-  await expect(page.getByLabel("TO")).toHaveValue(/^RJFS\b/);
-  await expect(page.getByLabel("RUN UP あり")).toBeChecked();
-  await expect(page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)")).not.toBeChecked();
-  await expect(page.getByLabel("A/C ON (巡航速度 -2 kt)")).toBeChecked();
+  await expect(page.getByLabel("TO", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("RUN UP あり")).toHaveCount(0);
   await expect(page.getByLabel("QNH値")).toHaveCount(0);
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
@@ -1334,6 +1333,10 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
   });
 
   await calculateNavLog(page);
+  await expect(page.getByLabel("TO", { exact: true })).toHaveValue(/^RJFO\b/);
+  await expect(page.getByLabel("RUN UP あり")).toBeChecked();
+  await expect(page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)")).not.toBeChecked();
+  await expect(page.getByLabel("A/C ON (巡航速度 -2 kt)")).toBeChecked();
 
   await expect(
     page.getByText("PATTERN_ALTITUDE_REQUIRED", { exact: true }),
@@ -1400,7 +1403,7 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   const initiallyHasProject = await page.evaluate(async () => {
     const response = await fetch("/api/state");
     if (!response.ok) throw new Error(`state request failed: ${response.status}`);
@@ -1412,7 +1415,7 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
     page.getByRole("button", { name: "新規" }).click(),
   ]);
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(async () => {
     const response = await fetch("/api/state");
     if (!response.ok) throw new Error(`state request failed: ${response.status}`);
@@ -1493,8 +1496,7 @@ test("valid planning drafts autosave before calculation and coalesce rapid edits
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   const routeAltitudes = page.locator(
     ".route-table tbody tr:not(.vrep-row) .table-number-input",
@@ -1606,8 +1608,7 @@ test("draft autosave failure keeps the local value and a manual save flushes its
 }) => {
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
   const routeAltitudes = page.locator(
     ".route-table tbody tr:not(.vrep-row) .table-number-input",
   );
@@ -1670,8 +1671,7 @@ test("manual save flushes a pending destination pattern exactly once before chec
 }) => {
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   const routeAltitudes = page.locator(
     ".route-table tbody tr:not(.vrep-row) .table-number-input",
@@ -1727,8 +1727,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
 }) => {
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   const readState = async (): Promise<WebState> => page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -1805,8 +1804,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
     page.getByRole("button", { name: "新規" }).click(),
   ]);
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
   await expect.poll(async () => {
     const current = await readState();
     return current.project !== null;
@@ -1830,8 +1828,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
 test("new work replaces only the tab draft and does not create shared Latest", async ({ page }) => {
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   const readState = async (): Promise<WebState> => page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -1855,8 +1852,7 @@ test("new work replaces only the tab draft and does not create shared Latest", a
     page.getByRole("button", { name: "新規" }).click(),
   ]);
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   await expect.poll(async () => {
     const current = await readState();
@@ -1945,8 +1941,7 @@ test("edited VREP altitude reaches the calculation request and NAV LOG", async (
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   await expect(page.locator(".route-table tbody tr.vrep-row")).toHaveCount(1);
   const routeAltitudes = page.locator(".route-table tbody tr:not(.vrep-row) .table-number-input");
@@ -2224,6 +2219,9 @@ test("mobile numeric inputs allow clear then re-entry and TGL is sent as a numbe
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
+  await importKmlCandidate(page);
+  await confirmImportedDraft(page);
+
   const fuel = page.getByLabel("FUEL gal");
   await expect(fuel).toHaveValue("90");
   await fuel.fill("");
@@ -2236,19 +2234,15 @@ test("mobile numeric inputs allow clear then re-entry and TGL is sent as a numbe
   await tgl.fill("");
   await expect(tgl).toHaveValue("");
 
-  await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("TGLは0～20の整数で入力してください。")).toBeVisible();
 
+  const updateRequest = page.waitForRequest((request) =>
+    request.url().endsWith("/api/project") && request.method() === "PUT"
+      && request.postDataJSON().tgl_count === 3);
   await tgl.fill("3");
   await expect(tgl).toHaveValue("3");
-  const confirmRequest = page.waitForRequest(
-    (request) => request.url().endsWith("/api/route/confirm")
-      && request.method() === "POST",
-  );
-  await page.getByRole("button", { name: "経路を確定" }).click();
-  const payload = (await confirmRequest).postDataJSON() as Record<string, unknown>;
+  const payload = (await updateRequest).postDataJSON() as Record<string, unknown>;
   expect(payload.tgl_count).toBe(3);
 });
 
@@ -2258,21 +2252,21 @@ test("mobile route confirmation follows the map without scrolling back", async (
   await importKmlCandidate(page);
 
   const map = page.locator("#route-map-frame");
-  const confirmation = page.getByRole("region", { name: "経路確認" });
-  const checkbox = page.getByLabel("地図とKML記載順を確認しました");
+  const confirmation = page.locator(".map-route-controls");
+  const routeList = page.getByRole("list", { name: "経路リスト" });
   const confirm = page.getByRole("button", { name: "経路を確定" });
   const mapBox = await map.boundingBox();
   const confirmationBox = await confirmation.boundingBox();
-  const checkboxBox = await checkbox.boundingBox();
+  const routeListBox = await routeList.boundingBox();
   const confirmBox = await confirm.boundingBox();
-  if (!mapBox || !confirmationBox || !checkboxBox || !confirmBox) {
+  if (!mapBox || !confirmationBox || !routeListBox || !confirmBox) {
     throw new Error("Map confirmation layout is missing");
   }
   expect(confirmationBox.y).toBeGreaterThanOrEqual(mapBox.y + mapBox.height - 1);
-  expect(checkboxBox.y).toBeLessThan(confirmBox.y);
+  expect(routeListBox.y).toBeLessThan(confirmBox.y);
   await expect(page.getByRole("separator", { name: "地図の高さを調整" })).toBeHidden();
 
-  await checkbox.check();
+  await expect(page.getByLabel("地図とKML記載順を確認しました")).toHaveCount(0);
   await confirm.click();
   await expect(confirmation).toBeHidden();
   await expect(page.getByRole("heading", { name: "チェックポイント" })).toBeVisible();
@@ -2852,13 +2846,12 @@ test("RJFM inbound guidance remains below NAV LOG at intermediate and wide width
 
 test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays editable", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(rjfmPhysicalUmkOmaruKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
   await expect(dialog).toBeHidden();
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   const rows = page.locator(".route-table tbody tr");
   await expect(page.locator(".route-table th", { hasText: "ROLE" })).toHaveCount(0);
@@ -2882,6 +2875,8 @@ test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays e
 test("desktop map height is keyboard adjustable and fixed below breakpoint", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await importKmlCandidate(page);
+  await confirmImportedDraft(page);
 
   const map = page.locator("#route-map-frame");
   const separator = page.getByRole("separator", { name: "地図の高さを調整" });
@@ -3205,25 +3200,42 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
   ).toHaveCount(0);
   await importKmlCandidate(page);
+  await confirmImportedDraft(page);
 
   await page.getByLabel("気象モード").selectOption("FTD");
   await expect(page.getByLabel("地上風向 ° FROM")).toHaveValue("360");
   await expect(page.getByLabel("地上風速 kt")).toHaveValue("15");
   await expect(page.getByLabel("5,000 ft風向 ° FROM")).toHaveValue("270");
   await expect(page.getByLabel("5,000 ft風速 kt")).toHaveValue("30");
-  const confirmRoute = page.getByRole("button", { name: "経路を確定" });
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByLabel("地上風向 ° FROM").fill("0");
-  await expect(confirmRoute).toBeDisabled();
-  await page.getByLabel("地上風向 ° FROM").fill("1.5");
-  await expect(confirmRoute).toBeDisabled();
+  const save = page.getByRole("button", { name: "保存", exact: true });
+  const invalidSubmissions: string[] = [];
+  const observeInvalidSubmission = (request: import("@playwright/test").Request) => {
+    if (request.url().endsWith("/api/projects/save") || request.url().endsWith("/api/calculation-jobs")) {
+      invalidSubmissions.push(request.url());
+    } else if (request.url().endsWith("/api/project") && request.method() === "PUT") {
+      const direction = request.postDataJSON().ftd_weather?.surface_wind?.direction_deg_from;
+      if (direction !== undefined && (!Number.isInteger(direction) || direction < 1 || direction > 360)) {
+        invalidSubmissions.push(request.url());
+      }
+    }
+  };
+  page.on("request", observeInvalidSubmission);
+  for (const invalidDirection of ["0", "1.5"]) {
+    await page.getByLabel("地上風向 ° FROM").fill(invalidDirection);
+    await save.click();
+    await expect(page.getByRole("alert")).toContainText("FTD固定気象は、地上と5,000 ftの風向・風速を範囲内で入力してください。");
+    expect(invalidSubmissions).toEqual([]);
+    await page.getByRole("button", { name: "メッセージを閉じる" }).click();
+  }
+  page.off("request", observeInvalidSubmission);
   await page.getByLabel("地上風向 ° FROM").fill("350");
   await page.getByLabel("地上風速 kt").fill("10");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("10");
   await page.getByLabel("5,000 ft風速 kt").fill("20");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("360");
-  await expect(confirmRoute).toBeEnabled();
-  await confirmRoute.click();
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
 
   const stateAfterConfirm = await page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -3705,14 +3717,13 @@ test("VOR/DME reference columns can be added, configured independently, and remo
 test("climb and descent legs show magnetic-course altitude candidates", async ({ page }) => {
   await page.goto("/");
 
-  const openPaste = page.getByRole("button", { name: "Google Earth からペースト" });
+  const openPaste = page.getByRole("button", { name: "KMLを取り込む" });
   await openPaste.click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
   await expect(dialog).toBeHidden();
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   const phaseSelects = page.getByLabel(/出発LegのPhase/);
   await page.getByRole("button", { name: "変更", exact: true }).click();
@@ -4080,7 +4091,7 @@ test("calculated mobile layout has no body overflow", async ({ page }, testInfo)
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 
   await calculateNavLog(page);
 
@@ -4099,7 +4110,7 @@ test("calculated mobile layout has no body overflow", async ({ page }, testInfo)
 test("KMZ document selection modal moves and traps focus", async ({ page }) => {
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await page.locator("#route-file").setInputFiles({
     name: "multiple.kmz",
     mimeType: "application/vnd.google-earth.kmz",
@@ -4120,142 +4131,72 @@ test("KMZ document selection modal moves and traps focus", async ({ page }) => {
 });
 
 test("grouped LineStrings require an explicit route candidate selection", async ({ page }) => {
-  await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
-
-  await importKmlCandidate(page);
-  const candidateSelect = page.getByLabel("飛行経路候補");
-  const departureSelect = page.getByLabel("FROM", { exact: true });
-  await expect(departureSelect).toHaveAttribute("readonly", "");
-  await expect(page.getByLabel("TO", { exact: true })).toHaveAttribute("readonly", "");
-  await expect(candidateSelect).toHaveValue("line:0");
-  await expect(page.locator(".candidate-control")).not.toHaveClass(/is-required/);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-
-  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
-  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
-  await dialog.getByRole("textbox").fill(twoConnectedRouteCandidatesKml);
-  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
-  await expect(dialog).toBeHidden();
-
-  await expect(candidateSelect).toHaveValue("");
-  const candidateControl = page.locator(".candidate-control");
-  await expect(candidateControl).toHaveClass(/is-required/);
-  await expect(candidateControl.getByText("経路選択", { exact: true })).toBeVisible();
-  await expect(candidateControl.getByText("選択必須", { exact: true })).toBeVisible();
-  await expect(candidateControl).toContainText("使用する飛行経路を選択してください。");
-  await expect(candidateSelect).toHaveAttribute("required", "");
-  await expect(candidateSelect).toHaveAttribute("aria-invalid", "true");
-  const intermediateCandidateBoxes = await Promise.all([
-    candidateControl.boundingBox(),
-    candidateSelect.boundingBox(),
-  ]);
-  if (!intermediateCandidateBoxes[0] || !intermediateCandidateBoxes[1]) {
-    throw new Error("Required route selection is missing at intermediate width");
+  await page.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
+  const paste = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await paste.getByRole("textbox").fill(twoConnectedRouteCandidatesKml);
+  await paste.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(paste).toBeHidden();
+  const chooser = page.getByRole("dialog", { name: "経路選択", exact: true });
+  const select = chooser.getByRole("combobox");
+  const adopt = chooser.getByRole("button", { name: "KMLを取り込む", exact: true });
+  await expect(select).toHaveValue("");
+  await expect(adopt).toBeDisabled();
+  await expect(select.locator("option")).toHaveCount(3);
+  await expect(select.locator("option").first()).toHaveText("経路を選択してください");
+  await expect(select.locator("option").nth(1)).toContainText("4点");
+  await expect(select.locator("option").nth(2)).toContainText("3点");
+  for (const width of [1100, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const container = await chooser.boundingBox();
+    const field = await select.boundingBox();
+    if (!container || !field) throw new Error("Required route selection is missing");
+    expect(field.x + field.width).toBeLessThanOrEqual(container.x + container.width + 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
   }
-  expect(
-    intermediateCandidateBoxes[1].x + intermediateCandidateBoxes[1].width,
-  ).toBeLessThanOrEqual(
-    intermediateCandidateBoxes[0].x + intermediateCandidateBoxes[0].width + 1,
-  );
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
-  ).toBeLessThanOrEqual(1);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(candidateControl).toBeVisible();
-  const wideCandidateBoxes = await Promise.all([
-    candidateControl.boundingBox(),
-    candidateSelect.boundingBox(),
-  ]);
-  if (!wideCandidateBoxes[0] || !wideCandidateBoxes[1]) {
-    throw new Error("Required route selection is missing at wide width");
-  }
-  expect(wideCandidateBoxes[1].x + wideCandidateBoxes[1].width).toBeLessThanOrEqual(
-    wideCandidateBoxes[0].x + wideCandidateBoxes[0].width + 1,
-  );
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
-  ).toBeLessThanOrEqual(1);
-  await expect(candidateSelect.locator("option")).toHaveCount(3);
-  await expect(candidateSelect.locator("option").nth(0)).toHaveText("経路を選択");
-  await expect(candidateSelect.locator("option").nth(1)).toHaveText(
-    /^RJFM→RJFO① · 3 Leg · \d+(?:\.\d+)? NM$/,
-  );
-  await expect(candidateSelect.locator("option").nth(2)).toHaveText(
-    /^RJFO→RJFM① · 2 Leg · \d+(?:\.\d+)? NM$/,
-  );
-  await expect(departureSelect).toHaveValue("");
-  await expect(page.getByLabel("TO")).toHaveValue("");
-  await expect(page.getByText("飛行経路候補を選択すると地図へ表示します")).toBeVisible();
-  await expect(page.locator(".leaflet-overlay-pane path.leaflet-interactive")).toHaveCount(0);
-  await expect(page.getByLabel("経路確認")).toHaveCount(0);
-
-  await candidateSelect.selectOption("connected_lines:0");
-  await expect(candidateControl).not.toHaveClass(/is-required/);
-  await expect(candidateControl.getByText("選択必須", { exact: true })).toHaveCount(0);
-  await expect(candidateSelect).toHaveAttribute("aria-invalid", "false");
-  await expect(departureSelect).toHaveValue(/^RJFM\b/);
-  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
-  const routeWorkspace = page.getByLabel("経路地図とLeg設定");
-  await expect(routeWorkspace.getByText("RJFM→RJFO①", { exact: true })).toBeVisible();
-  await expect(routeWorkspace.getByText("4点の形状を確認中", { exact: true })).toBeVisible();
-  await expect(page.locator(".leaflet-overlay-pane path.leaflet-interactive")).toHaveCount(1);
-
-  const routeConfirmation = page.getByLabel("経路確認");
-  const routeUseConfirmed = routeConfirmation.getByLabel("地図とKML記載順を確認しました");
-  await routeUseConfirmed.check();
-  await expect(routeUseConfirmed).toBeChecked();
-
-  await candidateSelect.selectOption("");
-  await expect(candidateControl).toHaveClass(/is-required/);
-  await expect(candidateControl.getByText("選択必須", { exact: true })).toBeVisible();
-  await expect(departureSelect).toHaveValue("");
-  await expect(page.getByLabel("TO")).toHaveValue("");
-  await expect(page.getByText("飛行経路候補を選択すると地図へ表示します")).toBeVisible();
-  await expect(page.getByLabel("経路確認")).toHaveCount(0);
-  await candidateSelect.selectOption("connected_lines:1");
-  await expect(routeUseConfirmed).not.toBeChecked();
-  await expect(departureSelect).toHaveValue(/^RJFO\b/);
-  await expect(page.getByLabel("TO")).toHaveValue(/RJFM/);
-  await expect(routeWorkspace.getByText("RJFO→RJFM①", { exact: true })).toBeVisible();
-
-  await routeUseConfirmed.check();
-  const confirmRequest = page.waitForRequest(
-    (request) => request.url().endsWith("/api/route/confirm") && request.method() === "POST",
-  );
-  await routeConfirmation.getByRole("button", { name: "経路を確定" }).click();
-  const confirmPayload = (await confirmRequest).postDataJSON() as Record<string, unknown>;
-  expect(confirmPayload).toMatchObject({
-    candidate_kind: "connected_lines",
-    candidate_index: 1,
-    route_use_confirmed: true,
-    polygon_route_confirmed: false,
-  });
-  await expect(routeWorkspace.getByText("RJFO → RJFM", { exact: true })).toBeVisible();
+  await select.selectOption("connected_lines:0");
+  await expect(adopt).toBeEnabled();
+  await select.selectOption("");
+  await expect(adopt).toBeDisabled();
+  await select.selectOption("connected_lines:1");
+  await adopt.click();
+  await expect(chooser).toBeHidden();
+  const strip = page.getByRole("list", { name: "経路リスト" });
+  await expect(strip.locator("li")).toHaveCount(3);
+  await expect(strip.locator("li").first()).toContainText("RJFO");
+  await expect(strip.locator("li").last()).toContainText("RJFM");
+  await expect(page.getByLabel("DATE", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("地図とKML記載順を確認しました")).toHaveCount(0);
+  const confirmed = page.waitForRequest(request => request.url().endsWith("/api/route/confirm") && request.method() === "POST");
+  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  const payload = (await confirmed).postDataJSON();
+  expect(payload).toMatchObject({ candidate_kind: "map", route_use_confirmed: true });
+  expect(payload.map_points).toHaveLength(3);
+  await expect(page.getByLabel("FROM", { exact: true })).toHaveValue(/^RJFO\b/);
+  await expect(page.getByLabel("TO", { exact: true })).toHaveValue(/RJFM/);
 });
 
 test("same-named grouped routes remain distinguishable in the selector", async ({ page }) => {
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(sameNamedConnectedRouteCandidatesKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
   await expect(dialog).toBeHidden();
 
-  const candidateSelect = page.getByLabel("飛行経路候補");
+  const candidateSelect = page.getByRole("dialog", { name: "経路選択", exact: true }).getByRole("combobox");
   await expect(candidateSelect).toHaveValue("");
   const options = candidateSelect.locator("option");
   await expect(options).toHaveCount(3);
   await expect(options.nth(1)).toContainText(
-    "Duplicate routes / Outbound / Route（候補1） · 2 Leg",
+    "Duplicate routes / Outbound / Route · 3点",
   );
   await expect(options.nth(2)).toContainText(
-    "Duplicate routes / Inbound / Route（候補2） · 2 Leg",
+    "Duplicate routes / Inbound / Route · 3点",
   );
   expect(await options.nth(1).textContent()).not.toBe(await options.nth(2).textContent());
 });
@@ -4263,70 +4204,60 @@ test("same-named grouped routes remain distinguishable in the selector", async (
 test("file picker, drop, and KMZ use the same grouped-route candidate flow", async ({ page }) => {
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
-
-  const candidateSelect = page.getByLabel("飛行経路候補");
-  const groupedRouteFile = {
-    name: "grouped-routes.kml",
-    mimeType: "application/vnd.google-earth.kml+xml",
-    buffer: Buffer.from(twoConnectedRouteCandidatesKml),
-  };
-  await page.locator("#route-file").setInputFiles(groupedRouteFile);
-  await expect(page.locator("#route-file")).toBeEnabled();
-  await expect(page.locator(".imported-file")).toContainText("grouped-routes.kml");
-  await expect(candidateSelect).toHaveValue("");
-  await expect(candidateSelect.locator("option")).toHaveCount(3);
-
-  await candidateSelect.selectOption("connected_lines:0");
-  await expect(page.getByLabel("FROM")).toHaveValue(/^RJFM\b/);
-  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
-
-  const dataTransfer = await page.evaluateHandle((kmlText) => {
-    const transfer = new DataTransfer();
-    transfer.items.add(new File(
-      [kmlText],
-      "dropped-grouped-routes.kml",
-      { type: "application/vnd.google-earth.kml+xml" },
-    ));
-    return transfer;
-  }, twoConnectedRouteCandidatesKml);
-  await page.locator(".drop-zone").dispatchEvent("drop", { dataTransfer });
-  await dataTransfer.dispose();
-  await expect(page.locator("#route-file")).toBeEnabled();
-  await expect(page.locator(".imported-file")).toContainText("dropped-grouped-routes.kml");
-
-  await expect(candidateSelect).toHaveValue("");
-  await expect(candidateSelect.locator("option")).toHaveCount(3);
-  await expect(page.getByLabel("FROM")).toHaveValue("");
-  await expect(page.getByLabel("TO")).toHaveValue("");
-
-  await page.locator("#route-file").setInputFiles({
-    name: "grouped-routes.kmz",
-    mimeType: "application/vnd.google-earth.kmz",
-    buffer: twoConnectedRouteCandidatesKmz,
-  });
-  await expect(page.locator("#route-file")).toBeEnabled();
-  await expect(page.locator(".imported-file")).toContainText("grouped-routes.kmz");
-  await expect(candidateSelect).toHaveValue("");
-  await expect(candidateSelect.locator("option")).toHaveCount(3);
-  await expect(candidateSelect.locator("option").nth(1)).toContainText(
-    "RJFM→RJFO① · 3 Leg",
-  );
+  page.on("dialog", dialog => { void dialog.accept(); });
+  const chooser = page.getByRole("dialog", { name: "経路選択", exact: true });
+  const candidateSelect = chooser.getByRole("combobox");
+  const strip = page.getByRole("list", { name: "経路リスト" });
+  let expectedDraft: unknown;
+  for (const transport of ["picker", "drop", "kmz"]) {
+    if (transport === "drop") {
+      const dataTransfer = await page.evaluateHandle(kmlText => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([kmlText], "dropped-grouped-routes.kml", { type: "application/vnd.google-earth.kml+xml" }));
+        return transfer;
+      }, twoConnectedRouteCandidatesKml);
+      await page.locator(".drop-zone").dispatchEvent("drop", { dataTransfer });
+      await dataTransfer.dispose();
+    } else {
+      await page.locator("#route-file").setInputFiles({
+        name: transport === "kmz" ? "grouped-routes.kmz" : "grouped-routes.kml",
+        mimeType: transport === "kmz" ? "application/vnd.google-earth.kmz" : "application/vnd.google-earth.kml+xml",
+        buffer: transport === "kmz" ? twoConnectedRouteCandidatesKmz : Buffer.from(twoConnectedRouteCandidatesKml),
+      });
+    }
+    await expect(chooser).toBeVisible();
+    await expect(candidateSelect).toHaveValue("");
+    await expect(candidateSelect.locator("option")).toHaveCount(3);
+    await expect(candidateSelect.locator("option").nth(1)).toContainText("4点");
+    await candidateSelect.selectOption("connected_lines:0");
+    await chooser.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
+    await expect(chooser).toBeHidden();
+    await expect(strip.locator("li")).toHaveCount(4);
+    await expect(strip.locator("li").first()).toContainText("RJFM");
+    await expect(strip.locator("li").last()).toContainText("RJFO");
+    await expect(page.locator("#route-file")).toBeEnabled();
+    const draft = await page.evaluate(() => JSON.parse(sessionStorage.getItem("autonavlog.working-session.v1")!).mapRouteDraft);
+    if (expectedDraft) expect(draft).toEqual(expectedDraft);
+    expectedDraft = draft;
+  }
+  await confirmImportedDraft(page);
+  await expect(page.getByLabel("FROM", { exact: true })).toHaveValue(/^RJFM\b/);
+  await expect(page.getByLabel("TO", { exact: true })).toHaveValue(/RJFO/);
 });
 
 test("KML endpoints automatically determine read-only FROM and TO", async ({ page }) => {
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kmlFromRjfk);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
   await expect(dialog).toBeHidden();
 
+  await confirmImportedDraft(page);
   const departure = page.getByLabel("FROM");
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await expect(departure).toHaveValue(/^RJFK\b/);
   await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
   await expect(departure).toHaveAttribute("readonly", "");
@@ -4336,6 +4267,7 @@ test("KML endpoints automatically determine read-only FROM and TO", async ({ pag
 test("RUN UP, nose fairing, and A/C choices persist after save and reload", async ({ page }) => {
   await page.goto("/");
   await importKmlCandidate(page);
+  await confirmImportedDraft(page);
 
   const runUp = page.getByLabel("RUN UP あり");
   const noseFairing = page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)");
@@ -4362,8 +4294,8 @@ test("RUN UP, nose fairing, and A/C choices persist after save and reload", asyn
   await runUp.uncheck();
   await noseFairing.check();
   await airConditioning.uncheck();
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
 
   const state = await page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -4496,27 +4428,23 @@ test("500 and 1000 fpm descent rates recalculate, render, and persist", async ({
 
 test("Issue 129 preserves one imported 小丸 route node after browser confirmation and reload", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(issue129OmaruPointKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
   await expect(dialog).toBeHidden();
-  await page.getByLabel("飛行経路候補").selectOption("");
-  await page.getByLabel("飛行経路候補").selectOption("connected_lines:0");
-  await expect(page.getByLabel("FROM")).toHaveValue(/RJFM/);
-  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await expectImportedDraft(page, "connected_lines:0");
+  await confirmImportedDraft(page);
 
   const state = await page.evaluate(async () => {
     const response = await fetch("/api/state");
     return await response.json() as WebState;
   });
-  expect(state.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "小丸", "RJFO"]);
+  expect(state.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "OMARU", "RJFO"]);
   const omaru = state.project?.route_nodes[2];
   expect(omaru).toMatchObject({
-    name: "小丸",
-    name_source: "IMPORTED",
+    name: "OMARU",
+    name_source: "GENERATED",
     latitude_deg: 32.16255070087476,
     longitude_deg: 131.47036916946163,
   });
@@ -4528,7 +4456,7 @@ test("Issue 129 preserves one imported 小丸 route node after browser confirmat
     const response = await fetch("/api/state");
     return await response.json() as WebState;
   });
-  expect(restored.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "小丸", "RJFO"]);
+  expect(restored.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "OMARU", "RJFO"]);
 });
 
 test("Japanese TAF states distinguish missing data from failed acquisition without changing navigation", async ({ page }, testInfo) => {
@@ -4589,7 +4517,7 @@ test("Japanese startup and import errors preserve retry and editable input", asy
   await expect(page.getByRole("alert")).toContainText("サーバーに接続できませんでした。再試行してください。");
   await page.getByRole("button", { name: "起動を再試行" }).click();
   await expect(page.getByRole("button", { name: "新規", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "Google Earth からペースト", exact: true }).click();
+  await page.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill("not a KML document");
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
@@ -4598,5 +4526,5 @@ test("Japanese startup and import errors preserve retry and editable input", asy
   await dialog.getByRole("textbox").fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await expectImportedDraft(page);
 });

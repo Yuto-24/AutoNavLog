@@ -22,6 +22,7 @@ const candidateIcons = {
   vrep: { unselected: candidateIcon("vrep", false), selected: candidateIcon("vrep", true) },
 };
 export interface MapRouteBuilderProps {
+  importFitCoordinates?: [number, number][] | null;
   points: MapRoutePoint[];
   airports: AirportOption[];
   busy: boolean;

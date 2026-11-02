@@ -203,6 +203,22 @@ test("session decoding preserves invalid text and rejects incompatible UI shapes
   for (const departureOrigin of [null, 0, "UNKNOWN"]) {
     expect(() => decodeSession(JSON.stringify({ ...session, form: { ...session.form, departureOrigin } }))).toThrow();
   }
+  const importing = { ...session, pendingImportDraft: true, selectedImportCandidate: "line:1" };
+  expect(decodeSession(JSON.stringify(importing))).toEqual(importing);
+  expect(() => decodeSession(JSON.stringify({ ...importing, pendingImportDraft: "true" }))).toThrow();
+  expect(() => decodeSession(JSON.stringify({ ...importing, selectedImportCandidate: 1 }))).toThrow();
+  expect(() => decodeSession(JSON.stringify({ ...importing, working: { ...session.working, project: { id: "x" } } }))).toThrow();
+
+  const editing = { ...session, working: { ...session.working, project: { id: "project" } },
+    editingRouteProjectId: "project", mapRouteDraft: [{ id: "node", original_node_id: "node", name: "RJFM",
+      latitude_deg: 31, longitude_deg: 131, airport_id: "RJFM" }] };
+  expect(decodeSession(JSON.stringify(editing))).toEqual(editing);
+  const longNameEditing = { ...editing, mapRouteDraft: editing.mapRouteDraft.map(point =>
+    ({ ...point, name: "既存".repeat(100) })) };
+  expect(decodeSession(JSON.stringify(longNameEditing))).toEqual(longNameEditing);
+  expect(() => decodeSession(JSON.stringify({ ...editing, editingRouteProjectId: "other" }))).toThrow();
+  expect(() => decodeSession(JSON.stringify({ ...editing, editingRouteProjectId: null }))).toThrow();
+  expect(decodeSession(JSON.stringify({ ...editing, mapRouteDraft: [] })).editingRouteProjectId).toBe("project");
   for (const malformed of [
     { ...session, version: 99 }, { ...session, form: {} },
     { ...session, navLogDrafts: { a: null } }, { ...session, pendingKmz: {} },
@@ -406,4 +422,30 @@ test("Legacy transparent session renewal retains ON without persisting a prefere
   expect(calls[3]!.path).toBe("/api/application-session?rounding_mode=true");
   expect(JSON.parse(String(calls[3]!.options!.body))).toEqual(rounded.workingRecovery);
   expect(calls[2]!.options!.body).toBe(calls[4]!.options!.body);
+});
+
+
+test("explicit Local Save adopts the same working Project without a recovery bootstrap", async () => {
+  let working: any = { version: 1, project: { id: "forecast", revision: 0, name: "Forecast", metadata: {} },
+    last_calculation: { retained: true } };
+  let stored: any;
+  const operations: string[] = [];
+  const repository = {
+    list: async () => ({ projects: [], unavailable: [] }),
+    read: async () => stored,
+    write: async (record: any) => { stored = structuredClone(record); },
+  } as unknown as LocalProjectRepository;
+  const app = new LocalApplication(() => repository, () => ({
+    request: async <T>(operation: string, input?: any) => {
+      operations.push(operation);
+      if (operation === "adoptSavedProject") working = input.working;
+      if (operation === "bootstrap") working = input;
+      return structuredClone({ ...state, project: working.project, workingRecovery: working }) as T;
+    }, dispose() {},
+  }));
+  const saved = await app.saveProject("Saved forecast");
+  expect(operations).toEqual(["state", "adoptSavedProject"]);
+  expect(saved.project?.name).toBe("Saved forecast");
+  expect(saved.project?.revision).toBe(1);
+  expect(saved.workingRecovery?.last_calculation).toEqual({ retained: true });
 });

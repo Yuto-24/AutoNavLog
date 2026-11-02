@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 import { observeLegacySession } from "./helpers/legacySession";
 
 const local = () => test.info().config.metadata.applicationMode === "local";
@@ -32,11 +32,8 @@ test.beforeEach(async ({ page, context }) => {
   await expect(page).toHaveTitle(/NavMate/);
   await enterImportWorkflow(page);
   await page.locator('input[type="file"]').setInputFiles({ name: "checkpoint.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(kml) });
-  await expect(page.locator('input[type="file"]')).toBeEnabled();
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await confirmImportedDraft(page);
   await page.getByLabel("気象モード").selectOption("FTD");
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   await openEditor(page);
 });
 

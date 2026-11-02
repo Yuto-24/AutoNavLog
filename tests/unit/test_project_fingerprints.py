@@ -212,3 +212,64 @@ def test_adopted_departure_vor_and_provenance_are_calculation_inputs(
     assert fingerprint(airport) != fingerprint(vor)
     assert fingerprint(vor) != fingerprint(revised)
     assert fingerprint(airport.model_copy(update={"departure_vor": None})) == fingerprint(airport)
+
+
+def test_forecast_selection_key_excludes_pin_and_save_bookkeeping(project):
+    from autonavlog.application.project_fingerprints import forecast_selection_fingerprint
+
+    baseline = forecast_selection_fingerprint(project)
+    project.selected_forecast_run_id = "20260728060000"
+    project.name = "Saved plan"
+    project.revision += 1
+    project.acknowledged_warning_codes.add("FORECAST_UPDATE_AVAILABLE")
+    project.metadata["ui_state"] = {
+        "calculated_against_fingerprint": "saved",
+        "defaults_review_fingerprint": "acknowledged",
+    }
+    assert forecast_selection_fingerprint(project) == baseline
+
+
+@pytest.mark.parametrize("change", [
+    lambda p: setattr(p, "planned_departure_time_jst",
+                      p.planned_departure_time_jst.replace(minute=10)),
+    lambda p: setattr(p, "flight_date", p.flight_date.replace(day=28)),
+    lambda p: setattr(p, "departure_airport_id", "RJFK"),
+    lambda p: setattr(p, "destination_airport_id", "RJFK"),
+    lambda p: setattr(p.route_nodes[1], "latitude_deg", 32.5),
+    lambda p: setattr(p.route_nodes[1], "manual_distance_nm", 20),
+    lambda p: setattr(p.sections[0], "planned_altitude_ft_msl", 5500),
+    lambda p: setattr(p.sections[0], "phase", FlightPhase.CRUISE),
+    lambda p: setattr(p.sections[0], "manual_tas_kt_by_phase", {FlightPhase.CLIMB: 120}),
+    lambda p: setattr(p.sections[0], "manual_temperature_c", 12),
+    lambda p: setattr(p, "tgl_count", 2),
+    lambda p: setattr(p, "descent_rate_fpm", 1000),
+    lambda p: p.metadata.update(ui_state={"arrival_plan": {
+        "visual_reporting_point_node_id": str(p.route_nodes[-2].id),
+    }}),
+])
+def test_forecast_selection_key_tracks_requirement_inputs(project, change):
+    from autonavlog.application.project_fingerprints import forecast_selection_fingerprint
+
+    baseline = forecast_selection_fingerprint(project)
+    change(project)
+    assert forecast_selection_fingerprint(project) != baseline
+
+
+def test_forecast_refresh_key_tracks_adopted_departure_vor_provenance(project):
+    from autonavlog.application.project_fingerprints import forecast_selection_fingerprint
+    from autonavlog.domain.airport_vor import AIRPORT_VORS
+
+    baseline = forecast_selection_fingerprint(project)
+    project.metadata["ui_state"] = {"departure_vor": AIRPORT_VORS["RJFM"].model_dump(mode="json")}
+    adopted = forecast_selection_fingerprint(project)
+    assert adopted != baseline
+    project.metadata["ui_state"]["departure_vor"]["source_revision"] = "new verified edition"
+    assert forecast_selection_fingerprint(project) != adopted
+
+
+def test_forecast_selection_key_tracks_session_rounding_mode(project):
+    from autonavlog.application.project_fingerprints import forecast_selection_fingerprint
+
+    assert forecast_selection_fingerprint(project, rounding_mode=True) != (
+        forecast_selection_fingerprint(project, rounding_mode=False)
+    )

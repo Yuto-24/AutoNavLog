@@ -17,9 +17,9 @@ def command_runner(tmp_path):
     binary.chmod(0o755)
     calls = tmp_path / "calls"
 
-    def run(suite, fail=""):
+    def run(suite, fail="", script="run_account_sync_suite.sh"):
         result = subprocess.run(
-            ["sh", str(ROOT / "scripts/run_account_sync_suite.sh"), *suite],
+            ["sh", str(ROOT / "scripts" / script), *suite],
             env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
                  "CALLS": str(calls), "FAIL_COMMAND": fail},
             capture_output=True, text=True, timeout=5,
@@ -67,3 +67,40 @@ def test_workflow_requires_every_isolated_runner_and_complete_selection():
     assert '"sh scripts/run_account_sync_suite.sh $SUITE"' in block
     assert "node web/scripts/check-account-sync-partition.mjs" in block
     assert "name: account-sync-${{ matrix.suite }}-failure" in block
+
+
+@pytest.mark.parametrize(("suite", "engines"), [
+    ("chromium", "chromium"),
+    ("ipad-webkit", "webkit"),
+    ("iphone-webkit", "webkit"),
+    ("contracts", "chromium webkit"),
+])
+def test_browser_install_matches_suite(command_runner, suite, engines):
+    result, calls = command_runner([suite], script="install_account_sync_browsers.sh")
+    assert result.returncode == 0
+    assert calls == [f"--prefix web exec -- playwright install --with-deps {engines}"]
+
+
+@pytest.mark.parametrize("suite", [[], ["unknown"], ["chromium; true"]])
+def test_browser_install_rejects_unknown_suite(command_runner, suite):
+    result, calls = command_runner(suite, script="install_account_sync_browsers.sh")
+    assert result.returncode == 2
+    assert calls == []
+
+
+def test_browser_install_failure_is_not_ignored(command_runner):
+    result, _ = command_runner(
+        ["chromium"], "--prefix web exec -- playwright install --with-deps chromium",
+        script="install_account_sync_browsers.sh",
+    )
+    assert result.returncode != 0
+
+
+def test_workflow_installs_only_suite_browsers_without_changing_local_runner():
+    source = (ROOT / ".github/workflows/test.yml").read_text()
+    sync = source.split("  account-sync-tests:\n")[1].split("  account-sync:\n")[0]
+    assert 'run: sh scripts/install_account_sync_browsers.sh "$SUITE"' in sync
+    assert "SUITE: ${{ matrix.suite }}" in sync
+    assert "playwright install --with-deps chromium webkit" not in sync
+    local = source.split("  local-browser-tests:\n")[1].split("  local-browser:\n")[0]
+    assert "playwright install --with-deps chromium webkit" in local

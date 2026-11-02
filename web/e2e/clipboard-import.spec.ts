@@ -1,3 +1,4 @@
+import { expectImportedDraft, confirmImportedDraft } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { disableClipboardRead } from "./helpers/clipboard";
 
@@ -5,7 +6,7 @@ const kml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>RJFM-RJFO</name><LineString><coordinates>
 131.4486111111,31.8772222222,0 131.5000000000,32.4000000000,0 131.6500000000,33.1000000000,0 131.7372222222,33.4794444444,0
 </coordinates></LineString></Placemark></Document></kml>`;
-const pasteButton = (page: Page) => page.getByRole("button", { name: "Google Earth からペースト", exact: true });
+const pasteButton = (page: Page) => page.getByRole("button", { name: "KMLを取り込む", exact: true });
 const pasteDialog = (page: Page) => page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
 
 async function clipboardText(page: Page, text: string) {
@@ -26,9 +27,9 @@ function importedBodies(page: Page) {
 }
 
 async function expectCandidates(page: Page) {
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-  await expect(page.getByLabel("地図とKML記載順を確認しました")).not.toBeChecked();
-  await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeDisabled();
+  await expectImportedDraft(page);
+  await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeEnabled();
+  expect(await page.getByLabel("DATE", { exact: true }).count()).toBe(0);
   await expect(page.locator(".route-workspace .leaflet-container")).toBeVisible();
   await expect(pasteDialog(page)).toBeHidden();
 }
@@ -89,18 +90,24 @@ for (const mode of ["denied", "unsupported", "empty", "whitespace", "exception"]
   });
 }
 
-test("read failures preserve a cancelled manual draft and restore button focus", async ({ page }) => {
+test("explicit editing preserves a cancelled draft; a new failed read clears it and restores button focus", async ({ page }) => {
   await disableClipboardRead(page);
   await page.goto("/");
   await pasteButton(page).click();
   await pasteDialog(page).getByRole("textbox").fill("unfinished KML draft");
   await pasteDialog(page).getByRole("button", { name: "キャンセル" }).click();
   await expect(pasteButton(page)).toBeFocused();
-  await pasteButton(page).click();
+  await page.getByRole("button", { name: "貼り付けたKMLの編集を続ける" }).click();
   await expect(pasteDialog(page).getByRole("textbox")).toHaveValue("unfinished KML draft");
   await page.keyboard.press("Escape");
   await expect(pasteDialog(page)).toBeHidden();
   await expect(pasteButton(page)).toBeEnabled();
+  await pasteButton(page).click();
+  await expect(pasteDialog(page).getByRole("textbox")).toHaveValue("");
+  await expect(pasteDialog(page).getByRole("button", { name: "貼付KMLを読み込む" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(pasteDialog(page)).toBeHidden();
+  await expect(pasteButton(page)).toBeFocused();
 });
 
 for (const failure of ["invalid KML", "server error"] as const) {
@@ -172,6 +179,13 @@ for (const width of [390, 1100, 1440]) {
     await dialog.getByRole("textbox").fill(kml);
     await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
     await expectCandidates(page);
+    const draftRegions = await Promise.all([".input-rail", ".route-workspace"]
+      .map(selector => page.locator(selector).boundingBox()));
+    expect(draftRegions.every(Boolean)).toBe(true);
+    if (width <= 1240) expect(draftRegions[1]!.y).toBeGreaterThanOrEqual(draftRegions[0]!.y + draftRegions[0]!.height - 1);
+    else expect(draftRegions[1]!.x).toBeGreaterThanOrEqual(draftRegions[0]!.x + draftRegions[0]!.width - 1);
+    await expect(page.locator(".status-rail")).toHaveCount(0);
+    await confirmImportedDraft(page);
     const regions = await Promise.all([".input-rail", ".route-workspace", ".status-rail"].map((selector) => page.locator(selector).boundingBox()));
     expect(regions.every(Boolean)).toBeTruthy();
     for (let index = 1; index < regions.length; index += 1) {
