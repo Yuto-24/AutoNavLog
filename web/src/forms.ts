@@ -1,4 +1,3 @@
-import { localMode } from "./executionMode";
 import type {
   AirportOption,
   FtdWeatherSettings,
@@ -11,6 +10,7 @@ export interface PlanningForm {
   departureTimeJst: string;
   departureAirportId: string;
   departureOrigin: "AIRPORT" | "VOR";
+  departureOriginExplicit: boolean;
   destinationAirportId: string;
   destinationPatternAltitudeFtMsl: string;
   totalUsableFuelGal: string;
@@ -59,6 +59,11 @@ export function destinationAirportForCandidate(
 
 export function variationForDeparture(airport: AirportOption | undefined): number {
   return airport && airport.latitudeDeg < 32 ? 7 : 8;
+}
+
+export function departureOriginForAirport(form: PlanningForm, airportId: string): PlanningForm["departureOrigin"] {
+  if (form.departureOriginExplicit || !airportId) return form.departureOrigin;
+  return airportId === "RJFM" ? "AIRPORT" : "VOR";
 }
 
 function tomorrowIso(): string {
@@ -167,7 +172,8 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     flightDate: tomorrowIso(),
     departureTimeJst: "09:00",
     departureAirportId: departure?.id ?? "",
-    departureOrigin: "AIRPORT",
+    departureOrigin: departure?.id && departure.id !== "RJFM" ? "VOR" : "AIRPORT",
+    departureOriginExplicit: false,
     destinationAirportId: "",
     destinationPatternAltitudeFtMsl: "",
     totalUsableFuelGal: "90",
@@ -182,7 +188,7 @@ export function initialPlanningForm(airports: AirportOption[] = []): PlanningFor
     routeUseConfirmed: false,
     polygonRouteConfirmed: false,
     usePenultimateAsVrep: true,
-    weatherMode: localMode ? "FTD" : "FORECAST",
+    weatherMode: "FORECAST",
     ftdSurfaceWindDirection: "360",
     ftdSurfaceWindSpeed: "15",
     ftdWind5000Direction: "270",
@@ -205,6 +211,7 @@ export function formFromProject(
     departureTimeJst: project.planned_departure_time_jst.slice(11, 16),
     departureAirportId: project.departure_airport_id,
     departureOrigin: project.metadata.ui_state?.departure_vor ? "VOR" : "AIRPORT",
+    departureOriginExplicit: true,
     destinationAirportId: project.destination_airport_id,
     destinationPatternAltitudeFtMsl: String(
       arrival?.selected_pattern_altitude_ft_msl ??

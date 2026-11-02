@@ -67,6 +67,7 @@ function MapAttributionLayout() {
 
 interface RouteWorkspaceProps {
   mapBuilder?: MapRouteBuilderProps;
+  onEditRoute?: () => void;
   viewportStorage: KeyValueStorage;
   viewportScope: string;
   preserveRouteViewport: boolean;
@@ -204,7 +205,7 @@ function CheckPointMapPicker({
 }
 
 export function RouteWorkspace({
-  mapBuilder, viewportStorage, viewportScope, preserveRouteViewport,
+  mapBuilder, onEditRoute, viewportStorage, viewportScope, preserveRouteViewport,
   onOpenExternalUrl,
   checkPointDraft, setCheckPointDraft, nodeNameDraft: nodeDraft, setNodeNameDraft: setNodeDraft,
   candidate,
@@ -554,6 +555,7 @@ export function RouteWorkspace({
               : mapBuilder ? "地図で経路を作成" : candidate?.name ?? "飛行経路候補を選択すると地図へ表示します"}
           </p>
         </div>
+        {onEditRoute && <button className="secondary-button" disabled={busy} onClick={onEditRoute}>経路を編集</button>}
         {project && <span className="route-count">{nodes.length}点 / {sections.length} Leg</span>}
       </div>
       <div
@@ -600,12 +602,12 @@ export function RouteWorkspace({
                 <Tooltip sticky>
                   <span>
                     宮崎特別管制区（PCA）水平境界 / 原告示高度
-                    {" "}{rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
-                    –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m
+                    {" "}約{Math.round(rjfmMapReference.pca.sourceAltitudeLowerM / 0.3048).toLocaleString("ja-JP")}
+                    –{Math.round(rjfmMapReference.pca.sourceAltitudeUpperM / 0.3048).toLocaleString("ja-JP")} ft（{rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
+                    –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m）
                     <br />
                     運用判定 {rjfmMapReference.pca.operationalAltitudeLowerFtMsl.toLocaleString("ja-JP")}
-                    –{rjfmMapReference.pca.operationalAltitudeUpperFtMsl.toLocaleString("ja-JP")} ft MSL
-                    （利用者承認値）
+                    –{rjfmMapReference.pca.operationalAltitudeUpperFtMsl.toLocaleString("ja-JP")} ft MSL（利用者承認値）
                   </span>
                 </Tooltip>
               </Polygon>
@@ -660,7 +662,7 @@ export function RouteWorkspace({
               }}
             />
           ))}
-          {coordinates.length >= 2 && (
+          {!mapBuilder && coordinates.length >= 2 && (
             <Polyline positions={coordinates} pathOptions={{ color: "#173b5e", weight: 4 }} />
           )}
           {rjfmGuidance && rjfmGuidance.center_route.length >= 2 && (
@@ -714,7 +716,7 @@ export function RouteWorkspace({
               </Tooltip>
             </CircleMarker>
           ))}
-          {nodes.map((node, index) => {
+          {!mapBuilder && nodes.map((node, index) => {
             const isVrep = node.role === "VISUAL_REPORTING_POINT" || node.reference_snapshot?.kind === "VISUAL_REPORTING_POINT";
             const isAirport = node.role === "AIRPORT" || node.role === "DESTINATION";
             return (
@@ -816,7 +818,7 @@ export function RouteWorkspace({
             </CircleMarker>
           )}
           {mapBuilder && <MapDraftLayers {...mapBuilder} />}
-          <MapViewport storage={viewportStorage} scope={viewportScope} projectId={project?.id ?? null} coordinates={fitCoordinates} preserveViewport={preserveRouteViewport} />
+          <MapViewport storage={viewportStorage} scope={viewportScope} projectId={project?.id ?? null} coordinates={fitCoordinates} preserveViewport={preserveRouteViewport} importFitCoordinates={mapBuilder?.importFitCoordinates} />
           <CheckPointMapPicker active={!mapBuilder && pickingCheckPoint} onPick={handleMapPick} />
           {!mapBuilder && !project && <FitBounds
             coordinates={fitCoordinates}
@@ -835,19 +837,14 @@ export function RouteWorkspace({
               <>
                 <span>
                   <i className="is-pca" aria-hidden="true" />
-                  PCA {rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
-                  –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m
+                  PCA：約{Math.round(rjfmMapReference.pca.sourceAltitudeLowerM / 0.3048).toLocaleString("ja-JP")}
+                  –{Math.round(rjfmMapReference.pca.sourceAltitudeUpperM / 0.3048).toLocaleString("ja-JP")} ft（{rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
+                  –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m）
                 </span>
                 <span>
                   <i className="is-pca-exclusion" aria-hidden="true" />
                   中心除外 {rjfmMapReference.pca.exclusionRadiusKm.toLocaleString("ja-JP")} km
                 </span>
-                {trainingAirspace.status === "ready" && (
-                  <span>
-                    <i className="is-training-airspace" aria-hidden="true" />
-                    民間訓練試験空域 KS4（GSI）
-                  </span>
-                )}
               </>
             )}
             {rjfmGuidance && (
@@ -867,9 +864,7 @@ export function RouteWorkspace({
                   ? "空域情報を取得中…"
                   : trainingAirspace.status === "unavailable"
                     ? "空域情報を取得できず非表示"
-                    : trainingAirspace.status === "ready"
-                      ? `空域: ${trainingAirspace.polygons.length}区画を表示`
-                      : ""}
+                    : ""}
               </span>
             )}
           </div>
@@ -895,7 +890,7 @@ export function RouteWorkspace({
         onConfirm={onConfirmRoute}
       />
 
-      {project && (
+      {project && !mapBuilder && (
         <CheckPointEditor
           draft={checkPointDraft}
           setDraft={setCheckPointDraft}
@@ -912,6 +907,7 @@ export function RouteWorkspace({
         />
       )}
 
+      {!mapBuilder && <>
       {project && phaseEditing && (
         <div className="phase-edit-note" role="status">
           CLIMB / DESCENT を別Legへ選ぶと、既存の同Phaseは自動でCRUISEへ戻ります。
@@ -955,7 +951,7 @@ export function RouteWorkspace({
                 </td>
               </tr>
             )}
-            {nodes.map((node, index) => {
+            {!mapBuilder && nodes.map((node, index) => {
               const section = sectionByFromNode.get(node.id);
               const guidance = section
                 ? guidanceBySection.get(section.id)
@@ -1246,6 +1242,7 @@ export function RouteWorkspace({
           {altitudeGuidance.terrainLimitationNote}
         </p>
       )}
+      </>}
     </section>
   );
 }
