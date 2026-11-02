@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 import { expect, test, chromium, type Page, type BrowserContext } from "@playwright/test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -33,24 +33,22 @@ async function put(page: Page, rows: any[]) {
 async function start(page: Page) {
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 }
 async function confirm(page: Page, weatherMode: "FORECAST" | "FTD" = "FORECAST") {
-  await page.getByLabel("気象モード").selectOption(weatherMode);
+  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await confirmImportedDraft(page);
+  await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
   await page.getByLabel("DATE", { exact: true }).fill(weatherMode === "FORECAST" ? "2026-09-16" : "2026-09-11");
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
-  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await expect(page.locator('input[type="file"]')).toBeEnabled();
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await page.getByLabel("気象モード").selectOption(weatherMode);
   await expect(page.getByLabel("RJFM出発Legの計画高度", { exact: true })).toBeVisible();
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude);
   }
 }
 async function calculate(page: Page) {
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude);
   }
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
@@ -170,17 +168,11 @@ test("Latest replacement, promotion, opening another Project and explicit delete
   page.on("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "新規", exact: true }).click();
   await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
-  await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
   await confirm(page);
   expect((await records(page)).filter(row => !row.checkpoint)).toHaveLength(1);
   const oldLatest = (await working(page)).project.id;
   await page.getByRole("button", { name: "新規", exact: true }).click();
   await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
-  await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
   await confirm(page);
   const replaced = await records(page);
   expect(replaced).toHaveLength(2);

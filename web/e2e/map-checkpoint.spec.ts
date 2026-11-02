@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 
 const routeKml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>RJFM-RJFO</name>
@@ -25,18 +26,15 @@ async function mockAirspace(page: Page) {
   });
 }
 
-async function importLocalRoute(page: Page, confirm = true) {
+async function importLocalRoute(page: Page) {
   await page.goto("/");
+  await enterImportWorkflow(page);
   await page.locator('input[type="file"]').setInputFiles({ name: "map-interaction.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(routeKml) });
-  await expect(page.locator('input[type="file"]')).toBeEnabled();
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.getByLabel("気象モード").selectOption("FTD");
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  if (confirm) {
-    await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-    await expect(page.getByRole("button", { name: "チェックポイントを追加" })).toBeEnabled();
-  }
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
+  await expect(page.getByRole("button", { name: "チェックポイントを追加" })).toBeEnabled();
 }
 
 test.beforeEach(async ({ page, context }) => {
@@ -176,7 +174,10 @@ test("PCA notice uses converted feet while operational limits, geometry and acqu
 });
 
 test("green theme keeps readable controls, keyboard selection and aviation colors", async ({ page }, info) => {
-  await importLocalRoute(page, false);
+  await importLocalRoute(page);
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
+    await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude!);
+  }
   const contrast = (first: string, second: string) => {
     const luminance = (color: string) => color.match(/[\d.]+/g)!.slice(0, 3)
       .map(value => Number(value) / 255)
@@ -186,7 +187,7 @@ test("green theme keeps readable controls, keyboard selection and aviation color
     return (values[0]! + 0.05) / (values[1]! + 0.05);
   };
   const header = page.locator(".app-header");
-  const primary = page.getByRole("button", { name: "経路を確定", exact: true });
+  const primary = page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ });
   const selected = page.locator('.descent-rate-segments input:checked + span');
   for (const width of [390, 1100, 1440]) {
     await page.setViewportSize({ width, height: 1000 });

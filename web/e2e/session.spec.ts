@@ -1,4 +1,5 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { selectAirport } from "./helpers/mapCandidates";
+import { enterImportWorkflow, expectImportedDraft, confirmImportedDraft } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { resolve } from "node:path";
 
@@ -24,33 +25,28 @@ test.beforeEach(async ({ context }) => {
 async function open(page: Page) {
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 }
 async function imported(page: Page) {
   await open(page);
+  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await expectImportedDraft(page);
+}
+async function confirmed(page: Page) {
+  await imported(page);
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
   await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地上風向 ° FROM").fill("360");
   await page.getByLabel("地上風速 kt").fill("15");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
-  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await expect(page.locator('input[type="file"]')).toBeEnabled();
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-  await expect(page.getByLabel("DATE", { exact: true })).toHaveValue("2026-09-11");
-  await expect(page.getByLabel("気象モード")).toHaveValue("FTD");
-  await expect(page.getByLabel("地上風速 kt")).toHaveValue("15");
-  await expect(page.getByLabel("5,000 ft風速 kt")).toHaveValue("30");
-}
-async function confirmed(page: Page) {
-  await imported(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   await expect(page.getByLabel("RJFM出発Legの計画高度", { exact: true })).toBeVisible();
 }
 async function calculated(page: Page) {
   await confirmed(page);
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     await page.getByLabel(name + "出発Legの計画高度", { exact: true }).fill(altitude);
   }
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
@@ -58,17 +54,21 @@ async function calculated(page: Page) {
 }
 test("reload preserves raw invalid planning values, import and route selection", async ({ page }) => {
   await imported(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
+  const importedDraft = (await snapshot(page)).mapRouteDraft;
+  await page.reload();
+  await expectImportedDraft(page);
+  expect((await snapshot(page)).mapRouteDraft).toEqual(importedDraft);
+  expect((await snapshot(page)).working.project).toBeNull();
+  await confirmImportedDraft(page);
+  await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("TGL", { exact: true }).fill("99");
   await page.getByLabel("地上風向 ° FROM").fill("1.5");
   await page.reload();
   await expect(page.getByLabel("TGL", { exact: true })).toHaveValue("99");
   await expect(page.getByLabel("地上風向 ° FROM")).toHaveValue("1.5");
-  await expect(page.getByLabel("地図とKML記載順を確認しました")).toBeChecked();
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  expect((await snapshot(page)).working.project).not.toBeNull();
   await page.getByLabel("TGL", { exact: true }).fill("1");
   await page.getByLabel("地上風向 ° FROM").fill("360");
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   await expect(page.getByLabel("RJFM出発Legの計画高度", { exact: true })).toBeVisible();
   const before = await snapshot(page);
   await page.getByLabel("RJFM出発Legの計画高度", { exact: true }).fill("123");
@@ -104,7 +104,8 @@ test("new discards recovery; new tabs including opener clones never inherit work
   await page.evaluate(() => window.open(location.href, "_blank"));
   const popup = await popupPromise;
   await enterImportWorkflow(popup);
-  await expect(popup.getByLabel("TGL", { exact: true })).toHaveValue("0");
+  await expect(popup.getByLabel("TGL", { exact: true })).toHaveCount(0);
+  expect((await snapshot(popup)).form.tglCount).toBe("0");
   expect((await snapshot(popup)).working.project).toBeNull();
   await popup.close();
   await second.reload();
@@ -207,9 +208,7 @@ test("KMZ document choice resumes after reload with modal closed", async ({ page
   await page.getByRole("button", { name: "KMZからの選択を続ける" }).click();
   await expect(page.getByLabel("KML文書")).toHaveValue("b.kml");
   await page.getByRole("button", { name: "選択したKMLを読み込む" }).click();
-  await expect(page.getByRole("dialog")).toBeHidden();
-  await expect(page.locator('input[type="file"]')).toBeEnabled();
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await confirmImportedDraft(page);
   await page.getByLabel("FUEL gal", { exact: true }).focus();
   await page.keyboard.press("Tab");
   await expect(page.getByLabel("TGL", { exact: true })).toBeFocused();
@@ -309,7 +308,7 @@ test("pasted KML draft resumes without reading a changed clipboard", async ({ pa
   await page.evaluate(() => Object.defineProperty(navigator, "clipboard", {
     configurable: true, value: { readText: async () => { throw new Error("denied"); } },
   }));
-  await page.getByRole("button", { name: "Google Earth からペースト", exact: true }).click();
+  await page.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
   await page.getByRole("dialog").getByRole("textbox").fill("<kml>入力途中");
   await page.reload();
   await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -319,3 +318,128 @@ test("pasted KML draft resumes without reading a changed clipboard", async ({ pa
   await page.getByRole("button", { name: "貼り付けたKMLの編集を続ける" }).click();
   await expect(page.getByRole("dialog").getByRole("textbox")).toHaveValue("<kml>入力途中");
 });
+
+for (const width of [1100, 1440]) {
+  test(`confirmed route draft reload, cancel and reconfirm at ${width}px`, async ({ page }) => {
+    test.setTimeout(360_000);
+    await page.setViewportSize({ width, height: 1100 });
+    await calculated(page);
+    await page.getByRole("button", { name: "経路を編集", exact: true }).click();
+    const strip = page.getByRole("list", { name: "経路リスト" });
+    await expect(strip).toBeVisible();
+    const before = await snapshot(page);
+    const count = before.mapRouteDraft.length;
+    const input = (await page.locator(".input-rail").boundingBox())!;
+    const route = (await page.locator(".route-workspace").boundingBox())!;
+    if (width <= 1240) expect(input.y + input.height).toBeLessThanOrEqual(route.y + 2);
+    else expect(input.x + input.width).toBeLessThanOrEqual(route.x + 2);
+    expect((await page.locator(".route-map").boundingBox())!.height).toBeGreaterThan(500);
+    await expect(page.locator(".nav-log-table")).toBeVisible();
+    await expect(page.getByRole("button", { name: "KML/KMZから開始", exact: true })).toHaveCount(0);
+    await strip.locator("li").nth(1).getByRole("button").click();
+    expect((await snapshot(page)).working.project).toEqual(before.working.project);
+    await page.reload();
+    await expect(strip.locator("li")).toHaveCount(count - 1);
+    expect((await snapshot(page)).working.last_calculation).toEqual(before.working.last_calculation);
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "キャンセル", exact: true }).click();
+    await expect(strip).toHaveCount(0);
+    expect((await snapshot(page)).working.project).toEqual(before.working.project);
+    await page.getByRole("button", { name: "経路を編集", exact: true }).click();
+    await expect(strip.locator("li")).toHaveCount(count);
+    await strip.locator("li").nth(1).getByRole("button").click();
+    await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+    await expect(strip).toHaveCount(0);
+    await expect.poll(async () => (await snapshot(page)).working.project.route_nodes.length).toBe(count - 1);
+    expect((await snapshot(page)).working.project.id).toBe(before.working.project.id);
+  });
+}
+
+
+test("confirmed route extension relocates arrival phases and preserves retained inputs", async ({ page }) => {
+  test.setTimeout(360_000);
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await calculated(page);
+  const before = (await snapshot(page)).working;
+  await page.getByRole("button", { name: "経路を編集", exact: true }).click();
+  await expect(page.getByRole("list", { name: "経路リスト" })).toBeVisible();
+  await selectAirport(page, "RJFK");
+  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await expect(page.getByRole("list", { name: "経路リスト" })).toHaveCount(0);
+  const after = (await snapshot(page)).working;
+  expect(after.project.sections.map((section: any) => section.phase)).toEqual([
+    "CLIMB", "CRUISE", "CRUISE", "DESCENT", "VISUAL_ARRIVAL",
+  ]);
+  for (let i = 0; i < before.project.sections.length; i++) {
+    expect(after.project.sections[i].id).toBe(before.project.sections[i].id);
+    expect(after.project.sections[i].planned_altitude_ft_msl).toBe(before.project.sections[i].planned_altitude_ft_msl);
+  }
+  expect(after.last_calculation).toEqual(before.last_calculation);
+});
+
+
+for (const draftKind of ["map", "import", "unmatched import", "multiple unmatched import"] as const) {
+  test(`deleting another saved Project preserves the new ${draftKind} Draft`, async ({ page }) => {
+    await confirmed(page);
+    await page.getByLabel("プロジェクト", { exact: true }).fill("Saved route");
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
+    const savedId = (await snapshot(page)).working.project.id;
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    if (draftKind === "map") {
+      await selectAirport(page, "RJFM");
+      await selectAirport(page, "RJFO");
+    } else if (draftKind === "import") {
+      await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+      await expectImportedDraft(page);
+    } else {
+      await page.locator('input[type="file"]').setInputFiles({
+        name: "unmatched.kml", mimeType: "application/vnd.google-earth.kml+xml",
+        buffer: Buffer.from('<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><LineString><coordinates>140,40,0 131.2,32,0 130.7194,31.8034,0</coordinates></LineString></Placemark>'
+          + (draftKind === "multiple unmatched import" ? '<Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>131.4486,31.8772,0 131.2,32,0 130.7194,31.8034,0 131.4486,31.8772,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>' : '')
+          + '</Document></kml>'),
+      });
+      if (draftKind === "multiple unmatched import") {
+        const choice = page.getByRole("dialog", { name: "経路選択", exact: true });
+        await choice.getByRole("combobox").selectOption("line:0");
+        await choice.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
+        await expect(choice).toBeHidden();
+      }
+      await expect(page.getByRole("alert")).toContainText("KML始点から5 NM以内");
+    }
+    const strip = page.getByRole("list", { name: "経路リスト" });
+    await expect(strip).toBeVisible();
+    const points = await strip.locator("li").allTextContents();
+    const before = await snapshot(page);
+    expect(before.working.project).toBeNull();
+    if (draftKind.includes("unmatched")) {
+      expect(before.pendingImportDraft).toBe(true);
+      await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeDisabled();
+    }
+    await page.getByLabel("保存済み", { exact: true }).selectOption(savedId);
+    const confirmations: string[] = [];
+    page.on("dialog", dialog => { confirmations.push(dialog.message()); void dialog.accept(); });
+    await page.getByRole("button", { name: "保存済みプロジェクトを削除", exact: true }).click();
+    await expect(page.getByLabel("保存済み", { exact: true }).locator(`option[value="${savedId}"]`)).toHaveCount(0);
+    expect(confirmations).toHaveLength(1);
+    expect(confirmations[0]).toContain("保存済みプロジェクト");
+    await expect(page.getByRole("dialog", { name: "経路選択", exact: true })).toHaveCount(0);
+    await expect(strip.locator("li")).toHaveText(points);
+    expect((await snapshot(page)).form.candidateKey).toBe(before.form.candidateKey);
+    for (const field of ["mapRouteDraft", "pendingImportDraft", "selectedImportCandidate", "editingRouteProjectId"]) {
+      expect((await snapshot(page))[field]).toEqual(before[field]);
+    }
+    await page.reload();
+    await expect(strip.locator("li")).toHaveText(points);
+    expect((await snapshot(page)).working.project).toBeNull();
+    expect((await snapshot(page)).mapRouteDraft).toEqual(before.mapRouteDraft);
+    expect((await snapshot(page)).pendingImportDraft).toEqual(before.pendingImportDraft);
+    expect((await snapshot(page)).form.candidateKey).toBe(before.form.candidateKey);
+    await expect(page.getByRole("dialog", { name: "経路選択", exact: true })).toHaveCount(0);
+    if (draftKind.includes("unmatched")) {
+      await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeDisabled();
+    }
+  });
+}
