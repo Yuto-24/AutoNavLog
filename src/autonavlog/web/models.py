@@ -48,7 +48,8 @@ class ImportRouteRequest(WebRequestModel):
 
 class MapRoutePoint(WebRequestModel):
     reference_snapshot: ReferencePointSnapshot | None = None
-    name: str = Field(min_length=1, max_length=100)
+    original_node_id: UUID | None = None
+    name: str = Field(min_length=1)
     latitude_deg: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude_deg: float = Field(ge=-180, le=180, allow_inf_nan=False)
     airport_id: str | None = Field(default=None, min_length=1, max_length=100)
@@ -59,17 +60,20 @@ class MapRoutePoint(WebRequestModel):
         snapshot = self.reference_snapshot
         if snapshot is not None and (
             self.airport_id is not None
-            or self.name != snapshot.name
+            or (self.name != snapshot.name and self.original_node_id is None)
             or self.latitude_deg != snapshot.latitude_deg
             or self.longitude_deg != snapshot.longitude_deg
         ):
             raise ValueError("Reference selection must match its snapshot and cannot be an airport")
+        if self.original_node_id is None and len(self.name) > 100:
+            raise ValueError("new MAP point names must not exceed 100 characters")
         return self
 
 
 class ConfirmRouteRequest(WebRequestModel):
     departure_origin: Literal["AIRPORT", "VOR"] = "AIRPORT"
     candidate_kind: Literal["line", "connected_lines", "polygon", "points", "map"]
+    edit_project_id: UUID | None = None
     map_points: list[MapRoutePoint] = Field(default_factory=list, max_length=500)
     candidate_index: int = Field(default=0, ge=0)
     point_indices: list[Annotated[int, Field(ge=0)]] = Field(
@@ -104,6 +108,8 @@ class ConfirmRouteRequest(WebRequestModel):
                 or not self.map_points[-1].airport_id
             ):
                 raise ValueError("Map route requires at least two points and airport endpoints")
+        elif self.edit_project_id is not None:
+            raise ValueError("Only MAP drafts can edit a confirmed Project")
         elif self.map_points:
             raise ValueError("map_points requires candidate_kind=map")
         if self.weather_mode == "FTD" and self.ftd_weather is None:

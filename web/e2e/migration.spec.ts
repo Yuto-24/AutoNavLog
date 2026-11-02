@@ -20,16 +20,17 @@ test("first login migrates 200 Legacy Projects through Firestore and fresh devic
   });
   await page.goto(path);
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
   await expect(page.getByRole("status", { name: "NavMateへ引継ぎ中" })).toBeVisible();
   await expect(page.getByText("プロジェクトを引継ぎ・検証中 0 / 200 件")).toBeVisible();
   await expect(page.getByRole("progressbar", { name: "NavMateへ引継ぎ中 0%" })).toBeVisible();
   await expect(page.getByLabel("DATE", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).authTest.contexts.length)).toBe(1);
   release();
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await expect(page.locator(`#saved-project option[value="${projectId}"]`)).toHaveCount(1);
   await expect(page.locator("#saved-project option")).toHaveCount(201);
   expect(steps).toBe(9);
@@ -40,7 +41,7 @@ test("first login migrates 200 Legacy Projects through Firestore and fresh devic
     const fresh = await second.newPage();
     await fresh.goto(path);
     await enterImportWorkflow(fresh);
-    await expect(fresh.getByLabel("DATE", { exact: true })).toBeVisible();
+    await expect(fresh.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
     await fresh.evaluate(subject => (window as any).authTest.signIn(subject), subject);
     await expect(fresh.locator(`#saved-project option[value="${projectId}"]`)).toHaveCount(1);
     await fresh.locator("#saved-project").selectOption(projectId);
@@ -74,15 +75,16 @@ test("activation failure never creates account Application; retry progresses aut
   });
   await page.goto(path);
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await page.evaluate(() => (window as any).authTest.signIn("migration-retry"));
   await expect(page.getByRole("alert")).toContainText("接続を確認して再試行してください");
   expect(await page.evaluate(() => (window as any).authTest.contexts.length)).toBe(1);
   await expect(page.getByLabel("DATE", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toHaveCount(0);
   fail = false;
   await page.getByRole("button", { name: "再試行", exact: true }).click();
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   expect(steps).toBe(2);
 });
 
@@ -90,6 +92,7 @@ test("Legacy account UI preserves 1100/1300 workflow order and locks then redire
   const subject = `migration-${crypto.randomUUID()}`;
   const seed = await request.post(`http://127.0.0.1:8186/fixture/seed?subject=${subject}`);
   expect(seed.ok()).toBeTruthy();
+  const { projectId } = await seed.json();
   await context.route("**/api/**", async route => {
     // Vite hosts the actual Legacy entry; forward its relative API to the fixture.
     const url = new URL(route.request().url());
@@ -99,6 +102,10 @@ test("Legacy account UI preserves 1100/1300 workflow order and locks then redire
   });
   await page.goto("http://127.0.0.1:5180/");
   await enterImportWorkflow(page);
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+  await expect(page.locator(`#saved-project option[value="${projectId}"]`)).toHaveCount(1);
+  await page.locator("#saved-project").selectOption(projectId);
+  await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   for (const width of [1100, 1300]) {
     await page.setViewportSize({ width, height: 1100 });

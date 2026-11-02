@@ -1,14 +1,29 @@
 import { expect, type Page } from "@playwright/test";
-import { fileURLToPath } from "node:url";
 
-// Planning inputs now follow a real import, rather than an empty compatibility screen.
+// KML and MAP now share the new-route draft, before Planning inputs exist.
 export async function enterImportWorkflow(page: Page) {
-  const map = page.getByRole("heading", { name: "経路作成", exact: true });
-  const date = page.getByLabel("DATE", { exact: true });
-  await expect(map.or(date)).toBeVisible({ timeout: 120_000 });
-  if (await date.isVisible()) return;
-  await page.locator('input[type="file"]').setInputFiles(fileURLToPath(new URL("../../../tests/fixtures/issue_43_golden.kml", import.meta.url)));
-  await expect(date).toBeVisible({ timeout: 120_000 });
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-  await expect(page.locator('input[type="file"]')).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })
+    .or(page.getByLabel("DATE", { exact: true }))).toBeVisible({ timeout: 120_000 });
 }
+
+export async function expectImportedDraft(page: Page, candidate = "line:0") {
+  const choice = page.getByRole("dialog", { name: "経路選択", exact: true });
+  const strip = page.getByRole("list", { name: "経路リスト", exact: true });
+  await expect(choice.or(strip)).toBeVisible();
+  if (await choice.isVisible()) {
+    await choice.getByRole("combobox").selectOption(candidate);
+    await choice.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
+  }
+  await expect(strip).toBeVisible();
+  await expect(page.getByLabel("DATE", { exact: true })).toHaveCount(0);
+}
+
+export async function confirmImportedDraft(page: Page) {
+  await expectImportedDraft(page);
+  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+}
+
+// Imported Draft names are generated; retain every other Golden output field.
+export const importedMapNames = (value: unknown) => JSON.parse(JSON.stringify(value)
+  .replaceAll("米ノ津", "WP1").replaceAll("玉名", "WP2").replaceAll("大牟田", "WP3"));

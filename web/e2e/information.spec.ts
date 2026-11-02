@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 import { disableClipboardRead } from "./helpers/clipboard";
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
@@ -30,27 +30,23 @@ async function openInformation(page: Page) {
 
 async function expectBaseWorkflow(page: Page) {
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await expect(page.getByRole("button", { name: "新規", exact: true })).toBeEnabled();
 }
 
 async function createEditCalculateAndSave(page: Page) {
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
-  if (await page.getByRole("button", { name: "Google Earth からペースト" }).count() === 0) {
+  if (await page.getByRole("button", { name: "KMLを取り込む" }).count() === 0) {
     page.once("dialog", (dialog) => void dialog.accept());
     await Promise.all([
       page.waitForNavigation(),
       page.getByRole("button", { name: "新規", exact: true }).click(),
     ]);
   }
-  await page.getByRole("button", { name: "Google Earth からペースト" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const pasteDialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await pasteDialog.getByRole("textbox").fill(routeKml);
   await pasteDialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   const altitudeInputs = page.locator(".route-table tbody tr:not(.vrep-row) .table-number-input");
   await expect(altitudeInputs.first()).toBeVisible();
@@ -224,7 +220,6 @@ test("Information tolerates unavailable local storage without blocking create, e
   }, lastSeenUpdateKey);
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
   await expect(page.getByRole("button", { name: "新規", exact: true })).toBeEnabled();
   await expect(informationButton(page)).toHaveAccessibleName("お知らせ（未読の更新があります）");
   await openInformation(page);
@@ -329,5 +324,5 @@ test("compact header still saves, loads, deletes and starts a new project", asyn
   await expect(selector.locator(`option[value="${id}"]`)).toHaveCount(0);
   page.once("dialog", (dialog) => void dialog.accept());
   await Promise.all([page.waitForNavigation(), page.getByRole("button", { name: "新規", exact: true }).click()]);
-  await expect(page.getByRole("button", { name: "Google Earth からペースト" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "KMLを取り込む" })).toBeVisible();
 });
