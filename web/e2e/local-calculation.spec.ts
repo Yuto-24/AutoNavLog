@@ -84,6 +84,15 @@ for (const width of [390, 1100, 1440]) {
     }
     await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
     await expect(page.locator(".nav-log-table")).toBeVisible();
+    const scrollFrame = page.locator(".nav-log-scroll");
+    for (const edge of ["top", "right", "bottom", "left"]) {
+      await expect(scrollFrame).toHaveCSS(`border-${edge}-width`, "0px");
+    }
+    await expect(scrollFrame).toHaveCSS("border-radius", "0px");
+    // Removing the scroll container's decorative frame must retain the table grid.
+    await expect(page.locator(".nav-log-table")).toHaveCSS("border-top-width", "2px");
+    await expect(page.locator(".nav-log-table thead th").first()).toHaveCSS("border-bottom-width", "2px");
+    await expect(page.locator(".nav-log-table tbody td").first()).toHaveCSS("border-right-width", "1px");
     const state = await page.evaluate(() => (window as any).localStates.at(-1));
     compare(localGolden(state), reference);
     const native = JSON.parse(execFileSync(
