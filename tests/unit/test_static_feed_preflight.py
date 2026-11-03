@@ -65,6 +65,21 @@ def test_new_run_uses_only_catalog_and_listings_without_mutation(source):
     assert len(source["calls"]) == 3
 
 
+def test_local_catalog_reuses_same_gates_without_fetching_remote_catalog(source):
+    raw = json.dumps(source["catalog"]).encode()
+    remote = gate.preflight("https://canonical.test", NOW)
+    source["calls"].clear()
+    assert gate.preflight_catalog(raw, NOW) == remote
+    assert "https://canonical.test/weather/msm/catalog.json" not in source["calls"]
+    assert len(source["calls"]) == 2
+    assert json.dumps(source["catalog"]).encode() == raw
+
+
+def test_local_catalog_rejects_oversize_before_parsing():
+    with pytest.raises(ValueError, match="byte budget"):
+        gate.preflight_catalog(b" " * (8 * 1024 * 1024 + 1))
+
+
 def test_no_new_run_is_positive_healthy_noop(source):
     source["listing"] = listing(0)
     result = gate.preflight("https://canonical.test", NOW)

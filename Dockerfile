@@ -41,6 +41,9 @@ COPY --from=frontend /build/web/dist ./src/autonavlog/web/static
 
 FROM python-base AS test
 
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY tests ./tests
 COPY docs/evidence/airport-vor-departure.json ./docs/evidence/airport-vor-departure.json
 COPY docs/reference/vrep-169-confirmed-source.md ./docs/reference/vrep-169-confirmed-source.md

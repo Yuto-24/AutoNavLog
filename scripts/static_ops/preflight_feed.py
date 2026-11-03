@@ -22,9 +22,16 @@ from scripts.static_ops.refresh_feed import PUBLICATION_GENERATION_HOURS  # noqa
 
 def preflight(origin: str, now: datetime | None = None) -> dict:
     """Read canonical and upstream metadata; admit only a newer complete Run or a healthy no-op."""
+    return preflight_catalog(fetch(
+        origin.rstrip("/") + "/weather/msm/catalog.json", 8 * 1024 * 1024), now)
+
+
+def preflight_catalog(raw: bytes, now: datetime | None = None) -> dict:
+    """Apply the same discovery/lifetime gates to an already published local catalog."""
+    if len(raw) > 8 * 1024 * 1024:
+        raise ValueError("Catalog exceeds byte budget")
     started = now or datetime.now(UTC)
-    catalog = WeatherCatalog.model_validate_json(fetch(
-        origin.rstrip("/") + "/weather/msm/catalog.json", 8 * 1024 * 1024))
+    catalog = WeatherCatalog.model_validate_json(raw)
     if (not catalog.assets or not catalog.listings or catalog.generated_at > started
             or catalog.expires_at - catalog.generated_at != timedelta(hours=6)):
         raise ValueError("Invalid production catalog lifecycle")
@@ -112,11 +119,15 @@ def require_newer_candidate(origin: str, candidate: Path, now: datetime | None =
 def main() -> None:
     """Emit discovery outputs or enforce the final newer-candidate check before upload."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--origin", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--origin")
+    source.add_argument("--catalog", type=Path, help="Published local catalog; no HTTP fetch")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--candidate", type=Path)
     parser.add_argument("--expected-run")
     args = parser.parse_args()
+    if args.catalog and (args.candidate or args.expected_run):
+        parser.error("Candidate publication checks require --origin")
     if args.candidate:
         report = require_newer_candidate(
             args.origin, args.candidate, expected_run=args.expected_run)
@@ -124,7 +135,12 @@ def main() -> None:
         return
     if args.github_output is None:
         parser.error("--github-output is required for discovery")
-    report = preflight(args.origin)
+    if args.catalog:
+        if args.catalog.stat().st_size > 8 * 1024 * 1024:
+            raise ValueError("Catalog exceeds byte budget")
+        report = preflight_catalog(args.catalog.read_bytes())
+    else:
+        report = preflight(args.origin)
     # Only a complete successful verdict may enable heavy work or a healthy no-op.
     with args.github_output.open("a") as output:
         output.write(f"upstream_run={report['upstream_run']}\n")
