@@ -26,7 +26,7 @@ MSMの実予報取得・TAF取得を含むStatic Webのproduction移行完了を
 - PyodideのPydantic 2.10.5では、before validator後のstrict enumがJSON文字列を
   Python入力と扱う差異がありました。RJFM案内のJSON読込時だけenumを復元します。
   Python入力での文字列enum拒否、数値・bool・未知値の拒否は維持します。
-- Worker/Comlinkの順次実行と既存失敗表示を維持します。Local失敗をLegacyへfallbackせず、
+- Worker/Comlinkの順次実行と既存失敗表示を維持します。気象配信障害時のみ[計算専用予備API](forecast_backup.md)を利用し、一般のLocal失敗では切り替えず、
   既存のlast-good NAV LOGを保持します。進捗UI/cancelは追加していません。
 
 ## MSM fixtureとFORECAST再現

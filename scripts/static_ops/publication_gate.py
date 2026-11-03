@@ -26,7 +26,10 @@ PROJECT = "navmate"
 CONFIGURATION = (
     "VITE_FIREBASE_API_KEY", "VITE_FIREBASE_AUTH_DOMAIN", "VITE_FIREBASE_PROJECT_ID",
     "VITE_FIREBASE_APP_ID", "VITE_TAF_PROXY_URL", "VITE_LEGACY_MIGRATION_URL",
+    "VITE_FORECAST_BACKUP_URL",
 )
+OPTIONAL_CONFIGURATION = ("VITE_LEGACY_MIGRATION_URL", "VITE_FORECAST_BACKUP_URL")
+REQUIRED_CONFIGURATION = tuple(key for key in CONFIGURATION if key not in OPTIONAL_CONFIGURATION)
 UPLOAD_CONFIG = {
     "name": PROJECT,
     "pages_build_output_dir": "./dist-static",
@@ -58,7 +61,7 @@ def identity(env: dict, event: dict, canonical: dict) -> str:
     if canonical.get("commit") != approved or canonical.get("dirty") is not False:
         raise ValueError("Canonical release differs from approved clean application")
     configuration = {name: env[name] for name in CONFIGURATION if env.get(name)}
-    if any(not configuration.get(name, "").strip() for name in CONFIGURATION[:-1]):
+    if any(not configuration.get(name, "").strip() for name in REQUIRED_CONFIGURATION):
         raise ValueError("TAF and Sync public configuration must remain enabled")
     if configuration != canonical.get("configuration"):
         raise ValueError("Feed renewal must preserve approved public configuration")

@@ -8,6 +8,7 @@ build/
 dist/
 *.egg-info/
 .coverage
+.coverage.*
 htmlcov/
 data/cache/
 .autonavlog-data/
@@ -45,3 +46,5 @@ services/msm-trigger/dist/
 services/msm-trigger/.wrangler/
 services/msm-trigger/.state/
 services/msm-trigger/.dev.vars*
+
+web/dist-backup/

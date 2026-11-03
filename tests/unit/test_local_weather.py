@@ -113,6 +113,7 @@ def test_portable_provider_keeps_run_selection_and_upstream_values(project, requ
         ("missing_listing", "WEATHER_DISCOVERY_FAILED"),
         ("empty_listing", "WEATHER_RUN_UNAVAILABLE"),
         ("missing_asset", "WEATHER_PREPARED_UNAVAILABLE"),
+        ("expired", "WEATHER_CATALOG_EXPIRED"),
         ("invalid", "WEATHER_CATALOG_INVALID"),
         ("outside_model", "WEATHER_OUT_OF_COVERAGE"),
     ],
@@ -124,6 +125,9 @@ def test_failure_kinds_do_not_become_model_coverage(project, requirement, catalo
         catalog["listings"] = dict.fromkeys(catalog["listings"], "")
     elif kind == "missing_asset":
         catalog["assets"] = []
+    elif kind == "expired":
+        catalog["generated_at"] = "2026-01-01T00:00:00Z"
+        catalog["expires_at"] = "2026-01-01T01:00:00Z"
     elif kind == "invalid":
         catalog["schema_version"] = 2
     else:
@@ -136,9 +140,9 @@ def test_failure_kinds_do_not_become_model_coverage(project, requirement, catalo
 @pytest.mark.parametrize(
     "generated_offset,expires_offset,accepted",
     [(180, 21780, True), (300, 21900, True), (301, 21901, False),
-     (-21600, 0, True), (-21601, -1, True), (-21599, 1, True)],
+     (-21600, 0, False), (-21601, -1, False), (-21599, 1, True)],
 )
-def test_catalog_clock_skew_distinguishes_expiry(
+def test_catalog_clock_skew_preserves_expiry(
     project, requirement, catalog, monkeypatch, generated_offset, expires_offset, accepted
 ):
     from autonavlog.weather import local_msm
@@ -160,11 +164,12 @@ def test_catalog_clock_skew_distinguishes_expiry(
         asset = json.loads(weather.plan(project, requirement, json.dumps(catalog)))
         assert asset["run"] == NEW
         weather.accept((FEED / asset["file"]).read_bytes(), asset["sha256"])
-        assert weather.client.delivery["catalog_expired"] == (expires_offset <= 0)
     else:
         with pytest.raises(LocalWeatherError) as error:
             weather.plan(project, requirement, json.dumps(catalog))
-        assert error.value.code == "WEATHER_CATALOG_EXPIRED"
+        assert error.value.code == (
+            "WEATHER_CATALOG_INVALID" if generated_offset > 300 else "WEATHER_CATALOG_EXPIRED"
+        )
         assert weather.client.catalog is None
 
 
@@ -240,184 +245,22 @@ def test_plan_outside_selected_run_time_uses_approved_message(project, requireme
     assert str(error.value) == "選択した日時のMSM予報は利用できません。"
 
 
-def expired_catalog(catalog):
-    now = datetime.now(UTC)
-    return {**catalog, "generated_at": (now - timedelta(hours=7)).isoformat(),
-            "expires_at": (now - timedelta(hours=1)).isoformat()}
-
-
-@pytest.mark.parametrize("pinned", [None, OLD])
-def test_expired_public_feed_validates_and_records_fallback(project, requirement, catalog, pinned):
-    weather, asset = setup_weather(project, requirement, expired_catalog(catalog), pinned)
-    prepared = weather.provider.prepare_run(asset["run"], requirement)
-    delivery = prepared.metadata["weather_delivery"]
-    assert asset["run"] == (pinned or NEW)
-    assert delivery["fallback_reason"] == "WEATHER_CATALOG_EXPIRED"
-    assert delivery["source"] == "public_feed"
-    assert delivery["selected_run"] == asset["run"]
-    assert delivery["forecast_initial_time_utc"]
-    assert delivery["forecast_age_seconds"] > 0
-    assert delivery["catalog_generated_at"] and delivery["catalog_expires_at"]
-    assert "時間経過" in prepared.metadata["delivery_warning"]
-
-
-def test_expired_feed_can_select_available_older_run_but_does_not_replace_fixed_run(
-    project, requirement, catalog
+@pytest.mark.parametrize("programming_error", [False, True])
+def test_invalid_listing_and_programming_errors_never_become_acquisition_failure(
+    project, requirement, catalog, monkeypatch, programming_error
 ):
-    catalog = expired_catalog(catalog)
-    catalog["assets"] = [asset for asset in catalog["assets"] if asset["run"] == OLD]
-    weather, asset = setup_weather(project, requirement, catalog)
-    assert asset["run"] == OLD
-    assert weather.provider.resolve_run(requirement).id == OLD
-    with pytest.raises(LocalWeatherError):
-        setup_weather(project, requirement, catalog, NEW)
+    from jma_gpv_weather import MsmClient
+    from jma_gpv_weather.errors import MsmError
 
+    from autonavlog.forecast_backup import WEATHER_FAILURES
 
-@pytest.mark.parametrize("reason", [
-    "WEATHER_COMMUNICATION_FAILED", "WEATHER_DISCOVERY_FAILED",
-    "WEATHER_SOURCE_UNAVAILABLE", "WEATHER_DOWNLOAD_FAILED",
-])
-def test_retained_pair_selects_only_its_run_and_fresh_acquisition_clears_warning(
-    project, requirement, catalog, reason
-):
-    weather = LocalMsmWeather()
-    asset = json.loads(weather.plan(
-        project.model_copy(update={"selected_forecast_run_id": None}),
-        requirement, json.dumps(catalog),
-        fallback_reason=reason, retained_run=OLD,
-    ))
-    weather.accept((FEED / asset["file"]).read_bytes(), asset["sha256"])
-    assert asset["run"] == OLD
-    assert weather.provider.resolve_run(requirement).id == OLD
-    metadata = weather.provider.prepare_run(OLD, requirement).metadata
-    assert metadata["weather_delivery"]["source"] == "retained_pair"
-    assert metadata["weather_delivery"]["fallback_reason"] == reason
-    asset = json.loads(weather.plan(project, requirement, json.dumps(catalog)))
-    weather.accept((FEED / asset["file"]).read_bytes(), asset["sha256"])
-    metadata = weather.provider.prepare_run(asset["run"], requirement).metadata
-    assert metadata["weather_delivery"]["fallback_reason"] is None
-    assert "delivery_warning" not in metadata
+    def invalid(*args, **kwargs):
+        raise RuntimeError("bug") if programming_error else MsmError("malformed listing")
 
-
-@pytest.mark.parametrize(
-    "reason", ["secret-network-diagnostic", "WEATHER_PAYLOAD_INTEGRITY_FAILED"],
-)
-def test_untrusted_or_integrity_reason_does_not_enable_fallback(
-    project, requirement, catalog, reason
-):
-    with pytest.raises(LocalWeatherError, match="MSM"):
-        LocalMsmWeather().plan(
-            project, requirement, json.dumps(catalog), fallback_reason=reason, retained_run=OLD,
-        )
-
-
-@pytest.mark.parametrize("expired", [False, True])
-def test_final_requirement_checks_payload_not_only_source_listing(
-    project, requirement, catalog, expired
-):
-    weather, asset = setup_weather(
-        project, requirement, expired_catalog(catalog) if expired else catalog,
-    )
-    final = requirement.model_copy(update={
-        "valid_times_utc": (datetime(2026, 9, 16, 7, tzinfo=UTC),),
-    })
-    # The source listing covers 07Z; this intentionally small portable fixture does not.
-    assert MsmClient().check_coverage(
-        weather.provider._requirement(final),
-        run=weather.provider._run_id(asset["run"]),
-    ).outside_spec is False
+    monkeypatch.setattr(MsmClient, "discover_runs", invalid)
     with pytest.raises(LocalWeatherError) as error:
-        weather.provider.inspect_run_status(asset["run"], final)
-    assert error.value.code == "WEATHER_PREPARED_UNAVAILABLE"
-
-
-@pytest.mark.parametrize("latitude,altitude", [(34.5, 6500), (32.1, 30000)])
-def test_fallback_requires_actual_point_and_altitude_coverage(
-    project, requirement, catalog, latitude, altitude
-):
-    weather, asset = setup_weather(project, requirement, expired_catalog(catalog))
-    weather.provider.prepare_run(asset["run"], requirement)
-    request = WeatherRequest(
-        request_id="full-requirement", kind=WeatherRequestKind.ALOFT,
-        latitude_deg=latitude, longitude_deg=131.2,
-        valid_time_utc=requirement.valid_times_utc[0], altitude_ft_msl=altitude,
+        LocalMsmWeather().plan(project, requirement, json.dumps(catalog))
+    assert error.value.code == (
+        "WEATHER_PROCESSING_FAILED" if programming_error else "WEATHER_CATALOG_INVALID"
     )
-    with pytest.raises(LocalWeatherError) as error:
-        weather.provider.query_batch(asset["run"], [request])
-    assert error.value.code == "WEATHER_PREPARED_UNAVAILABLE"
-
-
-@pytest.mark.parametrize("damage", ["schema", "future", "hash", "identity", "variables"])
-def test_expiry_does_not_bypass_catalog_or_payload_validation(
-    project, requirement, catalog, damage
-):
-    catalog = expired_catalog(catalog)
-    if damage == "schema":
-        catalog["schema_version"] = 2
-    if damage == "future":
-        catalog["generated_at"] = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
-        catalog["expires_at"] = (datetime.now(UTC) + timedelta(hours=7)).isoformat()
-    weather = LocalMsmWeather()
-    with pytest.raises(LocalWeatherError):
-        asset = json.loads(weather.plan(project, requirement, json.dumps(catalog)))
-        payload = (FEED / asset["file"]).read_bytes()
-        if damage == "hash":
-            payload += b"damage"
-        if damage in {"identity", "variables"}:
-            data = MsmPreparedData.from_bytes(payload)
-            if damage == "identity":
-                other = next(item for item in catalog["assets"] if item["run"] == OLD)
-                data = MsmPreparedData.from_bytes((FEED / other["file"]).read_bytes())
-            else:
-                data = MsmPreparedData(data.selection, {}, data.pressure, data.source_hashes)
-            payload = data.to_bytes()
-            asset["sha256"] = hashlib.sha256(payload).hexdigest()
-        weather.accept(payload, asset["sha256"])
-
-
-def test_fallback_result_persists_warning_and_final_failure_preserves_last_calculation(
-    catalog, monkeypatch
-):
-    from autonavlog.local import LocalApplication
-
-    root = FEED.parents[2]
-    recovery = reference_state(feed=str(FEED))["workingRecovery"]
-    local = LocalApplication(root / "data")
-    restored = LocalApplication(root / "data")
-    try:
-        local.dispatch("bootstrap", recovery)
-        catalog = expired_catalog(catalog)
-        asset = json.loads(local.weather_plan(json.dumps(catalog)))
-        assert "error" not in asset
-        assert local.accept_weather((FEED / asset["file"]).read_bytes(), asset["sha256"]) == "{}"
-        result = json.loads(local.dispatch_response("calculate"))
-        assert "error" not in result
-        assert result["readiness"]["calculationIsCurrent"]
-        last = result["workingRecovery"]["last_calculation"]
-        assert last["forecast_metadata"]["weather_delivery"]["fallback_reason"] == (
-            "WEATHER_CATALOG_EXPIRED"
-        )
-        assert any(issue["code"] == "WEATHER_DELIVERY_FALLBACK"
-                   for issue in last["outcome"]["issues"])
-        reloaded = json.loads(restored.dispatch("bootstrap", result["workingRecovery"]))
-        assert reloaded["workingRecovery"]["last_calculation"] == last
-        assert any(issue["code"] == "WEATHER_DELIVERY_FALLBACK"
-                   for issue in reloaded["outcome"]["issues"])
-
-        service = local.session.calculation_service.forecast_service
-        final_requirement = service.build_final_requirement
-        def beyond_payload(*args, **kwargs):
-            requirement = final_requirement(*args, **kwargs)
-            return requirement.model_copy(update={
-                "valid_times_utc": (*requirement.valid_times_utc,
-                                   datetime(2026, 9, 16, 7, tzinfo=UTC)),
-            })
-        monkeypatch.setattr(service, "build_final_requirement", beyond_payload)
-        asset = json.loads(local.weather_plan(json.dumps(catalog)))
-        local.accept_weather((FEED / asset["file"]).read_bytes(), asset["sha256"])
-        failed = json.loads(local.dispatch_response("calculate"))
-        assert failed["error"]["code"] == "CALCULATION_JOB_FAILED"
-        assert local.session.last_calculation.model_dump(mode="json") == last
-    finally:
-        local.close()
-        restored.close()
+    assert error.value.code not in WEATHER_FAILURES

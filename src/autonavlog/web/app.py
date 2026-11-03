@@ -193,6 +193,7 @@ def create_app(
         resolved_config.session_cookie_secure if resolved_config is not None else True
     )
     calculation_jobs = CalculationJobQueue(workers=4, maximum_queued=128)
+    backup_jobs = None
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -204,6 +205,8 @@ def create_app(
             if web.weather_prewarmer is not None:
                 web.weather_prewarmer.shutdown()
             calculation_jobs.shutdown()
+            if backup_jobs is not None:
+                backup_jobs.close()
 
     app = FastAPI(
         title="NavMate Web",
@@ -216,6 +219,27 @@ def create_app(
     app.state.web_application = web
     app.state.calculation_jobs = calculation_jobs
     app.add_middleware(SecurityHeadersMiddleware)
+
+    # Disabled unless explicitly configured. This calculation-only boundary never
+    # enters Legacy sessions, project storage or migration owner operations.
+    backup_origin = os.environ.get("AUTONAVLOG_FORECAST_BACKUP_ORIGIN", "")
+    if backup_origin:
+        if resolved_config is None:
+            raise ValueError("Forecast backup requires an explicit runtime configuration")
+        from autonavlog.forecast_backup import calculation_contract
+
+        from .backup_process import ProcessCalculator
+        from .forecast_backup import BackupJobs, install_backup_routes
+
+        root = resolved_config.storage_root / "forecast-backup"
+        cache = root / "temporary"
+        cache.mkdir(parents=True, exist_ok=True)
+        backup_jobs = BackupJobs(root / "jobs.sqlite3",
+                                 ProcessCalculator(resolved_config.data_root, cache))
+        install_backup_routes(app, backup_jobs, calculation_contract(resolved_config.data_root),
+                              backup_origin, tuple(filter(None, os.environ.get(
+                                  "AUTONAVLOG_FORECAST_BACKUP_TRUSTED_PROXIES", "").split(","))))
+        app.state.forecast_backup_jobs = backup_jobs
 
     # Environment settings are read here for both CLI and ASGI startup.
     migration_project = os.environ.get("AUTONAVLOG_FIREBASE_PROJECT_ID", "")

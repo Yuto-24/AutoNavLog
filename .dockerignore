@@ -35,3 +35,7 @@ web/public-local/
 web/dist-static/
 .wrangler/
 web/.wrangler/
+
+web/dist-backup/
+
+.autonavlog-worktree/

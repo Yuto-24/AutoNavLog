@@ -304,6 +304,7 @@ def test_env_metadata_only_known_names_types_and_other_count():
         "VITE_FIREBASE_PROJECT_ID": "plain_text", "VITE_FIREBASE_API_KEY": "secret_text",
         "VITE_TAF_PROXY_URL": "invalid", "VITE_FIREBASE_AUTH_DOMAIN": "invalid",
         "VITE_FIREBASE_APP_ID": "invalid", "VITE_LEGACY_MIGRATION_URL": "missing",
+        "VITE_FORECAST_BACKUP_URL": "missing",
     }
 
 

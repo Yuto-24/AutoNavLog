@@ -3,23 +3,14 @@ export class WeatherError extends Error {
   constructor(readonly code: string, message: string) { super(message); }
 }
 
-class AcquisitionError extends WeatherError {}
-
 export interface PreparedAsset { file: string; sha256: string; bytes: number; run: string }
 const CACHE = "autonavlog.weather.msm.v1";
 const CATALOG_TTL = 5 * 60_000;
 const PAYLOAD_TTL = 7 * 24 * 60 * 60_000;
 const MAX_PAYLOAD = 32 * 1024 * 1024;
 const MAX_CACHE = 128 * 1024 * 1024;
-const MAX_CATALOG = 4 * 1024 * 1024;
-const RECOVERABLE = new Set([
-  "WEATHER_COMMUNICATION_FAILED", "WEATHER_DISCOVERY_FAILED", "WEATHER_SOURCE_UNAVAILABLE",
-  "WEATHER_DOWNLOAD_FAILED",
-]);
-type Plan = (catalog: string, reason?: string, retainedRun?: string) => PreparedAsset;
 
 export class LocalWeatherTransport {
-  private acceptedCatalog?: string;
   constructor(
     private readonly base = new URL(`${import.meta.env.BASE_URL}weather/msm/`, self.location.origin),
   ) {}
@@ -33,8 +24,7 @@ export class LocalWeatherTransport {
       const cache = await this.cache();
       const response = await cache?.match(url);
       if (!response) return undefined;
-      const timestamp = response.headers.get("X-AutoNavLog-Cached-At");
-      const age = timestamp === null ? NaN : Date.now() - Number(timestamp);
+      const age = Date.now() - Number(response.headers.get("X-AutoNavLog-Cached-At"));
       if (!Number.isFinite(age) || age < 0 || age >= ttl) {
         await cache?.delete(url);
         return undefined;
@@ -57,7 +47,6 @@ export class LocalWeatherTransport {
         const entry = await cache.match(key);
         const size = Number(entry?.headers.get("Content-Length"));
         if (!Number.isFinite(size) || size < 0) { await cache.delete(key); continue; }
-        if (key.url === url.href) continue;
         total += size;
         entries.push({ key, size });
       }
@@ -73,7 +62,7 @@ export class LocalWeatherTransport {
     } catch { /* Quota/denial affects warm reuse, never Project data or a valid result. */ }
   }
 
-  private async read(response: Response, limit: number, acquisition = false): Promise<Uint8Array> {
+  private async read(response: Response, limit: number): Promise<Uint8Array> {
     if (Number(response.headers.get("Content-Length")) > limit) {
       await response.body?.cancel();
       throw new WeatherError("WEATHER_DOWNLOAD_FAILED", "MSM配信データがサイズ上限を超えています。");
@@ -95,8 +84,7 @@ export class LocalWeatherTransport {
       }
     } catch (error) {
       if (error instanceof WeatherError) throw error;
-      const Failure = acquisition ? AcquisitionError : WeatherError;
-      throw new Failure("WEATHER_DOWNLOAD_FAILED", "MSMデータのダウンロードに失敗しました。");
+      throw new WeatherError("WEATHER_TRANSPORT_FAILED", "MSMデータのダウンロードに失敗しました。");
     } finally { reader.releaseLock(); }
     const bytes = new Uint8Array(size);
     let offset = 0;
@@ -110,16 +98,15 @@ export class LocalWeatherTransport {
       response = await fetch(url, { cache: "no-cache", credentials: "omit", redirect: "error",
         signal: AbortSignal.timeout(60_000) });
     } catch {
-      throw new AcquisitionError("WEATHER_COMMUNICATION_FAILED", "MSM配信元へ接続できません。");
+      throw new WeatherError("WEATHER_COMMUNICATION_FAILED", "MSM配信元へ接続できません。");
     }
     if (!response.ok) {
       await response.body?.cancel();
-      const retryable = [404, 408, 429, 500, 502, 503, 504].includes(response.status);
-      const Failure = retryable ? AcquisitionError : WeatherError;
-      throw new Failure(retryable ? (catalog ? "WEATHER_DISCOVERY_FAILED" : "WEATHER_SOURCE_UNAVAILABLE")
-        : "WEATHER_DOWNLOAD_FAILED", `MSM取得に失敗しました（HTTP ${response.status}）。`);
+      throw new WeatherError(catalog ? "WEATHER_DISCOVERY_FAILED"
+        : response.status === 404 || response.status === 503 ? "WEATHER_SOURCE_UNAVAILABLE"
+        : "WEATHER_TRANSPORT_FAILED", `MSM取得に失敗しました（HTTP ${response.status}）。`);
     }
-    return this.read(response, limit, true);
+    return this.read(response, limit);
   }
 
   async catalog<T>(accept: (text: string) => T): Promise<T> {
@@ -133,11 +120,7 @@ export class LocalWeatherTransport {
         if (!(expiry > Date.now())) text = undefined;
       } catch { text = undefined; }
       if (text !== undefined) {
-        try {
-          const result = accept(text);
-          this.acceptedCatalog = text;
-          return result;
-        }
+        try { return accept(text); }
         catch (error) {
           if (!(error instanceof WeatherError) || error.code !== "WEATHER_CATALOG_INVALID") throw error;
         }
@@ -149,63 +132,8 @@ export class LocalWeatherTransport {
     try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); JSON.parse(text); }
     catch { throw new WeatherError("WEATHER_CATALOG_INVALID", "MSM配信情報を読み取れません。"); }
     const result = accept(text); // Python validates the index before it enters the cache.
-    this.acceptedCatalog = text;
     await this.store(url, bytes);
     return result;
-  }
-
-
-  /** Commit a last-good index only after both members pass Python validation.
-   * The index is disposable, and an evicted/missing payload never implies offline availability.
-   */
-  async acquire(plan: Plan, accept: (bytes: Uint8Array, asset: PreparedAsset) => void): Promise<void> {
-    this.acceptedCatalog = undefined;
-    const retainedUrl = new URL("last-good.json", this.base);
-    try {
-      const asset = await this.catalog(text => plan(text));
-      await this.prepared(asset, bytes => accept(bytes, asset));
-      const catalog = this.acceptedCatalog;
-      if (catalog && await this.cached(new URL(asset.file, this.base), PAYLOAD_TTL)) {
-        const bytes = new TextEncoder().encode(JSON.stringify({ catalog, asset }));
-        if (bytes.byteLength <= MAX_CATALOG * 2) await this.store(retainedUrl, bytes);
-      }
-      return;
-    } catch (error) {
-      // Only acquisition unavailability permits retention. Validation, integrity,
-      // coverage, oversized responses and implementation errors stay failures.
-      if (!(error instanceof AcquisitionError) || !RECOVERABLE.has(error.code)) throw error;
-      const retained = await this.cached(retainedUrl, PAYLOAD_TTL);
-      if (!retained) throw error;
-      let pair: { catalog: string; asset: PreparedAsset };
-      try {
-        pair = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(
-          await this.read(retained, MAX_CATALOG * 2),
-        ));
-        if (typeof pair.catalog !== "string" || !pair.asset
-          || !/^[a-f0-9]{64}\.npz$/.test(pair.asset.file)
-          || pair.asset.file !== `${pair.asset.sha256}.npz`
-          || !/^\d{14}$/.test(pair.asset.run)) throw new Error("invalid pair");
-      } catch {
-        await this.remove(retainedUrl);
-        throw new WeatherError("WEATHER_CACHE_CORRUPT", "MSM配信情報が破損しています。");
-      }
-      // Do not fetch a missing retained payload: fallback requires an already complete pair.
-      const payload = await this.cached(new URL(pair.asset.file, this.base), PAYLOAD_TTL);
-      if (!payload) throw error;
-      const asset = plan(pair.catalog, error.code, pair.asset.run);
-      if (asset.file !== pair.asset.file || asset.sha256 !== pair.asset.sha256
-        || asset.run !== pair.asset.run || asset.bytes !== pair.asset.bytes) {
-        throw new WeatherError("WEATHER_CACHE_CORRUPT", "MSM配信情報が破損しています。");
-      }
-      const bytes = await this.read(payload, MAX_PAYLOAD);
-      if (bytes.byteLength !== asset.bytes) {
-        await this.remove(new URL(asset.file, this.base));
-        throw new WeatherError("WEATHER_PAYLOAD_INTEGRITY_FAILED",
-          "MSMデータの長さが配信情報と一致しません。");
-      }
-      accept(bytes, asset);
-      // Do not renew retention lifetime or replace the last-good pair on fallback.
-    }
   }
 
   async prepared(asset: PreparedAsset, accept: (bytes: Uint8Array) => void): Promise<void> {

@@ -185,7 +185,7 @@ test("Project quota retry releases the actual Weather cache and keeps Last Calcu
   expect((await record(page)).lastCalculation).toEqual(before.lastCalculation);
 });
 
-for (const failure of ["listing", "communication", "missing", "integrity", "decode", "future"] as const) {
+for (const failure of ["listing", "communication", "missing", "integrity", "decode", "expired"] as const) {
   test(`failure ${failure} is explicit and never selects Legacy`, async ({ page, context }) => {
     if (failure === "listing") await context.route("**/weather/msm/catalog.json", route => route.fulfill({ status: 503, body: "" }));
     if (failure === "communication") await context.route("**/weather/msm/catalog.json", route => route.abort());
@@ -202,15 +202,15 @@ for (const failure of ["listing", "communication", "missing", "integrity", "deco
         }),
       }));
     }
-    if (failure === "future") await context.route("**/weather/msm/catalog.json", route => route.fulfill({
-      body: JSON.stringify({ ...frozen, generated_at: new Date(Date.now() + 3600000).toISOString(), expires_at: new Date(Date.now() + 7200000).toISOString() }),
+    if (failure === "expired") await context.route("**/weather/msm/catalog.json", route => route.fulfill({
+      body: JSON.stringify({ ...frozen, generated_at: "2026-01-01T00:00:00Z", expires_at: "2026-01-01T01:00:00Z" }),
     }));
     await setup(page);
     const before = await record(page);
     await page.getByRole("button", { name: "NAV LOGを作る", exact: true }).click();
     const code = { listing: "WEATHER_DISCOVERY_FAILED", communication: "WEATHER_COMMUNICATION_FAILED",
       missing: "WEATHER_SOURCE_UNAVAILABLE", integrity: "WEATHER_PAYLOAD_INTEGRITY_FAILED",
-      decode: "WEATHER_PAYLOAD_INTEGRITY_FAILED", future: "WEATHER_CATALOG_EXPIRED" }[failure];
+      decode: "WEATHER_PAYLOAD_INTEGRITY_FAILED", expired: "WEATHER_CATALOG_EXPIRED" }[failure];
     await expect.poll(async () => (await state(page))?.error?.code).toBe(code);
     const after = await record(page);
     expect(after.draft.id).toBe(before.draft.id);
@@ -218,59 +218,3 @@ for (const failure of ["listing", "communication", "missing", "integrity", "deco
     expect((await record(page)).lastCalculation).toBeNull();
   });
 }
-
-
-test("expired public feed supports first visit, saved provenance, reload and fresh recovery", async ({ page, context }) => {
-  await context.route("**/weather/msm/catalog.json", route => route.fulfill({
-    body: JSON.stringify({ ...frozen,
-      generated_at: new Date(Date.now() - 7 * 3600000).toISOString(),
-      expires_at: new Date(Date.now() - 3600000).toISOString(),
-    }),
-  }));
-  await setup(page); await calculate(page);
-  const saved = (await record(page)).lastCalculation;
-  expect(saved.forecast_metadata.weather_delivery.fallback_reason).toBe("WEATHER_CATALOG_EXPIRED");
-  expect(saved.forecast_metadata.weather_delivery.selected_run).toBe("20260915210000");
-  expect(saved.outcome.issues.map((issue: any) => issue.code)).toContain("WEATHER_DELIVERY_FALLBACK");
-  await expect(page.getByText(/MSM配信情報の有効期限が切れているため/).first()).toBeVisible();
-  await page.reload();
-  await expect(page.locator(".nav-log-table")).toBeVisible();
-  expect((await record(page)).lastCalculation).toEqual(saved);
-  await expect(page.getByText(/初期時刻から.*時間経過/).first()).toBeVisible();
-  await context.route("**/weather/msm/catalog.json", route => route.fulfill({
-    body: JSON.stringify({ ...frozen, generated_at: new Date(Date.now() - 1000).toISOString(),
-      expires_at: new Date(Date.now() + 3600000).toISOString() }),
-  }));
-  await calculate(page);
-  const fresh = (await record(page)).lastCalculation;
-  expect(fresh.forecast_metadata.weather_delivery.fallback_reason).toBeNull();
-  expect(fresh.outcome.issues.map((issue: any) => issue.code)).not.toContain("WEATHER_DELIVERY_FALLBACK");
-});
-
-test("offline reload recalculates from retained pair; eviction preserves Last Calculation on failure", async ({ page, context }) => {
-  await setup(page); await calculate(page);
-  await page.evaluate(async () => {
-    const cache = await caches.open("autonavlog.weather.msm.v1");
-    for (const key of await cache.keys()) if (key.url.endsWith("/catalog.json")) await cache.delete(key);
-  });
-  await context.route("**/weather/msm/**", route => route.abort());
-  await page.reload();
-  await expect(page.locator(".nav-log-table")).toBeVisible();
-  await calculate(page);
-  const saved = (await record(page)).lastCalculation;
-  expect(saved.forecast_metadata.weather_delivery.fallback_reason).toBe("WEATHER_COMMUNICATION_FAILED");
-  expect(saved.forecast_metadata.weather_delivery.source).toBe("retained_pair");
-  await expect(page.getByText(/MSM配信元へ接続できないため/).first()).toBeVisible();
-  await page.evaluate(async () => {
-    for (const key of await caches.keys()) if (key.startsWith("autonavlog.weather.")) await caches.delete(key);
-  });
-  await page.getByLabel("ETD JST", { exact: true }).fill("12:05");
-  await page.getByLabel("ETD JST", { exact: true }).blur();
-  await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
-  await expect.poll(async () => (await state(page))?.error?.code).toBe("WEATHER_COMMUNICATION_FAILED");
-  expect((await record(page)).lastCalculation).toEqual(saved);
-  await page.reload();
-  await expect(page.locator(".nav-log-table")).toBeVisible();
-  expect((await record(page)).lastCalculation).toEqual(saved);
-  expect((await state(page)).readiness.calculationIsCurrent).toBe(false);
-});

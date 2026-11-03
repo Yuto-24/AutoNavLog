@@ -322,6 +322,7 @@ class CalculationService:
         *,
         rounding_mode: bool = False,
         refresh_forecast: bool = False,
+        validate_only: bool = False,
     ) -> CalculationOutcome:
         self._rounding_mode = rounding_mode
         report = progress or (lambda _percent, _message: None)
@@ -527,6 +528,8 @@ class CalculationService:
             )
             return self._empty_outcome(working, issues, check_point_projections, arrival_altitude)
 
+        if validate_only:
+            return self._empty_outcome(working, issues, check_point_projections, arrival_altitude)
         report(25, "気象データを準備しています。")
         initial_requirement = self.forecast_service.build_initial_requirement(working)
         selected_run_id = self._select_and_prepare_run(
@@ -891,13 +894,6 @@ class CalculationService:
             if initial_time_utc is not None:
                 metadata["initial_time_utc"] = initial_time_utc.isoformat().replace("+00:00", "Z")
             self.last_forecast_metadata = metadata
-            if metadata.get("delivery_warning"):
-                issues.append(Issue(
-                    code="WEATHER_DELIVERY_FALLBACK",
-                    severity=IssueSeverity.WARNING,
-                    message=metadata["delivery_warning"],
-                    metadata=dict(metadata["weather_delivery"]),
-                ))
             return selected_run_id
         except Exception as error:
             issues.append(self._blocker("FORECAST_PREPARE_FAILED", str(error)))
