@@ -15,7 +15,7 @@ coverage、decode、補間、provenanceの正本。Legacyも同じ公開`Surface
 [source実測](evidence/issue-144/windows-source.json)を参照。
 
 このため採用した追加componentは**batchによる静的MSM feed生成**。
-HTTP proxy、ユーザーごとのserver計算、FastAPI endpointは追加しない。
+通常経路はstatic feedを維持する。配信障害時のみ、後述の計算専用APIへ自動切替する。
 既存のdesktop libraryがGRIB取得/decodeを行い、public `MsmPreparedData.to_bytes()`を
 content-addressed fileへ出力する。Browserはそのfileを検証して気象値を求める。
 producerへProjectや経路を送らず、固定範囲・時間帯を定期生成する。
@@ -53,12 +53,12 @@ feedのcatalogとpayloadはcookie・HTTP認証などのcredential不要で取得
 Browser transportは`credentials: "omit"`を使用するため、ログイン必須pathや
 認証画面へのredirectは利用できない。#121でこの公開配信契約を維持する。
 認証が必要になる場合は#121側でtransport契約を明示的に見直す。
-`prepare_local.py`はfeed省略時に古い生成済みfeedを除去する。feedなしでFORECASTが成功することはない。
+`prepare_local.py`はfeed省略時に古い生成済みfeedを除去する。feedなしでは通常のLocal FORECASTは成功せず、設定済みの予備計算経路を試す。
 
 配信範囲/時間の不足はmodelの範囲外とは異なる。最新compatible Runが未生成なら
-`WEATHER_PREPARED_UNAVAILABLE`として停止し、別Runへ切り替えない。
+`WEATHER_PREPARED_UNAVAILABLE`で通常経路を止め、計算専用APIを試す。端末側で別Runや古いcatalogへ切り替えない。
 旧Runのasset保持は全過去時間帯の再計算保証ではない。再計算に必要な配信時間帯が
-ない場合も`WEATHER_PREPARED_UNAVAILABLE`で明示失敗し、保存済みNAV LOGは閲覧できる。
+ない場合も`WEATHER_PREPARED_UNAVAILABLE`から計算専用APIを試す。両経路が失敗しても保存済みNAV LOGは閲覧できる。
 consumerはlibraryにpreparedの実収録範囲を確認させてからsource identityを照合する。
 不足を破損として再取得し続けない。Run違い、hash破損、source identity不一致の
 `WEATHER_PAYLOAD_INTEGRITY_FAILED`は維持する。
@@ -81,7 +81,7 @@ raw/normalized cacheはproducer側libraryにのみ存在する。
 Project/Last CalculationはIndexedDBの既存#124 contractを維持する。失敗計算では
 Last Calculationを置換しない。`updateAndRecalculate`の入力commitと失敗時の保持も維持する。
 通信中もWorkerのmutation queueを直列化する。UI/Calculation Coreにfetchは置かない。
-`networkAvailability()`はsource health判定に使わない。Legacy/API fallbackはない。
+`networkAvailability()`はsource health判定に使わない。予備経路は独立した計算専用APIで、Legacyの画面・編集・保存APIは呼ばない。
 
 | 失敗 | 表現 |
 | --- | --- |
@@ -90,7 +90,8 @@ Last Calculationを置換しない。`updateAndRecalculate`の入力commitと失
 | listing HTTP/discovery | `WEATHER_DISCOVERY_FAILED` |
 | fetch/timeout/CORS | `WEATHER_COMMUNICATION_FAILED` |
 | source file 404/503 | `WEATHER_SOURCE_UNAVAILABLE` |
-| download中断/サイズ/その他HTTP | `WEATHER_DOWNLOAD_FAILED` |
+| download中断/取得HTTP失敗 | `WEATHER_TRANSPORT_FAILED` |
+| サイズ超過/読取不可 | `WEATHER_DOWNLOAD_FAILED` |
 | Run不在/未配信 | `WEATHER_RUN_UNAVAILABLE` / `WEATHER_PREPARED_UNAVAILABLE` |
 | catalog schema/期限 | `WEATHER_CATALOG_INVALID` / `WEATHER_CATALOG_EXPIRED` |
 | payload hash/format/decode | `WEATHER_PAYLOAD_INTEGRITY_FAILED` |
@@ -99,7 +100,19 @@ Last Calculationを置換しない。`updateAndRecalculate`の入力commitと失
 
 native GRIB decode/prepared生成はproducerの責務で、失敗時は非zero終了と
 library exceptionの`error_type`/messageを出力する。Browserに不完全なcatalogを公開しない。
-取得/生成失敗をcoverageに変換しない。公開済みcatalogが期限切れになれば計算は停止する。
+取得/生成失敗をcoverageに変換しない。公開済みcatalogが期限切れなら通常経路を止めて計算専用APIを試す。producerの非zero終了、freshness/admission gate、監視の異常判定は変更しない。
+
+## 配信障害時の計算専用API
+
+通常のstatic feedとLocal計算を毎回先に試す。期限切れ、気象取得失敗、必要な配信データ不足に限り、未ログインでも予備サーバーで気象取得と計算を行う。期限切れpublic feedやlast-good cacheを先に使わない。入力不正、catalog schema/未来時刻異常、hash/identity/format不一致、一般のプログラム例外は自動切替しない。
+
+Workerが計算前に共通エンジンの入力検証を行う。初期要求に加え、反復後の最終時刻・地点・高度・変数をpublic weather providerで検証する。不足を外挿や手入力値で隠さない。固定Runと2クリック更新の意図を転送し、同じRunを再取得できない結果は採用しない。
+
+APIには計算用Projectとschema/capability、Python engine・参照/性能dataのhash、rounding・更新意図だけを送る。氏名、機体識別、owner、durableToken、repositoryRecovery、保存済みProject一覧は送らない。旧バージョンの結果はhash不一致で拒否する。現在の入力世代とアカウントが維持され、結果checksum・Project/Run identity・readinessを検証できた場合だけLocalへ採用する。予備利用の理由コード・選択Run・契約identityをLast Calculationへ保存し、reload/syncでも出典が残る。次回の通常計算成功で予備利用の警告は消える。
+
+Project保存と同期は既存Local repositoryで行う。失敗・取消・入力やアカウント変更時は既存Last Calculationを置換しない。応答不明時は同じID・capabilityをGETで照会し、404時だけ同一内容のPUTを再送する。再読込をまたぐ進行中jobの再開は行わず、保存済み入力とLast Calculationを復元する。
+
+serverの構成、資源制限、未実施の本番有効化条件は[計算専用予備サーバー](forecast_backup.md)を参照する。下記2026-09-16のacceptanceは通常経路の過去実測であり、新しい予備APIの本番受入ではない。
 
 ## 実データacceptance（2026-09-16）
 

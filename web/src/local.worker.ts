@@ -119,6 +119,10 @@ local_application.dispatch_response("updateProject", json.loads(local_body_json)
           pyodide.globals.set("local_dispatch_path", "calculate");
           pyodide.globals.set("local_body_json", "{}");
         }
+        const validated = pyodide.runPython(
+          'local_application.dispatch_response("validateCalculation", json.loads(local_body_json))',
+        ) as string;
+        if (JSON.parse(validated).error) return validated;
         try { await acquireWeather(pyodide); }
         catch (error) {
           return JSON.stringify({ error: {

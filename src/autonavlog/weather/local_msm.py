@@ -20,6 +20,7 @@ from jma_gpv_weather import (
 from jma_gpv_weather.errors import (
     CacheIntegrityError,
     MissingVariableError,
+    MsmError,
     NoCompatibleRunError,
     SelectedRunCoverageError,
 )
@@ -94,6 +95,8 @@ class LocalMsmClient(MsmClient):  # type: ignore[misc]
     def discover_runs(self, requirements: ForecastRequirements, **kwargs: Any) -> Any:
         if self.catalog is None:
             raise LocalWeatherError("WEATHER_DISCOVERY_FAILED", "MSM配信情報がありません。")
+        if any(url not in self.catalog.listings for url in self.listing_urls(requirements)):
+            raise LocalWeatherError("WEATHER_DISCOVERY_FAILED", "MSM配信情報がありません。")
         try:
             return super().discover_runs(requirements, listings=self.catalog.listings)
         except NoCompatibleRunError as error:
@@ -101,9 +104,13 @@ class LocalMsmClient(MsmClient):  # type: ignore[misc]
             raise LocalWeatherError(
                 "WEATHER_RUN_UNAVAILABLE", "必要なMSM Runがsourceにありません。"
             ) from error
+        except MsmError as error:
+            raise LocalWeatherError(
+                "WEATHER_CATALOG_INVALID", "MSM Run一覧を確認できません。"
+            ) from error
         except Exception as error:
             raise LocalWeatherError(
-                "WEATHER_DISCOVERY_FAILED", "MSM Run一覧を確認できません。"
+                "WEATHER_PROCESSING_FAILED", "MSM Run一覧を確認できません。"
             ) from error
 
     def resolve_run(
@@ -181,7 +188,11 @@ class LocalMsmWeather:
         now = datetime.now(UTC)
         # Producer and device clocks differ. Tolerate a slightly future generation
         # timestamp, but never extend the catalog's absolute expiry.
-        if catalog.expires_at <= now or catalog.generated_at > now + CATALOG_CLOCK_SKEW:
+        if catalog.generated_at > now + CATALOG_CLOCK_SKEW:
+            raise LocalWeatherError(
+                "WEATHER_CATALOG_INVALID", "MSM配信情報が破損しています。"
+            )
+        if catalog.expires_at <= now:
             raise LocalWeatherError(
                 "WEATHER_CATALOG_EXPIRED", "MSM配信情報の有効期限を確認してください。"
             )

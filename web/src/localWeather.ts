@@ -84,7 +84,7 @@ export class LocalWeatherTransport {
       }
     } catch (error) {
       if (error instanceof WeatherError) throw error;
-      throw new WeatherError("WEATHER_DOWNLOAD_FAILED", "MSMデータのダウンロードに失敗しました。");
+      throw new WeatherError("WEATHER_TRANSPORT_FAILED", "MSMデータのダウンロードに失敗しました。");
     } finally { reader.releaseLock(); }
     const bytes = new Uint8Array(size);
     let offset = 0;
@@ -104,7 +104,7 @@ export class LocalWeatherTransport {
       await response.body?.cancel();
       throw new WeatherError(catalog ? "WEATHER_DISCOVERY_FAILED"
         : response.status === 404 || response.status === 503 ? "WEATHER_SOURCE_UNAVAILABLE"
-        : "WEATHER_DOWNLOAD_FAILED", `MSM取得に失敗しました（HTTP ${response.status}）。`);
+        : "WEATHER_TRANSPORT_FAILED", `MSM取得に失敗しました（HTTP ${response.status}）。`);
     }
     return this.read(response, limit);
   }

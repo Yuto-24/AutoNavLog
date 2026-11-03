@@ -295,6 +295,18 @@ jobs:
           npm --prefix web exec -- playwright test --config web/playwright.browser-acceptance.config.ts --workers=2
           AUTONAVLOG_TEST_FIXTURES=1 VITE_TAF_PROXY_URL=https://taf.example/taf npm --prefix web run build:local
           npm --prefix web run test:taf
+      - name: Verify guest forecast backup with the matching isolated calculator
+        if: matrix.suite == 'local'
+        run: |
+          (cd web && VITE_CALCULATION_MODE=local VITE_FORECAST_BACKUP_URL=http://localhost:4203/api/forecast-backup/jobs/ npm exec -- vite build --outDir dist-backup)
+          PYTHONPATH="$PWD/src:$PWD" python tests/integration/serve_forecast_backup_fixture.py --port 4203 --origin http://localhost:4202 --storage "$RUNNER_TEMP/forecast-backup" > /tmp/backup-server.log 2>&1 &
+          backup_pid=$!
+          python -m http.server 4202 --bind 127.0.0.1 --directory web/dist-backup > /tmp/backup-browser-server.log 2>&1 &
+          browser_pid=$!
+          trap 'kill "$backup_pid" "$browser_pid"' EXIT
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://localhost:4203/healthz > /dev/null
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://localhost:4202/ > /dev/null
+          AUTONAVLOG_LOCAL_URL=http://localhost:4202 npm --prefix web run test:forecast-backup
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -305,6 +317,9 @@ jobs:
             /tmp/autonavlog-issue122-browser
             /tmp/autonavlog-taf-playwright
             /tmp/local-server.log
+            /tmp/autonavlog-forecast-backup-browser
+            /tmp/backup-server.log
+            /tmp/backup-browser-server.log
             /tmp/autonavlog-auth-tests
             /tmp/autonavlog-focused-ux-browser
             /tmp/autonavlog-clipboard-playwright

@@ -84,13 +84,14 @@ def require(condition: object, message: str) -> None:
 
 
 def public_configuration(variables: dict) -> dict:
-    """Migration URL is optional only when the canonical release agrees it is absent."""
-    required = gate.CONFIGURATION[:-1]
+    """Optional endpoints may be absent only when the canonical release agrees."""
+    required = gate.REQUIRED_CONFIGURATION
     require(all(isinstance(variables.get(key), str) and variables[key].strip()
                 for key in required), "Existing public configuration missing")
-    optional = variables.get("VITE_LEGACY_MIGRATION_URL", "")
-    require(isinstance(optional, str) and (not optional or optional.strip()),
-            "Invalid Legacy migration configuration")
+    for key in gate.OPTIONAL_CONFIGURATION:
+        optional = variables.get(key, "")
+        require(isinstance(optional, str) and (not optional or optional.strip()),
+                "Invalid optional endpoint configuration")
     return {key: variables[key] for key in gate.CONFIGURATION if variables.get(key)}
 
 
@@ -324,7 +325,7 @@ class Operator:
             require(len(rows) == 100 and page < 40, "Incomplete repository inventory")
             page += 1
         require(all(name in inventory for name in VARIABLES
-                    if name != "VITE_LEGACY_MIGRATION_URL"), "Missing repository variable")
+                    if name not in gate.OPTIONAL_CONFIGURATION), "Missing repository variable")
         result = {name: inventory.get(name, "") for name in VARIABLES}
         # Environment shadowing could make resumed feed builds use another SHA/config.
         for environment in ("static-production", "static-publication", "static-validation"):

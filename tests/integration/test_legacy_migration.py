@@ -280,9 +280,10 @@ def test_final_verification_detects_update_to_an_earlier_batch(migration):
     assert migration.status(KEY)["state"] == "LINKED"
 
 
+@pytest.mark.parametrize("backup_enabled", [False, True])
 @pytest.mark.parametrize("navmate_origin", ["https://navmate.example", "https://custom.example"])
 def test_signed_owner_link_google_boundary_cors_and_redirect(
-    migration, monkeypatch, navmate_origin
+    migration, monkeypatch, navmate_origin, backup_enabled
 ):
     monkeypatch.setenv("AUTONAVLOG_FIREBASE_PROJECT_ID", "test-project")
     monkeypatch.setenv("AUTONAVLOG_FIREBASE_API_KEY", "test-key")
@@ -304,7 +305,11 @@ def test_signed_owner_link_google_boundary_cors_and_redirect(
             GOOGLE if token == "valid-google" else (_ for _ in ()).throw(ValueError("invalid"))
         ),
     )
-    app = create_app(web_application=migration.web)
+    config = None
+    if backup_enabled:
+        monkeypatch.setenv("AUTONAVLOG_FORECAST_BACKUP_ORIGIN", navmate_origin)
+        config = WebRuntimeConfig(ROOT / "data", migration.web.project_service.repository.root)
+    app = create_app(config, web_application=migration.web)
     service = app.state.legacy_migration
     with TestClient(app, base_url="https://legacy.example") as client:
         signed = {

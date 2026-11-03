@@ -287,6 +287,7 @@ def test_failure_reports_partial_state_and_never_unconditionally_resumes(
         "VITE_FIREBASE_PROJECT_ID",
         "VITE_TAF_PROXY_URL",
         "VITE_LEGACY_MIGRATION_URL",
+        "VITE_FORECAST_BACKUP_URL",
         "CLOUDFLARE_ACCOUNT_ID",
     ],
 )
@@ -925,7 +926,7 @@ def test_repository_inventory_failure_does_not_remove_migration_gate(tmp_path, d
         operator.variables()
 
 
-@pytest.mark.parametrize("key", gate.CONFIGURATION[:-1])
+@pytest.mark.parametrize("key", gate.REQUIRED_CONFIGURATION)
 def test_retirement_does_not_make_sync_or_taf_configuration_optional(key):
     variables = {name: "public" for name in gate.CONFIGURATION}
     variables["VITE_LEGACY_MIGRATION_URL"] = ""
@@ -934,18 +935,22 @@ def test_retirement_does_not_make_sync_or_taf_configuration_optional(key):
         app.public_configuration(variables)
 
 
-def test_app_update_after_retirement_preserves_absent_migration_configuration(tmp_path):
+@pytest.mark.parametrize("backup_url", ["", "https://navlog.yuto24.com/api/forecast-backup/jobs/"])
+def test_app_update_after_retirement_preserves_absent_migration_configuration(tmp_path, backup_url):
     store = tmp_path / "store"
     store.mkdir()
     operator = SimulatedOperator(tmp_path / "tooling", automation="false")
     operator.state["variables"]["VITE_LEGACY_MIGRATION_URL"] = ""
+    operator.state["variables"]["VITE_FORECAST_BACKUP_URL"] = backup_url
     app.prepare(operator, NEW, OLD, store,
                 app.Journal(store / "prepare-status.json", "prepare", NEW))
     reviewed = app.digest((store / "plan.json").read_bytes())
     result = run_publish((operator, store, reviewed))
     candidate = json.loads((store / "fresh/upload/dist-static/release.json").read_text())
     assert "VITE_LEGACY_MIGRATION_URL" not in candidate["configuration"]
-    assert len(candidate["configuration"]) == 5
+    assert set(candidate["configuration"]) == (set(gate.REQUIRED_CONFIGURATION)
+        | ({"VITE_FORECAST_BACKUP_URL"} if backup_url else set()))
+    assert candidate["configuration"].get("VITE_FORECAST_BACKUP_URL", "") == backup_url
     assert result["final_automation"] == "false"
     assert operator.state["variables"]["VITE_LEGACY_MIGRATION_URL"] == ""
 
@@ -1598,3 +1603,11 @@ def test_invalid_or_incomplete_transition_records_fail_closed(tmp_path, change):
     with pytest.raises(app.Blocked):
         operator.compatibility(NEW, OLD, operator.state["variables"])
     assert operator.rules_receipt is None and operator.uploaded is None
+
+
+def test_forecast_backup_configuration_is_optional_and_preserved():
+    variables = {name: "public" for name in gate.REQUIRED_CONFIGURATION}
+    assert "VITE_FORECAST_BACKUP_URL" not in app.public_configuration(variables)
+    variables["VITE_FORECAST_BACKUP_URL"] = "https://navlog.yuto24.com/api/forecast-backup/jobs/"
+    assert (app.public_configuration(variables)["VITE_FORECAST_BACKUP_URL"]
+            == variables["VITE_FORECAST_BACKUP_URL"])
