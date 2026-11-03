@@ -92,11 +92,14 @@ def produce(
     assets: dict[str, PreparedAsset] = {}
     retained_listings: dict[str, str] = {}
     cutoff = generated - timedelta(days=7)
+    # validate_feed permits a candidate age of 30 minutes but measures Run age at validation.
+    # Keep every indexed Run within seven days for that entire candidate lifetime.
+    asset_cutoff = cutoff + timedelta(minutes=30)
     previous_path = output / "catalog.json"
     if previous_path.exists():
         previous = WeatherCatalog.model_validate_json(previous_path.read_text())
         for asset in previous.assets:
-            if datetime.strptime(asset.run, "%Y%m%d%H%M%S").replace(tzinfo=UTC) < cutoff:
+            if datetime.strptime(asset.run, "%Y%m%d%H%M%S").replace(tzinfo=UTC) < asset_cutoff:
                 continue
             path = output / asset.file
             if not path.is_file():
@@ -165,7 +168,7 @@ def produce(
     assets = {
         run: asset
         for run, asset in assets.items()
-        if datetime.strptime(run, "%Y%m%d%H%M%S").replace(tzinfo=UTC) >= cutoff
+        if datetime.strptime(run, "%Y%m%d%H%M%S").replace(tzinfo=UTC) >= asset_cutoff
     }
     catalog = WeatherCatalog(
         schema_version=1,

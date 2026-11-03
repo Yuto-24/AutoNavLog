@@ -75,7 +75,8 @@ release保管場所へ保存する。artifactはFirebaseの公開識別子を含
 
 [既存MSM producer / 運用契約](local_weather.md)をそのまま使う。
 3時間ごとの生成を目安とし、同じproducer output directory / cacheを継続利用して
-7日以内の旧Run assetを保持する。catalog lifetimeは6時間。
+旧Run assetは、生成後30分以内の公開前検証でも7日以内となるものをcatalogに保持する。
+未参照NPZの削除は従来どおりファイル時刻の7日基準とし、catalog lifetimeは6時間。
 producerにProjectを送らず、static catalog / NPZだけを公開する。
 Pagesは全artifact単位の配置なので、**現在配信中の承認済みsource commitと設定**から
 新feedを同梱してbuild・checkし、全体を手動uploadする。app更新とfeed更新を
