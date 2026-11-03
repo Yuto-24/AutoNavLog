@@ -247,7 +247,7 @@ def gate_command(monkeypatch, tmp_path):
     def history(rows):
         return {"total_count": len(rows), "workflow_runs": rows}
     state = SimpleNamespace(
-        gate=gate, event_path=event_path, history=history, calls=[],
+        gate=gate, event_path=event_path, history=history, calls=[], sleeps=[],
         responses=[{"created_at": NOW.isoformat()}, history([run()]),
                    *[history([]) for _ in range(5)], lock])
 
@@ -260,15 +260,17 @@ def gate_command(monkeypatch, tmp_path):
             return io.BytesIO(value if isinstance(value, bytes) else json.dumps(value).encode())
 
     monkeypatch.setattr(gate, "build_opener", lambda *_: Opener())
+    monkeypatch.setattr(gate, "sleep", state.sleeps.append)
     return state
 
 
-def assert_blocked(state, capsys, stage, reason, http_status=None):
+def assert_blocked(state, capsys, stage, reason, http_status=None, **counts):
     """Assert the complete allowed output, not just absence of one known token."""
     with pytest.raises(SystemExit) as exc:
         state.gate.main()
     status = "" if http_status is None else f" http_status={http_status}"
-    assert str(exc.value) == f"{BLOCK_PREFIX}; stage={stage} reason={reason}{status}"
+    numbers = "".join(f" {name}={value}" for name, value in counts.items())
+    assert str(exc.value) == f"{BLOCK_PREFIX}; stage={stage} reason={reason}{status}{numbers}"
     assert exc.value.__suppress_context__
     output = capsys.readouterr()
     assert output.out == output.err == ""
@@ -360,11 +362,11 @@ def test_main_http_status_is_bounded_plain_integer(gate_command, capsys, code, e
     ("missing_lock", "validate_lock", "LOCK_MISSING"),
     ("current_oversize", "current_run", "RESPONSE_TOO_LARGE"),
     ("history_oversize", "created_history", "RESPONSE_TOO_LARGE"),
-    ("incomplete", "created_history", "INCOMPLETE_HISTORY"),
+    ("incomplete", "created_history", "HISTORY_COUNT_MISMATCH"),
     ("detected_future", "detected_run", "FUTURE_DETECTED_RUN"),
     ("detected_invalid", "detected_limit", "INVALID_DETECTED_RUN"),
     ("detected_cap", "detected_limit", "PER_RUN_LIMIT"),
-    ("jobs_incomplete", "detected_jobs", "INCOMPLETE_HISTORY"),
+    ("jobs_incomplete", "detected_jobs", "HISTORY_COUNT_MISMATCH"),
 ])
 def test_main_rejections_have_distinct_safe_reasons(gate_command, monkeypatch, capsys,
                                                   case, stage, reason):
@@ -426,7 +428,14 @@ def test_main_rejections_have_distinct_safe_reasons(gate_command, monkeypatch, c
         if case == "detected_cap":
             state.responses[-1] = {"total_count": 1,
                                    "jobs": [{"id": 1, "name": "msm-detected/" + TARGET}]}
-    assert_blocked(state, capsys, stage, reason)
+    counts = {}
+    if case == "incomplete":
+        state.responses[1:2] = [state.responses[1]] * 3
+        counts = {"total_count": 100, "row_count": 1, "unique_count": 1}
+    elif case == "jobs_incomplete":
+        state.responses += [state.responses[-1]] * 2
+        counts = {"total_count": 1, "row_count": 0, "unique_count": 0}
+    assert_blocked(state, capsys, stage, reason, **counts)
 
 
 @pytest.mark.parametrize("case,stage", [
@@ -463,4 +472,188 @@ def test_main_malformed_evidence_never_formats_payload(gate_command, monkeypatch
         state.responses += [state.history([run(), {**run(99, 120),
                                                    "display_title": "msm-request/old"}]),
                             SECRET.encode()]
-    assert_blocked(state, capsys, stage, "UNEXPECTED_ERROR")
+    assert_blocked(state, capsys, stage,
+                   "HISTORY_SHAPE" if case == "history_shape" else "UNEXPECTED_ERROR")
+
+
+# Keep malformed evidence and duplicate IDs ahead of count-mismatch retries.
+@pytest.mark.parametrize("value,reason,counts", [
+    ([], "HISTORY_SHAPE", {}),
+    ({}, "HISTORY_SHAPE", {}),
+    ({"total_count": 0}, "HISTORY_SHAPE", {}),
+    ({"total_count": SECRET, "workflow_runs": []}, "HISTORY_COUNT_TYPE", {}),
+    ({"total_count": True, "workflow_runs": []}, "HISTORY_COUNT_TYPE", {}),
+    ({"total_count": 0.0, "workflow_runs": []}, "HISTORY_COUNT_TYPE", {}),
+    ({"total_count": None, "workflow_runs": []}, "HISTORY_COUNT_TYPE", {}),
+    ({"total_count": -1, "workflow_runs": []}, "HISTORY_COUNT_RANGE", {}),
+    ({"total_count": 101, "workflow_runs": []}, "HISTORY_COUNT_RANGE", {}),
+    ({"total_count": 10**100, "workflow_runs": []}, "HISTORY_COUNT_RANGE", {}),
+    ({"total_count": 0, "workflow_runs": SECRET}, "HISTORY_SHAPE", {"total_count": 0}),
+    ({"total_count": 0, "workflow_runs": {}}, "HISTORY_SHAPE", {"total_count": 0}),
+    ({"total_count": 0, "workflow_runs": None}, "HISTORY_SHAPE", {"total_count": 0}),
+    ({"total_count": 0, "workflow_runs": [SECRET]}, "HISTORY_SHAPE",
+     {"total_count": 0, "row_count": 1}),
+    ({"total_count": 0, "workflow_runs": [{SECRET: SECRET}]}, "HISTORY_SHAPE",
+     {"total_count": 0, "row_count": 1}),
+    ({"total_count": 0, "workflow_runs": [{"id": [SECRET]}]}, "HISTORY_SHAPE",
+     {"total_count": 0, "row_count": 1}),
+    ({"total_count": 100, "workflow_runs": [{"id": i} for i in range(101)]},
+     "HISTORY_ROWS_RANGE", {"total_count": 100}),
+    ({"total_count": 2, "workflow_runs": [{"id": SECRET}] * 2},
+     "HISTORY_DUPLICATE_ID", {"total_count": 2, "row_count": 2, "unique_count": 1}),
+    ({"total_count": 3, "workflow_runs": [{"id": SECRET}] * 2},
+     "HISTORY_DUPLICATE_ID", {"total_count": 3, "row_count": 2, "unique_count": 1}),
+])
+def test_history_nonretryable_evidence_stops_before_next_read(gate_command, capsys,
+                                                            value, reason, counts):
+    """Even a simultaneous mismatch cannot hide invalid shape, limits or duplicate IDs."""
+    state = gate_command
+    state.responses[2] = value
+    assert_blocked(state, capsys, "active_queued", reason, **counts)
+    assert len(state.calls) == 3
+    assert state.sleeps == []
+
+
+@pytest.mark.parametrize("stage_index", [1, 2, 3, 4, 5, 6, 8, 9])
+@pytest.mark.parametrize("mismatches", [1, 2])
+def test_history_mismatch_recovers_with_same_request_before_advancing(
+        gate_command, monkeypatch, capsys, stage_index, mismatches):
+    """Only a fresh internally consistent snapshot admits work; GET order/auth stay intact."""
+    state = gate_command
+    if stage_index >= 8:
+        monkeypatch.setattr("sys.argv", ["gate", "--detected-run", TARGET])
+        state.responses += [state.history([run(), {**run(99, 120),
+                                                   "display_title": "msm-request/old"}]),
+                            {"total_count": 0, "jobs": []}]
+    good = state.responses[stage_index]
+    bad = {**good, "total_count": good["total_count"] + 1, "private": SECRET}
+    state.responses[stage_index:stage_index] = [bad] * mismatches
+    state.gate.main()
+    assert capsys.readouterr().out == '{"status":"EXTERNAL_BUDGET_OK"}\n'
+    assert len(state.calls) == (10 if stage_index >= 8 else 8) + mismatches
+    retries = state.calls[stage_index:stage_index + mismatches + 1]
+    assert all(request is retries[0][0] for request, _ in retries)
+    assert all(request.get_method() == "GET" and timeout == 30
+               and request.get_header("Authorization") == "Bearer " + SECRET
+               for request, timeout in state.calls)
+    assert state.sleeps == [1] * mismatches
+
+
+@pytest.mark.parametrize("stage_index", [1, 2, 3, 4, 5, 6, 8, 9])
+def test_history_mismatch_exhaustion_keeps_stage_and_latest_counts(
+        gate_command, monkeypatch, capsys, stage_index):
+    """Three inconsistent reads stop without a fourth request or downstream work."""
+    state = gate_command
+    if stage_index >= 8:
+        monkeypatch.setattr("sys.argv", ["gate", "--detected-run", TARGET])
+        state.responses += [state.history([run(), {**run(99, 120),
+                                                   "display_title": "msm-request/old"}]),
+                            {"total_count": 0, "jobs": []}]
+    key = "jobs" if stage_index == 9 else "workflow_runs"
+    state.responses[stage_index:stage_index + 1] = [
+        {"total_count": n, key: [], "private": SECRET} for n in (1, 2, 3)]
+    assert_blocked(state, capsys, API_STAGES[stage_index], "HISTORY_COUNT_MISMATCH",
+                   total_count=3, row_count=0, unique_count=0)
+    assert len(state.calls) == stage_index + 3
+    assert state.sleeps == [1, 1]
+
+
+@pytest.mark.parametrize("case,reason,status,counts", [
+    ("http", "HTTP_ERROR", 503, {}),
+    ("network", "UNEXPECTED_ERROR", None, {}),
+    ("json", "UNEXPECTED_ERROR", None, {}),
+    ("shape", "HISTORY_SHAPE", None, {}),
+    ("type", "HISTORY_COUNT_TYPE", None, {}),
+    ("range", "HISTORY_COUNT_RANGE", None, {}),
+    ("duplicate", "HISTORY_DUPLICATE_ID", None,
+     {"total_count": 3, "row_count": 2, "unique_count": 1}),
+    ("oversize", "RESPONSE_TOO_LARGE", None, {}),
+])
+def test_retry_does_not_repeat_a_new_nonretryable_failure(
+        gate_command, capsys, case, reason, status, counts):
+    """Retry eligibility is revalidated on every response, never inherited from a mismatch."""
+    from urllib.error import HTTPError
+
+    state = gate_command
+    errors = {
+        "http": HTTPError(SECRET, 503, SECRET, {}, None),
+        "network": TimeoutError(SECRET), "json": SECRET.encode(), "shape": [],
+        "type": {"total_count": SECRET, "workflow_runs": []},
+        "range": {"total_count": 101, "workflow_runs": []},
+        "duplicate": {"total_count": 3, "workflow_runs": [{"id": SECRET}] * 2},
+        "oversize": SECRET.encode() + b" " * (2 * 1024 * 1024),
+    }
+    state.responses[2:3] = [{"total_count": 1, "workflow_runs": []}, errors[case]]
+    assert_blocked(state, capsys, "active_queued", reason, status, **counts)
+    assert len(state.calls) == 4
+    assert state.sleeps == [1]
+
+
+@pytest.mark.parametrize("value,shown", [
+    (0, True), (100, True), (-1, False), (101, False), (True, False),
+    (1.0, False), (SECRET, False), (None, False), ([SECRET], False),
+])
+def test_count_diagnostics_accept_only_bounded_plain_integers(
+        gate_command, monkeypatch, capsys, value, shown):
+    """The output boundary independently rejects secret or malformed count attributes."""
+    state = gate_command
+    error = state.gate.GateRejection(state.gate.Reason.HISTORY_COUNT_MISMATCH, SECRET,
+                                    total_count=value, row_count=value, unique_count=value)
+    def reject(request):
+        raise error
+    monkeypatch.setattr(state.gate, "read_json", reject)
+    counts = dict.fromkeys(("total_count", "row_count", "unique_count"), value) if shown else {}
+    assert_blocked(state, capsys, "created_history", "HISTORY_COUNT_MISMATCH", **counts)
+
+
+@pytest.mark.parametrize("case,stage,reason", [
+    ("daily", "validate", "DAILY_LIMIT"), ("cooldown", "validate", "COOLDOWN"),
+    ("lock", "validate_lock", "LOCK_NOT_HELD"),
+])
+def test_recovered_history_does_not_relax_admission(gate_command, capsys, case, stage, reason):
+    """Count recovery grants no exemption from the existing budgets or live lock."""
+    state = gate_command
+    if case == "daily":
+        state.responses[1] = state.history([run()] + [
+            run(i, 120, "20261025000000") for i in range(8)])
+    elif case == "cooldown":
+        state.responses[1] = state.history([run(), run(99, 30)])
+    else:
+        state.responses[7]["group_members"][0]["status"] = "pending"
+    state.responses[2:2] = [{"total_count": 1, "workflow_runs": []}]
+    assert_blocked(state, capsys, stage, reason)
+    assert len(state.calls) == 9
+    assert state.sleeps == [1]
+
+@pytest.mark.parametrize("key,row", [
+    ("workflow_runs", {"id": 99}),
+    ("workflow_runs", {**run(99), "status": SECRET}),
+    ("workflow_runs", {**run(99), "status": None}),
+    ("workflow_runs", {**run(99), "created_at": SECRET}),
+    ("workflow_runs", {**run(99), "created_at": "2026-10-25T12:00:00"}),
+    ("workflow_runs", {**run(99), "display_title": None}),
+    ("workflow_runs", {**run(99), "id": None}),
+    ("workflow_runs", {**run(99), "id": True}),
+    ("workflow_runs", {**run(99), "id": SECRET}),
+    ("workflow_runs", {**run(99), "id": -1}),
+    ("jobs", {"id": 1}),
+    ("jobs", {"id": 1, "name": [SECRET]}),
+    ("jobs", {"id": None, "name": "preflight"}),
+])
+def test_malformed_endpoint_row_cannot_be_hidden_by_retry(
+        gate_command, monkeypatch, capsys, key, row):
+    """Missing/invalid row metadata refuses retry even when the next response is valid."""
+    state = gate_command
+    stage_index = 2
+    stage = "active_queued"
+    if key == "jobs":
+        monkeypatch.setattr("sys.argv", ["gate", "--detected-run", TARGET])
+        state.responses += [state.history([run(), {**run(99, 120),
+                                                   "display_title": "msm-request/old"}]),
+                            {"total_count": 0, "jobs": []}]
+        stage_index, stage = 9, "detected_jobs"
+    state.responses[stage_index:stage_index] = [{"total_count": 2, key: [row]}]
+    assert_blocked(state, capsys, stage, "HISTORY_SHAPE",
+                   total_count=2, row_count=1, unique_count=1)
+    assert len(state.calls) == stage_index + 1
+    assert state.sleeps == []
