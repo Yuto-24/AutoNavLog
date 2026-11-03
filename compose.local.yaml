@@ -1,0 +1,82 @@
+name: ${COMPOSE_PROJECT_NAME:-autonavlog-local}
+
+services:
+  source:
+    image: registry.k8s.io/git-sync/git-sync:v4.8.0
+    command:
+      - --repo=https://github.com/Yuto-24/AutoNavLog.git
+      - --ref=main
+      - --root=/git/repo
+      - --link=current
+      - --period=300s
+      - --stale-worktree-timeout=1h
+      - --max-failures=-1
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - local-source:/git
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  updater:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: updater
+    command: [updater]
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    env_file: [.env.local-static]
+    environment:
+      LOCAL_SOURCE: /git/repo/current
+      LOCAL_STATE: /state
+      LOCAL_PUBLISHED: /published
+    volumes:
+      - local-source:/git:ro
+      - local-state:/state
+      - local-published:/published
+    depends_on:
+      source:
+        condition: service_started
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, /opt/runtime/scripts/static_ops/local_runtime.py, health-updater]
+      interval: 30s
+      timeout: 5s
+      start_period: 45m
+      retries: 3
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: web
+    command: [web]
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    user: "10001:10001"
+    read_only: true
+    environment:
+      LOCAL_PUBLISHED: /published
+      LOCAL_PORT: ${AUTONAVLOG_HOST_PORT:-8123}
+    volumes:
+      - local-published:/published:ro
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, /opt/local_runtime.py, health-web]
+      interval: 30s
+      timeout: 5s
+      start_period: 45m
+      retries: 3
+
+volumes:
+  local-source:
+  local-state:
+  local-published:

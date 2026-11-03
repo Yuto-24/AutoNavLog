@@ -115,6 +115,9 @@ LineStringがないPoint-only KMLでは従来のPoint候補を利用できます
 
 ## Legacy環境
 
+Local方式をDockerで使い、main・MSMを自動更新する場合は
+[Local版のDocker起動](docs/local_static_docker.md)を参照してください。以下はLegacy版の構成です。
+
 - Docker Engine
 - Docker Compose v2
 - JavaScript と Cookie を有効にした新しいブラウザ

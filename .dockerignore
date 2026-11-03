@@ -1,4 +1,6 @@
 .git
+.env*
+web/.env*
 .github/*
 !.github/workflows/
 .github/workflows/*
