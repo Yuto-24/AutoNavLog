@@ -5,6 +5,7 @@ import os
 import re
 from datetime import UTC, datetime, timedelta
 from enum import Enum
+from time import sleep
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, build_opener
@@ -36,7 +37,12 @@ class Reason(Enum):
     ACTIVE_CONFLICT = "ACTIVE_CONFLICT"
     COOLDOWN = "COOLDOWN"
     RESPONSE_TOO_LARGE = "RESPONSE_TOO_LARGE"
-    INCOMPLETE_HISTORY = "INCOMPLETE_HISTORY"
+    HISTORY_COUNT_TYPE = "HISTORY_COUNT_TYPE"
+    HISTORY_COUNT_RANGE = "HISTORY_COUNT_RANGE"
+    HISTORY_ROWS_RANGE = "HISTORY_ROWS_RANGE"
+    HISTORY_SHAPE = "HISTORY_SHAPE"
+    HISTORY_DUPLICATE_ID = "HISTORY_DUPLICATE_ID"
+    HISTORY_COUNT_MISMATCH = "HISTORY_COUNT_MISMATCH"
     INVALID_DETECTED_RUN = "INVALID_DETECTED_RUN"
     FUTURE_DETECTED_RUN = "FUTURE_DETECTED_RUN"
 
@@ -44,9 +50,13 @@ class Reason(Enum):
 class GateRejection(ValueError):
     """Keep existing ValueError messages for callers, separate from safe diagnostics."""
 
-    def __init__(self, reason: Reason, message: str):
+    def __init__(self, reason: Reason, message: str, *, total_count=None,
+                 row_count=None, unique_count=None):
         super().__init__(message)
         self.reason = reason
+        self.total_count = total_count
+        self.row_count = row_count
+        self.unique_count = unique_count
 
 
 def lock_waiters(value: dict, own_id: int) -> set[int]:
@@ -149,14 +159,65 @@ def read_json(request: Request) -> dict:
     return json.loads(raw)
 
 
+def retry_rows_well_formed(rows: list[dict], key: str) -> bool:
+    """Do not discard malformed endpoint rows in favor of a later snapshot."""
+    fields = ("created_at", "display_title", "status") if key == "workflow_runs" else ("name",)
+    for row in rows:
+        if (type(row["id"]) is not int or row["id"] <= 0
+                or any(not isinstance(row.get(field), str) for field in fields)):
+            return False
+        if key == "workflow_runs":
+            if row["status"] not in ("completed", "queued", "in_progress",
+                                     "waiting", "pending", "requested"):
+                return False
+            try:
+                created = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
+                if created.utcoffset() is None:
+                    return False
+            except ValueError:
+                return False
+    return True
+
+
 def read_list(request: Request, key: str, count: str) -> list[dict]:
-    """Reject truncated, duplicate or oversized evidence rather than granting a budget."""
-    value = read_json(request)
-    rows = value[key]
-    if (type(value[count]) is not int or not 0 <= value[count] <= 100
-            or len(rows) != value[count] or len({row["id"] for row in rows}) != len(rows)):
-        raise GateRejection(Reason.INCOMPLETE_HISTORY, "Incomplete Actions history")
-    return rows
+    """Retry only count mismatches, after rejecting every malformed or duplicate list."""
+    for attempt in range(3):
+        value = read_json(request)
+        if not isinstance(value, dict) or key not in value or count not in value:
+            raise GateRejection(Reason.HISTORY_SHAPE, "Incomplete Actions history")
+        total = value[count]
+        rows = value[key]
+        if type(total) is not int:
+            raise GateRejection(Reason.HISTORY_COUNT_TYPE, "Incomplete Actions history")
+        if not 0 <= total <= 100:
+            raise GateRejection(Reason.HISTORY_COUNT_RANGE, "Incomplete Actions history")
+        if not isinstance(rows, list):
+            raise GateRejection(Reason.HISTORY_SHAPE, "Incomplete Actions history",
+                                total_count=total)
+        size = len(rows)
+        if size > 100:
+            raise GateRejection(Reason.HISTORY_ROWS_RANGE, "Incomplete Actions history",
+                                total_count=total)
+        try:
+            unique = len({row["id"] for row in rows})
+        except (KeyError, TypeError):
+            raise GateRejection(Reason.HISTORY_SHAPE, "Incomplete Actions history",
+                                total_count=total, row_count=size) from None
+        # A duplicate in an inconsistent snapshot must never be hidden by a retry.
+        if unique != size:
+            raise GateRejection(Reason.HISTORY_DUPLICATE_ID, "Incomplete Actions history",
+                                total_count=total, row_count=size, unique_count=unique)
+        if size == total:
+            return rows
+        # Keep the accepted-list contract unchanged; require complete row shape
+        # before discarding an inconsistent snapshot and reading a replacement.
+        if not retry_rows_well_formed(rows, key):
+            raise GateRejection(Reason.HISTORY_SHAPE, "Incomplete Actions history",
+                                total_count=total, row_count=size, unique_count=unique)
+        if attempt < 2:
+            sleep(1)
+    raise GateRejection(Reason.HISTORY_COUNT_MISMATCH, "Incomplete Actions history",
+                        total_count=total, row_count=size, unique_count=unique)
 
 
 def detected_limit(target: str, runs: list[dict], own_id: int, jobs) -> None:
@@ -246,15 +307,20 @@ def main() -> None:
         # Never format exceptions, URLs, headers, response bodies, or event values.
         reason = "UNEXPECTED_ERROR"
         http_status = ""
+        counts = ""
         if isinstance(error, GateRejection) and type(error.reason) is Reason:
             reason = error.reason.value
+            for name in ("total_count", "row_count", "unique_count"):
+                value = getattr(error, name)
+                if type(value) is int and 0 <= value <= 100:
+                    counts += f" {name}={value}"
         elif isinstance(error, HTTPError):
             reason = "HTTP_ERROR"
             if type(error.code) is int and 100 <= error.code <= 599:
                 http_status = f" http_status={error.code}"
         raise SystemExit(
             "External trigger gate blocked; check inputs, Actions availability and limits"
-            f"; stage={stage} reason={reason}{http_status}"
+            f"; stage={stage} reason={reason}{http_status}{counts}"
         ) from None
     print('{"status":"EXTERNAL_BUDGET_OK"}')
 
