@@ -284,10 +284,11 @@ def test_result_integrity_and_stale_input_do_not_replace_last_calculation(local,
     original = last.model_dump_json()
     corrupted = json.loads(json.dumps(result))
     corrupted["calculation"]["project"]["name"] = "changed in transit"
-    with pytest.raises(ValueError):
+    with pytest.raises(WebApplicationError) as error:
         local.adopt_forecast_backup(
             {"request": backup_request.model_dump(mode="json"), "result": corrupted}
         )
+    assert error.value.code == "FORECAST_BACKUP_INVALID"
     assert local.session.last_calculation.model_dump_json() == original
     for field in ("engine_sha256", "data_sha256"):
         incompatible = json.loads(json.dumps(result))
@@ -305,6 +306,37 @@ def test_result_integrity_and_stale_input_do_not_replace_last_calculation(local,
         )
     assert error.value.code == "FORECAST_BACKUP_STALE"
     assert local.session.last_calculation.model_dump_json() == original
+
+
+@pytest.mark.parametrize("damage", ["checksum", "schema"])
+def test_invalid_backup_result_response_preserves_previous_state(local, backup_request, damage):
+    from autonavlog.forecast_backup_messages import MESSAGES
+
+    previous = local.session.last_calculation.model_dump_json()
+    project = local.session.project.model_dump_json()
+    result = result_for(backup_request, local.session.last_calculation)
+    if damage == "checksum":
+        result["calculation"]["project"]["name"] = "changed in transit"
+    else:
+        del result["calculation"]
+    response = json.loads(local.dispatch_response("adoptForecastBackup", {
+        "request": backup_request.model_dump(mode="json"), "result": result,
+    }))
+    assert response["error"]["code"] == "FORECAST_BACKUP_INVALID"
+    assert response["error"]["message"] == MESSAGES["invalid_result"]
+    assert local.session.last_calculation.model_dump_json() == previous
+    assert local.session.project.model_dump_json() == project
+
+
+def test_invalid_backup_request_keeps_input_validation_classification(local, backup_request):
+    previous = local.session.last_calculation.model_dump_json()
+    request = backup_request.model_dump(mode="json")
+    request["reason"] = "HTTP_500"
+    response = json.loads(local.dispatch_response("adoptForecastBackup", {
+        "request": request, "result": result_for(backup_request, local.session.last_calculation),
+    }))
+    assert response["error"]["code"] == "VALIDATION_FAILED"
+    assert local.session.last_calculation.model_dump_json() == previous
 
 
 def test_large_result_is_not_stored(tmp_path, backup_request):

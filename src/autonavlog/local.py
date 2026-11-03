@@ -190,7 +190,12 @@ class LocalApplication:
 
     def adopt_forecast_backup(self, payload: dict[str, Any]) -> dict[str, Any]:
         request = _validate_request(BackupRequest, payload["request"])
-        result = _validate_request(BackupResult, payload["result"])
+        try:
+            result = BackupResult.model_validate(payload["result"])
+        except ValidationError as error:
+            raise WebApplicationError(
+                "FORECAST_BACKUP_INVALID", MESSAGES["invalid_result"]
+            ) from error
         if self._backup_context is None or self.session.project is None:
             raise WebApplicationError("FORECAST_BACKUP_STALE", MESSAGES["stale_result"])
         current, starting_mode = self._backup_context
