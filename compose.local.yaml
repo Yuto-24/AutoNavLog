@@ -28,7 +28,6 @@ services:
     command: [updater]
     restart: unless-stopped
     init: true
-    network_mode: host
     env_file: [.env.local-static]
     environment:
       LOCAL_SOURCE: /git/repo/current

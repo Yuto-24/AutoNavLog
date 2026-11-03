@@ -29,9 +29,10 @@ docker compose -f compose.local.yaml up -d --build --wait
 初回準備にwaitの上限がある環境では `--wait-timeout 3600` を追加します。
 以降の再起動では最後の配布物を読み込み、裏側で更新を再開します。
 
-この環境ではWSL host networkの8123番を使用し、Windowsから `http://localhost:8123/`、
+Web配信だけがWSL host networkの8123番を使用し、Windowsから `http://localhost:8123/`、
 既存Tunnel経由では `https://dev-navlog.yuto24.com/` を開きます。
 localhostとdevでは保存領域が別です。普段使うブラウザ・URLを維持し、サイトデータを消去しないでください。
+Git同期と更新処理は通常のコンテナネットワークで動かし、検証用サーバーは更新コンテナ内のloopbackだけに置きます。
 
 ## 自動更新の動作
 
