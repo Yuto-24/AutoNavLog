@@ -32,7 +32,7 @@ VITE_TAF_PROXY_URL=https://autonavlog-taf.utomatsu.workers.dev/taf
 # 移行期間は既存Legacy originを設定する。#186の移行契約を維持する。
 VITE_LEGACY_MIGRATION_URL=https://your-legacy-host
 # 別途公開承認・互換server検証後にのみ設定する（既定無効）
-VITE_FORECAST_BACKUP_URL=https://your-legacy-host/api/forecast-backup/jobs/
+# VITE_FORECAST_BACKUP_URL=https://your-legacy-host/api/forecast-backup/jobs/
 ```
 
 API keyはFirebase Web公開設定。service account / secret / tokenを`VITE_*`へ入れない。
