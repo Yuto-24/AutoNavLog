@@ -75,6 +75,7 @@ class Settings:
 
     @classmethod
     def environment(cls) -> Settings:
+        """Read container paths and port; build credentials are not part of these settings."""
         return cls(Path(os.getenv("LOCAL_SOURCE", "/git/repo/current")),
                    Path(os.getenv("LOCAL_STATE", "/state")),
                    Path(os.getenv("LOCAL_PUBLISHED", "/published")),
@@ -82,6 +83,7 @@ class Settings:
                    int(os.getenv("LOCAL_PORT", "8123")))
 
     def active(self, name: str = "current") -> Path | None:
+        """Resolve only generated release directories, independently of private worker state."""
         path = self.published / name
         if not path.is_symlink():
             return None
@@ -100,18 +102,21 @@ class QuietHandler(SimpleHTTPRequestHandler):
 
 class StaticHandler(QuietHandler):
     def __init__(self, *args, settings: Settings, **kwargs):
+        """Snapshot one root per connection so a switch cannot mix bytes within a response."""
         self.settings = settings
         self.root = settings.active()
         super().__init__(*args, directory=str(self.root or settings.published / "absent"),
                          **kwargs)
 
     def do_GET(self):
+        """Distinguish first-start preparation from a missing file in a published artifact."""
         if self.root is None:
             self.send_error(503)
         else:
             super().do_GET()
 
     def do_HEAD(self):
+        """Apply the same first-start readiness rule to header-only requests."""
         if self.root is None:
             self.send_error(503)
         else:
@@ -153,6 +158,7 @@ class Stopped(Exception):
 
 class Updater:
     def __init__(self, settings: Settings):
+        """Resume persisted main backoff while scheduling a fresh weather check on startup."""
         self.s = settings
         for path in (settings.state, settings.published, settings.published / "releases"):
             path.mkdir(parents=True, exist_ok=True)
@@ -169,12 +175,14 @@ class Updater:
         self.next_weather = 0.0
 
     def save_status(self, **values) -> None:
+        """Serialize heartbeat and job writes to private, atomically replaced status."""
         with self.mutex:
             self.status.update(values)
             self.status["heartbeat"] = time.time()
             atomic_json(self.s.state / "status.json", self.status)
 
     def desired(self) -> tuple[str, Path]:
+        """Pin Git-sync's current worktree and verify its commit inside the source volume."""
         source = self.s.source.resolve(strict=True)
         if not source.is_relative_to(self.s.source.parent.resolve()):
             raise ValueError("Git synchronization escaped its volume")
@@ -212,6 +220,7 @@ class Updater:
         return output.decode() if capture else ""
 
     def clone(self, source: Path, destination: Path, sha: str) -> None:
+        """Copy objects independently, trusting foreign ownership only in the job's HOME."""
         # Local clone's upload-pack does not inherit command-line safe.directory.
         # Its protected config lives ONLY in this job's disposable HOME, never on the host.
         home = Path(self.env["HOME"])
@@ -229,6 +238,7 @@ class Updater:
         self.run(["git", "checkout", "--detach", sha], destination)
 
     def configuration(self) -> dict:
+        """Pass only public Web identifiers, excluding inherited provider or Git tokens."""
         return {key: os.environ[key] for key in PUBLIC_KEYS if os.environ.get(key)}
 
     def build(self, kind: str, sha: str, source: Path, job: Path) -> Path | None:
@@ -318,6 +328,7 @@ class Updater:
         return dist
 
     def promote(self, dist: Path, sha: str, kind: str) -> None:
+        """Recheck candidate identity before switching the complete publication pointer."""
         old = self.s.active()
         if kind == "main" and self.desired()[0] != sha:
             raise Superseded()
@@ -343,6 +354,7 @@ class Updater:
         self.collect()
 
     def collect(self) -> None:
+        """Bound generated histories and leave unrelated operator files untouched."""
         keep = {p for name in ("current", "previous") if (p := self.s.active(name))}
         for path in (self.s.published / "releases").iterdir():
             if RELEASE.fullmatch(path.name) and path.is_dir() and not path.is_symlink():
@@ -360,6 +372,7 @@ class Updater:
             path.unlink()
 
     def attempt(self, kind: str, sha: str, source: Path) -> bool:
+        """Isolate failures and enforce retention after success, failure and supersession."""
         name = "job-" + uuid.uuid4().hex
         job = self.s.state / "work" / name
         job.mkdir(mode=0o700)
@@ -390,6 +403,7 @@ class Updater:
             self.save_status(running=None)
 
     def tick(self, now: float) -> None:
+        """Check active-SHA weather first; a rejected main has an independent retry clock."""
         active = self.s.active()
         if active and now >= self.next_weather:
             sha = load(active / "release.json")["commit"]
@@ -412,6 +426,7 @@ class Updater:
                          retry_main_at=0 if success else time.time() + self.s.retry)
 
     def serve(self) -> None:
+        """Hold one volume-wide writer lock and keep heartbeat alive during child builds."""
         with (self.s.state / "updater.lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             for abandoned in (self.s.state / "work").iterdir():
@@ -442,6 +457,7 @@ class Updater:
 
 
 def healthy(settings: Settings, mode: str) -> bool:
+    """Keep Web liveness independent from forecast expiry, but surface stale updater data."""
     try:
         if mode == "health-web":
             with urlopen(f"http://127.0.0.1:{settings.port}/release.json", timeout=3) as response:
@@ -459,6 +475,7 @@ def healthy(settings: Settings, mode: str) -> bool:
 
 
 def main() -> None:
+    """Select a container role or internal health probe without a host deployment CLI."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("web", "updater", "health-web", "health-updater"))
     args = parser.parse_args()
