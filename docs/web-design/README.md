@@ -66,12 +66,23 @@ decorative cards. Shadows are reserved for temporary overlays.
 - Route map with airport, waypoint, VREP, RCA, EOC, and CP markers.
 - Check Point creation from a map click or coordinates, with abeam projection and CRUD controls.
 - Desktop map-height separator with pointer and keyboard operation.
-- Editable route/leg table with ALT and PHASE controls. ALT candidate selection and
-  numeric input form one horizontal primary row, centered with POINT and PHASE.
-  Symmetric flexible space above/below the primary controls keeps supplementary
-  VAR / MC warnings and calculated descent-rate text below them without shifting
-  their centers. POINT remains a table cell with an inner flex wrapper; fixed and
-  destination altitude details retain their multi-line layout.
+- Editable route/leg table with separate POINT and outgoing-leg rows. Each leg's
+  ALT and PHASE controls sit after its FROM point and before its TO point. ALT
+  candidates and numeric input remain side by side in wider tables and stack
+  within their leg when the table container is 460px or narrower; magnetic-course guidance and
+  descent results stay below their primary controls. Natural table flow reserves
+  room for wrapped point names and helper text without fixed offsets or overlays.
+  Compact rows do not reserve an empty copy of the helper-text height above ALT.
+  Horizontal separators are staggered by column: POINT divides adjacent legs in
+  the ALT/PHASE columns, and the middle of each leg divides the POINT column.
+  No full-width rule groups an outgoing leg with its FROM point.
+  Container queries allocate POINT/ALT/PHASE widths below 700px, avoiding a
+  minimum table width or clipped PHASE column when desktop panels narrow the table.
+  Names, edit controls and arrival details wrap without reducing their font sizes.
+  Fixed leg altitudes use the same interval placement. Arrival airport elevation
+  and the adopted pattern altitude remain on the destination POINT row.
+  `web/e2e/altitude-layout.spec.ts` checks endpoint mapping, full control bounds,
+  repeated edits, fixed/arrival details and workflow positions at 390/1100/1440 px.
 - Readiness rail showing the next action, data provenance, blockers, confirmation
   items, and acknowledgement controls.
   Reference/performance revisions and the FTD internal run ID are available in a native

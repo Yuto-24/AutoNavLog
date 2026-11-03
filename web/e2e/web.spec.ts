@@ -2305,7 +2305,7 @@ test("route-node inline rename reprojects the current table, map, and NAV LOG", 
   if (vrep === undefined || before.outcome === null) {
     throw new Error("Calculated VREP route node is missing");
   }
-  const routeRow = page.locator(".route-table tbody tr.vrep-row");
+  const routeRow = page.locator(".route-table tbody .vrep-point-row");
   const nameInput = routeRow.locator(".route-name-editor input");
 
   await routeRow.getByRole("button", { name: "編集" }).click();
@@ -2853,7 +2853,7 @@ test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays e
   await expect(dialog).toBeHidden();
   await confirmImportedDraft(page);
 
-  const rows = page.locator(".route-table tbody tr");
+  const rows = page.locator(".route-table tbody .route-leg-row");
   await expect(page.locator(".route-table th", { hasText: "ROLE" })).toHaveCount(0);
   const departure = rows.nth(0);
   const umk = rows.nth(1);

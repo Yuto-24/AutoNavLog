@@ -113,7 +113,7 @@ test("real RJFO inbound KML keeps physical route and places EOC at UMK", async (
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
 
-  const routeRows = page.locator(".route-table tbody tr");
+  const routeRows = page.locator(".route-table tbody .route-point-row");
   await expect(routeRows).toHaveCount(5);
   const confirmed = await readState(page);
   if (!confirmed.project) throw new Error("confirmed project is missing");
