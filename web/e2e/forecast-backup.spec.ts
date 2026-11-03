@@ -34,6 +34,7 @@ async function calculate(page: Page) {
   await calculateButton.click();
   // The forced draft save emits a current, last-good state before calculation.
   // Wait for the operation to finish, not merely for that intermediate RPC reply.
+  await expect(page.getByText("NAV LOGを計算しました。準備状況と各値を確認してください。", { exact: true })).toBeVisible();
   await expect(calculateButton).toBeEnabled();
   await page.waitForFunction(count => (window as any).weatherStates.length > count, previous);
   await expect.poll(async () => (await state(page))?.readiness?.calculationIsCurrent).toBe(true);
@@ -48,7 +49,9 @@ test.beforeEach(async ({ page, context }) => {
     if (route.request().url().includes("/api/forecast-backup/jobs/")) return route.continue();
     throw new Error(`Guest accessed legacy API: ${route.request().url()}`);
   });
-  await context.route("**/weather/msm/catalog.json", route => {
+  await context.route("**/weather/msm/catalog.json", async route => {
+    // A slow recovered feed must not let the previous result satisfy this test.
+    if (delivery === "fresh") await new Promise(resolve => setTimeout(resolve, 1500));
     if (delivery === "offline") return route.abort("failed");
     return route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...frozen,
       generated_at: new Date(Date.now() - 3600_000).toISOString(),
@@ -93,6 +96,9 @@ for (const failure of ["expired", "offline", "missing"] as const) {
       .toBe("forecast_backup_server");
     await page.getByLabel("プロジェクト", { exact: true }).fill("Guest backup fixture");
     await page.getByRole("button", { name: "保存", exact: true }).click();
+    // IndexedDB commits before the worker/session adopts the new revision and token.
+    // Reload only after the complete save operation has returned to the UI.
+    await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
     await expect.poll(async () => (await record(page))?.checkpoint?.name).toBe("Guest backup fixture");
     await page.reload(); await expect(page.locator(".nav-log-table")).toBeVisible();
     expect((await record(page)).lastCalculation.outcome.issues.map((item: any) => item.code)).toContain("FORECAST_BACKUP_USED");
