@@ -7,7 +7,6 @@ import type { AirportOption } from "../types";
 import { canConfirmMapDraft, type MapRoutePoint } from "../mapRouteDraft";
 
 const omaruMarkerHint = `運用参照図より推定（未検証・誤差${rjfmReference.points.OMARU.estimated_error_nm}NM）`;
-const omaruPositionNotice = `小丸は運用参照図からの未検証デジタイズによる推定位置（誤差${rjfmReference.points.OMARU.estimated_error_nm} NM）であり、精度は保証されません。`;
 
 function candidateIcon(kind: "airport" | "vrep", selected: boolean) {
   return divIcon({
@@ -103,7 +102,6 @@ export function MapDraftLayers({ points, airports, busy, onAirport, onReference,
 }
 export function RouteStrip({ points, busy, onRemove, onClear, onConfirm }: MapRouteBuilderProps) {
   return <div className="map-route-controls">
-    <p className="field-hint">VREPはAD2のARPから算出した参考位置です。公示座標ではなく精度は保証されません。<br />{omaruPositionNotice}</p>
     <p>{points.length ? "飛行順に地点を追加し、最後の空港で経路を確定してください。" : "地図上の空港を選んで、出発地（FROM）を設定してください。"}</p>
     {points.length > 0 && <ol className="route-strip" aria-label="経路リスト">
       {points.map((point, index) => <li key={point.id}>
