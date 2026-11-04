@@ -15,6 +15,7 @@
 - Prefer existing implementations, standard APIs, libraries, and established repository patterns. Do not add abstractions, dependencies, configuration, compatibility layers, or future extensibility without a concrete need in the current task.
 - Do not bundle incidental refactoring, cleanup, optimization, or unrelated tests and documentation. Report worthwhile out-of-scope findings separately; propose follow-up work only when justified.
 - Choose focused verification in proportion to the changed behavior and risk. Preserve mandatory CI, independent review, and safety checks; do not add redundant tests or rerun checks without a specific reason.
+- Retrieve evidence incrementally, batch related fixes before expensive validation, and avoid repeatedly inspecting unchanged CI/review state. Follow [the investigation, validation, and waiting procedure](docs/agent_workflow.md#調査検証待機の進め方); efficiency does not waive required gates.
 - Before completion, audit the diff for scope expansion and unnecessary complexity. Remove or separate changes not justified by the task.
 
 ## Product constraints
