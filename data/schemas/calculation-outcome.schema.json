@@ -1818,6 +1818,11 @@
       "title": "Display Rows",
       "type": "array"
     },
+    "forecast_provenance": {
+      "additionalProperties": true,
+      "title": "Forecast Provenance",
+      "type": "object"
+    },
     "fuel_plan": {
       "$ref": "#/$defs/FuelPlan"
     },
@@ -1878,6 +1883,22 @@
       },
       "title": "Sections",
       "type": "array"
+    },
+    "selected_forecast_model": {
+      "anyOf": [
+        {
+          "enum": [
+            "MSM",
+            "GSM"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Forecast Model"
     },
     "selected_forecast_run_id": {
       "anyOf": [

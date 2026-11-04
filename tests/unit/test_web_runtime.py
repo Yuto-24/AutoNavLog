@@ -9,6 +9,7 @@ import pytest
 
 import autonavlog.web.runtime as runtime
 from autonavlog.domain.weather import ForecastRequirement, ForecastRun
+from autonavlog.weather.forecast_provider import ForecastWeatherProvider
 from autonavlog.weather.prewarm import WeatherPrewarmer
 from autonavlog.web.__main__ import _parser
 from autonavlog.web.runtime import WebRuntimeConfig, environment_bool
@@ -92,9 +93,14 @@ def test_msm_provider_receives_cache_configuration(
     factory, label, development = runtime._weather_factory(config)
     provider = factory()
 
-    assert isinstance(provider, RecordingMsm)
+    assert isinstance(provider, runtime.ForecastWeatherProvider)
+    assert isinstance(provider.models["MSM"], RecordingMsm)
+    other = factory()
+    provider.selected_model = "GSM"
+    assert other.selected_model == "MSM"
+    assert provider.models["MSM"] is not other.models["MSM"]
     assert captured["cache_dir"] == tmp_path / "msm"
-    assert label == "MSM予報"
+    assert label == "MSM / GSM予報"
     assert development is False
 
 
@@ -188,8 +194,14 @@ def test_msm_prewarm_switch_preserves_on_demand_provider(
         msm_prewarm=enabled,
     ))
     assert prepared == []
-    assert isinstance(app.weather_factory(), RecordingMsm)
-    assert app.weather_factory() is app.weather_factory()
+    provider = app.weather_factory()
+    assert isinstance(provider, ForecastWeatherProvider)
+    assert isinstance(provider.models["MSM"], RecordingMsm)
+    assert provider.models["GSM"].model == "GSM"
+    other = app.weather_factory()
+    assert provider is not other
+    assert provider.models["MSM"] is not other.models["MSM"]
+    assert provider.models["GSM"] is not other.models["GSM"]
     if enabled:
         assert app.weather_prewarmer is not None
         app.weather_prewarmer.run_once()

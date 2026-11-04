@@ -4532,3 +4532,73 @@ test("Japanese startup and import errors preserve retry and editable input", asy
   await expect(dialog).toBeHidden();
   await expectImportedDraft(page);
 });
+
+for (const width of [1100, 1440]) {
+  test(`Forecast identity and informational GSM fallback retain workflow order at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/");
+    await expect(page).toHaveTitle(/NavMate/);
+    await calculateNavLog(page, false, false, true);
+    await expect(page.getByLabel("使用Forecast")).toHaveText("FTD固定気象");
+    await page.getByLabel("気象モード").selectOption("FORECAST");
+    await expect(page.getByLabel("使用Forecast")).toHaveText("FTD固定気象");
+    await page.getByLabel("気象モード").selectOption("FTD");
+    const recalculate = page.getByRole("button", { name: "NAV LOGを再計算", exact: true });
+    await recalculate.click();
+    await expect(recalculate).toBeEnabled();
+    await expect(page.getByRole("note", { name: "Forecast切替理由" })).toHaveCount(0);
+    const state = await page.evaluate(async () => (await fetch("/api/state")).json()) as WebState;
+    // The selection policy is tested through Python and Local weather acceptance.
+    // This renderer contract deliberately supplies a successful GSM result.
+    for (const project of [state.project, state.workingRecovery.project,
+      state.workingRecovery.last_calculation?.project]) {
+      if (project) Object.assign(project, { weather_mode: "FORECAST", ftd_weather: null,
+        selected_forecast_model: "GSM", selected_forecast_run_id: "20260915000000" });
+    }
+    for (const outcome of [state.outcome, state.workingRecovery.outcome,
+      state.workingRecovery.last_calculation?.outcome]) {
+      if (outcome) Object.assign(outcome, { selected_forecast_model: "GSM",
+        selected_forecast_run_id: "20260915000000", forecast_provenance: {
+          model: "GSM", forecast_run_id: "20260915000000", fallback: true,
+          fallback_from: "MSM", coverage_reason_codes: ["ALTITUDE_OUTSIDE_HGT_RANGE"],
+        } });
+    }
+    state.outcome!.rjfm_departure_guidance = rjfmDepartureGuidanceFixture;
+    state.readiness.calculationIsCurrent = true;
+    await page.route("**/api/application-session", async route => {
+      const bootstrap = await (await route.fetch()).json();
+      await route.fulfill({ json: { ...bootstrap, state } });
+    }, { times: 1 });
+    await page.reload();
+    await expect(page.getByLabel("使用Forecast")).toHaveText("Forecast: GSM / Run: 20260915000000");
+    const note = page.getByRole("note", { name: "Forecast切替理由" });
+    await expect(note).toHaveText(
+      "GSM日本域を使用しています。MSMでは今回の経路・時刻・高度に必要な予報範囲を満たせないため、 "
+      + "NAV LOG全体をGSMで計算しました。 理由: 必要高度が予報の高度範囲外",
+    );
+    await expect(page.locator(".issue-item", { hasText: "GSM" })).toHaveCount(0);
+    const boxes = await Promise.all([".input-rail", ".route-workspace", ".status-rail", ".nav-log-section"]
+      .map(selector => page.locator(selector).boundingBox()));
+    expect(boxes.every(Boolean)).toBe(true);
+    if (width <= 1240) {
+      for (let i = 1; i < boxes.length; i++) {
+        expect(boxes[i]!.y).toBeGreaterThanOrEqual(boxes[i - 1]!.y + boxes[i - 1]!.height - 1);
+      }
+    } else {
+      expect(boxes[0]!.x + boxes[0]!.width).toBeLessThanOrEqual(boxes[1]!.x + 1);
+      expect(boxes[1]!.x + boxes[1]!.width).toBeLessThanOrEqual(boxes[2]!.x + 1);
+      expect(boxes[3]!.y).toBeGreaterThanOrEqual(Math.max(...boxes.slice(0, 3).map(b => b!.y + b!.height)) - 1);
+    }
+    const guidance = await page.locator(".rjfm-guidance").first().boundingBox();
+    expect(guidance).not.toBeNull();
+    const fuel = await page.locator(".fuel-plan-section").boundingBox();
+    expect(fuel).not.toBeNull();
+    expect(guidance!.y).toBeGreaterThanOrEqual(fuel!.y + fuel!.height - 1);
+    await expect(page.locator("vite-error-overlay")).toHaveCount(0);
+    expect(errors).toEqual([]);
+    await note.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: test.info().outputPath(`issue161-forecast-${width}.png`) });
+  });
+}

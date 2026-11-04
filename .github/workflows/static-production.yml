@@ -86,7 +86,7 @@ jobs:
         run: python3 tooling/scripts/static_ops/publication_gate.py --source app
       - name: Install trusted producer dependencies
         run: |
-          python -m pip install 'setuptools>=69' wheel tooling/vendor/jma_gpv_weather-0.5.0-py3-none-any.whl './tooling[test]'
+          python -m pip install 'setuptools>=69' wheel tooling/vendor/jma_gpv_weather-0.6.0-py3-none-any.whl './tooling[test]'
       - name: Verify canonical catalog, freshness agreement and all payload bytes
         run: python3 tooling/scripts/static_ops/freshness.py --origin "$STATIC_ORIGIN" --commit "$APPROVED_SHA"
       - name: Check for a newer complete MSM Run before any feed renewal
@@ -145,7 +145,7 @@ jobs:
         run: python3 tooling/scripts/static_ops/publication_gate.py --source app
       - name: Install trusted producer dependencies
         run: |
-          python -m pip install 'setuptools>=69' wheel tooling/vendor/jma_gpv_weather-0.5.0-py3-none-any.whl './tooling[test]'
+          python -m pip install 'setuptools>=69' wheel tooling/vendor/jma_gpv_weather-0.6.0-py3-none-any.whl './tooling[test]'
       - uses: actions/setup-node@v4
         if: needs.preflight.outputs.proceed == 'true'
         with:
@@ -173,7 +173,10 @@ jobs:
             --env ARTIFACT_UID="$(id -u)" --env ARTIFACT_GID="$(id -g)" \
             autonavlog-static-build sh -eu -c '
               git config --global --add safe.directory /app
-              python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
+              set -- vendor/jma_gpv_weather-*.whl
+              test "$#" -eq 1
+              test -f "$1"
+              python -m pip install "setuptools>=69" wheel "$1" ".[msm,test]"
               npm --prefix web ci
               npm --prefix web exec -- playwright install --with-deps chromium
               python scripts/validate_release.py

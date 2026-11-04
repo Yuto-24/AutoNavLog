@@ -18,7 +18,7 @@ from autonavlog.web.models import WorkingCalculation
 
 # Explicit capabilities supplement the exact Python/data identity. An older engine
 # cannot silently ignore current VOR, rounding, phase or reference semantics.
-FEATURES = ("fixed-run-refresh", "phase-weather", "rounding", "vor-selection")
+FEATURES = ("fixed-run-refresh", "phase-weather", "rounding", "vor-selection", "model-selection")
 WEATHER_FAILURES = frozenset(
     {
         "WEATHER_CATALOG_EXPIRED",
@@ -87,6 +87,7 @@ def input_identity(project: Project, rounding_mode: bool, refresh_forecast: bool
                 "calculation": forecast_selection_fingerprint(project, rounding_mode=rounding_mode),
                 "revision": project.revision,
                 "selected_run": project.selected_forecast_run_id,
+                "selected_model": project.selected_forecast_model,
                 "refresh_forecast": refresh_forecast,
             },
             sort_keys=True,

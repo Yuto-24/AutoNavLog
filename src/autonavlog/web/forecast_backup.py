@@ -32,7 +32,7 @@ from autonavlog.forecast_backup import (
 )
 from autonavlog.forecast_backup_messages import MESSAGES
 from autonavlog.local import LocalApplication
-from autonavlog.weather.complete_forecast import CompleteForecastProvider
+from autonavlog.weather.complete_forecast import complete_forecast
 from autonavlog.web.facade import WebApplicationError
 
 PREFIX = "/api/forecast-backup/jobs/"
@@ -269,7 +269,7 @@ def calculator(
                 raise failure("FORECAST_BACKUP_INVALID", "invalid_result")
             local.session.project = project
             local.session.rounding_mode = request.rounding_mode
-            local.session.weather_provider = CompleteForecastProvider(weather_factory())
+            local.session.weather_provider = complete_forecast(weather_factory())
             local.app.destination_wind_provider = destination_wind_provider
             local.session.forecast_update_fingerprint = (
                 forecast_selection_fingerprint(project, rounding_mode=request.rounding_mode)

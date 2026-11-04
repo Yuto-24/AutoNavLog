@@ -1,4 +1,4 @@
-"""Produce a rolling static MSM feed using the upstream desktop public API.
+"""Produce a rolling MSM feed or explicit on-demand GSM feed via the upstream API.
 
 This offline publisher has no HTTP endpoint and receives no Project data. Serve the
 output as ordinary static files; the browser owns calculation and interpolation.
@@ -77,13 +77,25 @@ def produce(
     *,
     now: datetime | None = None,
     max_runs: int = 2,
+    model: str = "MSM",
     expected_run: str | None = None,
     full_run: bool = False,
 ) -> dict[str, object]:
+    if full_run and model != "MSM":
+        raise ValueError("full_run is only supported for MSM")
     started = perf_counter()
     generated = now or datetime.now(UTC)
     requirements = forecast_requirements(start, hours)
-    client = MsmClient(cache, bounds)
+    codec = MsmPreparedData
+    if model == "GSM":
+        from jma_gpv_weather import GsmClient, GsmPreparedData
+
+        client = GsmClient(cache, bounds)
+        codec = GsmPreparedData
+    elif model == "MSM":
+        client = MsmClient(cache, bounds)
+    else:
+        raise ValueError("model must be MSM or GSM")
     listings = acquire_listings(client, requirements)
     runs = client.discover_runs(requirements, listings=listings)
     if expected_run is not None and max(str(RunId(run.run_utc)) for run in runs) != expected_run:
@@ -105,8 +117,8 @@ def produce(
             if not path.is_file():
                 continue
             if path.stat().st_size != asset.bytes:
-                raise ValueError(f"Retained MSM payload size mismatch: {asset.file}")
-            data = MsmPreparedData.from_bytes(path.read_bytes(), expected_sha256=asset.sha256)
+                raise ValueError(f"Retained {model} payload size mismatch: {asset.file}")
+            data = codec.from_bytes(path.read_bytes(), expected_sha256=asset.sha256)
             assets[asset.run] = asset
             retained_requirements = ForecastRequirements(
                 tuple(sorted({key[0] for key in (*data.surface, *data.pressure)})),
@@ -140,10 +152,10 @@ def produce(
             run_requirements,
             available_runs=available,
         )
-        payload = MsmPreparedData.from_forecast(forecast).to_bytes()
+        payload = codec.from_forecast(forecast).to_bytes()
         digest = hashlib.sha256(payload).hexdigest()
         # Apply the consumer's budgets before publishing an unusable payload.
-        MsmPreparedData.from_bytes(payload, expected_sha256=digest)
+        codec.from_bytes(payload, expected_sha256=digest)
         asset = PreparedAsset(
             run=str(RunId(selection.run_utc)),
             file=f"{digest}.npz",
@@ -187,6 +199,7 @@ def produce(
             if path.name not in retained and path.stat().st_mtime < cutoff.timestamp():
                 path.unlink()
     return {
+        "model": model,
         "full_run": full_run,
         "generated_at": generated.isoformat(),
         "valid_start": start.isoformat(),
@@ -199,6 +212,7 @@ def produce(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", choices=["MSM", "GSM"], default="MSM")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--start", type=datetime.fromisoformat)
@@ -216,7 +230,7 @@ def main() -> None:
     bounds = Bounds(*args.bounds) if args.bounds else Bounds()
     try:
         report = produce(args.output, args.cache, start, args.hours, bounds,
-                         max_runs=args.max_runs, expected_run=args.expected_run,
+                         max_runs=args.max_runs, model=args.model, expected_run=args.expected_run,
                          full_run=args.full_run)
     except Exception as error:
         print(

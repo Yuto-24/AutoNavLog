@@ -6,6 +6,7 @@ from typing import Any
 
 from autonavlog.domain.enums import Availability
 from autonavlog.domain.weather import ForecastRequirement
+from autonavlog.weather.forecast_provider import ForecastWeatherProvider
 from autonavlog.weather.local_msm import LocalWeatherError
 
 
@@ -23,6 +24,12 @@ class CompleteForecastProvider:
         except LocalWeatherError as error:
             self.failure_code = error.code
             raise
+
+    def candidate_runs(self, requirement: ForecastRequirement) -> Any:
+        return self._call("candidate_runs", requirement)
+
+    def check_run(self, run: str, requirement: ForecastRequirement) -> None:
+        self._call("check_run", run, requirement)
 
     def resolve_run(self, requirement: ForecastRequirement) -> Any:
         return self._call("resolve_run", requirement)
@@ -44,3 +51,13 @@ class CompleteForecastProvider:
             self.failure_code = "WEATHER_PREPARED_UNAVAILABLE"
             raise LocalWeatherError(self.failure_code, "選択したMSM Runの配信データがありません。")
         return results
+
+
+def complete_forecast(provider: Any) -> Any:
+    """Keep model selection visible while validating each model's delivery."""
+    if isinstance(provider, ForecastWeatherProvider):
+        return ForecastWeatherProvider({
+            model: CompleteForecastProvider(candidate)
+            for model, candidate in provider.models.items()
+        })
+    return CompleteForecastProvider(provider)

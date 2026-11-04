@@ -541,7 +541,14 @@ def test_guest_capability_separation_and_transport_limits(guest_api, backup_requ
         assert "testclient" not in stored
 
 
-def test_request_frequency_is_independent_of_capability(guest_api, backup_request):
+def test_request_frequency_is_independent_of_capability(guest_api, backup_request, monkeypatch):
+    from types import SimpleNamespace
+
+    from autonavlog.web import forecast_backup
+
+    # All 121 requests must share one rate-limit minute, even on a slow runner.
+    clock = [time.time()]
+    monkeypatch.setattr(forecast_backup, "time", SimpleNamespace(time=lambda: clock[0]))
     client, jobs = guest_api
     url = "/api/forecast-backup/jobs/" + str(backup_request.request_id)
     for index in range(120):
@@ -550,6 +557,8 @@ def test_request_frequency_is_independent_of_capability(guest_api, backup_reques
     assert client.get(url, headers=headers).status_code == 429
     with jobs.connect() as db:
         assert db.execute("SELECT count(*) FROM rates").fetchone()[0] == 1
+    clock[0] += 60
+    assert client.get(url, headers=headers).status_code == 404
 
 
 def test_per_client_concurrency_and_global_queue_are_distinct(tmp_path, backup_request):

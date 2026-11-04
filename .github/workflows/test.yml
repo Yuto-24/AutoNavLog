@@ -259,14 +259,14 @@ jobs:
           cache: pip
           cache-dependency-path: |
             pyproject.toml
-            vendor/jma_gpv_weather-0.5.0-py3-none-any.whl
+            vendor/jma_gpv_weather-0.6.0-py3-none-any.whl
             .github/workflows/test.yml
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
+      - run: python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.6.0-py3-none-any.whl ".[test]"
       - run: npm --prefix web ci
       - run: npm --prefix web exec -- playwright install --with-deps chromium webkit
       - run: npm --prefix web run build:local
@@ -358,7 +358,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             pyproject.toml
-            vendor/jma_gpv_weather-0.5.0-py3-none-any.whl
+            vendor/jma_gpv_weather-0.6.0-py3-none-any.whl
             .github/workflows/test.yml
       - uses: actions/setup-node@v4
         with:
@@ -369,7 +369,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - run: python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
+      - run: python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.6.0-py3-none-any.whl ".[test]"
       - run: npm --prefix web ci
       - name: Install browsers required by the Account Sync suite
         env:

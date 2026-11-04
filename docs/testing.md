@@ -382,7 +382,7 @@ warm 0.257秒。warmでは外部wheelの再取得0件、cache容量は約107 MiB
 `PIP_LOG`をrun別に指定すると取得区間の時刻を確認できる。
 
 ```bash
-python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]"
+python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.6.0-py3-none-any.whl ".[test]"
 ```
 
 cold/warmの`pip list --format=json`、wheel取得ログ、アプリbuildログを照合する。

@@ -115,6 +115,7 @@ class ProjectService:
                 None if destination_wind is None else destination_wind.model_copy(deep=True)
             ),
             selected_forecast_run_id=outcome.selected_forecast_run_id,
+            selected_forecast_model=outcome.selected_forecast_model,
             forecast_metadata=dict(forecast_metadata),
             calculation_fingerprint=calculation_fingerprint,
             saved_at_utc=datetime.now(UTC),
@@ -189,6 +190,7 @@ class ProjectService:
             project.model_dump()
             | {
                 "selected_forecast_run_id": outcome.selected_forecast_run_id,
+                "selected_forecast_model": outcome.selected_forecast_model,
                 "status": outcome.status,
             },
         )

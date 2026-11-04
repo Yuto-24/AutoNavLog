@@ -19,6 +19,7 @@ from autonavlog.application.project_fingerprints import forecast_selection_finge
 from autonavlog.application.project_service import ProjectService
 from autonavlog.domain.calculation import Issue
 from autonavlog.domain.enums import IssueSeverity
+from autonavlog.domain.weather import ForecastModel, coverage_exclusion_reasons
 from autonavlog.forecast_backup import (
     WEATHER_FAILURES,
     BackupInput,
@@ -42,9 +43,11 @@ from autonavlog.storage.local import LocalProjectRepository
 from autonavlog.storage.reference_data import ReferenceDataCatalogRepository
 from autonavlog.storage.rjfm_inbound_reference import RjfmInboundGuidanceReference
 from autonavlog.storage.rjfm_reference import RjfmReferencePack
-from autonavlog.weather.complete_forecast import CompleteForecastProvider
+from autonavlog.weather.complete_forecast import CompleteForecastProvider, complete_forecast
 from autonavlog.weather.destination_taf import DecodedTafProvider
-from autonavlog.weather.local_msm import LocalMsmWeather, LocalWeatherError
+from autonavlog.weather.forecast_provider import ForecastWeatherProvider
+from autonavlog.weather.local_forecast import LocalForecastWeather, LocalWeatherRequest
+from autonavlog.weather.local_msm import LocalWeatherError
 from autonavlog.weather.msm_adapter import MsmWeatherProvider
 from autonavlog.weather.msm_fixture import FIXTURE_WEATHER_LABEL, fixture_weather_provider
 from autonavlog.web.facade import AutoNavLogWebApplication, WebApplicationError
@@ -90,12 +93,12 @@ class _LocalFacade(AutoNavLogWebApplication):
 
 class LocalApplication:
     def __init__(self, data_root: Path, *, forecast_fixture: Path | None = None) -> None:
+        self.local_weather = None if forecast_fixture else LocalForecastWeather()
         self._data_root = data_root
         self._forecast_fixture = forecast_fixture
-        self.local_weather = None if forecast_fixture else LocalMsmWeather()
         local_weather = self.local_weather
 
-        def weather_factory() -> MsmWeatherProvider:
+        def weather_factory() -> MsmWeatherProvider | ForecastWeatherProvider:
             if forecast_fixture:
                 return fixture_weather_provider(forecast_fixture)
             assert local_weather is not None
@@ -121,14 +124,16 @@ class LocalApplication:
             reference_repository=references,
             reference_catalog=catalog,
             weather_factory=weather_factory,
-            weather_label=FIXTURE_WEATHER_LABEL if forecast_fixture else "実MSM（端末内処理）",
+            weather_label=(
+                FIXTURE_WEATHER_LABEL if forecast_fixture else "MSM / GSM予報（端末内処理）"
+            ),
             development_weather=False,
             destination_wind_provider=DecodedTafProvider([], "TAF_PROXY_NOT_CONFIGURED"),
         )
         self.session = self.app.create_session(
             "local-poc", restore_persisted=False, persist_working=False
         )
-        self.session.weather_provider = CompleteForecastProvider(self.session.weather_provider)
+        self.session.weather_provider = complete_forecast(self.session.weather_provider)
         self._backup_context: tuple[BackupInput, bool] | None = None
 
     def validate_calculation_input(self, payload: dict[str, Any]) -> None:
@@ -227,11 +232,25 @@ class LocalApplication:
             or last.outcome.selected_forecast_run_id is None
             or last.forecast_metadata.get("forecast_run_id")
             != last.outcome.selected_forecast_run_id
+            or last.forecast_metadata.get("model") != last.outcome.selected_forecast_model
             or (
                 not request.refresh_forecast
                 and current.project.selected_forecast_run_id is not None
-                and last.outcome.selected_forecast_run_id
-                != current.project.selected_forecast_run_id
+                and (
+                    last.outcome.selected_forecast_run_id
+                    != current.project.selected_forecast_run_id
+                    or last.outcome.selected_forecast_model
+                    != current.project.selected_forecast_model
+                )
+                and not (
+                    current.project.selected_forecast_model == "MSM"
+                    and last.outcome.selected_forecast_model == "GSM"
+                    and last.outcome.forecast_provenance.get("fallback") is True
+                    and last.outcome.forecast_provenance.get("fallback_from") == "MSM"
+                    and coverage_exclusion_reasons(
+                        last.outcome.forecast_provenance.get("coverage_reason_codes")
+                    )
+                )
             )
         ):
             raise WebApplicationError("FORECAST_BACKUP_INVALID", MESSAGES["invalid_result"])
@@ -300,35 +319,22 @@ class LocalApplication:
             and self.session.project.weather_mode == "FORECAST"
         )
 
-    def weather_plan(
-        self,
-        catalog_json: str,
-        calculation: dict[str, Any] | None = None,
-    ) -> str:
-        """Adapter preflight, called by the Worker before synchronous calculation."""
-        assert self.local_weather is not None and self.session.project is not None
+    def begin_weather(self) -> None:
+        if self.local_weather is not None:
+            self.local_weather.begin()
+
+    def weather_catalog(self, model: ForecastModel, catalog_json: str) -> str:
+        assert self.local_weather is not None
         try:
-            rounding_mode = _validate_request(CalculationRequest, calculation or {}).rounding_mode
-            project = self.session.project.model_copy(deep=True)
-            self.app._normalize_rjfm_departure(project)
-            requirement = (
-                self.session.calculation_service.forecast_service.build_initial_requirement(project)
-            )
-            return self.local_weather.plan(
-                project,
-                requirement,
-                catalog_json,
-                refresh_forecast=self.app.forecast_refresh_requested(
-                    self.session, project, rounding_mode=rounding_mode
-                ),
-            )
+            self.local_weather.catalog(model, catalog_json)
+            return "{}"
         except LocalWeatherError as error:
             return json.dumps({"error": {"code": error.code, "message": str(error)}})
 
-    def accept_weather(self, payload: bytes, sha256: str) -> str:
+    def accept_weather(self, model: ForecastModel, payload: bytes, sha256: str) -> str:
         assert self.local_weather is not None
         try:
-            self.local_weather.accept(payload, sha256)
+            self.local_weather.accept(model, payload, sha256)
             return "{}"
         except LocalWeatherError as error:
             return json.dumps({"error": {"code": error.code, "message": str(error)}})
@@ -491,13 +497,21 @@ class LocalApplication:
             )
             before = {field: getattr(self.session, field) for field in fields}
             provider = self.session.weather_provider
-            if isinstance(provider, CompleteForecastProvider):
-                provider.failure_code = None
+            candidates = (
+                tuple(provider.models.values())
+                if isinstance(provider, ForecastWeatherProvider) else (provider,)
+            )
+            for candidate in candidates:
+                if isinstance(candidate, CompleteForecastProvider):
+                    candidate.failure_code = None
             try:
                 state = self.app.calculate(
                     self.session, rounding_mode=calculation_request.rounding_mode
                 )
-                reason = getattr(provider, "failure_code", None)
+                reason = next((
+                    code for candidate in candidates
+                    if (code := getattr(candidate, "failure_code", None)) in WEATHER_FAILURES
+                ), None)
                 if reason in WEATHER_FAILURES:
                     raise LocalWeatherError(reason, MESSAGES["backup_progress"])
             except Exception as error:
@@ -555,6 +569,8 @@ class LocalApplication:
         details: dict[str, Any] = {}
         try:
             return self.dispatch(operation, body)
+        except LocalWeatherRequest as request:
+            return json.dumps({"weather_request": request.request})
         except _RequestValidationError as error:
             code, message = "VALIDATION_FAILED", str(error)
             details["issues"] = error.issues

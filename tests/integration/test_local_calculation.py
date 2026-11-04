@@ -864,6 +864,24 @@ def test_blocker_during_mode_transition_keeps_previous_mode_and_result(
     assert current["outcome"] == previous["outcome"]
 
 
+def _portable_calculation(application, feed, catalog, options=None):
+    application.begin_weather()
+    for _ in range(20):
+        result = json.loads(application.dispatch_response("calculate", options))
+        if "weather_request" not in result:
+            return result
+        request = result["weather_request"]
+        assert request["model"] == "MSM"
+        if request["kind"] == "catalog":
+            assert application.weather_catalog("MSM", json.dumps(catalog)) == "{}"
+        else:
+            asset = request["asset"]
+            assert application.accept_weather(
+                "MSM", (feed / asset["file"]).read_bytes(), asset["sha256"]
+            ) == "{}"
+    pytest.fail("portable calculation did not converge")
+
+
 def test_unprepared_weather_preflight_keeps_last_good_stale():
     from datetime import UTC, datetime, timedelta
 
@@ -882,10 +900,7 @@ def test_unprepared_weather_preflight_keeps_last_good_stale():
         now = datetime.now(UTC)
         catalog.update(generated_at=now.isoformat(),
                        expires_at=(now + timedelta(hours=1)).isoformat())
-        asset = json.loads(application.weather_plan(json.dumps(catalog)))
-        assert "error" not in asset
-        result = json.loads(application.accept_weather(
-            (fixture / asset["file"]).read_bytes(), asset["sha256"]))
+        result = _portable_calculation(application, fixture, catalog)
         assert result["error"]["code"] == "WEATHER_PREPARED_UNAVAILABLE"
         after = json.loads(application.dispatch("bootstrap"))
         assert not after["readiness"]["calculationIsCurrent"]
@@ -1014,12 +1029,7 @@ def test_portable_forecast_refresh_acquires_new_run_before_shared_calculation(sa
     try:
         local.dispatch("bootstrap", initial["workingRecovery"])
         for expected in ("20260915180000", "20260915210000"):
-            asset = json.loads(local.weather_plan(json.dumps(catalog)))
-            assert asset["run"] == expected
-            assert json.loads(local.accept_weather(
-                (feed / asset["file"]).read_bytes(), asset["sha256"]
-            )) == {}
-            result = json.loads(local.dispatch("calculate"))
+            result = _portable_calculation(local, feed, catalog)
             _assert_forecast_snapshot(result, expected)
             if save_between_clicks and expected == "20260915180000":
                 # JSON.stringify represents integral JS Numbers without a decimal.
@@ -1135,13 +1145,32 @@ def test_portable_rounding_change_preflight_and_calculation_keep_the_same_pin():
             (False, "20260915180000"), (True, "20260915180000"), (True, "20260915210000"),
         ]:
             options = {"rounding_mode": mode}
-            asset = json.loads(local.weather_plan(json.dumps(catalog), options))
-            assert asset["run"] == expected
-            assert json.loads(local.accept_weather(
-                (feed / asset["file"]).read_bytes(), asset["sha256"]
-            )) == {}
-            state = json.loads(local.dispatch("calculate", options))
+            state = _portable_calculation(local, feed, catalog, options)
             _assert_forecast_snapshot(state, expected)
             assert state["roundingMode"] is mode
     finally:
         local.close()
+
+
+@pytest.mark.parametrize("forecast", [False, True])
+@pytest.mark.parametrize("changed_input", [False, True])
+def test_schema4_recovery_keeps_verified_fingerprint_and_does_not_promote_edits(
+    local, forecast, changed_input,
+):
+    first = calculate(local, forecast=forecast)
+    recovery = first["workingRecovery"]
+    last = recovery["last_calculation"]
+    fingerprint = last["calculation_fingerprint"]
+    for project in [recovery["project"], last["project"]]:
+        project["schema_version"] = 4
+        project.pop("selected_forecast_model", None)
+    for outcome in [recovery["outcome"], last["outcome"]]:
+        outcome.pop("selected_forecast_model", None)
+    last.pop("selected_forecast_model", None)
+    if changed_input:
+        recovery["project"]["tgl_count"] += 1
+    restored = json.loads(local.dispatch("bootstrap", recovery))
+    assert restored["readiness"]["calculationIsCurrent"] is (not changed_input)
+    assert restored["workingRecovery"]["last_calculation"]["calculation_fingerprint"] == fingerprint
+    restored_last = restored["workingRecovery"]["last_calculation"]
+    assert restored_last["outcome"]["sections"] == last["outcome"]["sections"]
