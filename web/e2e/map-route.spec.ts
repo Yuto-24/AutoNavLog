@@ -281,10 +281,7 @@ for (const width of [1100, 1440]) {
   test(`Issue 235: click OMARU with correct provenance and restore the draft at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1100 });
     await start(page);
-    await expect(page.locator('.map-route-controls .field-hint')).toHaveText(
-      'VREPはAD2のARPから算出した参考位置です。公示座標ではなく精度は保証されません。小丸は運用参照図からの未検証デジタイズによる推定位置（誤差0.35 NM）であり、精度は保証されません。',
-    );
-    await page.locator('.map-route-controls').screenshot({ path: `/tmp/issue235-omaru-notice-${width}.png` });
+    await expect(page.locator('.map-route-controls .field-hint')).toHaveCount(0);
     await selectAirport(page, "RJFM");
     await zoomMapTo(page, 9);
     const marker = page.locator('.vrep-draft-marker[title="小丸"]');
