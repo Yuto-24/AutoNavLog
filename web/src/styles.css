@@ -1597,7 +1597,7 @@ tbody tr:last-child td { border-bottom: 0; }
   color: var(--brand-950);
 }
 
-.loading-mark { width: 52px; height: 52px; display: flex; align-items: center; justify-content: center; color: #ffffff; background: var(--brand-950); border-radius: var(--radius-md); font-size: 26px; font-weight: 800; }
+.loading-mark { width: 52px; height: 52px; display: block; object-fit: contain; }
 .loading-screen p { color: var(--red-700); }
 
 @media (max-width: 1240px) {
