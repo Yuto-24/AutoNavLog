@@ -15,7 +15,11 @@ from jma_gpv_weather import MsmClient  # noqa: E402
 from jma_gpv_weather.msm.spec import parse_listing  # noqa: E402
 
 from autonavlog.weather.local_msm import WeatherCatalog  # noqa: E402
-from scripts.prepare_msm_feed import acquire_listings, forecast_requirements  # noqa: E402
+from scripts.prepare_msm_feed import (  # noqa: E402
+    acquire_listings,
+    forecast_requirements,
+    log_run_discovery,
+)
 from scripts.static_ops.operations import fetch  # noqa: E402
 from scripts.static_ops.refresh_feed import PUBLICATION_GENERATION_HOURS  # noqa: E402
 
@@ -47,19 +51,26 @@ def preflight_catalog(raw: bytes, now: datetime | None = None) -> dict:
     client = MsmClient()
     requirements = forecast_requirements(
         started.replace(minute=0, second=0, microsecond=0), PUBLICATION_GENERATION_HOURS)
-    listings = acquire_listings(client, requirements, require_content=True)
-    advertised = set()
-    for url, listing in listings.items():
-        files = parse_listing(listing, url)
-        if listing.strip() and not files:
-            raise ValueError("Unrecognized upstream listing; absence is not confirmed")
-        advertised.update(file.run_utc for file in files)
-    if any(run > started or run.hour % 3 or run.minute or run.second for run in advertised):
-        raise ValueError("Invalid upstream Run")
-    # The real library checks all 25 hours and interpolation brackets from source files.
-    # Empty/unavailable/incomplete discovery raises; it must never become NO_NEW_RUN.
-    complete = client.discover_runs(requirements, listings=listings)
-    newest = max(run.run_utc for run in complete)
+    listings: dict[str, str] = {}
+    try:
+        listings = acquire_listings(client, requirements, require_content=True)
+        advertised = set()
+        for url, listing in listings.items():
+            files = parse_listing(listing, url)
+            if listing.strip() and not files:
+                raise ValueError("Unrecognized upstream listing; absence is not confirmed")
+            advertised.update(file.run_utc for file in files)
+        if any(run > started or run.hour % 3 or run.minute or run.second for run in advertised):
+            raise ValueError("Invalid upstream Run")
+        # The real library checks all 25 hours and interpolation brackets from source files.
+        # Empty/unavailable/incomplete discovery raises; it must never become NO_NEW_RUN.
+        complete = client.discover_runs(requirements, listings=listings)
+        newest = max(run.run_utc for run in complete)
+    except Exception:
+        log_run_discovery(requirements, listings, stage="preflight", failed=True)
+        raise
+    log_run_discovery(requirements, listings, stage="preflight",
+                      discovered_run=newest.strftime("%Y%m%d%H%M%S"))
     checked = now or datetime.now(UTC)
     remaining = (catalog.expires_at - checked).total_seconds()
     if newest <= latest:
