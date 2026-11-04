@@ -862,6 +862,9 @@ It does not authorize paid processing, automatic upgrades or billing activation.
 
 ## Unattended collection investigation (historical #123 work, now #281)
 
+The [2026-10-22 unattended-readiness audit](evidence/issue-123/unattended-readiness-2026-10-22.md) is historical evidence only. Its then-current monitor, publication, authentication and approval statuses were superseded by the October 23 policy and later #123 acceptance. The quota verification fixes are tracked by #281; this record does not reinstate quota-monitoring as a production or retirement gate.
+
+
 The [October 4 decision](https://github.com/Yuto-24/AutoNavLog/issues/123#issuecomment-5972103619)
 defined unattended collection instead of periodic manual `STATIC_QUOTA_REPORT` renewal.
 Those quality requirements now belong to #281; the October 23 policy above removes them

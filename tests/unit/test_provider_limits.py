@@ -108,6 +108,117 @@ def test_only_complete_semantic_verification_issues_timestamp_and_digests():
     assert "actions_storage_gb_hours" not in result["limits"]
 
 
+def current_markup():
+    """Reduced markup observed on official pages on 2026-10-22; not a live receipt."""
+    docs = documents()
+    docs["firestore"] = docs["firestore"].replace(
+        "<p>Cloud Firestore allows exactly one free database per project.</p>",
+        '<aside class="special"><strong>Important:</strong><span> '
+        '<span class="notranslate">Cloud Firestore</span> allows '
+        "<strong>exactly one free database</strong> per\nproject.</span></aside>",
+    )
+    docs["github"] = docs["github"].replace(
+        "See GitHub Packages billing.", 'See <a href="/billing">GitHub Packages billing</a>.'
+    )
+    return docs
+
+
+def test_visible_admonition_and_inline_link_preserve_exact_quota_clauses():
+    assert limits.audit(NOW, Client(current_markup()))["status"] == "OK"
+
+
+def test_line_break_is_whitespace_and_nested_note_is_counted_once():
+    docs = current_markup()
+    docs["firestore"] = docs["firestore"].replace(" per\nproject.", " per<br>project.")
+    docs["github"] = docs["github"].replace("<p>Shared storage:", "<aside><p>Shared storage:")
+    docs["github"] = docs["github"].replace('</a>.</p>', '</a>.</p></aside>')
+    assert limits.audit(NOW, Client(docs))["status"] == "OK"
+
+
+@pytest.mark.parametrize("wrapper", [
+    "<div>Previous limit: {} Current limit: two databases.</div>",
+    "<div>Historical example: <div>{}</div></div>",
+    "<div>{}<span> No longer applicable.</span></div>",
+    "<div><div>Previous limit:</div>{}<div>Current limit: two databases.</div></div>",
+    "<div><p>Historical example:</p>{}</div>",
+    "<div>{}<p>No longer applicable.</p></div>",
+    "<div><div><p>Historical</p><p>example:</p></div>{}</div>",
+    "<div><p>Previous limit:</p>{}<p>Current limit: two databases.</p>"
+    "<h3>Additional information</h3></div>",
+    "<div><p>Previous limit:</p>{}<p>Current limit: two databases.</p>"
+    "<h2>Free quota</h2></div>",
+    "<li>Previous limit: {} Current limit: two databases.</li>",
+    "<aside>Historical example: <li>{}</li></aside>",
+    "<li>{}<span> No longer applicable.</span></li>",
+])
+def test_nested_note_cannot_discard_visible_ancestor_qualification(wrapper):
+    docs = current_markup()
+    start = docs["firestore"].index("<aside")
+    end = docs["firestore"].index("</aside>", start) + len("</aside>")
+    note = docs["firestore"][start:end]
+    docs["firestore"] = docs["firestore"].replace(note, wrapper.format(note))
+    result = limits.audit(NOW, Client(docs))
+    assert result["status"] == "BLOCKED" and "limits_checked_at" not in result
+
+
+def test_layout_div_preserves_sections_tables_and_unique_clauses():
+    docs = {name: f"<div><div>{body}</div></div>" for name, body in current_markup().items()}
+    assert limits.audit(NOW, Client(docs))["status"] == "OK"
+
+
+@pytest.mark.parametrize(
+    "context", ["<h3>Historical example</h3>", "<table><tr><td>Historical</td></tr></table>"]
+)
+def test_parent_clause_cannot_discard_structured_child_context(context):
+    docs = documents()
+    docs["firestore"] = docs["firestore"].replace(
+        "<p>Cloud Firestore allows exactly one free database per project.</p>",
+        "<div>Cloud Firestore allows exactly one free database per project."
+        + context + "</div>",
+    )
+    assert "limits_checked_at" not in limits.audit(NOW, Client(docs))
+
+
+def test_parent_clause_cannot_discard_nested_visible_qualification():
+    docs = documents()
+    docs["firestore"] = docs["firestore"].replace(
+        "<p>Cloud Firestore allows exactly one free database per project.</p>",
+        "<aside>Cloud Firestore allows exactly one free database per project."
+        "<p>This is historical.</p></aside>",
+    )
+    assert limits.audit(NOW, Client(docs))["status"] == "BLOCKED"
+
+
+@pytest.mark.parametrize("mutation", ["hidden", "changed", "duplicate", "historical"])
+def test_admonition_must_be_visible_unique_current_and_unchanged(mutation):
+    docs = current_markup()
+    note = docs["firestore"].split("<aside", 1)[1].split("</aside>", 1)[0]
+    note = "<aside" + note + "</aside>"
+    if mutation == "hidden":
+        replacement = note.replace('<aside class="special">', '<aside hidden>')
+    elif mutation == "changed":
+        replacement = note.replace("exactly one", "two")
+    elif mutation == "duplicate":
+        replacement = note * 2
+    else:
+        replacement = ""
+        docs["firestore"] += "<h2>Historical limits</h2>" + note
+    docs["firestore"] = docs["firestore"].replace(note, replacement, 1)
+    result = limits.audit(NOW, Client(docs))
+    assert result["status"] == "BLOCKED" and "limits_checked_at" not in result
+
+
+def test_inline_markup_cannot_hide_changed_allowance_or_join_separate_words():
+    docs = current_markup()
+    docs["pages"] = docs["pages"].replace("<td>500</td>", "<td>5<strong>01</strong></td>")
+    assert limits.audit(NOW, Client(docs))["status"] == "BLOCKED"
+    docs = current_markup()
+    docs["github"] = docs["github"].replace(
+        "same pooled allowance", "same <b>different</b> allowance"
+    )
+    assert limits.audit(NOW, Client(docs))["status"] == "BLOCKED"
+
+
 @pytest.mark.parametrize(
     "name,old,new",
     [
