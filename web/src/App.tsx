@@ -1603,7 +1603,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   if (!state) {
     return (
       <main className="loading-screen">
-        <div className="loading-mark">N</div>
+        <img className="loading-mark" src="/navmate-192.png" width={52} height={52} alt="" />
         <strong>NavMateを起動しています</strong>
         {error && (
           <>
