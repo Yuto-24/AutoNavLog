@@ -59,11 +59,29 @@ export function checkArtifact(root, { freshWeather = true, allowDirty = false } 
       continue;
     }
     const catalog = JSON.parse(readFileSync(join(root, prefix + "catalog.json")));
-    if (freshWeather && (!Number.isFinite(Date.parse(catalog.expires_at)) || Date.parse(catalog.expires_at) <= Date.now())) {
+    const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
+    const timestamp = value => typeof value === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+      ? Date.parse(value) : NaN;
+    const generated = timestamp(catalog.generated_at), expiry = timestamp(catalog.expires_at);
+    if (catalog.schema_version !== 1 || !Number.isFinite(generated) || !Number.isFinite(expiry)
+      || generated >= expiry || !object(catalog.listings)
+      || Object.values(catalog.listings).some(value => typeof value !== "string")
+      || Object.keys(catalog).some(key => !["schema_version", "generated_at", "expires_at", "listings", "assets"].includes(key))) {
+      throw new Error(`${model} catalog format invalid`);
+    }
+    if (freshWeather && (expiry <= Date.now() || generated > Date.now() + 5 * 60_000)) {
       throw new Error(`${model} catalog expired; regenerate the feed before deployment`);
     }
-    if (!catalog.assets?.length) throw new Error(`Empty ${model} feed`);
+    if (!Array.isArray(catalog.assets) || !catalog.assets.length) throw new Error(`Empty ${model} feed`);
+    const runs = new Set();
     for (const asset of catalog.assets) {
+      if (!object(asset) || typeof asset.run !== "string" || !/^\d{14}$/.test(asset.run) || runs.has(asset.run)
+        || typeof asset.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(asset.sha256) || asset.file !== `${asset.sha256}.npz`
+        || !Number.isSafeInteger(asset.bytes) || asset.bytes <= 0 || asset.bytes > 32 * 1024 * 1024
+        || Object.keys(asset).some(key => !["run", "file", "sha256", "bytes"].includes(key))) {
+        throw new Error(`${model} asset format invalid`);
+      }
+      runs.add(asset.run);
       const file = files[prefix + asset.file];
       if (file?.bytes !== asset.bytes || file?.sha256 !== asset.sha256) throw new Error(`${model} asset mismatch: ` + asset.file);
     }

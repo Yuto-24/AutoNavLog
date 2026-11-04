@@ -19,6 +19,10 @@ class ForecastWeatherProvider:
         self.models = models
         self.selected_model: ForecastModel = "MSM"
 
+    @property
+    def package_version(self) -> str | None:
+        return getattr(self.models["MSM"], "package_version", None)
+
     def begin_calculation(self) -> None:
         for provider in self.models.values():
             begin = getattr(provider, "begin_calculation", None)

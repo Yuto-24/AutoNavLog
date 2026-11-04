@@ -251,7 +251,29 @@ def test_backup_uses_shared_model_selection_and_adopts_model_and_run(
         return portable.provider
 
     result = calculator(ROOT / "data", weather, local.app.destination_wind_provider)(request)
+    assert local.session.readiness_service.msm_package_version == "0.6.0"
     assert result.calculation.outcome.selected_forecast_model == expected
+    if fixed_model == "MSM":
+        import hashlib
+
+        from autonavlog.forecast_backup import canonical_json
+        from autonavlog.web.facade import WebApplicationError
+
+        before = local.session.last_calculation.model_dump(mode="json")
+        for reasons in ([], ["SOURCE_VALUE_UNAVAILABLE"], "OUTSIDE_DOMAIN", [None],
+                        ["OUTSIDE_DOMAIN", "SOURCE_VALUE_UNAVAILABLE"]):
+            invalid = result.model_copy(deep=True)
+            invalid.calculation.outcome.forecast_provenance["coverage_reason_codes"] = reasons
+            invalid.calculation_sha256 = hashlib.sha256(canonical_json(
+                invalid.calculation.model_dump(mode="json")
+            ).encode()).hexdigest()
+            with pytest.raises(WebApplicationError) as error:
+                local.adopt_forecast_backup({
+                    "request": request.model_dump(mode="json"),
+                    "result": invalid.model_dump(mode="json"),
+                })
+            assert error.value.code == "FORECAST_BACKUP_INVALID"
+            assert local.session.last_calculation.model_dump(mode="json") == before
     adopted = local.adopt_forecast_backup({
         "request": request.model_dump(mode="json"), "result": result.model_dump(mode="json"),
     })

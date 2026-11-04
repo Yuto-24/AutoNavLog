@@ -29,7 +29,10 @@ route, altitude/phase/manual inputs, TGL, descent rate and relevant planning
 state. It excludes the selected Forecast and save/revision bookkeeping. Refresh
 intent must only be consumed against the same fingerprint, and must be discarded
 after intervening input changes. It is distinct from the calculation fingerprint,
-which also identifies the model and Run actually used.
+which also identifies the model and Run actually used. Its historical MSM and
+FTD encoding remains byte-identical; GSM and an explicitly unknown forecast model
+extend that encoding. Existing snapshot hashes are not rewritten or promoted.
+Changed inputs, policies or a non-FTD library version still require recalculation.
 
 Project schema 5 adds `selected_forecast_model` independently of the existing
 Run ID. Schema 4 Run-only records migrate to MSM; the FTD fixed-weather identifier

@@ -19,7 +19,7 @@ from autonavlog.application.project_fingerprints import forecast_selection_finge
 from autonavlog.application.project_service import ProjectService
 from autonavlog.domain.calculation import Issue
 from autonavlog.domain.enums import IssueSeverity
-from autonavlog.domain.weather import ForecastModel
+from autonavlog.domain.weather import ForecastModel, coverage_exclusion_reasons
 from autonavlog.forecast_backup import (
     WEATHER_FAILURES,
     BackupInput,
@@ -247,7 +247,9 @@ class LocalApplication:
                     and last.outcome.selected_forecast_model == "GSM"
                     and last.outcome.forecast_provenance.get("fallback") is True
                     and last.outcome.forecast_provenance.get("fallback_from") == "MSM"
-                    and last.outcome.forecast_provenance.get("coverage_reason_codes")
+                    and coverage_exclusion_reasons(
+                        last.outcome.forecast_provenance.get("coverage_reason_codes")
+                    )
                 )
             )
         ):

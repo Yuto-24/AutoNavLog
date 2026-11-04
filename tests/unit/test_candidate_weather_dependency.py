@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 
@@ -81,22 +82,22 @@ def test_local_updater_resolves_candidate_wheel_before_build(tmp_path, wheels):
 
 
 def test_pip_rejects_single_weather_wheel_that_disagrees_with_candidate_pin(tmp_path):
-    (tmp_path / "pyproject.toml").write_text('''[build-system]
-requires = ["setuptools>=69"]
-build-backend = "setuptools.build_meta"
-[project]
-name = "candidate-weather-pin-fixture"
-version = "0.0.0"
-[project.optional-dependencies]
-msm = ["jma-gpv-weather==0.5.0"]
-test = []
-[tool.setuptools]
-py-modules = []
-''')
+    # A self-contained distribution avoids assuming a global source-build backend
+    # in Docker. Its optional dependency is the candidate's exact msm constraint.
+    candidate_wheel = tmp_path / "candidate_weather_pin_fixture-0.0.0-py3-none-any.whl"
+    metadata = "candidate_weather_pin_fixture-0.0.0.dist-info/"
+    with ZipFile(candidate_wheel, "w") as wheel:
+        wheel.writestr(metadata + "METADATA", "Metadata-Version: 2.1\n"
+                       "Name: candidate-weather-pin-fixture\nVersion: 0.0.0\n"
+                       "Provides-Extra: msm\nProvides-Extra: test\n"
+                       'Requires-Dist: jma-gpv-weather==0.5.0; extra == "msm"\n')
+        wheel.writestr(metadata + "WHEEL", "Wheel-Version: 1.0\n"
+                       "Root-Is-Purelib: true\nTag: py3-none-any\n")
+        wheel.writestr(metadata + "RECORD", "")
     result = subprocess.run([
         sys.executable, "-m", "pip", "install", "--dry-run", "--no-index",
-        "--no-build-isolation", "--disable-pip-version-check",
-        str(ROOT / "vendor" / NEW), ".[msm,test]",
+        "--disable-pip-version-check", str(ROOT / "vendor" / NEW),
+        str(candidate_wheel) + "[msm,test]",
     ], cwd=tmp_path, capture_output=True, text=True, check=False)
     assert result.returncode != 0
     assert "ResolutionImpossible" in result.stderr

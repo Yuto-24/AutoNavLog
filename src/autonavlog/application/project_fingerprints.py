@@ -156,7 +156,11 @@ def current_calculation_input_fingerprint(
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
             "selected_forecast_run_id": project.selected_forecast_run_id,
-            "selected_forecast_model": project.selected_forecast_model,
+            # Preserve the historical FTD/MSM encoding without rewriting stored hashes.
+            # GSM and an explicitly unknown forecast identity must still differ.
+            **({"selected_forecast_model": project.selected_forecast_model}
+               if project.weather_mode != "FTD" and project.selected_forecast_model != "MSM"
+               else {}),
             "weather_mode": project.weather_mode,
             "ftd_weather": (
                 None

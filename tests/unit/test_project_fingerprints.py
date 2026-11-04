@@ -311,3 +311,36 @@ def test_forecast_selection_key_tracks_session_rounding_mode(project):
     assert forecast_selection_fingerprint(project, rounding_mode=True) != (
         forecast_selection_fingerprint(project, rounding_mode=False)
     )
+
+
+@pytest.mark.parametrize("mode,expected", [
+    ("FTD", "ca9d0214ad7d0cf9c1fd277a3ec10b15bb50ae8bf2a5acbe59f288ee5ce1cfb6"),
+    ("FORECAST", "181ec79e77a99a7077a6935d265bf851872424e25b2fb06cd0a9c13ba1fee528"),
+])
+def test_historical_msm_and_ftd_fingerprints_are_byte_identical(
+    project, performance_repository, mode, expected,
+):
+    from uuid import UUID
+
+    # Frozen from origin/main bbd64a8, before model identity was added.
+    for index, node in enumerate(project.route_nodes):
+        node.id = UUID(int=index + 1)
+    for index, section in enumerate(project.sections):
+        section.id = UUID(int=10 + index)
+        section.from_node_id = project.route_nodes[index].id
+        section.to_node_id = project.route_nodes[index + 1].id
+    project = project.model_copy(update={
+        "weather_mode": mode,
+        "ftd_weather": FtdWeatherSettings(
+            surface_wind=ManualWind(direction_deg_from=350, speed_kt=10),
+            wind_at_5000_ft=ManualWind(direction_deg_from=10, speed_kt=20),
+        ) if mode == "FTD" else None,
+        "selected_forecast_run_id": "ftd-fixed-v1" if mode == "FTD" else "20260728000000",
+        "selected_forecast_model": None if mode == "FTD" else "MSM",
+    })
+    assert _calculation_fingerprint(project, performance_repository) == expected
+    if mode == "FORECAST":
+        gsm = project.model_copy(update={"selected_forecast_model": "GSM"})
+        unknown = project.model_copy(update={"selected_forecast_model": None})
+        assert len({expected, _calculation_fingerprint(gsm, performance_repository),
+                    _calculation_fingerprint(unknown, performance_repository)}) == 3

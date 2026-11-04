@@ -5,20 +5,22 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, truncateSync, readFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inventory, checkArtifact, limits, sha256, sourceDirty } from "./static-artifact.mjs";
+const msmFile = `weather/msm/${sha256("msm")}.npz`;
+const gsmFile = `weather/gsm/${sha256("gsm")}.npz`;
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "static-artifact-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const name of ["local", "weather/msm"]) mkdirSync(join(root, name), { recursive: true });
   const put = (name, value) => writeFileSync(join(root, name), typeof value === "string" ? value : JSON.stringify(value));
-  for (const name of ["index.html", "_headers", "404.html", "local/core.whl", "local/data.zip", "weather/msm/run.npz"]) put(name, name);
+  for (const name of ["index.html", "_headers", "404.html", "local/core.whl", "local/data.zip"]) put(name, name);
   put("local/manifest.json", { version: "1.0.0", pyodideVersion: "0.27.7", wheels: ["core.whl"], data: "data.zip",
     sha256: { "core.whl": sha256("local/core.whl"), "data.zip": sha256("local/data.zip") } });
-  put("weather/msm/catalog.json", { expires_at: new Date(Date.now() + 60000).toISOString(),
-    assets: [{ file: "run.npz", bytes: 19, sha256: sha256("weather/msm/run.npz") }] });
-  // Compute size instead of depending on the test string's length.
-  const catalog = JSON.parse(readFileSync(join(root, "weather/msm/catalog.json")));
-  catalog.assets[0].bytes = Buffer.byteLength("weather/msm/run.npz");
-  put("weather/msm/catalog.json", catalog);
+  put(msmFile, "msm");
+  put("weather/msm/catalog.json", {
+    schema_version: 1, generated_at: new Date(Date.now() - 1000).toISOString(),
+    expires_at: new Date(Date.now() + 60000).toISOString(), listings: {},
+    assets: [{ run: "20260915000000", file: `${sha256("msm")}.npz`, bytes: 3, sha256: sha256("msm") }],
+  });
   const seal = () => {
     const files = inventory(root); delete files["release.json"];
     put("release.json", { version: "1.0.0", pyodideVersion: "0.27.7", dirty: false, files });
@@ -41,6 +43,7 @@ test("oversize files fail before upload, including sparse files", t => {
 test("expired feed blocks deployment; historical inspection is explicitly labelled", t => {
   const { root, put, seal } = fixture(t);
   const catalog = JSON.parse(readFileSync(join(root, "weather/msm/catalog.json")));
+  catalog.generated_at = "1999-12-31T23:00:00Z";
   catalog.expires_at = "2000-01-01T00:00:00Z"; put("weather/msm/catalog.json", catalog); seal();
   assert.throws(() => checkArtifact(root), /expired/);
   assert.equal(checkArtifact(root, { freshWeather: false }).freshWeather, false);
@@ -89,15 +92,51 @@ test("optional GSM publication validates integrity and expiry without making it 
   const { root, put, seal } = fixture(t);
   assert.equal(checkArtifact(root).gsmWeatherExpiresAt, null);
   mkdirSync(join(root, "weather/gsm"));
-  put("weather/gsm/run.npz", "gsm"); seal();
+  put(gsmFile, "gsm"); seal();
   assert.throws(() => checkArtifact(root), /GSM payloads require a catalog/);
-  const catalog = { expires_at: new Date(Date.now() + 60000).toISOString(),
-    assets: [{ file: "run.npz", bytes: 3, sha256: sha256("gsm") }] };
+  const catalog = {
+    schema_version: 1, generated_at: new Date(Date.now() - 1000).toISOString(),
+    expires_at: new Date(Date.now() + 60000).toISOString(), listings: {},
+    assets: [{ run: "20260915060000", file: `${sha256("gsm")}.npz`, bytes: 3, sha256: sha256("gsm") }],
+  };
   put("weather/gsm/catalog.json", catalog); seal();
   assert.equal(checkArtifact(root).gsmWeatherExpiresAt, catalog.expires_at);
-  put("weather/gsm/run.npz", "bad"); seal();
+  put(gsmFile, "bad"); seal();
   assert.throws(() => checkArtifact(root), /GSM asset mismatch/);
-  put("weather/gsm/run.npz", "gsm");
-  put("weather/gsm/catalog.json", { ...catalog, expires_at: "2000-01-01T00:00:00Z" }); seal();
+  put(gsmFile, "gsm");
+  put("weather/gsm/catalog.json", { ...catalog, generated_at: "1999-12-31T23:00:00Z", expires_at: "2000-01-01T00:00:00Z" }); seal();
   assert.throws(() => checkArtifact(root), /GSM catalog expired/);
 });
+
+for (const model of ["msm", "gsm"]) {
+  for (const field of ["schema_version", "generated_at", "listings"]) {
+    test(`${model} publication rejects a catalog missing ${field}`, t => {
+      const { root, put, seal } = fixture(t);
+      const catalog = JSON.parse(readFileSync(join(root, "weather/msm/catalog.json")));
+      if (model === "gsm") {
+        mkdirSync(join(root, "weather/gsm")); put(gsmFile, "gsm");
+        catalog.assets = [{ run: "20260915060000", file: `${sha256("gsm")}.npz`, bytes: 3, sha256: sha256("gsm") }];
+      }
+      delete catalog[field]; put(`weather/${model}/catalog.json`, catalog); seal();
+      assert.throws(() => checkArtifact(root), new RegExp(`${model.toUpperCase()} catalog format invalid`));
+    });
+  }
+}
+
+for (const model of ["msm", "gsm"]) {
+  for (const malformed of ["numeric-run", "duplicate-run", "bad-listing"]) {
+    test(`${model} publication rejects ${malformed} catalog metadata`, t => {
+      const { root, put, seal } = fixture(t);
+      const catalog = JSON.parse(readFileSync(join(root, "weather/msm/catalog.json")));
+      if (model === "gsm") {
+        mkdirSync(join(root, "weather/gsm")); put(gsmFile, "gsm");
+        catalog.assets = [{ run: "20260915060000", file: `${sha256("gsm")}.npz`, bytes: 3, sha256: sha256("gsm") }];
+      }
+      if (malformed === "numeric-run") catalog.assets[0].run = Number(catalog.assets[0].run);
+      if (malformed === "duplicate-run") catalog.assets.push({ ...catalog.assets[0] });
+      if (malformed === "bad-listing") catalog.listings = { source: 42 };
+      put(`weather/${model}/catalog.json`, catalog); seal();
+      assert.throws(() => checkArtifact(root), /format invalid/);
+    });
+  }
+}

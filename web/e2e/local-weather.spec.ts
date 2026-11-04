@@ -288,7 +288,7 @@ test("portable GSM fallback: complete Local NAV LOG matches Legacy, persists mod
   expect(last.project.selected_forecast_model).toBe("GSM");
   expect(last.outcome.forecast_provenance).toEqual(fallback.outcome.forecast_provenance);
   await page.reload();
-  await expect(page.getByLabel("使用Forecast")).toContainText("GSM");
+  await expect(page.getByLabel("使用Forecast")).toHaveText("Forecast: GSM / Run: 20260915060000");
   expect((await record(page)).lastCalculation).toEqual(last);
   await policyFeed(context, "msm", fixture);
   await page.evaluate(() => caches.delete("autonavlog.weather.msm.v1"));
@@ -297,7 +297,7 @@ test("portable GSM fallback: complete Local NAV LOG matches Legacy, persists mod
   expect((await calculationState(page)).outcome.issues.map((issue: any) => issue.code)).toContain("FORECAST_UPDATE_AVAILABLE");
   await calculate(page);
   expect((await calculationState(page)).outcome.selected_forecast_model).toBe("MSM");
-  await expect(page.getByLabel("使用Forecast")).toContainText("MSM");
+  await expect(page.getByLabel("使用Forecast")).toHaveText("Forecast: MSM / Run: 20260915210000");
   expect(errors).toEqual([]);
 });
 

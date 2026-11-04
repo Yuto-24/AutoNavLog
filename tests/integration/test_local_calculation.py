@@ -1150,3 +1150,27 @@ def test_portable_rounding_change_preflight_and_calculation_keep_the_same_pin():
             assert state["roundingMode"] is mode
     finally:
         local.close()
+
+
+@pytest.mark.parametrize("forecast", [False, True])
+@pytest.mark.parametrize("changed_input", [False, True])
+def test_schema4_recovery_keeps_verified_fingerprint_and_does_not_promote_edits(
+    local, forecast, changed_input,
+):
+    first = calculate(local, forecast=forecast)
+    recovery = first["workingRecovery"]
+    last = recovery["last_calculation"]
+    fingerprint = last["calculation_fingerprint"]
+    for project in [recovery["project"], last["project"]]:
+        project["schema_version"] = 4
+        project.pop("selected_forecast_model", None)
+    for outcome in [recovery["outcome"], last["outcome"]]:
+        outcome.pop("selected_forecast_model", None)
+    last.pop("selected_forecast_model", None)
+    if changed_input:
+        recovery["project"]["tgl_count"] += 1
+    restored = json.loads(local.dispatch("bootstrap", recovery))
+    assert restored["readiness"]["calculationIsCurrent"] is (not changed_input)
+    assert restored["workingRecovery"]["last_calculation"]["calculation_fingerprint"] == fingerprint
+    restored_last = restored["workingRecovery"]["last_calculation"]
+    assert restored_last["outcome"]["sections"] == last["outcome"]["sections"]

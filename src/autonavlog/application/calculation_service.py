@@ -799,7 +799,8 @@ class CalculationService:
             else:
                 run_status = provider.inspect_run_status(selected_run_id, final_requirement)
                 covers = run_status.selected_run_covers_requirement
-            if not covers:
+            # Model selection already records its actual failure reason.
+            if not covers and not isinstance(provider, ForecastWeatherProvider):
                 issues.append(
                     self._blocker(
                         "FORECAST_RUN_OUT_OF_COVERAGE",

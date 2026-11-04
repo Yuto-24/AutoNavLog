@@ -15,8 +15,10 @@ class GsmWeatherProvider(MsmWeatherProvider):
     def __init__(self, cache_dir: str | Path, client: Any | None = None):
         import jma_gpv_weather
 
+        desktop = client is None
         super().__init__(cache_dir, client=client or jma_gpv_weather.GsmClient(cache_dir=cache_dir))
-        self._native_bounds = self.client.bounds if client is None else None
+        self._desktop_discovery = desktop
+        self._native_bounds = self.client.bounds if desktop else None
 
     def _prepare_candidate(
         self, run: str, requirement: ForecastRequirement, selections: Any,

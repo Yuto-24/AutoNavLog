@@ -4574,8 +4574,10 @@ for (const width of [1100, 1440]) {
     await page.reload();
     await expect(page.getByLabel("使用Forecast")).toHaveText("Forecast: GSM / Run: 20260915000000");
     const note = page.getByRole("note", { name: "Forecast切替理由" });
-    await expect(note).toContainText("NAV LOG全体をGSMで計算しました");
-    await expect(note).toContainText("必要高度が予報の高度範囲外");
+    await expect(note).toHaveText(
+      "GSM日本域を使用しています。MSMでは今回の経路・時刻・高度に必要な予報範囲を満たせないため、 "
+      + "NAV LOG全体をGSMで計算しました。 理由: 必要高度が予報の高度範囲外",
+    );
     await expect(page.locator(".issue-item", { hasText: "GSM" })).toHaveCount(0);
     const boxes = await Promise.all([".input-rail", ".route-workspace", ".status-rail", ".nav-log-section"]
       .map(selector => page.locator(selector).boundingBox()));

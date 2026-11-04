@@ -171,3 +171,32 @@ def test_native_prepare_crops_to_complete_request_without_copying_model_geometry
     assert seen[-1].lon_min <= request.longitude_deg <= seen[-1].lon_max
     provider.begin_calculation()
     assert provider.client.bounds == original
+
+
+@pytest.mark.parametrize("provider_class", [MsmWeatherProvider, GsmWeatherProvider])
+def test_native_discovery_records_one_snapshot_and_never_hides_source_failure(
+    provider_class, requirement, tmp_path, monkeypatch,
+):
+    provider = provider_class(tmp_path)
+    assert provider._desktop_discovery is True
+    attempted = []
+
+    def fail(url):
+        attempted.append(url)
+        raise OSError("listing unavailable")
+
+    monkeypatch.setattr(provider.client.source, "read_listing", fail)
+    with pytest.raises(OSError, match="listing unavailable"):
+        provider.candidate_runs(requirement)
+    assert len(attempted) == 1
+
+
+def test_model_dispatch_exposes_library_identity_without_inventing_one():
+    from autonavlog.weather.forecast_provider import ForecastWeatherProvider
+
+    msm = SimpleNamespace(package_version="0.6.0")
+    provider = ForecastWeatherProvider({"MSM": msm, "GSM": SimpleNamespace()})
+    assert provider.package_version == "0.6.0"
+    msm.package_version = "next-version"
+    assert provider.package_version == "next-version"
+    assert ForecastWeatherProvider({"MSM": SimpleNamespace()}).package_version is None

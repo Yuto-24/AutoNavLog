@@ -10,6 +10,19 @@ from .enums import Availability, WeatherRequestKind
 
 ForecastModel = Literal["MSM", "GSM"]
 
+# Public library coverage exclusions. REQUIRES_HGT and processing reasons are not exclusions.
+FORECAST_COVERAGE_REASONS = frozenset({
+    "UNSUPPORTED_VARIABLE", "OUTSIDE_DOMAIN", "PRESSURE_LEVEL_UNSUPPORTED",
+    "NO_SPEC_COMPATIBLE_RUN", "ALTITUDE_OUTSIDE_HGT_RANGE",
+})
+
+
+def coverage_exclusion_reasons(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple)) and bool(value)
+        and all(isinstance(code, str) and code in FORECAST_COVERAGE_REASONS for code in value)
+    )
+
 
 class ForecastCoverageError(Exception):
     """Affirmative model/Run exclusion; never an acquisition failure."""

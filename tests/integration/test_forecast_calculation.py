@@ -194,3 +194,32 @@ def test_facade_both_models_excluded_preserves_last_good():
         assert local.session.forecast_update_fingerprint is None
     finally:
         local.close()
+
+
+@pytest.mark.parametrize("unavailable", [False, True])
+def test_final_selection_failure_does_not_invent_run_coverage_error(
+    airports, performance_repository, project, monkeypatch, unavailable,
+):
+    import autonavlog.application.calculation_service as module
+    from autonavlog.application.forecast_selection import ForecastUnavailable
+
+    original = module.select_forecast
+    calls = 0
+
+    def selection(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            if unavailable:
+                raise ForecastUnavailable(("NO_SPEC_COMPATIBLE_RUN",))
+            raise RuntimeError("final decode failure")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(module, "select_forecast", selection)
+    result = CalculationService(airports, performance_repository).calculate(
+        project, ForecastWeatherProvider({"MSM": Candidates("MSM"), "GSM": Candidates("GSM")})
+    )
+    assert calls == 2
+    assert [issue.code for issue in result.blockers] == [
+        "FORECAST_UNAVAILABLE" if unavailable else "FORECAST_PREPARE_FAILED",
+    ]
