@@ -114,3 +114,26 @@ through Map confirmation to the existing FTD calculation golden. Focused browser
 coverage includes replacement/cancellation, denied Clipboard, reload and region order
 at 1100/1440 px. The CI Local suite selects the import and re-edit scenarios;
 application tests validate parser adaptation and session recovery.
+
+## KML/KMZ の経路候補と連結規則
+
+KML/KMZ の取込では、`Point`、`LineString`、`Polygon` の各 Placemark を読み取ります。KMZ 内に複数の KML がある場合は、使用する KML の選択が必要です。候補の選択後も MAP 上で経路と順序を確認し、経路を確定してください。
+
+### 複数 LineString の連結
+
+- **同じ最も内側の `Folder` または `Document`** に属する複数の `LineString` を対象にします。異なるコンテナの線は連結しません。
+- KML に記載された順序と線の向きをそのまま使います。順番の並べ替えや線の自動反転はしません。
+- 隣接する各線の終点と次の線の始点が **0.02 NM 以内**なら連結できます。一組でも超えた場合は、そのコンテナの線を連結せず、個別の候補として残して警告します。
+- 連結点では、同じコンテナ内にある `Point` Placemark のうち、前の線の終点と次の線の始点の**双方から 0.02 NM 以内**のものを名称・座標に採用します。複数ある場合は距離と記載順をもとに選びます。
+- 該当する `Point` がなければ、前の線の終点を使います。両端点のずれが **10 m を超える**場合は警告します。
+- 線の途中に置かれた C'K などの `Point` は、連結点の条件を満たさない限り自動では経路点にしません。連結後の先頭・末尾には、同じコンテナ内で端点から 0.02 NM 以内にある `Point` の名称を使う場合があります。
+
+### 候補の選択と上限
+
+- 複数の経路候補があれば、利用者が候補を選びます。先頭候補を無条件には採用しません。
+- `LineString` 候補がある場合は、全 `Point` を並べた Point-only 候補を追加しません。`LineString` がない Point-only KML は Point 候補として扱います。
+- 連結候補には、採用元のコンテナと構成 `LineString` の情報を記録します。
+- 選択した経路は、簡略化前の座標で **500 点まで**です。プレビュー用の線の簡略化でこの制限を回避しません。
+- KML の読み取り・候補選択が成功しても、出発地・目的地が判定できない経路は MAP で確認・修正するまで確定できません。
+
+正本となるパーサー実装は `src/autonavlog/importers/kml.py`、取込候補から MAP draft への変換は `web/src/importRouteDraft.ts` です。この節は既存挙動の説明であり、取込アルゴリズムや制限値を変更しません。
