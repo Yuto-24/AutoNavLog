@@ -9,7 +9,7 @@ test("NavMate display name leaves compatibility identities intact", () => {
     ["../src/components/Header.tsx", '<div className="brand-name">NavMate</div>'],
     ["../src/components/InformationDialog.tsx", "NavMateのお知らせ"],
     ["../src/App.tsx", "NavMateを起動しています"],
-    ["../src/App.tsx", '<div className="loading-mark">N</div>'],
+    ["../src/App.tsx", '<img className="loading-mark" src="/navmate-192.png" width={52} height={52} alt="" />'],
     ["../static/404.html", "NavMateを再読み込み"],
     ["../src/localProjectRepository.ts", '"autonavlog.projects"'],
     ["../src/applicationSession.ts", '"autonavlog.working-session.v1"'],
