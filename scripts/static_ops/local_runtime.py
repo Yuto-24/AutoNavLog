@@ -273,8 +273,12 @@ class Updater:
         self.env["PATH"] = str(job / "venv/bin") + os.pathsep + self.env["PATH"]
         self.env["AUTONAVLOG_REFERENCE_PYTHON"] = python
         self.env["AUTONAVLOG_MSM_FEED"] = str(feed)
+        wheels = list((app / "vendor").glob("jma_gpv_weather-*.whl"))
+        if len(wheels) != 1 or not wheels[0].is_file():
+            raise ValueError("Candidate must contain exactly one weather wheel")
+        # Resolve the candidate's exact pyproject pin, independent of updater tooling.
         self.run([python, "-m", "pip", "install", "setuptools>=69", "wheel",
-                  "vendor/jma_gpv_weather-0.6.0-py3-none-any.whl", ".[test]"], app)
+                  str(wheels[0].relative_to(app)), ".[msm,test]"], app)
         self.run(["npm", "--prefix", "web", "ci"], app)
         if current:
             shutil.copytree(current / "weather/msm", feed)

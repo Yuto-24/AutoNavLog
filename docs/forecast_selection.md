@@ -38,6 +38,15 @@ carry model identity as well. Migration uses the existing Local/Legacy validatio
 and transaction boundaries; it must not replace a historical calculation or
 delete an invalid record.
 
+Installer version boundaries follow the separate tooling/app checkout contract.
+Tooling and the current application use the vendored 0.6.0 wheel. A build of an
+already approved application uses that application's single vendored weather wheel
+and resolves it together with its own exact `pyproject.toml` pin. Do not impose
+the newer tooling pin on an older approved app during a forecast-only rebuild.
+Missing or multiple candidate wheels stop the build; pip rejects pin mismatches.
+`test_candidate_weather_dependency.py` exercises 0.5/0.6 candidate selection and
+missing/ambiguous delivery across the Static and Local build paths.
+
 ## Upstream boundary
 
 Legacy and Local share selection, two-click refresh, final-requirement restart,

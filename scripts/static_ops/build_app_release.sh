@@ -2,7 +2,12 @@
 # Trusted container command, sent on stdin; candidate receives no provider credentials.
 set -eu
 git config --global --add safe.directory /app
-python -m pip install 'setuptools>=69' wheel vendor/jma_gpv_weather-0.6.0-py3-none-any.whl '.[test]'
+# Install the candidate's wheel, not the newer tooling's dependency version.
+# pip resolves the candidate's exact pyproject pin together with this wheel.
+set -- vendor/jma_gpv_weather-*.whl
+test "$#" -eq 1
+test -f "$1"
+python -m pip install 'setuptools>=69' wheel "$1" '.[msm,test]'
 npm --prefix web ci
 npm --prefix web exec -- playwright install --with-deps chromium
 python scripts/validate_release.py
