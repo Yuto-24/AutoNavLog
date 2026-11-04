@@ -76,7 +76,9 @@ Static Web の build、artifact 検証、Browser E2E、公開手順は [Static p
 
 ## Legacy 版（Docker / FastAPI）
 
-従来の FastAPI / Docker Compose 版は、移行・検証用の Legacy 環境として残っています。**現行本番の利用開始に Docker は必要ありません。** Legacy 版の Project 保存、Cloudflare Access identity、Server storage、Docker volume と接続・更新方法は Static Web とは別の仕様です。
+従来の FastAPI / Docker Compose 版は、移行・検証用の Legacy 環境として残っています。FastAPI / Dockerは本番配信に不要です。Legacy 版の Project 保存、Cloudflare Access identity、Server storage、Docker volume と接続・更新方法は Static Web とは別の仕様です。
+
+Legacy serverのサポート対象runtimeは Docker / Docker Compose です。host上での直接実行はサポート対象ではありません。
 
 - [Local Docker 起動](docs/local_static_docker.md)
 - [Cloudflare Tunnel による旧環境の公開](docs/cloudflare_tunnel.md)
