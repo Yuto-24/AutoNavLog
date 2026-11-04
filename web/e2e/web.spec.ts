@@ -4544,6 +4544,10 @@ for (const width of [1100, 1440]) {
     await expect(page.getByLabel("使用Forecast")).toHaveText("FTD固定気象");
     await page.getByLabel("気象モード").selectOption("FORECAST");
     await expect(page.getByLabel("使用Forecast")).toHaveText("FTD固定気象");
+    await page.getByLabel("気象モード").selectOption("FTD");
+    const recalculate = page.getByRole("button", { name: "NAV LOGを再計算", exact: true });
+    await recalculate.click();
+    await expect(recalculate).toBeEnabled();
     await expect(page.getByRole("note", { name: "Forecast切替理由" })).toHaveCount(0);
     const state = await page.evaluate(async () => (await fetch("/api/state")).json()) as WebState;
     // The selection policy is tested through Python and Local weather acceptance.

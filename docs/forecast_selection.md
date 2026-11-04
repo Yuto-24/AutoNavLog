@@ -83,6 +83,23 @@ Run; suspension is not a processing exception or a second user click. No partial
 calculation is persisted. An earlier action's arrays are cleared before the next
 one; warm acquisition remains subject to the ordinary disposable browser cache.
 
+Local and the existing compute-only backup wrap each model with
+`CompleteForecastProvider`, keeping `ForecastWeatherProvider` visible at the
+application boundary. Wrapping the selector itself would bypass the model policy
+because selection checks its provider type. Missing listing URLs and absent
+source Runs map to `WEATHER_DISCOVERY_FAILED` / `WEATHER_RUN_UNAVAILABLE` for both
+models; they can use the existing backup path, but never justify a model change.
+Payload corruption and source-value processing failures retain their blocking
+classification. `test_local_forecast.py` covers both models' discovery failures
+and backup selection/adoption.
+
+Refresh intent uses the shared typed-planning and rounding fingerprint from #277.
+A completed Save preserves it; changed planning or rounding inputs invalidate it.
+The backup input identity also includes the fixed model and Run. Backup adoption
+accepts an unrequested model change only for the explicit MSM-to-GSM coverage
+fallback recorded in the result. NAV LOG source labels follow the retained result,
+including the FTD Run identifier, rather than the editable draft weather mode.
+
 The source catalog may advertise more Runs than the static publisher has built.
 Do not filter discovery to published assets: an unevaluated older Run can still
 satisfy the requirement. Missing delivery stops selection; publishing enough
