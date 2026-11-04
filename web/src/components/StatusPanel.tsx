@@ -17,6 +17,7 @@ interface StatusPanelProps {
   readiness: ReadinessState;
   projectExists: boolean;
   weatherMode: "FORECAST" | "FTD";
+  forecastRunId: string | null;
   canCalculate: boolean;
   outcomeExists: boolean;
   busy: boolean;
@@ -30,6 +31,7 @@ export function StatusPanel({
   readiness,
   projectExists,
   weatherMode,
+  forecastRunId,
   canCalculate,
   outcomeExists,
   busy,
@@ -44,12 +46,12 @@ export function StatusPanel({
   );
   const boundaryAxisLabel = (axis: BoundaryProvenance["axis"]) => {
     if (axis === "PRESSURE_ALTITUDE_FT") {
-      return "Pressure altitude boundary";
+      return "気圧高度（PA）の境界値";
     }
     if (axis === "ISA_DEVIATION_C") {
-      return "ISA deviation boundary";
+      return "ISA偏差の境界値";
     }
-    return "Boundary used at interpolation corner";
+    return "補間に使用した境界値";
   };
   const boundaryUnit = (axis: BoundaryProvenance["axis"]) => {
     if (axis === "PRESSURE_ALTITUDE_FT") {
@@ -71,38 +73,48 @@ export function StatusPanel({
 
       <dl className="provenance-list">
         <div>
-          <dt><Database aria-hidden="true" size={16} />参照</dt>
-          <dd>{runtime.referenceRevision}</dd>
-        </div>
-        <div>
-          <dt><Database aria-hidden="true" size={16} />性能</dt>
-          <dd>{runtime.performanceRevision ?? "未確定"}</dd>
-        </div>
-        <div>
           <dt><CloudSun aria-hidden="true" size={16} />気象</dt>
-          <dd>{weatherMode === "FTD" ? "FTD固定気象（ISA）" : runtime.weatherLabel}</dd>
+          <dd>{weatherMode === "FTD" ? "FTD固定気象" : runtime.weatherLabel}</dd>
         </div>
       </dl>
+      <details className="provenance-details">
+        <summary>詳細</summary>
+        <dl className="provenance-list">
+          <div>
+            <dt><Database aria-hidden="true" size={16} />参照</dt>
+            <dd>{runtime.referenceRevision}</dd>
+          </div>
+          <div>
+            <dt><Database aria-hidden="true" size={16} />性能</dt>
+            <dd>{runtime.performanceRevision ?? "未確定"}</dd>
+          </div>
+          {forecastRunId === "ftd-fixed-v1" && (
+            <div>
+              <dt>予報実行ID</dt>
+              <dd>{forecastRunId}</dd>
+            </div>
+          )}
+        </dl>
+      </details>
 
       {runtime.developmentWeather && weatherMode !== "FTD" && (
         <div className="demo-weather-warning">
           <AlertTriangle aria-hidden="true" size={18} />
           <p>
             <strong>開発用気象モード</strong>
-            固定気象で画面と計算を試せます。
           </p>
         </div>
       )}
 
 
       <div className="issue-summary">
-        <span>ブロッカー {blockers.length}</span>
+        <span>要対応 {blockers.length}</span>
         <span>確認事項 {warnings.length}</span>
       </div>
 
       <div className="issue-list">
         {readiness.issues.length === 0 && projectExists && (
-          <p className="no-issues">現在表示すべきブロッカー・確認事項はありません。</p>
+          <p className="no-issues">対応が必要な項目や確認事項はありません。</p>
         )}
         {readiness.issues.map((issue) => (
           (() => {
@@ -138,32 +150,32 @@ export function StatusPanel({
                       )}
                       {issue.calculationCondition && (
                         <dl>
-                          <div><dt>Calculation condition</dt><dd>{formatCondition(issue.calculationCondition)}</dd></div>
+                          <div><dt>計算条件</dt><dd>{formatCondition(issue.calculationCondition)}</dd></div>
                         </dl>
                       )}
                       {issue.selectedCondition && (
                         <dl>
-                          <div><dt>Selected table condition</dt><dd>{formatCondition(issue.selectedCondition)}</dd></div>
+                          <div><dt>採用した表の条件</dt><dd>{formatCondition(issue.selectedCondition)}</dd></div>
                         </dl>
                       )}
                       {axisBoundaries.map((boundary) => (
                         <dl key={boundary.axis}>
                           <div><dt>{boundaryAxisLabel(boundary.axis)}</dt><dd>{boundary.requestedValue}{boundaryUnit(boundary.axis)} → {boundary.adoptedValue}{boundaryUnit(boundary.axis)}</dd></div>
-                          <div><dt>Available</dt><dd>{boundary.availableMin}–{boundary.availableMax}{boundaryUnit(boundary.axis)}</dd></div>
+                          <div><dt>収録範囲</dt><dd>{boundary.availableMin}–{boundary.availableMax}{boundaryUnit(boundary.axis)}</dd></div>
                         </dl>
                       ))}
                       {powerBoundaries.map((corner) => (
                         <dl key={`${corner.pressureAltitudeFt}-${corner.isaDeviationC}`}>
                           <div><dt>{boundaryAxisLabel(corner.axis)}</dt><dd>PA {corner.pressureAltitudeFt?.toLocaleString()} ft / ISA {corner.isaDeviationC}°C</dd></div>
-                          <div><dt>Requested</dt><dd>{corner.requestedValue}%</dd></div>
-                          <div><dt>Available</dt><dd>{corner.availableMin}–{corner.availableMax}%</dd></div>
+                          <div><dt>要求値</dt><dd>{corner.requestedValue}%</dd></div>
+                          <div><dt>収録範囲</dt><dd>{corner.availableMin}–{corner.availableMax}%</dd></div>
                           {corner.extrapolated && (
                             <>
-                              <div><dt>Supporting PWR</dt><dd>{corner.supportingLowerValue}–{corner.supportingUpperValue}%</dd></div>
-                              <div><dt>Method</dt><dd>Linear extrapolation (fraction {corner.supportingFraction})</dd></div>
+                              <div><dt>外挿根拠のPWR</dt><dd>{corner.supportingLowerValue}–{corner.supportingUpperValue}%</dd></div>
+                              <div><dt>計算方法</dt><dd>線形外挿 (比率: {corner.supportingFraction})</dd></div>
                             </>
                           )}
-                          <div><dt>Resolved</dt><dd>{corner.adoptedValue}%</dd></div>
+                          <div><dt>採用値</dt><dd>{corner.adoptedValue}%</dd></div>
                         </dl>
                       ))}
                     </div>
@@ -179,7 +191,7 @@ export function StatusPanel({
                         }
                         disabled={busy}
                       />
-                      <span>この確認事項を確認済みにする</span>
+                      <span>確認済みにする</span>
                     </label>
                   )}
                 </div>

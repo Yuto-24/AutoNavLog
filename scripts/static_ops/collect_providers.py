@@ -13,8 +13,10 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 try:
+    from . import cloudflare_inventory as cloudflare
     from . import probe_providers as api
 except ImportError:  # Direct script execution in the workflow checkout.
+    import cloudflare_inventory as cloudflare
     import probe_providers as api
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -244,15 +246,16 @@ def github_cache(client, repository, now):
     }
 
 
-def collect(env, now, client=None):
+def collect_fragments(env, now, client=None):
+    """Return native fragments in memory for the collection gate, never for export."""
     client = client or api.Client(env)
     fragments = {}
     checks = []
 
-    def run(name, action):
+    def run(name, action, success="fragment_collected_not_complete_report"):
         try:
             fragments[name] = action()
-            status = "fragment_collected_not_complete_report"
+            status = success
         except api.ProbeError as error:
             status = str(error)
         except (KeyError, TypeError, ValueError, AttributeError, IndexError):
@@ -283,6 +286,24 @@ def collect(env, now, client=None):
         return github_cache(client, repository, now)
 
     run("github_cache_usage_and_configuration", cache)
+    # Inventory is private supporting material, never a plan or quota metric.
+    # Reuse the same request/time budget; no pagination can retry without bound.
+    for name, action in (
+        ("cloudflare_subscriptions_inventory", cloudflare.subscriptions_inventory),
+        ("cloudflare_pages_inventory", cloudflare.pages_inventory),
+    ):
+        run(
+            name,
+            lambda action=action: action(
+                client, api.identifier(env, "CLOUDFLARE_ACCOUNT_ID", r"[a-f0-9]{32}")
+            ),
+            success="inventory_validated_not_evidence",
+        )
+    return fragments, checks
+
+
+def collect(env, now, client=None):
+    _, checks = collect_fragments(env, now, client)
     return {
         "status": "BLOCKED",
         "kind": "native_collection_incomplete",

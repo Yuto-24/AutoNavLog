@@ -16,7 +16,7 @@ interface SyncMetadata {
 }
 type Row = LocalProjectRecord & { sync?: SyncMetadata };
 const conflict = () => new ApplicationError("他の端末の変更と競合しています。内容を選択してください。", "PROJECT_REVISION_CONFLICT");
-const unavailable = () => new ApplicationError("このProjectは利用できません。", "LOCAL_PROJECT_UNAVAILABLE");
+const unavailable = () => new ApplicationError("このプロジェクトは利用できません。", "LOCAL_PROJECT_UNAVAILABLE");
 const signature = (rows: Row[]) => JSON.stringify(rows.map(row => [
   row.id, row.token, row.sync?.baseVersion, row.sync?.value?.version,
   row.sync?.conflict?.version, row.sync?.dirty, row.sync?.group, row.sync?.sent?.value.version,

@@ -17,8 +17,8 @@ export class LocalClient {
         this.worker.terminate();
         reject(error);
       };
-      this.worker.addEventListener("error", (event) => this.fail(new Error(event.message || "Local Worker failed")));
-      this.worker.addEventListener("messageerror", () => this.fail(new Error("Local Worker message failed")));
+      this.worker.addEventListener("error", (event) => this.fail(new Error(event.message || "端末内の処理に失敗しました。ページを再読み込みしてください。")));
+      this.worker.addEventListener("messageerror", () => this.fail(new Error("端末内計算処理との通信に失敗しました。ページを再読み込みしてください。")));
     });
     void this.failed.catch(() => undefined);
   }
@@ -32,7 +32,7 @@ export class LocalClient {
         this.failed,
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
-            const error = new Error("Local処理がタイムアウトしました。画面を再読み込みしてください。");
+            const error = new Error("端末内の処理がタイムアウトしました。画面を再読み込みしてください。");
             this.fail(error);
             reject(error);
           }, 10 * 60_000);

@@ -10,6 +10,7 @@ import os
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import NoReturn
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zoneinfo import ZoneInfo
@@ -20,7 +21,8 @@ class NoRedirect(HTTPRedirectHandler):
         raise ValueError("Static origin redirected")
 
 
-def fetch(url: str, limit: int = 25 * 1024 * 1024) -> bytes:
+def static_request(url: str) -> Request:
+    """Identify authorized static operations honestly, without credentials or cache busting."""
     parsed = urlsplit(url)
     if (
         parsed.scheme != "https"
@@ -30,13 +32,14 @@ def fetch(url: str, limit: int = 25 * 1024 * 1024) -> bytes:
         or parsed.fragment
     ):
         raise ValueError("Expected credential-free HTTPS URL")
-    with build_opener(NoRedirect).open(
-        Request(
-            url,
-            headers={"Cache-Control": "no-cache", "User-Agent": "AutoNavLog-StaticOperations/1.0"},
-        ),
-        timeout=60,
-    ) as response:
+    return Request(
+        url,
+        headers={"Cache-Control": "no-cache", "User-Agent": "AutoNavLog-StaticOperations/1.0"},
+    )
+
+
+def fetch(url: str, limit: int = 25 * 1024 * 1024) -> bytes:
+    with build_opener(NoRedirect).open(static_request(url), timeout=60) as response:
         data = response.read(limit + 1)
     if len(data) > limit:
         raise ValueError("Response exceeds byte budget")
@@ -308,14 +311,56 @@ def restore(origin: str, target: Path, now: datetime) -> dict:
     return {"retained_assets": len(retained)}
 
 
-def monitor(origin: str, now: datetime) -> dict:
-    catalog = json.loads(fetch(origin.rstrip("/") + "/weather/msm/catalog.json", 8 * 1024 * 1024))
-    remaining = (instant(catalog["expires_at"]) - now).total_seconds()
-    if not catalog["assets"] or remaining < 7200:
-        raise ValueError("MSM freshness warning: less than two hours remain (or expired)")
-    if instant(catalog["generated_at"]) > now:
-        raise ValueError("MSM catalog generated in future")
-    return {"status": "OK", "weather_seconds_remaining": remaining}
+def monitor(origin: str, now: datetime, *, expected: dict | None = None) -> dict:
+    raw = fetch(origin.rstrip("/") + "/weather/msm/catalog.json", 8 * 1024 * 1024)
+    received = datetime.now(UTC)
+    evidence = {
+        "catalog_received_at": received.isoformat(),
+        "catalog_checked_at": now.isoformat(),
+        "catalog_sha256": hashlib.sha256(raw).hexdigest(),
+        "catalog_bytes": len(raw),
+    }
+    if expected is not None:
+        evidence.update(
+            candidate_catalog_sha256=expected["sha256"],
+            candidate_catalog_bytes=expected["bytes"],
+            catalog_matches_candidate=(
+                evidence["catalog_sha256"] == expected["sha256"]
+                and evidence["catalog_bytes"] == expected["bytes"]
+            ),
+        )
+        # Publication checks freshness at receipt, including time spent reading the body.
+        now = received
+        evidence["catalog_checked_at"] = now.isoformat()
+
+    def fail(reason: str) -> NoReturn:
+        raise ValueError(f"{reason}: {json.dumps(evidence, sort_keys=True)}")
+
+    try:
+        catalog = json.loads(raw)
+        evidence.update(
+            catalog_generated_at=catalog.get("generated_at"),
+            catalog_expires_at=catalog.get("expires_at"),
+        )
+        remaining = (instant(catalog["expires_at"]) - now).total_seconds()
+        evidence["weather_seconds_remaining"] = remaining
+    except (ValueError, KeyError, TypeError, AttributeError):
+        fail("Invalid MSM catalog")
+    if expected is not None and not evidence["catalog_matches_candidate"]:
+        fail("Canonical MSM catalog does not match uploaded artifact inventory")
+    try:
+        assets = catalog["assets"]
+    except (KeyError, TypeError):
+        fail("Invalid MSM catalog assets")
+    if not assets or remaining < 7200:
+        fail("MSM freshness warning: less than two hours remain (or expired)")
+    try:
+        generated = instant(catalog["generated_at"])
+    except (ValueError, KeyError, TypeError, AttributeError):
+        fail("Invalid MSM catalog generation timestamp")
+    if generated > now:
+        fail("MSM catalog generated in future")
+    return {"status": "OK", **evidence}
 
 
 def main() -> None:

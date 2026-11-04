@@ -31,6 +31,8 @@ VITE_FIREBASE_APP_ID=your-web-app-id
 VITE_TAF_PROXY_URL=https://autonavlog-taf.utomatsu.workers.dev/taf
 # 移行期間は既存Legacy originを設定する。#186の移行契約を維持する。
 VITE_LEGACY_MIGRATION_URL=https://your-legacy-host
+# 別途公開承認・互換server検証後にのみ設定する（既定無効）
+# VITE_FORECAST_BACKUP_URL=https://your-legacy-host/api/forecast-backup/jobs/
 ```
 
 API keyはFirebase Web公開設定。service account / secret / tokenを`VITE_*`へ入れない。
@@ -44,7 +46,7 @@ Firebase authorized domains、Firestore Rulesとindex、TAF origin allowlistは�
 ```sh
 source .venv/bin/activate
 npm --prefix web ci
-python scripts/prepare_msm_feed.py --output /tmp/autonavlog-msm-feed --cache /tmp/autonavlog-msm-cache
+python scripts/prepare_msm_feed.py --output /tmp/autonavlog-msm-feed --cache /tmp/autonavlog-msm-cache --hours 25 --full-run
 AUTONAVLOG_MSM_FEED=/tmp/autonavlog-msm-feed npm --prefix web run build:static
 npm --prefix web run check:static
 npm --prefix web run test:static-artifact
@@ -69,13 +71,15 @@ release保管場所へ保存する。artifactはFirebaseの公開識別子を含
 
 `AUTONAVLOG_TEST_FIXTURES=1`はproductionでは拒否する。`build:local`はfixture試験 /
 開発用に残し、正式配布には使わない。`npm run build`は移行中のLegacy用。
-どのbuildもApplicationのLocal失敗をLegacyへ自動fallbackしない。
+Localの気象配信障害だけは、設定済みの計算専用予備APIへ切り替える。
+一般のLocal失敗やstorage障害を旧画面・編集・保存APIへ転送しない。
 
 ## MSM feedの手動更新
 
 [既存MSM producer / 運用契約](local_weather.md)をそのまま使う。
 3時間ごとの生成を目安とし、同じproducer output directory / cacheを継続利用して
-7日以内の旧Run assetを保持する。catalog lifetimeは6時間。
+旧Run assetは、生成後30分以内の公開前検証でも7日以内となるものをcatalogに保持する。
+未参照NPZの削除は従来どおりファイル時刻の7日基準とし、catalog lifetimeは6時間。
 producerにProjectを送らず、static catalog / NPZだけを公開する。
 Pagesは全artifact単位の配置なので、**現在配信中の承認済みsource commitと設定**から
 新feedを同梱してbuild・checkし、全体を手動uploadする。app更新とfeed更新を
@@ -86,7 +90,8 @@ Pagesは全artifact単位の配置なので、**現在配信中の承認済みso
 Pagesはatomicなdeploymentでcatalogとpayloadを一緒に切り替える。
 他hostでin-place更新する場合はpayloadを先に置き、catalogを最後に置換する。
 credentials不要、redirectなしの同一origin `/weather/msm/`を維持する。
-feedが失効・停止しても旧予報を成功扱いせず、FORECASTだけを明示的に停止する。
+feedが失効・停止した場合、設定済みの[計算専用予備サーバー](forecast_backup.md)を試す。
+期限切れfeedを成功扱いせず、予備計算も失敗した場合はFORECASTの失敗を表示する。
 保存済みProject / Last Calculationは保持し、FTDは利用できる。
 fresh feedが用意できないときは通常リリースgateを止める。
 
@@ -161,6 +166,20 @@ deploy dry-runとし、remote deploymentは発生させない。
 [Git integrationの手動upload](https://developers.cloudflare.com/pages/configuration/git-integration/)を参照。
 Dashboard drag-and-dropのfile上限はWranglerと異なるため、この手順ではWranglerを使う。
 
+## WSL から繰り返すアプリ更新
+
+明示 SHA の `prepare`（読み取りと隔離 build/test）と、別途公開承認後の `publish` は
+[Static operations の具体例](static_operations.md#wsl-からのアプリ更新-prepare--publish) を使う。
+薄い `scripts/static_ops/app_release.sh` が既存 Python gate を再利用する。
+同じRulesの通常更新はSHA/store/plan確認だけで、公開ツール編集や移行記録は不要。
+Rules差分がある場合だけ、[候補別の互換性検証記録](static_operations.md#rulesが異なる更新だけに必要な検証記録)
+をprepare/publishの `--rules-transition` で指定する。indexes差分は許可しない。
+schema差分は通常/自動更新で拒否し、[一方通行の手動schema移行](schema_transition.md)だけを
+対象・証拠固定の `--schema-transition` で扱う。
+Firebase / TAF / Legacy migration URL は現行設定を維持し、prepare の成果物をそのまま
+公開せず、定期運用停止・idle 確認後に fresh な成果物を生成する。
+失敗時は変更済み状態を報告して停止し、無条件な再開・自動 rollback を行わない。
+
 ## Rollback
 
 承認済みのrollbackはPages dashboardの対象project → Deploymentsで、記録済みの
@@ -173,7 +192,8 @@ Last Calculationを確認する。IndexedDBを削除しない。app rollbackは�
 Firestore Rules / TAF Workerを巻き戻さない。将来schemaを変更した版は、
 旧appが新schemaを読めることを先に検証し、互換性がなければforward fixを選ぶ。
 
-旧artifactに含まれるMSM catalogが失効していたらFORECASTはfail closedする。
+旧artifactのMSM catalogが失効していたら、その版に実装・設定された予備経路だけを利用できる。
+予備経路がない版や両経路が失敗する場合はFORECASTを停止する。
 復旧後、旧版のsource / 設定とfresh feedでbuild・check・再配置する。
 過去のNAV LOG閲覧とFTDまでをrollback初期確認に含め、期限切れMSMを成功扱いしない。
 Pages上の切替操作と実originのcache / auth確認は公開承認後のgate。

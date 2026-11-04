@@ -1,3 +1,4 @@
+import { confirmImportedDraft } from "./helpers/importWorkflow";
 import { observeLegacySession } from "./helpers/legacySession";
 import { expect, test, type Page } from "@playwright/test";
 
@@ -96,13 +97,13 @@ test("real RJFO inbound KML keeps physical route and places EOC at UMK", async (
   test.setTimeout(120_000);
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成" })).toBeVisible();
 
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(inboundKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await confirmImportedDraft(page);
   await expect(page.getByLabel("FROM")).toHaveValue(/^RJFO\b/);
   await expect(page.getByLabel("TO")).toHaveValue(/^RJFM\b/);
 
@@ -111,10 +112,8 @@ test("real RJFO inbound KML keeps physical route and places EOC at UMK", async (
   await page.getByLabel("地上風速 kt").fill("15");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
 
-  const routeRows = page.locator(".route-table tbody tr");
+  const routeRows = page.locator(".route-table tbody .route-point-row");
   await expect(routeRows).toHaveCount(5);
   const confirmed = await readState(page);
   if (!confirmed.project) throw new Error("confirmed project is missing");

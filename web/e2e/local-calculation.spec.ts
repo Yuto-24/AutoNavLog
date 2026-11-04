@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft, importedMapNames } from "./helpers/importWorkflow";
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -24,6 +24,7 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const root = window as any;
     root.localStates = [];
+    root.localCalculationCount = 0;
     const Original = window.Worker;
     root.Worker = class extends Original {
       constructor(url: string | URL, options?: WorkerOptions) {
@@ -36,6 +37,7 @@ test.beforeEach(async ({ page }) => {
         });
       }
       postMessage(message: any, options?: any) {
+        if (message.type === "APPLY" && message.argumentList?.[0]?.value === "calculate") root.localCalculationCount += 1;
         if (root.failLocalCalculation && message.type === "APPLY" &&
             message.argumentList?.[0]?.value === "calculate") {
           // Inject a Python validation exception through the real Comlink/Python path.
@@ -48,7 +50,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-for (const width of [1100, 1440]) {
+for (const width of [390, 1100, 1440]) {
   test(`static FTD Golden, no API fallback, ${width}px`, async ({ page }) => {
     const apiRequests: string[] = [];
     const errors: string[] = [];
@@ -61,32 +63,41 @@ for (const width of [1100, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/");
   await enterImportWorkflow(page);
-    await expect(page).toHaveTitle(/AutoNavLog/);
-    await expect(page.locator(".brand-subtitle").filter({ hasText: " / Local" })).toBeVisible();
+    await expect(page).toHaveTitle(/NavMate/);
+    await expect(page.locator(".brand-subtitle")).not.toContainText(" / Local");
+    await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+    await confirmImportedDraft(page);
+    await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
     await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
     await page.getByLabel("気象モード").selectOption("FTD");
     await page.getByLabel("地上風向 ° FROM").fill("360");
     await page.getByLabel("地上風速 kt").fill("15");
     await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
     await page.getByLabel("5,000 ft風速 kt").fill("30");
-    await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-    await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-    await page.getByLabel("地図とKML記載順を確認しました").check();
-    await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-    for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+    await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
+    for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
       const input = page.getByLabel(`${name}出発Legの計画高度`, { exact: true });
       await input.fill(altitude!);
       await input.blur();
     }
     await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
     await expect(page.locator(".nav-log-table")).toBeVisible();
+    const scrollFrame = page.locator(".nav-log-scroll");
+    for (const edge of ["top", "right", "bottom", "left"]) {
+      await expect(scrollFrame).toHaveCSS(`border-${edge}-width`, "0px");
+    }
+    await expect(scrollFrame).toHaveCSS("border-radius", "0px");
+    // Removing the scroll container's decorative frame must retain the table grid.
+    await expect(page.locator(".nav-log-table")).toHaveCSS("border-top-width", "2px");
+    await expect(page.locator(".nav-log-table thead th").first()).toHaveCSS("border-bottom-width", "2px");
+    await expect(page.locator(".nav-log-table tbody td").first()).toHaveCSS("border-right-width", "1px");
     const state = await page.evaluate(() => (window as any).localStates.at(-1));
-    compare(localGolden(state), reference);
+    compare(localGolden(state), importedMapNames(reference));
     const native = JSON.parse(execFileSync(
       process.env.AUTONAVLOG_REFERENCE_PYTHON ?? resolve("../.venv/bin/python"),
       [resolve("../scripts/local_reference.py")], { encoding: "utf8" },
     ));
-    compare(calculationCoreGolden(state), calculationCoreGolden(native));
+    compare(calculationCoreGolden(state), importedMapNames(calculationCoreGolden(native)));
     expect(state.readiness.calculationIsCurrent).toBe(true);
     const vorSelect = page.getByLabel("VOR基準局", { exact: true });
     await expect(vorSelect.locator("option:checked")).toHaveText("自動 MZE");
@@ -122,11 +133,125 @@ for (const width of [1100, 1440]) {
     await expect(page.locator("vite-error-overlay")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
     await page.screenshot({ path: `/tmp/issue117-local-${width}.png`, fullPage: true });
+    const mode = page.getByRole("radio", { name: "四捨五入", exact: true });
+    const normal = page.getByRole("radio", { name: "通常", exact: true });
+    await expect(normal).toBeChecked();
+    await expect(mode).not.toBeChecked();
+    const beforeToggleCount = await page.evaluate(() => (window as any).localCalculationCount);
+    await mode.evaluate((input: HTMLInputElement) => { input.click(); input.click(); });
+    await expect(mode).toBeDisabled();
+    await expect(mode).toBeChecked();
+    await expect(mode).toBeEnabled();
+    const rounded = await page.evaluate(() => (window as any).localStates.at(-1));
+    expect(rounded.roundingMode).toBe(true);
+    expect(await page.evaluate(() => (window as any).localCalculationCount)).toBe(beforeToggleCount + 1);
+    expect(rounded.project.sections).toEqual(state.project.sections);
+    expect(rounded.outcome.sections.some((zone: any, index: number) =>
+      zone.ground_speed_kt.automatic_value !== state.outcome.sections[index].ground_speed_kt.automatic_value)).toBe(true);
+    for (const zone of rounded.outcome.sections) {
+      const wind = zone.wind_direction_deg_from;
+      const direction = wind.adopted_source === "MANUAL" ? wind.manual_override : wind.automatic_value;
+      expect(direction === null || direction % 10 === 0).toBe(true);
+    }
+    for (const row of rounded.outcome.display_rows) {
+      if (typeof row.toat.effective_value === "number" && row.toat.text !== null) {
+        expect(row.toat.text).toMatch(/^-?\d+$/);
+        expect(row.toat.text).not.toBe("-0");
+      }
+    }
+    if (width === 1440) {
+      const direction = page.locator('.nav-log-table input[aria-label$="手動風向"]').first();
+      const speed = page.locator('.nav-log-table input[aria-label$="手動風速"]').first();
+      const temperature = page.locator('.nav-log-table input[aria-label$="手動気温"]').first();
+      await direction.fill("5");
+      await speed.fill("21");
+      await temperature.fill("-1.5");
+      await temperature.blur();
+      await expect(mode).toBeEnabled();
+      await expect(direction).toHaveValue("010");
+      await expect(temperature).toHaveValue("-2");
+      await direction.focus();
+      await expect(direction).toHaveValue("5");
+      await direction.blur();
+      await temperature.focus();
+      await expect(temperature).toHaveValue("-1.5");
+      await temperature.blur();
+      const manual = await page.evaluate(() => (window as any).localStates.at(-1));
+      expect(manual.project.sections[0].manual_wind_direction_deg).toBe(5);
+      expect(manual.outcome.sections[0].wind_direction_deg_from.manual_override).toBe(10);
+      expect(manual.outcome.sections[0].temperature_c.manual_override).toBe(-1.5);
+      await direction.fill("");
+      await speed.fill("");
+      await temperature.fill("");
+      await temperature.blur();
+      await expect(mode).toBeEnabled();
+    }
+    for (const cell of await page.locator(".vor-reference-cell").allTextContents()) {
+      const distance = Number(cell.split(" / ")[1]);
+      if (Number.isFinite(distance)) expect(distance * 2).toBe(Math.round(distance * 2));
+    }
+    // Input -> route -> readiness -> NAV LOG placement is already asserted above.
+    // Read the total distance/time first, then the selected calculation mode.
+    const summaryBox = await page.locator(".nav-log-summary").boundingBox();
+    const modeBox = await mode.boundingBox();
+    expect(modeBox!.y).toBeGreaterThanOrEqual(summaryBox!.y + summaryBox!.height);
+    const tableBox = await page.locator(".nav-log-scroll").boundingBox();
+    expect(modeBox!.y + modeBox!.height).toBeLessThanOrEqual(tableBox!.y);
+    const controlBox = await page.locator(".nav-log-rounding-control").boundingBox();
+    const addColumnBox = await page.getByRole("button", { name: "VOR/DME列を追加", exact: true }).boundingBox();
+    const navLogBox = await page.locator(".nav-log-section").boundingBox();
+    expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(navLogBox!.x + navLogBox!.width);
+    if (width >= 1100) {
+      expect(Math.abs(controlBox!.y + controlBox!.height / 2 - addColumnBox!.y - addColumnBox!.height / 2)).toBeLessThan(1);
+      expect(controlBox!.x).toBeGreaterThanOrEqual(addColumnBox!.x + addColumnBox!.width);
+    } else {
+      expect(controlBox!.y).toBeGreaterThanOrEqual(addColumnBox!.y + addColumnBox!.height);
+    }
+    await page.getByRole("button", { name: "メッセージを閉じる" }).click();
+    await page.locator(".nav-log-section").screenshot({ path: `/tmp/issue234-on-${width}.png` });
+    await page.locator(".nav-log-rounding-control").screenshot({ path: `/tmp/issue234-control-${width}.png` });
+    const completedCount = await page.evaluate(() => (window as any).localCalculationCount);
+    await mode.click();
+    expect(await page.evaluate(() => (window as any).localCalculationCount)).toBe(completedCount);
+    await mode.focus();
+    await mode.press("ArrowLeft");
+    await expect(mode).not.toBeChecked();
+    await expect(normal).toBeChecked();
+    await expect(mode).toBeEnabled();
+    const offAgain = await page.evaluate(() => (window as any).localStates.at(-1));
+    compare(calculationCoreGolden(offAgain), calculationCoreGolden(state));
+    if (width === 1100) {
+      await mode.click();
+      await expect(mode).toBeChecked();
+      await expect(mode).toBeEnabled();
+      await page.getByRole("button", { name: "保存", exact: true }).click();
+      await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
+      await expect(mode).toBeChecked();
+      await page.getByLabel("保存済み", { exact: true }).selectOption(state.project.id);
+      await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
+      await expect(page.locator(".nav-log-table")).toHaveCount(0);
+      await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+      await expect(mode).not.toBeChecked();
+      await expect(normal).toBeChecked();
+      await expect(mode).toBeEnabled();
+      await mode.click();
+      await expect(mode).toBeChecked();
+      await expect(mode).toBeEnabled();
+      await page.reload();
+      await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+      await expect(page.locator(".nav-log-table")).toHaveCount(0);
+      await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+      await expect(mode).not.toBeChecked();
+      await expect(normal).toBeChecked();
+      await expect(mode).toBeEnabled();
+    }
     const previousTable = await page.locator(".nav-log-table").innerText();
     await page.evaluate(() => { (window as any).failLocalCalculation = true; });
-    await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+    await mode.click();
     await expect(page.getByRole("alert")).toContainText("入力内容を確認してください。");
     expect(await page.locator(".nav-log-table").innerText()).toBe(previousTable);
+    await expect(mode).not.toBeChecked();
+    await expect(normal).toBeChecked();
     await page.evaluate(() => { (window as any).failLocalCalculation = false; });
 
     // A real worker crash must reject calculation and preserve the displayed last-good result.
@@ -144,6 +269,7 @@ for (const width of [1100, 1440]) {
 for (const corrupt of [false, true]) {
   test(`local asset ${corrupt ? "hash mismatch" : "failure"} is visible without API fallback`, async ({ page }) => {
     const apiRequests: string[] = [];
+    let injected = false;
     page.context().on("request", request => {
       if (new URL(request.url()).pathname.startsWith("/api/")) apiRequests.push(request.url());
     });
@@ -152,14 +278,20 @@ for (const corrupt of [false, true]) {
         const response = await route.fetch();
         const bytes = await response.body();
         bytes[bytes.length - 1] ^= 1;
+        injected = true;
         await route.fulfill({ response, body: bytes });
       });
     } else {
-      await page.context().route("**/local/manifest.json", route => route.fulfill({ status: 503, body: "" }));
+      await page.context().route("**/local/manifest.json", route => {
+        injected = true;
+        return route.fulfill({ status: 503, body: "" });
+      });
     }
     await page.goto("/");
-  await enterImportWorkflow(page);
-    await expect(page.getByRole("alert")).toContainText("処理を実行できませんでした。画面を再読み込みしてください。");
+    // Asset failures can prevent the planning/import UI from starting; cold Pyodide
+    // initialization precedes the injected asset request.
+    await expect(page.getByRole("alert")).toContainText("処理を実行できませんでした。画面を再読み込みしてください。", { timeout: 90_000 });
+    expect(injected).toBe(true);
     expect(apiRequests).toEqual([]);
   });
 }
@@ -181,15 +313,16 @@ test("strong FTD wind preserves Python Warning and Blocker results", async ({ pa
   await page.context().route("**/api/**", route => route.abort());
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+  await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地上風向 ° FROM").fill("360");
   await page.getByLabel("地上風速 kt").fill("200");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("360");
   await page.getByLabel("5,000 ft風速 kt").fill("200");
-  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     const input = page.getByLabel(`${name}出発Legの計画高度`, { exact: true });
     await input.fill(altitude!);
     await input.blur();
@@ -197,7 +330,7 @@ test("strong FTD wind preserves Python Warning and Blocker results", async ({ pa
   await page.getByRole("button", { name: "NAV LOGを作る", exact: true }).click();
   await page.waitForFunction(() => (window as any).localStates.at(-1)?.outcome !== null);
   const state = await page.evaluate(() => (window as any).localStates.at(-1));
-  compare(calculationCoreGolden(state), expected);
+  compare(calculationCoreGolden(state), importedMapNames(expected));
   await expect(page.locator(".issue-blocker").first()).toBeVisible();
   expect(apiRequests).toEqual([]);
 });
@@ -225,20 +358,19 @@ test("actual MSM FORECAST reaches NAV LOG with Python provenance and no fallback
   await page.context().route("**/api/**", route => route.abort());
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-12");
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
   await page.getByLabel("気象モード").selectOption("FORECAST");
-  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     const input = page.getByLabel(`${name}出発Legの計画高度`, { exact: true });
     await input.fill(altitude!); await input.blur();
   }
   await page.getByRole("button", { name: "NAV LOGを作る", exact: true }).click();
   await expect(page.locator(".nav-log-table")).toBeVisible();
   const state = await page.evaluate(() => (window as any).localStates.at(-1));
-  compare(calculationCoreGolden(state), calculationCoreGolden(expected));
+  compare(calculationCoreGolden(state), importedMapNames(calculationCoreGolden(expected)));
   expect(state.runtime.weatherLabel).toBe(expected.runtime.weatherLabel);
   expect(state.outcome.selected_forecast_run_id).toBe("20260912030000");
   expect(state.readiness.calculationIsCurrent).toBe(true);
@@ -260,7 +392,7 @@ test("Pyodide core: saved Run, UMK, OMARU, inbound, overrides and Check Point", 
     "issue_117_ftd.json", "issue_43_golden.kml", "issue_125_umk.kml",
     "issue_125_omaru.kml", "issue_125_inbound.kml",
   ].map(name => [name, readFileSync(resolve(`../tests/fixtures/${name}`), "utf8")]));
-  await page.goto("/favicon.svg");
+  await page.goto("/favicon-32.png");
   const actual = await page.evaluate(async ({ source, files, cases }) => {
     const workerSource = String.raw`
       importScripts('https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js');
@@ -302,7 +434,7 @@ test("Pyodide core: saved Run, UMK, OMARU, inbound, overrides and Check Point", 
   expect(actual[0].outcome.selected_forecast_run_id).toBe("20260912000000");
   expect(actual[0].outcome.issues.some((issue: any) => issue.code === "FORECAST_UPDATE_AVAILABLE")).toBe(true);
   expect(actual[1].outcome.sections.some((zone: any) => zone.to_name === "UMK/RCA")).toBe(true);
-  expect(actual[2].outcome.sections.some((zone: any) => zone.to_name === "UMK/RCA（仮定）")).toBe(true);
+  expect(actual[2].outcome.sections.some((zone: any) => zone.to_name === "UMK/RCA")).toBe(true);
   expect(actual[3].outcome.rjfm_inbound_guidance).not.toBeNull();
   expect(actual[4].outcome.check_point_projections).toHaveLength(1);
 });

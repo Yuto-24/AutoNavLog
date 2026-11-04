@@ -28,6 +28,9 @@ export type LocalProjectRepositoryFactory = (
   cleanCalculation?: (record: LocalProjectRecord, copyId?: string) => Promise<LocalProjectRecord>,
 ) => LocalProjectRepository;
 export const LOCAL_DATABASE = "autonavlog.projects";
+// A one-way writer boundary, independent of the portable record's schemaVersion.
+// v1 clients open with an explicit version 1 and must stop after this upgrade.
+export const LOCAL_DATABASE_VERSION = 2;
 export const storageFailure = () => new ApplicationError(
   "端末への保存に失敗しました。空き容量やブラウザの保存設定を確認して再試行してください。", "LOCAL_STORAGE_FAILED");
 // Compare only transaction identity/version markers. Invalid structured-clone payloads
@@ -38,7 +41,7 @@ const rowVersions = (rows: unknown[]) => JSON.stringify(rows.map(raw => {
     typeof row.claimedAccount === "string" ? row.claimedAccount : null];
 }));
 const conflict = () => new ApplicationError(
-  "別のタブでProjectが更新または削除されています。編集内容を確認してから開き直してください。", "PROJECT_REVISION_CONFLICT");
+  "別のタブでプロジェクトが更新または削除されています。編集内容を確認してから開き直してください。", "PROJECT_REVISION_CONFLICT");
 const unavailable = (id: string) => new ApplicationError(
   "このProjectの保存データを読み込めません。元データは保持されています。", "LOCAL_PROJECT_UNAVAILABLE", { projectId: id });
 
@@ -52,9 +55,13 @@ export class IndexedDbProjectRepository implements LocalProjectRepository {
 
   private database(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      const request = this.factory().open(this.context?.account_id ? `${LOCAL_DATABASE}.${this.context.account_id}` : LOCAL_DATABASE, 1);
+      const request = this.factory().open(this.context?.account_id ? `${LOCAL_DATABASE}.${this.context.account_id}` : LOCAL_DATABASE, LOCAL_DATABASE_VERSION);
       let blocked = false;
-      request.onupgradeneeded = () => request.result.createObjectStore("projects", { keyPath: "id" });
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("projects")) {
+          request.result.createObjectStore("projects", { keyPath: "id" });
+        }
+      };
       request.onerror = () => reject(request.error);
       request.onblocked = () => { blocked = true; reject(storageFailure()); };
       request.onsuccess = () => {

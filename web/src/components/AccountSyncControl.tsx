@@ -45,8 +45,8 @@ export function AccountSyncControl({ sync, onChange, onResolved, onBeforeResolve
       onCancel={event => event.preventDefault()}>
       {conflict ? <>
         <h2 id="sync-title">他の端末の変更と競合しています</h2>
-        <p>「{conflict.name}」を続ける内容を選んでください。この端末の編集内容は保存されています。</p>
-        <p>「両方残す」は同期先のProjectを維持し、この端末の内容を別Projectとして保存します。</p>
+        <p>「{conflict.name}」で再開するデータを選んでください。この端末での編集内容は保存されています。</p>
+        <p>「両方残す」は同期先のプロジェクトを維持し、この端末の内容を別プロジェクトとして保存します。</p>
         <div className="modal-actions">
           <button type="button" disabled={pending} onClick={() => resolve("local")}>この端末の内容を採用</button>
           <button type="button" disabled={pending} onClick={() => resolve("remote")}>同期先の内容を採用</button>
@@ -54,8 +54,8 @@ export function AccountSyncControl({ sync, onChange, onResolved, onBeforeResolve
         </div>
       </> : imported ? <>
         <h2 id="sync-title">端末内の作業に名前を付けて保存しますか？</h2>
-        <p>アカウントのLatestを引き継ぎます。未ログイン中のLatestは、名前を付けて保存しない場合は破棄されます。</p>
-        <label>Project名<input maxLength={60} value={name} onChange={event => setName(event.target.value)} autoFocus /></label>
+        <p>アカウントの自動保存を引き継ぎます。未ログイン時の自動保存は、名前を付けて保存しない場合は破棄されます。</p>
+        <label>プロジェクト名<input maxLength={60} value={name} onChange={event => setName(event.target.value)} autoFocus /></label>
         <div className="modal-actions">
           <button type="button" disabled={pending || !name.trim()} onClick={() => sync && void act(async () => { if (onBeforeResolve && !onBeforeResolve()) return; await sync.importLatest(imported.id, name); await onResolved(imported.id); })}>名前を付けて保存</button>
           <button type="button" disabled={pending} onClick={() => sync && void act(async () => { if (onBeforeResolve && !onBeforeResolve()) return; await sync.importLatest(imported.id, null); await onResolved(imported.id); })}>破棄</button>

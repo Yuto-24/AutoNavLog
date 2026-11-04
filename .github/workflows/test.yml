@@ -2,7 +2,7 @@ name: test
 
 on:
   push:
-    branches: [main]
+    branches: [main, release/1.x]
   pull_request:
     types: [opened, synchronize, reopened, edited]
 
@@ -11,28 +11,83 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  static-tooling-install:
+    needs: release-sources
+    # Missing/failed classification runs the full checks; only proven docs-only changes skip.
+    if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          # Regression fixture: the production app can be older than the tooling.
+          ref: a4de2a226dfa205b8be42fb62a710a1b06271ed8
+          path: app
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install workflow dependencies from the tooling checkout and import the producer
+        run: python tooling/tests/integration/check_static_tooling_install.py
+      - name: Build credential-free artifact handoff test image
+        run: docker build -f tooling/scripts/static_ops/Dockerfile.build --tag autonavlog-static-build tooling
+      - name: Verify Docker outputs can be extended by the nonroot runner
+        run: python tooling/tests/integration/check_static_artifact_handoff.py
+
   release-sources:
     runs-on: ubuntu-latest
+    outputs:
+      run_full: ${{ steps.changes.outputs.run_full }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           fetch-depth: 0
-      - run: docker build --target release-tools --tag autonavlog:release-tools .
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pytest>=8.3,<9"
+      - name: Check CI classification and source contracts without application dependencies
+        run: >-
+          python -m pytest --noconftest
+          tests/integration/check_ci_changes.py
+          tests/integration/check_release_merge.py
+          tests/unit/test_release_ci.py
+          tests/unit/test_publish_github_release.py
+          tests/integration/check_publish_github_release.py
+          tests/unit/test_supported_runtime_contract.py
+          tests/unit/test_version.py::test_version_is_the_only_release_version_source
+      - name: Determine CI scope
+        id: changes
+        run: python scripts/ci_changes.py
       - name: Validate release sources and PR contract
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          if [ -n "$PR_BASE" ]; then
+          if [ -n "$PR_BASE" ] || [ -n "$PR_HEAD" ]; then
             printf "%s" "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
-            docker run --rm -v "$PWD:/work:ro" -v "$RUNNER_TEMP:/runner-temp:ro" -w /work autonavlog:release-tools python scripts/validate_release.py --base "$PR_BASE" --pr-body-file /runner-temp/pr-body.md
+            python scripts/validate_release.py --base "$PR_BASE" --pr-head "$PR_HEAD" --pr-body-file "$RUNNER_TEMP/pr-body.md"
           else
-            docker run --rm -v "$PWD:/work:ro" -w /work autonavlog:release-tools python scripts/validate_release.py
+            python scripts/validate_release.py
           fi
 
-  pytest:
+  pytest-tests:
+    needs: release-sources
+    # Missing/failed classification runs the full checks; only proven docs-only changes skip.
+    if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,10 +96,54 @@ jobs:
       - name: Run tests with the capability workflow contract
         run: >-
           docker run --rm
+          --env CI_PYTEST_SHARD=${{ matrix.shard }}/2
+          --env COVERAGE_FILE=/ci-results/.coverage
+          --env CI_PYTEST_MANIFEST=/ci-results/collection.json
+          --mount type=bind,source=${{ runner.temp }},target=/ci-results
           --mount type=bind,source="$PWD/.github/workflows/static-provider-probe.yml",target=/opt/autonavlog/.github/workflows/static-provider-probe.yml,readonly
+          --mount type=bind,source="$PWD/.github/workflows/static-monitor.yml",target=/opt/autonavlog/.github/workflows/static-monitor.yml,readonly
+          --mount type=bind,source="$PWD/.github/workflows/static-app-release.yml",target=/opt/autonavlog/.github/workflows/static-app-release.yml,readonly
           autonavlog:test
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pytest-coverage-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/.coverage
+            ${{ runner.temp }}/collection.json
+          include-hidden-files: true
+          if-no-files-found: error
+
+  pytest:
+    needs: [release-sources, pytest-tests]
+    if: ${{ always() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Python shard
+        env:
+          RESULT: ${{ needs.pytest-tests.result }}
+        run: test "$RESULT" = success
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install 'coverage>=7.5,<8'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pytest-coverage-*
+          path: coverage-shards
+      - name: Verify complete collection and combine coverage
+        run: |
+          python scripts/check_pytest_shards.py coverage-shards 2
+          python -m coverage combine coverage-shards/*/.coverage
+          python -m coverage report --rcfile=pyproject.toml
+
   runtime:
+    needs: release-sources
+    # Missing/failed classification runs the full checks; only proven docs-only changes skip.
+    if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +197,9 @@ jobs:
         run: docker rm --force --volumes autonavlog-runtime-smoke || true
 
   web:
+    needs: release-sources
+    # Missing/failed classification runs the full checks; only proven docs-only changes skip.
+    if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -116,6 +218,9 @@ jobs:
       - run: npm --prefix web run build
 
   taf-proxy:
+    needs: release-sources
+    # Missing/failed classification runs the full checks; only proven docs-only changes skip.
+    if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -128,11 +233,21 @@ jobs:
           cache-dependency-path: services/taf-proxy/package-lock.json
       - run: npm --prefix services/taf-proxy ci
       - run: npm --prefix services/taf-proxy test
+        env:
+          MINIFLARE_ASSERT_BODIES_CONSUMED: "true"
       - run: npm --prefix services/taf-proxy run check
 
-  local-browser:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  local-browser-tests:
+    needs: release-sources
+    # Missing/failed classification runs the full checks; only proven docs-only changes skip.
+    if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
+    # Keep browser dependencies on the established image during ubuntu-latest migrations.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [local, acceptance, focused-ux, clipboard]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -140,6 +255,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          # Cache pip artifacts; always install the current checkout below.
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            vendor/jma_gpv_weather-0.6.0-py3-none-any.whl
+            .github/workflows/test.yml
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -152,6 +273,7 @@ jobs:
         env:
           AUTONAVLOG_TEST_FIXTURES: "1"
       - run: npm --prefix web run test:auth
+        if: matrix.suite == 'acceptance'
       - name: Verify Local persistence and session/calculation regression without FastAPI
         env:
           AUTONAVLOG_REFERENCE_PYTHON: python3
@@ -160,28 +282,71 @@ jobs:
           local_server_pid=$!
           trap 'kill "$local_server_pid"' EXIT
           curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:4174/ > /dev/null
-          npm --prefix web run test:local
-          npm --prefix web exec -- playwright test --config web/playwright.navlog-scroll.config.ts
-          npm --prefix web exec -- playwright test --config web/playwright.browser-acceptance.config.ts
+          # Independent runners retain the existing per-file order and worker counts.
+          if [ "${{ matrix.suite }}" = local ]; then
+            npm --prefix web run test:local -- --workers=2
+            exit 0
+          fi
+          if [ "${{ matrix.suite }}" = focused-ux ] || [ "${{ matrix.suite }}" = clipboard ]; then
+            npm --prefix web exec -- playwright test --config "web/playwright.${{ matrix.suite }}.config.ts" --workers=2
+            exit 0
+          fi
+          npm --prefix web exec -- playwright test --config web/playwright.navlog-scroll.config.ts --workers=2
+          npm --prefix web exec -- playwright test --config web/playwright.browser-acceptance.config.ts --workers=2
           AUTONAVLOG_TEST_FIXTURES=1 VITE_TAF_PROXY_URL=https://taf.example/taf npm --prefix web run build:local
           npm --prefix web run test:taf
+      - name: Verify guest forecast backup with the matching isolated calculator
+        if: matrix.suite == 'local'
+        run: |
+          (cd web && VITE_CALCULATION_MODE=local VITE_FORECAST_BACKUP_URL=http://localhost:4203/api/forecast-backup/jobs/ npm exec -- vite build --outDir dist-backup)
+          PYTHONPATH="$PWD/src:$PWD" python tests/integration/serve_forecast_backup_fixture.py --port 4203 --origin http://localhost:4202 --storage "$RUNNER_TEMP/forecast-backup" > /tmp/backup-server.log 2>&1 &
+          backup_pid=$!
+          python -m http.server 4202 --bind 127.0.0.1 --directory web/dist-backup > /tmp/backup-browser-server.log 2>&1 &
+          browser_pid=$!
+          trap 'kill "$backup_pid" "$browser_pid"' EXIT
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://localhost:4203/healthz > /dev/null
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://localhost:4202/ > /dev/null
+          AUTONAVLOG_LOCAL_URL=http://localhost:4202 npm --prefix web run test:forecast-backup
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: local-browser-failure
+          name: local-browser-${{ matrix.suite }}-failure
           path: |
             /tmp/autonavlog-issue117-playwright
             /tmp/autonavlog-navlog-scroll-browser
             /tmp/autonavlog-issue122-browser
             /tmp/autonavlog-taf-playwright
             /tmp/local-server.log
+            /tmp/autonavlog-forecast-backup-browser
+            /tmp/backup-server.log
+            /tmp/backup-browser-server.log
             /tmp/autonavlog-auth-tests
+            /tmp/autonavlog-focused-ux-browser
+            /tmp/autonavlog-clipboard-playwright
 
-  account-sync:
+  local-browser:
+    needs: [release-sources, local-browser-tests]
+    if: ${{ always() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Local browser suite
+        env:
+          RESULT: ${{ needs.local-browser-tests.result }}
+        run: test "$RESULT" = success
+
+  account-sync-tests:
+    needs: release-sources
+    # Missing/failed classification runs the full checks; only proven docs-only changes skip.
+    if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    # Keep browser dependencies on the established image during ubuntu-latest migrations.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [chromium, ipad-webkit, iphone-webkit, contracts]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -189,6 +354,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          # Cache pip artifacts; always install the current checkout below.
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            vendor/jma_gpv_weather-0.6.0-py3-none-any.whl
+            .github/workflows/test.yml
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -200,24 +371,75 @@ jobs:
           java-version: "21"
       - run: python -m pip install "setuptools>=69" wheel vendor/jma_gpv_weather-0.6.0-py3-none-any.whl ".[test]"
       - run: npm --prefix web ci
-      - run: npm --prefix web exec -- playwright install --with-deps chromium webkit
+      - name: Install browsers required by the Account Sync suite
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: sh scripts/install_account_sync_browsers.sh "$SUITE"
       - run: npm --prefix web run prepare:local
         env:
           AUTONAVLOG_TEST_FIXTURES: "1"
       - name: Verify real SDK, Rules and cross-device Local-first workflows
+        env:
+          SUITE: ${{ matrix.suite }}
         run: |
           PYTHONPATH=src:tests/integration python -m uvicorn migration_harness:app --host 127.0.0.1 --port 8186 > /tmp/migration-harness.log 2>&1 &
           fixture_pid=$!
           trap 'kill "$fixture_pid"' EXIT
           curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8186/healthz > /dev/null
-          npx --yes firebase-tools@15.10.1 emulators:exec --only firestore --project demo-autonavlog-sync "npm --prefix web run test:firestore && npm --prefix web run test:sync && npm --prefix web run test:migration"
+          npx --yes firebase-tools@15.10.1 emulators:exec --only firestore --project demo-autonavlog-sync "sh scripts/run_account_sync_suite.sh $SUITE"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: account-sync-failure
+          name: account-sync-${{ matrix.suite }}-failure
           path: |
             /tmp/autonavlog-sync-browser
             /tmp/autonavlog-migration-browser
             /tmp/migration-harness.log
             /tmp/autonavlog-firestore-tests
+            /tmp/autonavlog-storage-upgrade
             firestore-debug.log
+
+  account-sync:
+    needs: [release-sources, account-sync-tests]
+    if: ${{ always() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require every Account Sync suite
+        env:
+          RESULT: ${{ needs.account-sync-tests.result }}
+        run: test "$RESULT" = success
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - name: Verify complete Account Sync project coverage
+        run: |
+          node --test web/scripts/check-account-sync-partition.test.mjs
+          node web/scripts/check-account-sync-partition.mjs
+
+  msm-trigger:
+    needs: release-sources
+    if: ${{ !cancelled() && (needs.release-sources.result != 'success' || needs.release-sources.outputs.run_full != 'false') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/msm-trigger/package-lock.json
+      - run: npm --prefix services/msm-trigger ci
+      - run: npm --prefix services/msm-trigger run typecheck
+      - run: npm --prefix services/msm-trigger run check
+      - run: npm --prefix services/msm-trigger test

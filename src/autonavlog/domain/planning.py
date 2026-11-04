@@ -25,7 +25,7 @@ Sha256Hex = Annotated[
 ARRIVAL_ALTITUDE_RULE_VERSION = "CAC_REV19_8_4_9_V5"
 CP_PROJECTION_POLICY_VERSION = "CP_ABEAM_WGS84_V1"
 RJFM_DEPARTURE_RULE_VERSION = "RJFM_NORTHBOUND_R6_5_1_V2"
-RJFM_INBOUND_RULE_VERSION = "RJFM_INBOUND_OMARU_UMK_VREP_V1"
+RJFM_INBOUND_RULE_VERSION = "RJFM_INBOUND_OMARU_UMK_ARITA_V2"
 
 
 class PlanningModel(BaseModel):
@@ -107,7 +107,9 @@ class RjfmDeparturePlan(PlanningModel):
 class RjfmInboundPlan(PlanningModel):
     """Persisted, coordinate-triggered RJFM return profile."""
 
-    rule_version: Literal["RJFM_INBOUND_OMARU_UMK_VREP_V1"] = "RJFM_INBOUND_OMARU_UMK_VREP_V1"
+    rule_version: Literal["RJFM_INBOUND_OMARU_UMK_VREP_V1", "RJFM_INBOUND_OMARU_UMK_ARITA_V2"] = (
+        "RJFM_INBOUND_OMARU_UMK_ARITA_V2"
+    )
     application_status: RjfmInboundApplicationStatus = RjfmInboundApplicationStatus.APPLIED
     application_reason: str = Field(min_length=1)
     omaru_node_id: UUID
@@ -343,8 +345,29 @@ class ArrivalPlan(PlanningModel):
         return self
 
 
+class DepartureVorSelection(PlanningModel):
+    airport_id: str = Field(min_length=1)
+    identifier: str = Field(min_length=1)
+    latitude_deg: FiniteFloat = Field(ge=-90, le=90)
+    longitude_deg: FiniteFloat = Field(ge=-180, le=180)
+    source: str = Field(min_length=1)
+    source_revision: str = Field(min_length=1)
+
+
 class PersistedUiState(PlanningModel):
-    state_schema_version: Literal[7] = 7
+    state_schema_version: Literal[8] = 8
+    departure_vor: DepartureVorSelection | None = None
+    calculated_against_fingerprint: Sha256Hex | None = None
+    defaults_review_fingerprint: Sha256Hex | None = None
+    arrival_plan: ArrivalPlan | None = None
+    reference_data_snapshot: ReferenceDataSnapshot | None = None
+    rjfm_departure_plan: RjfmDeparturePlan | None = None
+    rjfm_departure_guidance: RjfmDepartureGuidance | None = None
+    rjfm_inbound_plan: RjfmInboundPlan | None = None
+
+
+class _PersistedUiStateV7(PlanningModel):
+    state_schema_version: Literal[7]
     calculated_against_fingerprint: Sha256Hex | None = None
     defaults_review_fingerprint: Sha256Hex | None = None
     arrival_plan: ArrivalPlan | None = None
@@ -404,8 +427,11 @@ def load_persisted_ui_state(raw: Any) -> PersistedUiState:
         separators=(",", ":"),
         allow_nan=False,
     )
-    if version == 7:
+    if version == 8:
         return PersistedUiState.model_validate_json(payload)
+    if version == 7:
+        legacy = _PersistedUiStateV7.model_validate_json(payload)
+        return PersistedUiState(**legacy.model_dump(exclude={"state_schema_version"}))
     if version == 6:
         legacy_v6 = _PersistedUiStateV6.model_validate_json(payload)
         return PersistedUiState(

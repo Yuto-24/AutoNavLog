@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { VorColumn } from "../applicationSession";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import { Plus, Trash2 } from "lucide-react";
 
 import {
@@ -98,6 +99,7 @@ function EditableNumberCell({
   step,
   formatter = integer,
   displayPlaceholder,
+  projectedValue,
   required = false,
 }: {
   value: AdoptedValue<number>;
@@ -111,9 +113,11 @@ function EditableNumberCell({
   step: number;
   formatter?: NumberFormatter;
   displayPlaceholder?: string;
+  projectedValue?: string;
   required?: boolean;
 }) {
   const formatted = numberValue(value, formatter);
+  const [editing, setEditing] = useState(false);
   return (
     <td
       className={`nav-log-editable-cell ${error ? "nav-log-invalid-cell" : ""}`}
@@ -129,7 +133,15 @@ function EditableNumberCell({
         aria-label={label}
         aria-invalid={Boolean(error)}
         title={error ?? (required ? "この値は必須です。" : "空欄にすると自動値へ戻ります。")}
-        value={draftValue}
+        value={!editing && draftValue && projectedValue !== undefined ? projectedValue : draftValue}
+        onFocus={(event) => {
+          if (projectedValue !== undefined) {
+            // Changing the shown value invalidates the browser's prior selection.
+            flushSync(() => setEditing(true));
+            event.currentTarget.select();
+          } else setEditing(true);
+        }}
+        onBlur={() => setEditing(false)}
         placeholder={displayPlaceholder ?? formatted.text}
         onChange={(event) => onChange(field, event.target.value)}
       />
@@ -147,6 +159,7 @@ function EditableWindCell({
   label,
   errors,
   displayText,
+  roundingMode,
   onChange,
 }: {
   direction: AdoptedValue<number>;
@@ -156,9 +169,11 @@ function EditableWindCell({
   label: string;
   errors: Partial<Record<NavLogEditableField, string>>;
   displayText?: string;
+  roundingMode?: boolean;
   onChange: (field: NavLogEditableField, value: string) => void;
 }) {
   const invalid = Boolean(errors.windDirection || errors.windSpeed);
+  const [editingDirection, setEditingDirection] = useState(false);
   const automaticDirection = adopted(direction);
   const automaticSpeed = adopted(speed);
   const [displayDirection, displaySpeed] = displayText?.includes("/")
@@ -188,7 +203,14 @@ function EditableWindCell({
             aria-label={`${label} 手動風向`}
             aria-invalid={Boolean(errors.windDirection)}
             title={errors.windDirection ?? "空欄にすると自動値へ戻ります。"}
-            value={directionValue}
+            value={roundingMode && !editingDirection && directionValue && displayDirection !== undefined ? displayDirection : directionValue}
+            onFocus={(event) => {
+              if (roundingMode) {
+                flushSync(() => setEditingDirection(true));
+                event.currentTarget.select();
+              } else setEditingDirection(true);
+            }}
+            onBlur={() => setEditingDirection(false)}
             placeholder={directionPlaceholder}
             onChange={(event) => onChange("windDirection", event.target.value)}
           />
@@ -335,6 +357,7 @@ function isVisibleCell(cell: NavLogDisplayCell): boolean {
 }
 
 function DisplayResultCells({
+  roundingMode,
   row,
   source,
   inputSection,
@@ -344,6 +367,7 @@ function DisplayResultCells({
   editErrors,
   onEdit,
 }: {
+  roundingMode: boolean;
   row: NavLogDisplayRow;
   source?: SectionResult;
   inputSection?: NavSection;
@@ -421,6 +445,7 @@ function DisplayResultCells({
           max={60}
           step={0.1}
           displayPlaceholder={row.toat.text ?? undefined}
+          projectedValue={roundingMode ? row.toat.text ?? undefined : undefined}
           onChange={change}
         />
       ) : (
@@ -450,6 +475,7 @@ function DisplayResultCells({
         <DisplayCell cell={row.wind} />
       ) : (
         <EditableWindCell
+          roundingMode={roundingMode}
           direction={source.wind_direction_deg_from}
           speed={source.wind_speed_kt}
           directionValue={windDraft.windDirectionByPhase[row.phase!] ?? ""}
@@ -484,6 +510,17 @@ function formatJst(value: string): string {
   }).format(new Date(value));
 }
 
+const destinationWindUnavailableLabels: Record<string, string> = {
+  "TAF_FETCH_FAILED": "取得失敗（通信・応答エラー）",
+  "TAF_FETCH_TIMEOUT": "取得失敗（タイムアウト）",
+  "TAF_FETCH_CAPACITY_UNAVAILABLE": "取得できません（混雑中）",
+  "TAF_PROXY_NOT_CONFIGURED": "取得先が未設定です",
+  "TAF_UNAVAILABLE": "対象空港のTAFがありません",
+  "TAF_TIME_OUT_OF_RANGE": "到着予定時刻の予報を確認できません",
+  "TAF_WIND_UNAVAILABLE": "風の予報を確認できません",
+  "DESTINATION_ICAO_INVALID": "空港識別符号を確認してください"
+};
+
 function DestinationWindSummary({
   forecast,
 }: {
@@ -494,7 +531,7 @@ function DestinationWindSummary({
     forecast.availability === "AVAILABLE" && forecast.wind_speed_kt !== null;
   const wind =
     !available
-      ? "取得できませんでした"
+      ? (destinationWindUnavailableLabels[forecast.reason_code ?? ""] ?? "風の予報を利用できません")
       : forecast.wind_speed_kt === 0
         ? "CALM"
         : `${
@@ -511,7 +548,6 @@ function DestinationWindSummary({
       {forecast.valid_time_utc && (
         <span>到着予定 {formatJst(forecast.valid_time_utc)} JST</span>
       )}
-      <span>出典: {forecast.source_label}</span>
       {available && forecast.forecast_change && (
         <span>区分: {forecast.forecast_change}</span>
       )}
@@ -521,9 +557,6 @@ function DestinationWindSummary({
           <code>{forecast.raw_taf}</code>
         </details>
       )}
-      <p>
-        目的地風はNAV LOG最終行への表示専用です。到着区間の計算はCALMです。
-      </p>
     </section>
   );
 }
@@ -557,6 +590,7 @@ function NavLogSummary({
 }
 
 export function NavLogTable({
+  roundingMode = false, roundingDisabled = true, onRoundingChange,
   vorColumns, setVorColumns,
   outcome,
   destinationWind,
@@ -568,6 +602,9 @@ export function NavLogTable({
   editStatus,
   onEdit,
 }: {
+  roundingMode?: boolean;
+  roundingDisabled?: boolean;
+  onRoundingChange?: (enabled: boolean) => void;
   vorColumns: VorColumn[];
   setVorColumns: Dispatch<SetStateAction<VorColumn[]>>;
   outcome: CalculationOutcome;
@@ -676,10 +713,9 @@ export function NavLogTable({
       <div className="nav-log-heading">
         <div>
           <h2 id="nav-log-title">NAV LOG</h2>
-          <p>入力色の欄は直接編集でき、約0.7秒後に自動再計算します。</p>
         </div>
         <span aria-label="使用Forecast">
-          {project.weather_mode === "FTD" ? "FTD固定気象" : (
+          {outcome.selected_forecast_run_id === "ftd-fixed-v1" ? "FTD固定気象" : (
             <>Forecast: {outcome.selected_forecast_model ?? "未選択"} / Run: {outcome.selected_forecast_run_id ?? "未選択"}</>
           )}
         </span>
@@ -703,22 +739,37 @@ export function NavLogTable({
       )}
       <NavLogSummary outcome={outcome} destinationWind={destinationWind} />
       <div className="nav-log-edit-guide" id="nav-log-edit-guide">
-        <span className="nav-log-editable-key">編集可: PA / TOAT / TAS / WIND</span>
-        <span className="nav-log-readonly-key">読取専用: 航法・距離・時間・燃料などの派生値</span>
         <span className={`nav-log-edit-status nav-log-edit-status-${editStatus.kind}`} role="status" aria-live="polite">
           {editStatus.message}
         </span>
       </div>
-      <div className="nav-log-column-actions">
-        <button
-          className="secondary-button nav-log-add-column-button"
-          type="button"
-          onClick={addVorColumn}
-        >
-          <Plus aria-hidden="true" size={15} />
-          VOR/DME列を追加
-        </button>
-        <span>各列で基準局を選び、不要な列は見出しから削除できます。</span>
+      <div className="nav-log-toolbar">
+        <div className="nav-log-column-actions">
+          <button
+            className="secondary-button nav-log-add-column-button"
+            type="button"
+            onClick={addVorColumn}
+          >
+            <Plus aria-hidden="true" size={15} />
+            VOR/DME列を追加
+          </button>
+        </div>
+        <div className="nav-log-rounding-control">
+          <span id="nav-log-rounding-label">四捨五入モード</span>
+          <div className="nav-log-rounding-options" role="radiogroup"
+            aria-labelledby="nav-log-rounding-label">
+            <label>
+              <input type="radio" name="nav-log-rounding-mode" checked={!roundingMode}
+                disabled={roundingDisabled} onChange={() => onRoundingChange?.(false)} />
+              通常
+            </label>
+            <label>
+              <input type="radio" name="nav-log-rounding-mode" checked={roundingMode}
+                disabled={roundingDisabled} onChange={() => onRoundingChange?.(true)} />
+              四捨五入
+            </label>
+          </div>
+        </div>
       </div>
       <div className="table-scroll nav-log-scroll">
         <div className="nav-log-tables">
@@ -822,7 +873,16 @@ export function NavLogTable({
                     data-row-type={row.row_type}
                     data-row-sequence={row.sequence}
                   >
-                    <td colSpan={navLogColumnCount} />
+                    {Array.from({ length: navLogColumnCount }, (_, index) => (
+                      <td
+                        key={index}
+                        className={index === vorColumns.length
+                          ? "route-name-cell route-from-cell"
+                          : index === vorColumns.length + 1
+                            ? "route-name-cell route-to-cell"
+                            : undefined}
+                      />
+                    ))}
                   </tr>
                 );
               }
@@ -854,6 +914,7 @@ export function NavLogTable({
                           station,
                           row.to_latitude_deg,
                           row.to_longitude_deg,
+                          roundingMode,
                         );
                     return (
                       <td
@@ -882,6 +943,7 @@ export function NavLogTable({
                     {row.to_name}
                   </td>
                   <DisplayResultCells
+                    roundingMode={roundingMode}
                     row={row}
                     source={source}
                     inputSection={inputSection}
@@ -904,10 +966,6 @@ export function NavLogTable({
       </div>
       <FuelPlanTable outcome={outcome} />
       {rjfmGuidance && <RjfmGuidancePanel guidance={rjfmGuidance} />}
-      <p className="nav-log-disclaimer">
-        本表示は地上準備用です。運航の可否を決定する資料ではありません。
-        最新の気象・NOTAM・AIPおよび適用可能な原資料を確認してください。
-      </p>
     </section>
   );
 }

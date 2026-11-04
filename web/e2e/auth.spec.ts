@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 import { expect, test, chromium, type BrowserContext, type Page } from "@playwright/test";
 import { resolve, join } from "node:path";
 import { mkdtempSync } from "node:fs";
@@ -18,13 +18,13 @@ const signIn = async (page: Page, subject: string) => {
   await page.evaluate(subject => (window as any).authTest.signIn(subject), subject);
   await expect.poll(async () => (await authState(page)).account?.displayName).toBe(subject);
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 };
 const start = async (page: Page) => {
   await page.goto(path);
   await expect.poll(() => page.evaluate(() => Boolean((window as any).authTest))).toBe(true);
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 };
 function jwt(subject: string) {
   const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -59,13 +59,17 @@ async function backend(context: BrowserContext) {
   });
   return state;
 }
-async function saveRoute(page: Page, name: string) {
-  await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+async function planRoute(page: Page) {
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  await confirmImportedDraft(page);
+  await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
+  await page.getByLabel("気象モード").selectOption("FTD");
   await expect(page.getByLabel("RJFM出発Legの計画高度", { exact: true })).toBeVisible();
-  for (const [node, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+}
+async function saveRoute(page: Page, name: string) {
+  await planRoute(page);
+  for (const [node, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     await page.getByLabel(`${node}出発Legの計画高度`, { exact: true }).fill(altitude);
   }
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
@@ -78,7 +82,8 @@ async function accountRecords(page: Page) {
   return page.evaluate(async () => {
     const id = (window as any).authTest.state().account.account_id;
     return new Promise<any[]>((resolve, reject) => {
-      const open = indexedDB.open(`autonavlog.projects.${id}`, 1);
+      const open = indexedDB.open(`autonavlog.projects.${id}`);
+      open.onerror = () => reject(open.error);
       open.onsuccess = () => {
         const tx = open.result.transaction("projects"); const read = tx.objectStore("projects").getAll();
         tx.oncomplete = () => { open.result.close(); resolve(read.result); };
@@ -88,6 +93,118 @@ async function accountRecords(page: Page) {
   });
 }
 const savedNames = (page: Page) => page.locator("#saved-project option").allTextContents();
+
+for (const [phase, resetFails] of [["resolve", true], ["refresh", true], ["load", true], ["refresh", false]] as const) {
+  test(`New orders pending sync ${phase} before a ${resetFails ? "failed" : "successful"} reset`, async ({ page, context }, info) => {
+    await backend(context); await start(page);
+    page.on("dialog", dialog => dialog.accept());
+    await saveRoute(page, "Original");
+    const originalId = await page.locator("#saved-project").inputValue();
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await enterImportWorkflow(page);
+    await saveRoute(page, "Resolved");
+    const resolvedId = await page.locator("#saved-project").inputValue();
+    await page.locator("#saved-project").selectOption(originalId);
+    await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
+    await expect(page.getByLabel("プロジェクト", { exact: true })).toHaveValue("Original");
+
+    // Keep the real Local Application, Worker and durable Projects. Pause only the
+    // synchronization boundary, without requiring a remote account or emulator.
+    await page.evaluate(({ phase, resolvedId, resetFails }) => {
+      const app = (window as any).authTest.contexts.at(-1);
+      const refresh = app.refreshProjects.bind(app), load = app.loadProject.bind(app);
+      const reset = app.newWork.bind(app);
+      const listeners = new Set<() => void>();
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      let rejectNew!: () => void;
+      const newGate = new Promise<void>(resolve => { rejectNew = resolve; });
+      let resolving = false;
+      const race = (window as any).syncNewRace = {
+        held: false, newCalls: 0, loadCalls: 0, failNew: resetFails,
+        read: refresh,
+        release: () => release(),
+        rejectNew: () => rejectNew(),
+      };
+      const hold = async () => { race.held = true; await gate; };
+      let status: any = { conflicts: [{ id: resolvedId, name: "Resolved" }], imports: [], undo: [], generation: 1 };
+      app.sync = {
+        getState: () => status,
+        subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
+        resolve: async () => {
+          resolving = true;
+          status = { ...status, conflicts: [], undo: [{ id: "sync-observer", name: "Synchronization" }], generation: 2 };
+          for (const listener of listeners) listener();
+          if (phase === "resolve") await hold();
+          return resolvedId;
+        },
+      };
+      app.refreshProjects = async () => {
+        const state = await refresh();
+        if (resolving && phase === "refresh") await hold();
+        return state;
+      };
+      app.loadProject = async (id: string) => {
+        race.loadCalls++;
+        const state = await load(id);
+        if (phase === "load") await hold();
+        return state;
+      };
+      app.newWork = async () => {
+        race.newCalls++;
+        if (race.failNew) {
+          if (phase === "load") await newGate;
+          throw new Error("Injected New failure");
+        }
+        await reset();
+      };
+    }, { phase, resolvedId, resetFails });
+    // A real UI edit renders the newly attached test synchronization control.
+    await page.getByLabel("プロジェクト", { exact: true }).fill("Original draft");
+    await page.getByRole("button", { name: "両方残す", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).syncNewRace.held)).toBe(true);
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    if (phase === "load") {
+      // A load already changing the Worker must commit its matching UI before New
+      // can fail; otherwise the next save/calculation silently targets another ID.
+      expect(await page.evaluate(async () => {
+        const race = (window as any).syncNewRace;
+        await race.read();
+        return race.newCalls;
+      })).toBe(0);
+    } else if (resetFails) {
+      // New remains available while the non-mutating resolution/refresh is paused.
+      await expect(page.getByRole("alert").filter({ hasText: "Injected New failure" })).toBeVisible();
+    } else {
+      await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    }
+    await page.evaluate(() => (window as any).syncNewRace.release());
+    if (phase === "load") {
+      await expect(page.getByLabel("プロジェクト", { exact: true })).toHaveValue("Resolved");
+      await expect.poll(() => page.evaluate(() => (window as any).syncNewRace.newCalls)).toBe(1);
+      await page.evaluate(() => (window as any).syncNewRace.rejectNew());
+    }
+    await expect(page.getByRole("button", { name: "元に戻す", exact: true })).toBeEnabled();
+    if (resetFails) await expect(page.getByRole("alert").filter({ hasText: "Injected New failure" })).toBeVisible();
+    const expectedId = !resetFails ? null : phase === "load" ? resolvedId : originalId;
+    await expect.poll(() => page.evaluate(async () => (await (window as any).syncNewRace.read()).project?.id ?? null)).toBe(expectedId);
+    await expect(page.locator("#saved-project")).toHaveValue(expectedId ?? "");
+    if (resetFails) await expect(page.getByLabel("プロジェクト", { exact: true })).toHaveValue(phase === "load" ? "Resolved" : "Original draft");
+    expect(await page.evaluate(() => (window as any).syncNewRace.loadCalls)).toBe(phase === "load" ? 1 : 0);
+    await expect(page.locator("#saved-project option")).toHaveCount(3);
+    if (phase === "load") {
+      await page.screenshot({ path: info.outputPath("sync-load-new-failure.png"), fullPage: false });
+      await page.reload();
+      await expect(page.getByLabel("プロジェクト", { exact: true })).toHaveValue("Resolved");
+      await expect(page.locator("#saved-project")).toHaveValue(resolvedId);
+      await page.getByRole("button", { name: "新規", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+      expect((await page.evaluate(() => (window as any).authTest.contexts.at(-1).refreshProjects())).project).toBeNull();
+      await expect(page.locator("#saved-project option")).toHaveCount(3);
+    }
+  });
+}
 
 // Real Firebase SDK REST exchanges are intercepted; no real Google credentials or remote Projects.
 test("anonymous workflow, account switch, logout, reauthentication and cross-tab closure", async ({ page, context }) => {
@@ -118,7 +235,7 @@ test("anonymous workflow, account switch, logout, reauthentication and cross-tab
   expect(await savedNames(page)).toContain("Account A route");
   await expect(page.getByLabel("プロジェクト", { exact: true })).toBeDisabled();
   await page.getByLabel("保存済み", { exact: true }).selectOption({ label: "Account A route" });
-  await page.getByRole("button", { name: "保存済みProjectを開く" }).click();
+  await page.getByRole("button", { name: "保存済みプロジェクトを開く" }).click();
   await expect(page.getByLabel("FUEL gal", { exact: true })).toHaveValue("77");
   await expect(page.locator(".nav-log-table")).toBeVisible();
   expect((await accountRecords(page))[0].lastCalculation).toEqual(last);
@@ -148,7 +265,7 @@ test("cached authentication survives offline/provider failure at startup, termin
 });
 
 test("Account dialog remains compact and workflow regions retain their order", async ({ page, context }) => {
-  await backend(context); await start(page);
+  await backend(context); await start(page); await planRoute(page);
   for (const width of [320, 390, 629, 630, 631, 820, 996, 997, 1100, 1242, 1273, 1440, 1600]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.getByRole("button", { name: "アカウント", exact: true }).click();
@@ -198,7 +315,7 @@ test("browser process restart keeps account ownership offline; startup revocatio
     await page.reload();
     await expect.poll(async () => (await authState(page)).account).toBeNull();
     await enterImportWorkflow(page);
-    await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
     expect(await savedNames(page)).not.toContain("Restart account route");
     service.failure = ""; await signIn(page, "Restart");
     expect(await savedNames(page)).toContain("Restart account route");
@@ -255,8 +372,8 @@ test("failed persistent logout closes access and offers a visible retry in the n
 });
 
 
-test("logout from calculation overlay terminates in-flight work without modifying the retained snapshot", async ({ page, context }) => {
-  await backend(context); await start(page); await signIn(page, "A"); await saveRoute(page, "A calculation");
+test("calculation overlay omits logout while auth revocation terminates work without modifying the retained snapshot", async ({ page, context }) => {
+  const service = await backend(context); await start(page); await signIn(page, "A"); await saveRoute(page, "A calculation");
   const before = (await accountRecords(page))[0];
   await page.evaluate(() => {
     const original = Worker.prototype.postMessage;
@@ -270,13 +387,17 @@ test("logout from calculation overlay terminates in-flight work without modifyin
   });
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
   await expect.poll(() => page.evaluate(() => Boolean((window as any).heldCalculation))).toBe(true);
-  await page.locator(".calculation-progress-dialog").getByRole("button", { name: "ログアウト", exact: true }).click();
+  await expect(page.locator(".calculation-progress-dialog")).toBeVisible();
+  await expect(page.locator(".calculation-progress-dialog").getByRole("button", { name: "ログアウト", exact: true })).toHaveCount(0);
+  service.failure = "TOKEN_EXPIRED";
+  await page.evaluate(() => (window as any).authTest.refresh());
   expect((await authState(page)).account).toBeNull();
   await expect(page.locator(".calculation-progress-backdrop")).not.toBeVisible();
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   expect(await savedNames(page)).not.toContain("A calculation");
   await page.evaluate(() => (window as any).restoreWorker());
+  service.failure = "";
   await signIn(page, "A");
   expect((await accountRecords(page))[0].lastCalculation).toEqual(before.lastCalculation);
 });
@@ -298,7 +419,7 @@ for (const rejection of ["TOKEN_EXPIRED", "INVALID_ID_TOKEN"]) test(`revocation 
 
 
 test("blocked Google popup reports an actionable error without resetting anonymous input", async ({ page, context }) => {
-  await backend(context); await start(page);
+  await backend(context); await start(page); await planRoute(page);
   await page.getByLabel("FUEL gal", { exact: true }).fill("81");
   await page.evaluate(() => { window.open = () => null; });
   await page.getByRole("button", { name: "アカウント", exact: true }).click();

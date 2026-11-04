@@ -62,7 +62,10 @@ export function ImportPlanPanel({
   onResumePaste,
 }: ImportPlanPanelProps) {
   const update = <Key extends keyof PlanningForm>(key: Key, value: PlanningForm[Key]) => {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => ({
+      ...current, [key]: value,
+      ...(key === "departureOrigin" ? { departureOriginExplicit: true } : {}),
+    }));
   };
   const selectedDeparture = airports.find(
     (airport) => airport.id === form.departureAirportId,
@@ -82,10 +85,10 @@ export function ImportPlanPanel({
   return (
     <aside ref={panelRef} className="input-rail" aria-label="経路と飛行計画">
       {onResumePaste && (
-        <button className="secondary-button" onClick={onResumePaste}>貼付KMLの編集を続ける</button>
+        <button className="secondary-button" onClick={onResumePaste}>貼り付けたKMLの編集を続ける</button>
       )}
       {onResumeKmz && (
-        <button className="secondary-button" onClick={onResumeKmz}>KMZ文書の選択を続ける</button>
+        <button className="secondary-button" onClick={onResumeKmz}>KMZからの選択を続ける</button>
       )}
       <section className="rail-section">
         <div className="section-heading-row">
@@ -102,9 +105,8 @@ export function ImportPlanPanel({
               disabled={busy}
             >
               <ClipboardPaste aria-hidden="true" size={17} />
-              KMLを貼り付け
+              Google Earth からペースト
             </button>
-            <p className="quiet-state">ブラウザに貼り付けの確認が表示されたら、ペーストを選択してください。</p>
           </>
         )}
         {importState.filename && (
@@ -195,17 +197,24 @@ export function ImportPlanPanel({
             />
           </label>
           <div className="endpoint-row span-two">
-            <label>
-              <span>FROM（自動取得）</span>
-              <input
-                aria-label="FROM"
-                type="text"
-                readOnly
-                value={selectedDeparture ? `${selectedDeparture.icao} ${selectedDeparture.name}` : ""}
-                placeholder="経路を選択すると自動設定"
-                aria-invalid={Boolean(form.candidateKey && !selectedDeparture)}
-              />
-            </label>
+            <div className="departure-field">
+              <label>
+                <span>FROM（自動取得）</span>
+                <input
+                  aria-label="FROM"
+                  type="text"
+                  readOnly
+                  value={selectedDeparture ? `${selectedDeparture.icao} ${selectedDeparture.name}` : ""}
+                  placeholder="経路を選択すると自動設定"
+                  aria-invalid={Boolean(form.candidateKey && !selectedDeparture)}
+                />
+              </label>
+              <label className="checkbox-row departure-vor-option">
+                <input type="checkbox" checked={form.departureOrigin === "VOR"}
+                  onChange={(event) => update("departureOrigin", event.target.checked ? "VOR" : "AIRPORT")} />
+                <span>VOR Tracking Mode</span>
+              </label>
+            </div>
             <label>
               <span>TO（自動取得）</span>
               <input

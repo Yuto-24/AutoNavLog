@@ -15,8 +15,21 @@ from uuid import UUID
 
 from pydantic import BaseModel, ValidationError
 
+from autonavlog.application.project_fingerprints import forecast_selection_fingerprint
 from autonavlog.application.project_service import ProjectService
+from autonavlog.domain.calculation import Issue
+from autonavlog.domain.enums import IssueSeverity
 from autonavlog.domain.weather import ForecastModel
+from autonavlog.forecast_backup import (
+    WEATHER_FAILURES,
+    BackupInput,
+    BackupRequest,
+    BackupResult,
+    calculation_contract,
+    calculation_project,
+    input_identity,
+)
+from autonavlog.forecast_backup_messages import MESSAGES
 from autonavlog.importers.kml import (
     KmlDocumentSelectionRequired,
     KmlImportError,
@@ -30,6 +43,7 @@ from autonavlog.storage.local import LocalProjectRepository
 from autonavlog.storage.reference_data import ReferenceDataCatalogRepository
 from autonavlog.storage.rjfm_inbound_reference import RjfmInboundGuidanceReference
 from autonavlog.storage.rjfm_reference import RjfmReferencePack
+from autonavlog.weather.complete_forecast import CompleteForecastProvider, complete_forecast
 from autonavlog.weather.destination_taf import DecodedTafProvider
 from autonavlog.weather.forecast_provider import ForecastWeatherProvider
 from autonavlog.weather.local_forecast import LocalForecastWeather, LocalWeatherRequest
@@ -39,6 +53,7 @@ from autonavlog.weather.msm_fixture import FIXTURE_WEATHER_LABEL, fixture_weathe
 from autonavlog.web.facade import AutoNavLogWebApplication, WebApplicationError
 from autonavlog.web.models import (
     AcknowledgeRequest,
+    CalculationRequest,
     ConfirmRouteRequest,
     ImportRouteRequest,
     RenameRouteNodeRequest,
@@ -79,6 +94,8 @@ class _LocalFacade(AutoNavLogWebApplication):
 class LocalApplication:
     def __init__(self, data_root: Path, *, forecast_fixture: Path | None = None) -> None:
         self.local_weather = None if forecast_fixture else LocalForecastWeather()
+        self._data_root = data_root
+        self._forecast_fixture = forecast_fixture
         local_weather = self.local_weather
 
         def weather_factory() -> MsmWeatherProvider | ForecastWeatherProvider:
@@ -116,6 +133,182 @@ class LocalApplication:
         self.session = self.app.create_session(
             "local-poc", restore_persisted=False, persist_working=False
         )
+        self.session.weather_provider = complete_forecast(self.session.weather_provider)
+        self._backup_context: tuple[BackupInput, bool] | None = None
+
+    def validate_calculation_input(self, payload: dict[str, Any]) -> None:
+        request = _validate_request(CalculationRequest, payload)
+        if self.session.project is None:
+            raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
+        project = self.session.project.model_copy(deep=True)
+        self.app._normalize_rjfm_departure(project)
+        plan = self.app.project_service.ui_state(project).arrival_plan
+        if (
+            plan is None
+            or plan.selected_pattern_altitude_ft_msl is None
+            or plan.selected_pattern_altitude_source is None
+        ):
+            raise WebApplicationError(
+                "PATTERN_ALTITUDE_REQUIRED",
+                "目的空港の参照データ上の場周経路高度と、今回採用する高度を確認してください。",
+                status_code=409,
+            )
+        outcome = self.session.calculation_service.calculate(
+            project,
+            self.session.weather_provider,
+            validate_only=True,
+            rounding_mode=self.session.rounding_mode
+            if request.rounding_mode is None
+            else request.rounding_mode,
+        )
+        if outcome.blockers:
+            raise WebApplicationError(
+                "VALIDATION_FAILED", " / ".join(item.message for item in outcome.blockers[:3])
+            )
+
+    def prepare_forecast_backup(self, payload: dict[str, Any]) -> BackupInput:
+        self.validate_calculation_input({"rounding_mode": payload.get("rounding_mode")})
+        request = _validate_request(
+            CalculationRequest,
+            {
+                "rounding_mode": payload.get("rounding_mode"),
+            },
+        )
+        if self.session.project is None or self.session.project.weather_mode != "FORECAST":
+            raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
+        project = self.session.project.model_copy(deep=True)
+        self.app._normalize_rjfm_departure(project)
+        rounding = (
+            self.session.rounding_mode if request.rounding_mode is None else request.rounding_mode
+        )
+        refresh = self.app.forecast_refresh_requested(self.session, project, rounding_mode=rounding)
+        prepared = BackupInput(
+            contract=calculation_contract(self._data_root),
+            project=calculation_project(project),
+            rounding_mode=rounding,
+            refresh_forecast=refresh,
+            input_identity=input_identity(project, rounding, refresh),
+            reason=payload["reason"],
+        )
+        self._backup_context = (prepared, self.session.rounding_mode)
+        return prepared
+
+    def adopt_forecast_backup(self, payload: dict[str, Any]) -> dict[str, Any]:
+        request = _validate_request(BackupRequest, payload["request"])
+        try:
+            result = BackupResult.model_validate(payload["result"])
+        except ValidationError as error:
+            raise WebApplicationError(
+                "FORECAST_BACKUP_INVALID", MESSAGES["invalid_result"]
+            ) from error
+        if self._backup_context is None or self.session.project is None:
+            raise WebApplicationError("FORECAST_BACKUP_STALE", MESSAGES["stale_result"])
+        current, starting_mode = self._backup_context
+        live_project = self.session.project.model_copy(deep=True)
+        self.app._normalize_rjfm_departure(live_project)
+        if (
+            self.session.rounding_mode != starting_mode
+            or request.rounding_mode != current.rounding_mode
+            or input_identity(live_project, request.rounding_mode, request.refresh_forecast)
+            != current.input_identity
+        ):
+            raise WebApplicationError("FORECAST_BACKUP_STALE", MESSAGES["stale_result"])
+        if request.contract != current.contract or result.contract != current.contract:
+            raise WebApplicationError("FORECAST_BACKUP_INCOMPATIBLE", MESSAGES["incompatible"])
+        if (
+            request.input_identity != current.input_identity
+            or result.input_identity != request.input_identity
+            or result.request_id != request.request_id
+            or result.rounding_mode != request.rounding_mode
+        ):
+            raise WebApplicationError("FORECAST_BACKUP_STALE", MESSAGES["stale_result"])
+        last = result.calculation.model_copy(deep=True)
+        if (
+            last.project.id != current.project.id
+            or last.project.revision != current.project.revision
+            or forecast_selection_fingerprint(last.project, rounding_mode=request.rounding_mode)
+            != forecast_selection_fingerprint(current.project, rounding_mode=request.rounding_mode)
+            or last.outcome.blockers
+            or last.outcome.selected_forecast_run_id is None
+            or last.forecast_metadata.get("forecast_run_id")
+            != last.outcome.selected_forecast_run_id
+            or last.forecast_metadata.get("model") != last.outcome.selected_forecast_model
+            or (
+                not request.refresh_forecast
+                and current.project.selected_forecast_run_id is not None
+                and (
+                    last.outcome.selected_forecast_run_id
+                    != current.project.selected_forecast_run_id
+                    or last.outcome.selected_forecast_model
+                    != current.project.selected_forecast_model
+                )
+                and not (
+                    current.project.selected_forecast_model == "MSM"
+                    and last.outcome.selected_forecast_model == "GSM"
+                    and last.outcome.forecast_provenance.get("fallback") is True
+                    and last.outcome.forecast_provenance.get("fallback_from") == "MSM"
+                    and last.outcome.forecast_provenance.get("coverage_reason_codes")
+                )
+            )
+        ):
+            raise WebApplicationError("FORECAST_BACKUP_INVALID", MESSAGES["invalid_result"])
+        assert self.session.project is not None
+        original = self.session.project
+        last.project.name = original.name
+        last.project.pilot_name = original.pilot_name
+        last.project.ship_identifier = original.ship_identifier
+        last.project.metadata = {**original.metadata, "ui_state": last.project.metadata["ui_state"]}
+        materialized = self.session.readiness_service.evaluate(last.project, last.outcome)
+        if (
+            not materialized.evaluation.calculation_is_current
+            or materialized.fingerprints.calculation_input != last.calculation_fingerprint
+        ):
+            raise WebApplicationError("FORECAST_BACKUP_INVALID", MESSAGES["invalid_result"])
+        provenance = {
+            "source": "forecast_backup_server",
+            "reason": request.reason,
+            "request_id": str(request.request_id),
+            "selected_run": last.outcome.selected_forecast_run_id,
+            "contract": result.contract.model_dump(mode="json"),
+        }
+        last.forecast_metadata["calculation_source"] = provenance
+        last.outcome.issues.append(
+            Issue(
+                code="FORECAST_BACKUP_USED",
+                severity=IssueSeverity.WARNING,
+                message=MESSAGES["backup_success"],
+                metadata=provenance,
+            )
+        )
+        self._backup_context = None
+        self.session.project = last.project.model_copy(deep=True)
+        self.session.outcome = last.outcome.model_copy(deep=True)
+        self.session.last_calculation = last
+        self.session.destination_wind = last.destination_wind
+        self.session.rounding_mode = request.rounding_mode
+        self.session.readiness = None
+        self.session.forecast_update_fingerprint = (
+            forecast_selection_fingerprint(last.project, rounding_mode=request.rounding_mode)
+            if result.refresh_available
+            else None
+        )
+        return self.app.present(self.session)
+
+    def new_work(self) -> str:
+        """Replace all mutable work while keeping the interpreter and installed packages."""
+        replacement = LocalApplication(self._data_root, forecast_fixture=self._forecast_fixture)
+        try:
+            state = replacement.dispatch("state")
+        except Exception:
+            replacement.close()
+            raise
+        self._temporary.cleanup()
+        self._temporary = replacement._temporary
+        self.local_weather = replacement.local_weather
+        self.app = replacement.app
+        self.session = replacement.session
+        self._backup_context = None
+        return state
 
     def requires_weather(self) -> bool:
         return bool(
@@ -163,6 +356,32 @@ class LocalApplication:
     def dispatch(self, path: str, body: dict[str, Any] | None = None) -> str:
         """Execute application operations using the existing facade on transient MEMFS."""
         payload = body or {}
+        if path in {
+            "newWork",
+            "bootstrap",
+            "refreshSavedWork",
+            "adoptSavedProject",
+            "importRoute",
+            "confirmRoute",
+            "updateProject",
+            "updateAndRecalculate",
+            "calculate",
+            "replaceCheckPoints",
+            "renameRouteNode",
+            "acknowledge",
+        }:
+            self._backup_context = None
+        if path == "validateCalculation":
+            self.validate_calculation_input(payload)
+            return "{}"
+        if path == "prepareForecastBackup":
+            return self.prepare_forecast_backup(payload).model_dump_json()
+        if path == "adoptForecastBackup":
+            return json.dumps(
+                self.adopt_forecast_backup(payload), ensure_ascii=False, allow_nan=False
+            )
+        if path == "newWork":
+            return self.new_work()
         if path == "prepareSyncResolution":
             record = migrate_record(payload["record"])
             last = record.lastCalculation
@@ -194,12 +413,35 @@ class LocalApplication:
             return migrate_record(payload).model_dump_json()
         if path == "state":
             state = self.app.present(self.session)
-        elif path == "bootstrap":
+        elif path in {"bootstrap", "refreshSavedWork", "adoptSavedProject"}:
+            recovery_payload = payload if path == "bootstrap" else payload["working"]
+            refresh_mode = _validate_request(
+                CalculationRequest, {"rounding_mode": payload.get("rounding_mode")}
+            ).rounding_mode
+            pending_refresh = (
+                self.session.forecast_update_fingerprint if path == "adoptSavedProject" else None
+            )
             state = (
-                self.app.restore_working(self.session, _validate_request(WorkingRecovery, payload))
-                if payload
+                self.app.restore_working(
+                    self.session,
+                    _validate_request(WorkingRecovery, recovery_payload),
+                    reset_rounding=path == "bootstrap",
+                    rounding_mode=bool(refresh_mode),
+                )
+                if recovery_payload
                 else self.app.present(self.session)
             )
+            # Explicit Save adopts name/revision changes in the same working
+            # session. Reopen/reload use bootstrap and never inherit intent.
+            if (
+                pending_refresh is not None
+                and self.session.project is not None
+                and pending_refresh
+                == forecast_selection_fingerprint(
+                    self.session.project, rounding_mode=self.session.rounding_mode
+                )
+            ):
+                self.session.forecast_update_fingerprint = pending_refresh
         elif path == "importRoute":
             request = _validate_request(ImportRouteRequest, payload)
             if request.kml_text is not None:
@@ -241,7 +483,41 @@ class LocalApplication:
         elif path == "calculate":
             if self.session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
-            state = self.app.calculate(self.session)
+            calculation_request = _validate_request(CalculationRequest, payload)
+            fields = (
+                "project",
+                "outcome",
+                "last_calculation",
+                "destination_wind",
+                "readiness",
+                "rounding_mode",
+                "forecast_update_fingerprint",
+            )
+            before = {field: getattr(self.session, field) for field in fields}
+            provider = self.session.weather_provider
+            candidates = (
+                tuple(provider.models.values())
+                if isinstance(provider, ForecastWeatherProvider) else (provider,)
+            )
+            for candidate in candidates:
+                if isinstance(candidate, CompleteForecastProvider):
+                    candidate.failure_code = None
+            try:
+                state = self.app.calculate(
+                    self.session, rounding_mode=calculation_request.rounding_mode
+                )
+                reason = next((
+                    code for candidate in candidates
+                    if (code := getattr(candidate, "failure_code", None)) in WEATHER_FAILURES
+                ), None)
+                if reason in WEATHER_FAILURES:
+                    raise LocalWeatherError(reason, MESSAGES["backup_progress"])
+            except Exception as error:
+                for field, value in before.items():
+                    setattr(self.session, field, value)
+                if isinstance(error, LocalWeatherError) and error.code in WEATHER_FAILURES:
+                    raise WebApplicationError(error.code, MESSAGES["backup_progress"]) from error
+                raise
         elif path == "replaceCheckPoints":
             state = self.app.replace_check_points(
                 self.session, _validate_request(ReplaceCheckPointsRequest, payload)

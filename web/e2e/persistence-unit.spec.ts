@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { IDBFactory, IDBObjectStore } from "fake-indexeddb";
-import { IndexedDbProjectRepository, LOCAL_DATABASE } from "../src/localProjectRepository";
+import { IndexedDbProjectRepository, LOCAL_DATABASE, LOCAL_DATABASE_VERSION } from "../src/localProjectRepository";
 import type { LocalProjectRecord } from "../src/localProjectRepository";
 import type { Project } from "../src/types";
 
@@ -18,7 +18,7 @@ function record(id: string, saved = false): LocalProjectRecord {
 }
 async function rawPut(value: unknown) {
   await new Promise<void>((resolve, reject) => {
-    const open = factory.open(LOCAL_DATABASE, 1);
+    const open = factory.open(LOCAL_DATABASE);
     open.onsuccess = () => {
       const tx = open.result.transaction("projects", "readwrite");
       tx.objectStore("projects").put(value);
@@ -173,3 +173,41 @@ test("missing-token existing data is not equivalent to an absent Project for a n
   await expect(repository.write(record("same"), null, true)).rejects.toMatchObject({ code: "PROJECT_REVISION_CONFLICT" });
   expect((await repository.list()).unavailable).toEqual(["same"]);
 });
+
+
+for (const existingVersion of [1, 2]) for (const account of [null, "compat-account"]) {
+  test(`DB ${existingVersion} retains Saved, Latest and calculation for ${account ?? "anonymous"}`, async () => {
+    const name = account ? `${LOCAL_DATABASE}.${account}` : LOCAL_DATABASE;
+    const saved = record("compat-saved", true), latest = record("compat-latest");
+    saved.draft = { ...saved.draft, name: "distinct unsaved draft" };
+    saved.lastCalculation = { retained: true, forecast: "pinned-forecast" };
+    latest.lastCalculation = { retained: true };
+    await new Promise<void>((resolve, reject) => {
+      const open = factory.open(name, existingVersion);
+      open.onupgradeneeded = () => open.result.createObjectStore("projects", { keyPath: "id" });
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const tx = open.result.transaction("projects", "readwrite");
+        tx.objectStore("projects").put(saved);
+        tx.objectStore("projects").put(latest);
+        tx.oncomplete = () => { open.result.close(); resolve(); };
+        tx.onabort = () => reject(tx.error);
+      };
+    });
+    const context = { account_id: account, assertActive() {}, onClose() { return () => {}; } };
+    const repository = new IndexedDbProjectRepository(validate, async () => {}, () => factory, context);
+    expect(await repository.read(saved.id)).toEqual(saved);
+    expect(await repository.read(latest.id)).toEqual(latest);
+    const changed = { ...saved, token: crypto.randomUUID(), draft: { ...saved.draft, name: "saved after upgrade" } };
+    await repository.write(changed, saved.token, false);
+    const reopened = new IndexedDbProjectRepository(validate, async () => {}, () => factory, context);
+    expect(await reopened.read(saved.id)).toEqual(changed);
+    expect(await reopened.read(latest.id)).toEqual(latest);
+    expect(LOCAL_DATABASE_VERSION).toBe(2);
+    await new Promise<void>((resolve, reject) => {
+      const open = factory.open(name, 1);
+      open.onerror = () => { expect(open.error?.name).toBe("VersionError"); resolve(); };
+      open.onsuccess = () => { open.result.close(); reject(Error("old writer must remain fenced")); };
+    });
+  });
+}

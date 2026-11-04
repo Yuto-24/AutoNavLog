@@ -1,6 +1,7 @@
 """Read-only API capability probes, NOT a quota report or publication authorization.
 
-Only fixed check names and status codes leave this process. Raw provider responses,
+Only fixed check names/statuses and the selected Pages target's safe identity leave this process.
+Raw provider responses,
 including owner-wide billing, stay in memory. Successful transport does not prove
 quota completeness, included allowance, zero billing, or a Free/Spark plan.
 """
@@ -52,6 +53,8 @@ CHECKS = (
     "cloudflare_subscriptions",
     "cloudflare_pages_projects",
     "cloudflare_worker_invocations",
+    "cloudflare_worker_settings",
+    "cloudflare_pages_target",
     "firebase_billing",
     "firestore_reads",
     "firestore_writes",
@@ -198,7 +201,18 @@ def check_cf_list(client, account, suffix):
     return "reachable_not_evidence"
 
 
+def utc_observation_time(now):
+    """Use the same UTC observation window for analytics and capability checks."""
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        raise ProbeError("invalid_observation_time")
+    try:
+        return now.astimezone(UTC)
+    except (ValueError, OverflowError):
+        raise ProbeError("invalid_observation_time") from None
+
+
 def check_workers(client, account, now):
+    now = utc_observation_time(now)
     query = """query ProbeWorkers($account: string, $start: string, $end: string) {
       viewer { accounts(filter: {accountTag: $account}) {
         workersInvocationsAdaptive(limit: 1,
@@ -217,12 +231,81 @@ def check_workers(client, account, now):
             },
         },
     )
-    accounts = require_list(response["data"]["viewer"]["accounts"])
+    accounts = response["data"]["viewer"]["accounts"]
+    if not isinstance(accounts, list):
+        raise ProbeError("invalid_shape")
+    if not accounts:
+        raise ProbeError("accounts_empty")
     if len(accounts) != 1:
         raise ProbeError("ambiguous_scope")
-    require_list(accounts[0]["workersInvocationsAdaptive"])
+    invocations = accounts[0]["workersInvocationsAdaptive"]
+    if not isinstance(invocations, list):
+        raise ProbeError("invalid_shape")
+    if not invocations:
+        raise ProbeError("invocations_empty")
+    if len(invocations) != 1 or not isinstance(invocations[0], dict):
+        raise ProbeError("invalid_shape")
+    summary = invocations[0].get("sum")
+    if not isinstance(summary, dict):
+        raise ProbeError("invalid_shape")
+    requests = summary.get("requests")
+    if (
+        type(requests) not in (int, float) or requests < 0
+        or (type(requests) is float and not math.isfinite(requests))
+    ):
+        raise ProbeError("invalid_shape")
     # Invocation analytics does not by itself establish cached/rejected coverage.
     return "reachable_not_evidence"
+
+
+def check_worker_settings(client, account, now):
+    """Inspect one dataset's capabilities without returning limits or usage."""
+    now = utc_observation_time(now)
+    response = client.get(
+        "cloudflare", "/client/v4/graphql",
+        graphql={
+            "query": """query ProbeWorkerSettings($account: string) {
+              viewer { accounts(filter: {accountTag: $account}) {
+                settings { workersInvocationsAdaptive {
+                  enabled availableFields maxDuration notOlderThan maxPageSize maxNumberOfFields
+                } }
+              } }
+            }""",
+            "variables": {"account": account},
+        },
+    )
+    try:
+        accounts = response["data"]["viewer"]["accounts"]
+        if not isinstance(accounts, list):
+            raise ProbeError("settings_invalid")
+        if not accounts:
+            raise ProbeError("accounts_empty")
+        if len(accounts) != 1:
+            raise ProbeError("ambiguous_scope")
+        settings = accounts[0]["settings"]["workersInvocationsAdaptive"]
+        if not isinstance(settings, dict) or type(settings.get("enabled")) is not bool:
+            raise ProbeError("settings_invalid")
+        if not settings["enabled"]:
+            return "dataset_disabled"
+        fields = settings["availableFields"]
+        if not isinstance(fields, list) or any(not isinstance(x, str) or not x for x in fields):
+            raise ProbeError("settings_invalid")
+        limits = [settings[key] for key in (
+            "maxDuration", "notOlderThan", "maxPageSize", "maxNumberOfFields",
+        )]
+        if any(type(value) is not int or not 0 <= value <= 2**63 - 1 for value in limits):
+            raise ProbeError("settings_invalid")
+        if "sum_requests" not in fields:
+            return "required_field_unavailable"
+        duration, history, page_size, field_count = limits
+        if page_size < 1 or field_count < 1:
+            return "query_limits_not_supported"
+        seconds = (now - now.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds()
+        if seconds > duration or seconds > history:
+            return "window_not_supported"
+    except (KeyError, TypeError, IndexError, AttributeError):
+        raise ProbeError("settings_invalid") from None
+    return "settings_compatible_not_quota_evidence"
 
 
 def check_billing(client, project):
@@ -290,6 +373,23 @@ def probe(env, now, client=None, *, only=None):
     if only is not None and only not in CHECKS:
         raise ProbeError("unknown_check")
     client = client or Client(env)
+    if only == "cloudflare_pages_target":
+        try:
+            from . import pages_target
+        except ImportError:
+            import pages_target
+        try:
+            account = identifier(env, "CLOUDFLARE_ACCOUNT_ID", r"[a-f0-9]{32}")
+            observation = pages_target.inspect(client, account)
+        except (ProbeError, pages_target.inventory.api.ProbeError) as error:
+            observation = {"status": str(error)}
+        except (KeyError, TypeError, IndexError, AttributeError):
+            observation = {"status": "invalid_shape"}
+        return {
+            "status": "BLOCKED", "kind": "pages_target_observation_not_publication",
+            "reviewed_sha": pages_target.identifier(env.get("GITHUB_SHA"), r"[a-f0-9]{40}"),
+            "attempted_at": now.isoformat(), "checks": [{"check": only, **observation}],
+        }
     checks = []
 
     def run(name, action):
@@ -321,6 +421,7 @@ def probe(env, now, client=None, *, only=None):
     run("cloudflare_subscriptions", lambda: check_cf_list(client, cf(), "subscriptions"))
     run("cloudflare_pages_projects", lambda: check_cf_list(client, cf(), "pages/projects"))
     run("cloudflare_worker_invocations", lambda: check_workers(client, cf(), now))
+    run("cloudflare_worker_settings", lambda: check_worker_settings(client, cf(), now))
     run("firebase_billing", lambda: check_billing(client, project()))
     for operation in ("read", "write", "delete"):
         run(

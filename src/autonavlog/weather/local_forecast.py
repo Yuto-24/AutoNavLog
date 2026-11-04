@@ -11,6 +11,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 from jma_gpv_weather import GsmClient, MsmClient
+from jma_gpv_weather.errors import (
+    CacheIntegrityError,
+    GsmCacheIntegrityError,
+    GsmRunUnavailableError,
+    MissingVariableError,
+    NoCompatibleRunError,
+    SelectedRunCoverageError,
+)
 
 from autonavlog.domain.weather import ForecastModel
 from autonavlog.weather.forecast_provider import ForecastWeatherProvider
@@ -55,10 +63,18 @@ class _PortableClient:
     def discover_runs(self, requirements: Any, **kwargs: Any) -> Any:
         if self.catalog is None:
             raise LocalWeatherRequest(self.model)
-        # Missing/empty listings remain library errors, never coverage evidence.
-        return super().discover_runs(  # type: ignore[misc]
-            requirements, listings=self.catalog.listings, **kwargs,
-        )
+        # Missing/empty listings are delivery failures, never coverage evidence.
+        urls = super().listing_urls(requirements)  # type: ignore[misc]
+        if any(url not in self.catalog.listings for url in urls):
+            raise LocalWeatherError(
+                "WEATHER_DISCOVERY_FAILED", "予報配信情報を読み取れません。",
+            )
+        try:
+            return super().discover_runs(  # type: ignore[misc]
+                requirements, listings=self.catalog.listings, **kwargs,
+            )
+        except (NoCompatibleRunError, GsmRunUnavailableError) as error:
+            raise LocalWeatherError("WEATHER_RUN_UNAVAILABLE", str(error)) from error
 
     def prepare_run(self, run: Any, requirements: Any, **kwargs: Any) -> Any:
         if self.catalog is None:
@@ -71,9 +87,14 @@ class _PortableClient:
             )
         if asset.sha256 not in self.payloads:
             raise LocalWeatherRequest(self.model, asset)
-        return super().prepare_run(  # type: ignore[misc]
-            run, requirements, prepared_data=self.payloads[asset.sha256], **kwargs,
-        )
+        try:
+            return super().prepare_run(  # type: ignore[misc]
+                run, requirements, prepared_data=self.payloads[asset.sha256], **kwargs,
+            )
+        except (CacheIntegrityError, GsmCacheIntegrityError) as error:
+            raise LocalWeatherError("WEATHER_PAYLOAD_INTEGRITY_FAILED", str(error)) from error
+        except (MissingVariableError, SelectedRunCoverageError, GsmRunUnavailableError) as error:
+            raise LocalWeatherError("WEATHER_PREPARED_UNAVAILABLE", str(error)) from error
 
 
 class _MsmClient(_PortableClient, MsmClient):  # type: ignore[misc]

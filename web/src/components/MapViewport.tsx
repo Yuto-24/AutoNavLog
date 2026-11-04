@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useMap, useMapEvents } from "react-leaflet";
 import type { KeyValueStorage } from "../platform";
 
@@ -11,9 +11,10 @@ function readViewport(storage: KeyValueStorage, key: string): Viewport | null {
       Number.isFinite(value.zoom) && value.zoom >= 0 && value.zoom <= 19 ? value : null;
   } catch { return null; }
 }
-export function MapViewport({ storage, scope, projectId, coordinates, preserveViewport }: {
+export function MapViewport({ storage, scope, projectId, coordinates, preserveViewport, importFitCoordinates }: {
   storage: KeyValueStorage; scope: string; projectId: string | null;
   coordinates: [number, number][]; preserveViewport: boolean;
+  importFitCoordinates?: [number, number][] | null;
 }) {
   const map = useMap();
   const initialized = useRef(false);
@@ -49,9 +50,22 @@ export function MapViewport({ storage, scope, projectId, coordinates, preserveVi
     previousProject.current = projectId;
     save();
   }, [map, storage, projectKey, preserveViewport, coordinates]);
+  // A new parser candidate is fitted once. Ordinary draft edits and resize keep
+  // the user's view; the request is an immutable snapshot, not live draft points.
   useEffect(() => {
-    const observer = new ResizeObserver(() => map.invalidateSize({ animate: false }));
-    observer.observe(map.getContainer());
+    if (!importFitCoordinates || importFitCoordinates.length < 2) return;
+    map.invalidateSize({ animate: false });
+    map.fitBounds(importFitCoordinates, { padding: [28, 28], animate: false });
+  }, [map, importFitCoordinates]);
+  useLayoutEffect(() => {
+    const container = map.getContainer();
+    const observer = new ResizeObserver(() => {
+      // New remounts Local work without navigating. Ignore the old map's 0x0
+      // removal notification so it cannot overwrite the view being restored.
+      if (!container.isConnected || !container.clientWidth || !container.clientHeight) return;
+      map.invalidateSize({ animate: false });
+    });
+    observer.observe(container);
     return () => observer.disconnect();
   }, [map]);
   return null;

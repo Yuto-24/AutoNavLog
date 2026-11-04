@@ -143,3 +143,10 @@ def test_gsm_is_an_explicit_feed_using_the_public_gsm_codec(monkeypatch, tmp_pat
         data = GsmPreparedData.from_bytes((output / asset["file"]).read_bytes(),
                                           expected_sha256=asset["sha256"])
         assert data.selection.run_utc.strftime("%Y%m%d%H%M%S") == asset["run"]
+
+
+def test_gsm_rejects_msm_full_run_mode_before_acquisition(tmp_path, monkeypatch):
+    monkeypatch.setattr(prepare_msm_feed, "urlopen", lambda *a, **kw: pytest.fail("acquisition"))
+    with pytest.raises(ValueError, match="only supported for MSM"):
+        prepare_msm_feed.produce(tmp_path, tmp_path / "cache", START, 3, Bounds(),
+                                 model="GSM", full_run=True)

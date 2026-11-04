@@ -159,7 +159,9 @@ def test_restore_expired_catalog_retains_only_verified_recent_assets(monkeypatch
         "assets": [asset, {**asset, "run": "20260901000000"}],
     }
     monkeypatch.setattr(
-        ops, "fetch", lambda url, *a: json.dumps(catalog) if url.endswith("json") else payload
+        ops,
+        "fetch",
+        lambda url, *a: json.dumps(catalog).encode() if url.endswith("json") else payload,
     )
     assert ops.restore("https://example.com", tmp_path, NOW) == {"retained_assets": 1}
     assert (tmp_path / asset["file"]).read_bytes() == payload
@@ -180,7 +182,7 @@ def test_monitor_warns_before_expiry(monkeypatch):
         "generated_at": (NOW - timedelta(hours=1)).isoformat(),
         "expires_at": (NOW + timedelta(hours=3)).isoformat(),
     }
-    monkeypatch.setattr(ops, "fetch", lambda *a: json.dumps(catalog))
+    monkeypatch.setattr(ops, "fetch", lambda *a: json.dumps(catalog).encode())
     assert ops.monitor("https://example.com", NOW)["status"] == "OK"
     catalog["expires_at"] = (NOW + timedelta(minutes=119)).isoformat()
     with pytest.raises(ValueError):
@@ -239,6 +241,7 @@ def test_fetch_never_follows_redirect_even_to_matching_inventory(monkeypatch, co
     def opener(handler):
         def open_url(request, **kwargs):
             assert request.get_header("Cache-control") == "no-cache"
+            assert request.get_header("User-agent") == "AutoNavLog-StaticOperations/1.0"
             handler().redirect_request(
                 request, None, code, "redirect", {}, "https://other.example/"
             )

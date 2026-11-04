@@ -171,18 +171,18 @@ def _coordinates(text: str | None) -> list[tuple[float, float, float | None]]:
     for item in (text or "").split():
         parts = item.split(",")
         if len(parts) not in {2, 3}:
-            raise KmlImportError("invalid KML coordinate")
+            raise KmlImportError("KMLの座標が不正です。")
         try:
             longitude, latitude = float(parts[0]), float(parts[1])
             altitude = float(parts[2]) if len(parts) == 3 and parts[2] else None
         except (OverflowError, ValueError) as error:
-            raise KmlImportError("invalid KML coordinate") from error
+            raise KmlImportError("KMLの座標が不正です。") from error
         if not isfinite(longitude) or not isfinite(latitude):
-            raise KmlImportError("invalid KML coordinate")
+            raise KmlImportError("KMLの座標が不正です。")
         if altitude is not None and not isfinite(altitude):
-            raise KmlImportError("invalid KML coordinate altitude")
+            raise KmlImportError("KML座標の高度が不正です。")
         if not (-180 <= longitude <= 180 and -90 <= latitude <= 90):
-            raise KmlImportError("KML coordinate is outside latitude/longitude bounds")
+            raise KmlImportError("KMLの座標が緯度経度の範囲外です。")
         output.append((latitude, longitude, altitude))
     return output
 
@@ -334,7 +334,7 @@ def _polygon_boundaries(
         parsed = _coordinates(None if coordinates_element is None else coordinates_element.text)
         coordinate_count += len(parsed)
         if coordinate_count > limits.max_coordinates:
-            raise KmlImportError("KML coordinate limit exceeded")
+            raise KmlImportError("KMLの座標数上限を超えています。")
         altitudes.extend(altitude for _, _, altitude in parsed if altitude is not None)
         ring = _horizontal_ring(parsed)
         if kind == "outerBoundaryIs":
@@ -508,9 +508,9 @@ def _connected_lines(
         if invalid_joins:
             for previous, following, gap in invalid_joins:
                 warnings.append(
-                    f"{display_path}: LineString join {previous.name} -> {following.name} "
-                    f"is {gap:.5f} NM and exceeds {_CONNECTED_LINE_JOIN_LIMIT_NM:.2f} NM; "
-                    "kept as individual candidates"
+                    f"{display_path}: {previous.name} -> {following.name} の間隔 "
+                    f"({gap:.5f} NM) が上限 ({_CONNECTED_LINE_JOIN_LIMIT_NM:.2f} NM) "
+                    "を超えるため、結合せず個別の候補として保持しました"
                 )
             continue
 
@@ -540,9 +540,9 @@ def _connected_lines(
                     waypoint_sources[-1] = "point"
             elif joins[join_index] * 1852.0 > _CONNECTED_LINE_JOIN_WARNING_METERS:
                 warnings.append(
-                    f"{display_path}: merged LineString join {previous.name} -> "
-                    f"{following.name} across {joins[join_index] * 1852.0:.1f} m "
-                    "without a matching Point Placemark"
+                    f"{display_path}: 対応するPointがないまま、"
+                    f"{previous.name} -> {following.name} 間 "
+                    f"({joins[join_index] * 1852.0:.1f} m) を結合しました"
                 )
             following_names = waypoint_name_slots_from_line(following)
             coordinates.extend(following.coordinates[1:])
@@ -584,8 +584,8 @@ def _connected_lines(
             _deduplicate_connected_line(candidate)
         except KmlImportError:
             warnings.append(
-                f"{display_path}: connected LineStrings have fewer than two distinct points "
-                "after 10 m deduplication; kept as individual candidates"
+                f"{display_path}: 10 mの重複排除後に"
+                "結合後の点が2つ未満になるため、結合せず個別の候補として保持しました"
             )
             continue
         connected.append(candidate)
@@ -605,7 +605,7 @@ def _parse_kml(
 ]:
     try:
         if b"<!doctype" in data.lower():
-            raise KmlImportError("KML DOCTYPE declarations are not allowed")
+            raise KmlImportError("KMLのDOCTYPE宣言は許可されていません。")
         root = ElementTree.fromstring(
             data,
             forbid_dtd=True,
@@ -613,9 +613,9 @@ def _parse_kml(
             forbid_external=True,
         )
     except (DefusedXmlException, ParseError) as error:
-        raise KmlImportError("invalid or unsafe KML document") from error
+        raise KmlImportError("KMLドキュメントが不正または安全ではありません。") from error
     if _local_name(root.tag) != "kml":
-        raise KmlImportError("XML document is not KML")
+        raise KmlImportError("XMLドキュメントがKMLではありません。")
     points: list[ImportedPoint] = []
     lines: list[ImportedLine] = []
     polygons: list[ImportedPolygon] = []
@@ -649,7 +649,7 @@ def _parse_kml(
                 ) = _polygon_boundaries(geometry, limits)
                 coordinate_count += count
                 if coordinate_count > limits.max_coordinates:
-                    raise KmlImportError("KML coordinate limit exceeded")
+                    raise KmlImportError("KMLの座標数上限を超えています。")
                 if outer_boundary is None:
                     skipped_polygon_surfaces += 1
                     continue
@@ -685,7 +685,7 @@ def _parse_kml(
             parsed = _coordinates(None if coordinates_element is None else coordinates_element.text)
             coordinate_count += len(parsed)
             if coordinate_count > limits.max_coordinates:
-                raise KmlImportError("KML coordinate limit exceeded")
+                raise KmlImportError("KMLの座標数上限を超えています。")
             if kind == "Point" and parsed:
                 latitude, longitude, altitude = parsed[0]
                 points.append(
@@ -717,8 +717,8 @@ def _parse_kml(
                 line_containers.append(container)
         if skipped_polygon_surfaces:
             warnings.append(
-                f"{name}: skipped {skipped_polygon_surfaces} Polygon surface(s) "
-                "without a usable horizontal boundary"
+                f"{name}: 有効な水平境界を持たないPolygon面を "
+                f"{skipped_polygon_surfaces} 件スキップしました"
             )
     connected = _connected_lines(
         points,
@@ -742,7 +742,7 @@ def _safe_archive_path(filename: str) -> PurePosixPath:
         or ".." in path.parts
         or (path.parts and path.parts[0].endswith(":"))
     ):
-        raise KmlImportError("KMZ contains an unsafe path")
+        raise KmlImportError("KMZに安全でないパスが含まれています。")
     return path
 
 
@@ -752,7 +752,7 @@ def _safe_kml_members(
 ) -> list[tuple[str, bytes]]:
     members = archive.infolist()
     if len(members) > limits.max_files:
-        raise KmlImportError("KMZ file count limit exceeded")
+        raise KmlImportError("KMZ内のファイル数上限を超えています。")
     seen_normalized: set[str] = set()
     seen_casefolded: set[str] = set()
     kml_members: list[tuple[str, bytes]] = []
@@ -762,19 +762,19 @@ def _safe_kml_members(
         normalized = path.as_posix()
         casefolded = normalized.casefold()
         if normalized in seen_normalized or casefolded in seen_casefolded:
-            raise KmlImportError("KMZ contains duplicate normalized entries")
+            raise KmlImportError("KMZに重複したエントリが含まれています。")
         seen_normalized.add(normalized)
         seen_casefolded.add(casefolded)
         if member.flag_bits & 0x1:
-            raise KmlImportError("KMZ contains an encrypted entry")
+            raise KmlImportError("KMZに暗号化されたエントリが含まれています。")
         mode = (member.external_attr >> 16) & 0xFFFF
         if mode and stat.S_ISLNK(mode):
-            raise KmlImportError("KMZ contains a symbolic link")
+            raise KmlImportError("KMZにシンボリックリンクが含まれています。")
         if member.is_dir():
             continue
         suffix = path.suffix.casefold()
         if suffix in {".zip", ".kmz"}:
-            raise KmlImportError("KMZ contains a nested archive")
+            raise KmlImportError("KMZにネストされたアーカイブが含まれています。")
         chunks: list[bytes] = []
         signature = b""
         with archive.open(member) as handle:
@@ -785,13 +785,13 @@ def _safe_kml_members(
                     break
                 expanded_bytes += len(chunk)
                 if expanded_bytes > limits.max_expanded_bytes:
-                    raise KmlImportError("KMZ expanded size limit exceeded")
+                    raise KmlImportError("KMZの展開後のサイズ上限を超えています。")
                 if len(signature) < 4:
                     signature = (signature + chunk)[:4]
                 if suffix == ".kml":
                     chunks.append(chunk)
         if signature == b"PK\x03\x04":
-            raise KmlImportError("KMZ contains a nested archive")
+            raise KmlImportError("KMZにネストされたアーカイブが含まれています。")
         if suffix == ".kml":
             kml_members.append((member.filename, b"".join(chunks)))
     return kml_members
@@ -802,27 +802,27 @@ def _select_kmz_document(
     selected_filename: str | None,
 ) -> list[tuple[str, bytes]]:
     if not documents:
-        raise KmlImportError("KMZ does not contain a KML document")
+        raise KmlImportError("KMZにKMLドキュメントが含まれていません。")
     doc_kml = [
         document
         for document in documents
         if PurePosixPath(document[0]).name.casefold() == "doc.kml"
     ]
     if len(doc_kml) > 1:
-        raise KmlImportError("KMZ contains multiple doc.kml entries")
+        raise KmlImportError("KMZに複数のdoc.kmlが含まれています。")
     if doc_kml:
         if selected_filename is not None and selected_filename != doc_kml[0][0]:
-            raise KmlImportError("KMZ document selection does not match doc.kml")
+            raise KmlImportError("KMZで選択したドキュメントがdoc.kmlと一致しません。")
         return doc_kml
     if len(documents) == 1:
         if selected_filename is not None and selected_filename != documents[0][0]:
-            raise KmlImportError("selected KML document is unavailable")
+            raise KmlImportError("選択したKMLドキュメントは利用できません。")
         return documents
     if selected_filename is None:
         raise KmlDocumentSelectionRequired(tuple(name for name, _ in documents))
     selected = [document for document in documents if document[0] == selected_filename]
     if len(selected) != 1:
-        raise KmlImportError("selected KML document is unavailable")
+        raise KmlImportError("選択したKMLドキュメントは利用できません。")
     return selected
 
 
@@ -862,7 +862,7 @@ def _deduplicate_selected_line(
             continue
         adopted.append(coordinate)
     if len(adopted) < 2 or len(set(adopted)) < 2:
-        raise KmlImportError("selected LineString has fewer than two points after deduplication")
+        raise KmlImportError("選択したLineStringは重複を除くと2点未満になります。")
     return tuple(adopted)
 
 
@@ -876,7 +876,7 @@ def select_imported_line(
     try:
         line = result.lines[index]
     except IndexError as error:
-        raise KmlImportError("selected LineString is unavailable") from error
+        raise KmlImportError("選択したLineStringは利用できません。") from error
     if len(line.coordinates) > limits.max_coordinates_in_selected_line:
         raise KmlRouteCoordinateLimitExceeded(
             len(line.coordinates),
@@ -941,7 +941,7 @@ def _deduplicate_connected_line(
         adopted_sources.append(source)
     if len(adopted_coordinates) < 2 or len(set(adopted_coordinates)) < 2:
         raise KmlImportError(
-            "selected connected LineString has fewer than two points after deduplication"
+            "選択した連結LineStringは重複を除くと2点未満になります。"
         )
     return tuple(adopted_coordinates), tuple(adopted_names), tuple(adopted_sources)
 
@@ -969,7 +969,7 @@ def select_imported_connected_line(
     try:
         line = result.connected_lines[index]
     except IndexError as error:
-        raise KmlImportError("selected connected LineString is unavailable") from error
+        raise KmlImportError("選択した連結LineStringは利用できません。") from error
     if len(line.coordinates) > limits.max_coordinates_in_selected_line:
         raise KmlRouteCoordinateLimitExceeded(
             len(line.coordinates),
@@ -993,9 +993,9 @@ def select_imported_polygon_outer(
     try:
         outer = result.polygons[index].outer_boundary
     except IndexError as error:
-        raise KmlImportError("selected Polygon is unavailable") from error
+        raise KmlImportError("選択したPolygonは利用できません。") from error
     if len(outer) > limits.max_coordinates_in_selected_polygon_outer:
-        raise KmlImportError("selected Polygon outer coordinate limit exceeded")
+        raise KmlImportError("選択したPolygonの外枠の座標数上限を超えています。")
     return outer
 
 
@@ -1017,14 +1017,14 @@ def import_kml_or_kmz(
         except OSError as error:
             raise KmlImportError(f"cannot inspect KML/KMZ source: {path}") from error
         if source_size > limits.max_archive_bytes:
-            raise KmlImportError("KML/KMZ archive size limit exceeded")
+            raise KmlImportError("KML/KMZのアーカイブサイズ上限を超えています。")
         try:
             data = path.read_bytes()
         except OSError as error:
             raise KmlImportError(f"cannot read KML/KMZ source: {path}") from error
         display_name = filename or path.name
     if len(data) > limits.max_archive_bytes:
-        raise KmlImportError("KML/KMZ archive size limit exceeded")
+        raise KmlImportError("KML/KMZのアーカイブサイズ上限を超えています。")
 
     documents: list[tuple[str, bytes]]
     if display_name.lower().endswith(".kmz") or data[:4] == b"PK\x03\x04":
@@ -1033,7 +1033,7 @@ def import_kml_or_kmz(
                 candidates = _safe_kml_members(archive, limits)
                 documents = _select_kmz_document(candidates, kmz_kml_filename)
         except BadZipFile as error:
-            raise KmlImportError("invalid KMZ archive") from error
+            raise KmlImportError("KMZアーカイブが不正です。") from error
     else:
         documents = [(display_name, data)]
 
@@ -1054,7 +1054,7 @@ def import_kml_or_kmz(
         ) = _parse_kml(document, limits)
         total_coordinates += count
         if total_coordinates > limits.max_coordinates:
-            raise KmlImportError("KML coordinate limit exceeded")
+            raise KmlImportError("KMLの座標数上限を超えています。")
         line_index_offset = len(lines)
         points.extend(parsed_points)
         lines.extend(parsed_lines)
@@ -1088,7 +1088,7 @@ def import_kml_text(
     """Import KML/XML pasted into a text area without treating it as a file path."""
 
     if not source.lstrip("\ufeff \t\r\n").startswith("<"):
-        raise KmlImportError("pasted text is not a KML document")
+        raise KmlImportError("貼り付けたテキストはKMLドキュメントではありません。")
     return import_kml_or_kmz(
         source.encode("utf-8"),
         filename=filename,

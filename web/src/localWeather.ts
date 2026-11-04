@@ -85,7 +85,7 @@ export class LocalWeatherTransport {
       }
     } catch (error) {
       if (error instanceof WeatherError) throw error;
-      throw new WeatherError("WEATHER_DOWNLOAD_FAILED", "予報データのdownloadを完了できません。");
+      throw new WeatherError("WEATHER_TRANSPORT_FAILED", "予報データのdownloadを完了できません。");
     } finally { reader.releaseLock(); }
     const bytes = new Uint8Array(size);
     let offset = 0;
@@ -105,7 +105,7 @@ export class LocalWeatherTransport {
       await response.body?.cancel();
       throw new WeatherError(catalog ? "WEATHER_DISCOVERY_FAILED"
         : response.status === 404 || response.status === 503 ? "WEATHER_SOURCE_UNAVAILABLE"
-        : "WEATHER_DOWNLOAD_FAILED", `予報取得に失敗しました（HTTP ${response.status}）。`);
+        : "WEATHER_TRANSPORT_FAILED", `予報取得に失敗しました（HTTP ${response.status}）。`);
     }
     return this.read(response, limit);
   }
@@ -152,7 +152,12 @@ export class LocalWeatherTransport {
     let corrupt = false;
     if (cached) {
       try { validate(await this.read(cached, MAX_PAYLOAD)); return; }
-      catch { corrupt = true; await this.remove(url); }
+      catch (error) {
+        // A valid snapshot can lack the requested time without being corrupt.
+        // Keep it for covered requests; downloading the same hash cannot add data.
+        if (error instanceof WeatherError && error.code === "WEATHER_PREPARED_UNAVAILABLE") throw error;
+        corrupt = true; await this.remove(url);
+      }
     }
     let bytes: Uint8Array;
     try { bytes = await this.download(url, MAX_PAYLOAD, false); }

@@ -61,6 +61,9 @@ services:
 EOF
     fi
     cat >>"$OVERRIDE_FILE" <<EOF
+    restart: "no"
+    environment:
+      AUTONAVLOG_MSM_PREWARM: "\${AUTONAVLOG_MSM_PREWARM:-false}"
     deploy:
       resources:
         limits:
@@ -159,4 +162,4 @@ else
 fi
 
 printf 'Codex worktree ready: project=%s port=%s\n' "$COMPOSE_PROJECT_NAME" "$AUTONAVLOG_HOST_PORT"
-printf 'AutoNavLog URL after startup: http://127.0.0.1:%s\n' "$AUTONAVLOG_HOST_PORT"
+printf 'NavMate URL after startup: http://127.0.0.1:%s\n' "$AUTONAVLOG_HOST_PORT"

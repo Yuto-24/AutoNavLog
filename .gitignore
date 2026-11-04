@@ -8,6 +8,7 @@ build/
 dist/
 *.egg-info/
 .coverage
+.coverage.*
 htmlcov/
 data/cache/
 .autonavlog-data/
@@ -20,6 +21,7 @@ web/vite.config.js
 web/vite.config.d.ts
 web/src/generated/
 .env
+.env.local-static
 web/.env.local
 .autonavlog-worktree/
 
@@ -39,3 +41,11 @@ services/taf-proxy/wrangler.local.jsonc
 web/dist-static/
 /.wrangler/
 /web/.wrangler/
+
+services/msm-trigger/node_modules/
+services/msm-trigger/dist/
+services/msm-trigger/.wrangler/
+services/msm-trigger/.state/
+services/msm-trigger/.dev.vars*
+
+web/dist-backup/

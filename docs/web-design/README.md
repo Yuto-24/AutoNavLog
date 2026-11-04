@@ -1,4 +1,4 @@
-# AutoNavLog Web design system
+# NavMate Web design system
 
 This directory freezes the implementation reference for the responsive Web UI.
 
@@ -15,9 +15,13 @@ and actions remain code-native and accessible.
 
 | Token | Value | Use |
 | --- | ---: | --- |
-| `--color-navy-950` | `#0b1f33` | top bar and primary actions |
-| `--color-navy-800` | `#173b5e` | headings and route line |
-| `--color-teal-700` | `#0c7c78` | selected/VREP/automatic success |
+| `--brand-950` | `#005040` | Header and headings |
+| `--brand-900` | `#006050` | primary actions |
+| `--brand-800` | `#008060` | action hover |
+| `--brand-accent` | `#00745b` | selected controls and focus |
+| `--color-navy-950` | `#0b1f33` | aviation point indices and map tooltip text |
+| `--color-navy-800` | `#173b5e` | route line |
+| `--color-teal-700` | `#0c7c78` | VREP/manual values/automatic success |
 | `--color-amber-700` | `#a8660d` | confirmation items |
 | `--color-red-700` | `#b42318` | blockers and unavailable values |
 | `--color-slate-50` | `#f7f9fb` | utility rails |
@@ -25,6 +29,14 @@ and actions remain code-native and accessible.
 | `--color-white` | `#ffffff` | primary canvas |
 | `--radius-sm` | `6px` | fields and compact controls |
 | `--radius-md` | `10px` | purposeful panels |
+
+The green brand palette is separate from warning, error, aviation-map, VREP,
+and manual-value colors. Selected controls retain checked markers or underlines;
+keyboard focus uses a solid outline, white on the Header and selected segments.
+Custom radio controls use `:focus` for their visible focus treatment: WebKit
+can clear `:focus-visible` after arrow-key selection while retaining DOM focus.
+`map-checkpoint.spec.ts` covers Tab entry and arrow-key selection in both engines.
+The historical fidelity ledger below predates the green theme.
 
 The primary background is true white. There are no gradients, glow effects, or
 decorative cards. Shadows are reserved for temporary overlays.
@@ -54,9 +66,27 @@ decorative cards. Shadows are reserved for temporary overlays.
 - Route map with airport, waypoint, VREP, RCA, EOC, and CP markers.
 - Check Point creation from a map click or coordinates, with abeam projection and CRUD controls.
 - Desktop map-height separator with pointer and keyboard operation.
-- Editable route/leg table with ALT and PHASE controls.
+- Editable route/leg table with separate POINT and outgoing-leg rows. Each leg's
+  ALT and PHASE controls sit after its FROM point and before its TO point. ALT
+  candidates and numeric input remain side by side in wider tables and stack
+  within their leg when the table container is 460px or narrower; magnetic-course guidance and
+  descent results stay below their primary controls. Natural table flow reserves
+  room for wrapped point names and helper text without fixed offsets or overlays.
+  Compact rows do not reserve an empty copy of the helper-text height above ALT.
+  Horizontal separators are staggered by column: POINT divides adjacent legs in
+  the ALT/PHASE columns, and the middle of each leg divides the POINT column.
+  No full-width rule groups an outgoing leg with its FROM point.
+  Container queries allocate POINT/ALT/PHASE widths below 700px, avoiding a
+  minimum table width or clipped PHASE column when desktop panels narrow the table.
+  Names, edit controls and arrival details wrap without reducing their font sizes.
+  Fixed leg altitudes use the same interval placement. Arrival airport elevation
+  and the adopted pattern altitude remain on the destination POINT row.
+  `web/e2e/altitude-layout.spec.ts` checks endpoint mapping, full control bounds,
+  repeated edits, fixed/arrival details and workflow positions at 390/1100/1440 px.
 - Readiness rail showing the next action, data provenance, blockers, confirmation
   items, and acknowledgement controls.
+  Reference/performance revisions and the FTD internal run ID are available in a native
+  Details disclosure. Weather mode, real forecast run IDs, warnings and other required sources remain visible.
 - NAV LOG Summary above the main table with canonical TTL DIST and TTL TIME, plus
   destination TAF wind as reference data.
 - NAV LOG result table aligned to the 19-column 別添8-1 layout. FROM and TO stay
@@ -79,8 +109,9 @@ decorative cards. Shadows are reserved for temporary overlays.
   tables horizontally scrollable. In NAV LOG, Summary precedes the scroll region;
   TIME / FUEL PLAN follows it at the page width. Route input and flight-plan fields come first;
   the map, map confirmation, and route-confirm action then continue in one downward flow.
-- Do not hide blockers, confirmation controls, provenance, or action reasons
-  at any viewport width. Keep linked OpenStreetMap attribution visible even in
+- Do not hide blockers, confirmation controls, required sources, or action reasons
+  at any viewport width. Keep revision provenance accessible through Details at every width.
+  Keep linked OpenStreetMap attribution visible even in
   the empty-map overlay.
 
 ## Copy lock
@@ -101,7 +132,7 @@ or same-version-changed values remain unread. `autonavlog.information.knownIssue
 Known Issue IDs and visible-body hashes. Additions/edits warn in amber and in the accessible name;
 removals/reordering produce only the normal dot. Opening the dialog marks everything read immediately.
 
-The dialog subtitle is `AutoNavLog のお知らせ`. Show `既知の不具合` first (hide the entire section at zero),
+The dialog subtitle is `NavMate のお知らせ`. Show `既知の不具合` first (hide the entire section at zero),
 then `更新履歴`, with all historical entries expanded. Known Issues use amber panels, distinct from runtime
 errors. User-facing content comes from `KNOWN_ISSUES.md` and the 利用者向け section of `CHANGELOG.md`, with no developer Issues,
 distribution section or implementation jargon. Release dates are stored by GitHub Releases and are not
@@ -115,9 +146,27 @@ Summary, horizontally scrollable main table, TIME / FUEL PLAN, then guidance.
 The 2026-08-13 fidelity ledger below remains historical evidence for the
 earlier calculated view; current Playwright coverage verifies this revised
 layout at 390 px, 1,100 px, and 1,440 px.
-JSON download/copy actions follow the NAV LOG guidance/disclaimer, outside the
+JSON download/copy actions follow the NAV LOG and its applicable guidance, outside the
 horizontal scroll region, with a 1rem top margin and the same content inset and
 maximum width as NAV LOG. Buttons retain their 0.5rem gap and wrap on narrow screens.
+
+## NAV LOG main-table grid (Issue #276)
+
+The paper-derived columns have 2 px right-hand rules after TO, TAS, MC, MH,
+ZONE/CUM ETE, ETO, and ATE; other internal column rules are 1 px. The outer
+frame and header/detail boundary are 2 px, while body-row rules are 1 px dotted.
+Leg separator rows retain their blank content and short height, but render one
+cell per column so vertical rules continue through them. No extra heavy rule
+marks a leg or phase change. TIME / FUEL PLAN is unchanged.
+
+Rules are indexed from the fixed right-hand FUEL column so additional leading
+VOR/DME columns cannot shift them. Separate cell borders keep FROM/TO rules
+attached to those sticky cells during horizontal scrolling. Browser assertions
+in `web/e2e/helpers/navLogGrid.ts` check every column and row type, added/removed
+VOR columns, scrolling, and print media; the existing workflow-order test covers
+1,100 px and 1,440 px. These criteria come from the explicit Issue #276 contract;
+this implementation does not establish visual parity against the original paper
+image, which was not available in the repository or issue attachments.
 
 ## Implementation fidelity ledger (verified 2026-08-13 JST)
 
@@ -165,7 +214,39 @@ maximum width as NAV LOG. Buttons retain their 0.5rem gap and wrap on narrow scr
   remains reachable.
 - The current bundled RJFM/RJFO reference rows remain `UNVERIFIED`; visual fidelity does not
   override the primary-source release gate.
-- Fake weather remains the local default and prevents a release-ready status by design.
+- New work defaults to FORECAST; saved FTD plans retain their selected weather mode.
+
+## Provenance disclosure and map credits
+
+Readiness keeps the weather mode visible. Reference/performance revisions and the
+`ftd-fixed-v1` result ID are available in its native `詳細` disclosure; the stored values,
+calculation fingerprints and real forecast run IDs are unchanged. The duplicated footer
+revisions are removed. Static map-precision/date, altitude-rule and ground-preparation
+explanations are removed from the normal view; conditional warnings and calculation
+conditions remain independent of this display choice.
+
+Map credits are separate from revision metadata. The base layer still displays its
+OpenStreetMap copyright link on the map, as required by the
+[OSM tile policy](https://operations.osmfoundation.org/policies/tiles/).
+The live `kokuarea_minkankunren` GeoJSON is fetched from GSI, validates/extracts the
+approved KS4 features, and renders them over the base map. While those layers are
+displayed, their credit joins the existing bottom-right Leaflet attribution, keeping
+the linked MLIT source page and GSI layer page plus the processing indication.
+There is no separate explanation row below the map. The combined attribution uses
+12 px text and wraps within the map at narrow widths. The legend sits above the
+measured attribution height, including after resizing; the OSM credit stays visible
+when airspace is unavailable. Source links retain the platform external-link behavior.
+This credit is not moved behind Details: both the
+[GSI terms](https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html) and
+[MLIT terms](https://www.mlit.go.jp/link.html) require source identification, with a
+processing indication for edited content. The current GSI tile-list page did not expose
+the individual layer entry to the text reader; this was not treated as permission to
+omit a credit or as proof of a layer-specific exception.
+
+The compact credit text was determined with Gemini CLI (`gemini-3.8-flash-medium`):
+`国土交通省・国土地理院データを加工`.
+This live GSI source is unchanged; the attribution exemption for Shapefile/KML
+from the AIP ZIP does not apply to this implementation.
 
 
 ## New MAP routes (Issue #174)
@@ -188,3 +269,16 @@ The Local test helper holds renderer host tasks until it observes the requested
 focus frame, including when asynchronous confirmation schedules that frame after
 an earlier renderer task. Deferring a task by one frame alone does not establish
 this order.
+
+
+Checkpoint entry (#224 / #272) uses the same validation and save path for the
+name input's Enter key and the existing Add/Save buttons. Composition state,
+`isComposing`, `keyCode === 229` and repeated keydown events do not submit.
+A synchronous save lock covers Enter/click mixtures until the asynchronous save
+settles; failures retain the draft and permit retry. Each MAP coordinate pick
+focuses the mounted name input once and scrolls it into view; ordinary draft
+updates and manual focus changes do not focus it again. Opening or editing a
+checkpoint without a MAP pick does not request name focus.
+`web/e2e/checkpoint-enter.spec.ts` covers Local and Legacy, including 390/1100/1440px
+MAP-to-name-to-Enter flows. Composition events are simulated; these checks do not
+establish physical IME behavior or mobile software keyboard activation.

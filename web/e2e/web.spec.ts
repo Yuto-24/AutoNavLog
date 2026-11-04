@@ -1,3 +1,4 @@
+import { confirmImportedDraft, expectImportedDraft, enterImportWorkflow } from "./helpers/importWorkflow";
 import { observeLegacySession } from "./helpers/legacySession";
 import { disableClipboardRead } from "./helpers/clipboard";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
@@ -930,7 +931,7 @@ async function calculateNavLog(
   forceBacktrackedEoc = false,
   useFtdWeather = false,
 ): Promise<void> {
-  const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
+  const openPaste = page.getByRole("button", { name: "KMLを取り込む" });
   await openPaste.click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   const textbox = dialog.getByRole("textbox");
@@ -946,6 +947,10 @@ async function calculateNavLog(
   await openPaste.click();
   await textbox.fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
+
+  await confirmImportedDraft(page);
+  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
 
   if (useFtdWeather) {
     await page.getByLabel("気象モード").selectOption("FTD");
@@ -955,14 +960,12 @@ async function calculateNavLog(
     await page.getByLabel("5,000 ft風速 kt").fill("30");
   }
 
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
 
   await expect(page.locator(".route-table tbody tr.vrep-row")).toHaveCount(1);
   const altitudeInputs = page.locator(".route-table tbody tr:not(.vrep-row) .table-number-input");
   const vrepAltitudeInput = page.locator(".route-table tbody tr.vrep-row .table-number-input");
+  await expect(altitudeInputs.first()).toHaveValue("3000");
+  await altitudeInputs.first().fill("");
   await expect(altitudeInputs.first()).toHaveValue("");
   await expect(vrepAltitudeInput).toHaveValue("1500");
   for (let index = 0; index < await altitudeInputs.count(); index += 1) {
@@ -993,7 +996,7 @@ async function calculateNavLog(
   await expect(arrivalRow.getByLabel("今回採用する場周経路高度")).toBeVisible();
   await expect(arrivalRow.getByText("飛行場標高", { exact: true })).toBeVisible();
   await expect(arrivalRow.getByText("17 ft MSL", { exact: true })).toBeVisible();
-  await expect(arrivalRow).toContainText("master 1,000 ft MSL（標高差 983 ft）");
+  await expect(arrivalRow).toContainText("参照値 1,000 ft MSL（標高差 983 ft）");
   await expect(patternAltitude).toHaveValue("1000");
   await expect(page.getByRole("button", { name: "目的空港・場周高度を確定" })).toHaveCount(0);
   await patternAltitude.fill("");
@@ -1099,11 +1102,12 @@ async function reloadWithCurrentRjfmGuidance(
 }
 
 async function importKmlCandidate(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
+  await expect(dialog).toBeHidden();
+  await expectImportedDraft(page);
 }
 
 test.beforeEach(async ({ page, request }) => {
@@ -1296,9 +1300,10 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await enterImportWorkflow(page);
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await expect(page.locator("body")).not.toBeEmpty();
-  const savedProjectButton = page.getByRole("button", { name: "保存済みProjectを開く" });
+  const savedProjectButton = page.getByRole("button", { name: "保存済みプロジェクトを開く" });
   const savedProjectButtonLayout = await savedProjectButton.evaluate((button) => {
     const icon = button.querySelector("svg");
     const buttonRect = button.getBoundingClientRect();
@@ -1316,10 +1321,8 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
     paddingLeft: "0px",
     paddingRight: "0px",
   });
-  await expect(page.getByLabel("TO")).toHaveValue("");
-  await expect(page.getByLabel("RUN UP あり")).toBeChecked();
-  await expect(page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)")).not.toBeChecked();
-  await expect(page.getByLabel("A/C ON (巡航速度 -2 kt)")).toBeChecked();
+  await expect(page.getByLabel("TO", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("RUN UP あり")).toHaveCount(0);
   await expect(page.getByLabel("QNH値")).toHaveCount(0);
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
@@ -1330,6 +1333,10 @@ test("desktop workflow renders without the removed A4 output", async ({ page }, 
   });
 
   await calculateNavLog(page);
+  await expect(page.getByLabel("TO", { exact: true })).toHaveValue(/^RJFO\b/);
+  await expect(page.getByLabel("RUN UP あり")).toBeChecked();
+  await expect(page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)")).not.toBeChecked();
+  await expect(page.getByLabel("A/C ON (巡航速度 -2 kt)")).toBeChecked();
 
   await expect(
     page.getByText("PATTERN_ALTITUDE_REQUIRED", { exact: true }),
@@ -1395,7 +1402,8 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await enterImportWorkflow(page);
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   const initiallyHasProject = await page.evaluate(async () => {
     const response = await fetch("/api/state");
     if (!response.ok) throw new Error(`state request failed: ${response.status}`);
@@ -1406,7 +1414,8 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
     page.waitForNavigation(),
     page.getByRole("button", { name: "新規" }).click(),
   ]);
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await enterImportWorkflow(page);
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(async () => {
     const response = await fetch("/api/state");
     if (!response.ok) throw new Error(`state request failed: ${response.status}`);
@@ -1468,8 +1477,8 @@ test("tab last-good calculation survives reload and cookie loss until explicit d
   });
 
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "保存済みProjectを削除" }).click();
-  await expect(page.getByText("保存済みProjectを削除しました。", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "保存済みプロジェクトを削除" }).click();
+  await expect(page.getByText("保存済みプロジェクトを削除しました。", { exact: true })).toBeVisible();
   await context.clearCookies();
   await page.reload();
   await expect(page.getByLabel("計算済みNAV LOG")).toHaveCount(0);
@@ -1487,8 +1496,7 @@ test("valid planning drafts autosave before calculation and coalesce rapid edits
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   const routeAltitudes = page.locator(
     ".route-table tbody tr:not(.vrep-row) .table-number-input",
@@ -1600,8 +1608,7 @@ test("draft autosave failure keeps the local value and a manual save flushes its
 }) => {
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
   const routeAltitudes = page.locator(
     ".route-table tbody tr:not(.vrep-row) .table-number-input",
   );
@@ -1637,7 +1644,7 @@ test("draft autosave failure keeps the local value and a manual save flushes its
   }, { times: 1 });
   const fuel = page.getByLabel("FUEL gal");
   await fuel.fill("76");
-  await expect(page.getByRole("alert")).toContainText("Projectを自動保存できませんでした");
+  await expect(page.getByRole("alert")).toContainText("プロジェクトを自動保存できませんでした");
   await expect(fuel).toHaveValue("76");
 
   const requestOrder: string[] = [];
@@ -1664,8 +1671,7 @@ test("manual save flushes a pending destination pattern exactly once before chec
 }) => {
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   const routeAltitudes = page.locator(
     ".route-table tbody tr:not(.vrep-row) .table-number-input",
@@ -1721,8 +1727,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
 }) => {
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   const readState = async (): Promise<WebState> => page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -1738,7 +1743,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
   if (!latest) throw new Error("tab Project is missing");
   expect(latest.revision).toBe(0);
   expect(latestState.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(0);
-  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: "自動保存", exact: true })).toHaveCount(0);
   expect(latestState.savedProjects.some(project => project.id === latest.id)).toBe(false);
 
   const routeAltitudes = page.locator(
@@ -1764,7 +1769,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
   await altitudeSaved;
 
   const projectName = `タブから保存-${latest.id.slice(0, 8)}`;
-  await page.getByLabel("プロジェクト").fill(projectName);
+  await page.getByLabel("プロジェクト", { exact: true }).fill(projectName);
   const saveResponse = page.waitForResponse(
     (response) => response.url().endsWith("/api/projects/save") && response.ok(),
   );
@@ -1781,7 +1786,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
   expect(savedState.savedProjects.find((project) => project.id === latest.id)?.revision).toBe(1);
   expect(savedState.savedProjects.some((project) => project.kind === "LATEST")).toBe(false);
   await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(1);
-  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: "自動保存", exact: true })).toHaveCount(0);
 
   const postSaveAutosave = page.waitForResponse((response) => {
     if (!response.url().endsWith("/api/project") || !response.ok()) return false;
@@ -1799,8 +1804,7 @@ test("tab-only drafts become shared projects only after explicit save", async ({
     page.getByRole("button", { name: "新規" }).click(),
   ]);
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
   await expect.poll(async () => {
     const current = await readState();
     return current.project !== null;
@@ -1810,22 +1814,21 @@ test("tab-only drafts become shared projects only after explicit save", async ({
     (project) => project.id === latest.id && project.kind === "SAVED" && project.name === projectName,
   )).toBe(true);
   expect(afterNew.savedProjects.filter((project) => project.kind === "LATEST")).toHaveLength(0);
-  await expect(page.getByRole("option", { name: "Latest", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: "自動保存", exact: true })).toHaveCount(0);
   await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(1);
 
   // Keep the persistent Compose volume clean while exercising explicit deletion.
   await page.getByLabel("保存済み", { exact: true }).selectOption(latest.id);
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "保存済みProjectを削除" }).click();
-  await expect(page.getByText("保存済みProjectを削除しました。", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "保存済みプロジェクトを削除" }).click();
+  await expect(page.getByText("保存済みプロジェクトを削除しました。", { exact: true })).toBeVisible();
   await expect(page.getByRole("option", { name: projectName, exact: true })).toHaveCount(0);
 });
 
 test("new work replaces only the tab draft and does not create shared Latest", async ({ page }) => {
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   const readState = async (): Promise<WebState> => page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -1849,8 +1852,7 @@ test("new work replaces only the tab draft and does not create shared Latest", a
     page.getByRole("button", { name: "新規" }).click(),
   ]);
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   await expect.poll(async () => {
     const current = await readState();
@@ -1939,8 +1941,7 @@ test("edited VREP altitude reaches the calculation request and NAV LOG", async (
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await confirmImportedDraft(page);
 
   await expect(page.locator(".route-table tbody tr.vrep-row")).toHaveCount(1);
   const routeAltitudes = page.locator(".route-table tbody tr:not(.vrep-row) .table-number-input");
@@ -2055,7 +2056,7 @@ test("phase-specific TAS drafts on one RCA-split Physical Leg persist independen
   const saved = page.waitForResponse(
     (response) => response.url().endsWith("/api/projects/save") && response.ok(),
   );
-  await page.getByLabel("プロジェクト").fill("phase TAS");
+  await page.getByLabel("プロジェクト", { exact: true }).fill("phase TAS");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await saved;
   await page.reload();
@@ -2201,7 +2202,7 @@ test("stale destination pattern response cannot overwrite a loaded project or du
     });
   }, { times: 1 });
   await page.getByLabel("保存済み", { exact: true }).selectOption(replacementProjectId);
-  await page.getByRole("button", { name: "保存済みProjectを開く" }).click();
+  await page.getByRole("button", { name: "保存済みプロジェクトを開く" }).click();
   await expect(patternAltitude).toHaveValue("1900");
   await expect(page.getByLabel("TO")).toHaveValue(/RJFK/);
 
@@ -2218,6 +2219,9 @@ test("mobile numeric inputs allow clear then re-entry and TGL is sent as a numbe
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
+  await importKmlCandidate(page);
+  await confirmImportedDraft(page);
+
   const fuel = page.getByLabel("FUEL gal");
   await expect(fuel).toHaveValue("90");
   await fuel.fill("");
@@ -2230,19 +2234,15 @@ test("mobile numeric inputs allow clear then re-entry and TGL is sent as a numbe
   await tgl.fill("");
   await expect(tgl).toHaveValue("");
 
-  await importKmlCandidate(page);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("TGLは0～20の整数で入力してください。")).toBeVisible();
 
+  const updateRequest = page.waitForRequest((request) =>
+    request.url().endsWith("/api/project") && request.method() === "PUT"
+      && request.postDataJSON().tgl_count === 3);
   await tgl.fill("3");
   await expect(tgl).toHaveValue("3");
-  const confirmRequest = page.waitForRequest(
-    (request) => request.url().endsWith("/api/route/confirm")
-      && request.method() === "POST",
-  );
-  await page.getByRole("button", { name: "経路を確定" }).click();
-  const payload = (await confirmRequest).postDataJSON() as Record<string, unknown>;
+  const payload = (await updateRequest).postDataJSON() as Record<string, unknown>;
   expect(payload.tgl_count).toBe(3);
 });
 
@@ -2252,21 +2252,21 @@ test("mobile route confirmation follows the map without scrolling back", async (
   await importKmlCandidate(page);
 
   const map = page.locator("#route-map-frame");
-  const confirmation = page.getByRole("region", { name: "経路確認" });
-  const checkbox = page.getByLabel("地図とKML記載順を確認しました");
+  const confirmation = page.locator(".map-route-controls");
+  const routeList = page.getByRole("list", { name: "経路リスト" });
   const confirm = page.getByRole("button", { name: "経路を確定" });
   const mapBox = await map.boundingBox();
   const confirmationBox = await confirmation.boundingBox();
-  const checkboxBox = await checkbox.boundingBox();
+  const routeListBox = await routeList.boundingBox();
   const confirmBox = await confirm.boundingBox();
-  if (!mapBox || !confirmationBox || !checkboxBox || !confirmBox) {
+  if (!mapBox || !confirmationBox || !routeListBox || !confirmBox) {
     throw new Error("Map confirmation layout is missing");
   }
   expect(confirmationBox.y).toBeGreaterThanOrEqual(mapBox.y + mapBox.height - 1);
-  expect(checkboxBox.y).toBeLessThan(confirmBox.y);
+  expect(routeListBox.y).toBeLessThan(confirmBox.y);
   await expect(page.getByRole("separator", { name: "地図の高さを調整" })).toBeHidden();
 
-  await checkbox.check();
+  await expect(page.getByLabel("地図とKML記載順を確認しました")).toHaveCount(0);
   await confirm.click();
   await expect(confirmation).toBeHidden();
   await expect(page.getByRole("heading", { name: "チェックポイント" })).toBeVisible();
@@ -2305,7 +2305,7 @@ test("route-node inline rename reprojects the current table, map, and NAV LOG", 
   if (vrep === undefined || before.outcome === null) {
     throw new Error("Calculated VREP route node is missing");
   }
-  const routeRow = page.locator(".route-table tbody tr.vrep-row");
+  const routeRow = page.locator(".route-table tbody .vrep-point-row");
   const nameInput = routeRow.locator(".route-name-editor input");
 
   await routeRow.getByRole("button", { name: "編集" }).click();
@@ -2528,15 +2528,15 @@ test("cruise boundary cards separate calculation conditions from interpolation c
     const card = cards.nth(zoneOrdinal - 1);
     await expect(card).toContainText(`TP1 → RJFO · 巡航 Zone ${zoneOrdinal}/3`);
     await expect(card).toContainText(`ZONE-${zoneOrdinal}-FROM → ZONE-${zoneOrdinal}-TO`);
-    await expect(card).toContainText("Calculation condition");
-    await expect(card).toContainText("Selected table condition");
-    await expect(card).toContainText("Pressure altitude boundary");
-    await expect(card).toContainText("Boundary used at interpolation corner");
-    await expect(card).toContainText("Requested");
-    await expect(card).toContainText("Available");
-    await expect(card).toContainText("Supporting PWR");
-    await expect(card).toContainText("Linear extrapolation");
-    await expect(card).toContainText("Resolved");
+    await expect(card).toContainText("計算条件");
+    await expect(card).toContainText("採用した表の条件");
+    await expect(card).toContainText("気圧高度（PA）の境界値");
+    await expect(card).toContainText("補間に使用した境界値");
+    await expect(card).toContainText("要求値");
+    await expect(card).toContainText("収録範囲");
+    await expect(card).toContainText("外挿根拠のPWR");
+    await expect(card).toContainText("線形外挿");
+    await expect(card).toContainText("採用値");
   }
 
   await cards.first().getByRole("checkbox").click();
@@ -2576,7 +2576,7 @@ test("responsive workflow keeps a one-way order at intermediate width", async ({
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
-  await expect(page).toHaveTitle(/AutoNavLog/);
+  await expect(page).toHaveTitle(/NavMate/);
   await expect(page.locator("body")).not.toBeEmpty();
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
@@ -2695,6 +2695,70 @@ test("responsive workflow keeps a one-way order at intermediate width", async ({
   expect(pageErrors).toEqual([]);
 });
 
+test("provenance Details preserve saved inputs, fingerprint and FTD run ID", async ({ page }) => {
+  await page.goto("/");
+  await enterImportWorkflow(page);
+  const readState = () => page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error("state read failed");
+    return await response.json() as WebState;
+  });
+  const runtime = (await readState()).runtime;
+  await expect(page.locator(".status-rail > .provenance-list")).toContainText(runtime.weatherLabel);
+  if (runtime.developmentWeather) {
+    await expect(page.getByText("開発用気象モード", { exact: true })).toBeVisible();
+  }
+  await calculateNavLog(page, false, false, true);
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
+  const before = await readState();
+  const calculation = before.workingRecovery?.last_calculation as { calculation_fingerprint: string };
+  expect(calculation.calculation_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+  expect(before.outcome?.selected_forecast_run_id).toBe("ftd-fixed-v1");
+  expect(before.readiness.calculationIsCurrent).toBe(true);
+  const writes: string[] = [];
+  page.on("request", request => {
+    if (new URL(request.url()).pathname.startsWith("/api/") && request.method() !== "GET") {
+      writes.push(request.url());
+    }
+  });
+  const details = page.locator(".status-rail .provenance-details");
+  const summary = details.locator("summary");
+  for (const width of [390, 1100, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(details).toHaveJSProperty("open", false);
+    await expect(page.locator(".status-rail > .provenance-list")).toContainText("FTD固定気象");
+    await expect(page.getByText(runtime.referenceRevision, { exact: true })).toBeHidden();
+    await expect(page.getByText(runtime.performanceRevision!, { exact: true })).toBeHidden();
+    await expect(page.getByText("ftd-fixed-v1", { exact: true })).toBeHidden();
+    await expect(page.locator(".nav-log-heading")).not.toContainText("ftd-fixed-v1");
+    await summary.focus();
+    await page.keyboard.press("Enter");
+    await expect(details).toHaveJSProperty("open", true);
+    await expect(details.getByText(runtime.referenceRevision, { exact: true })).toBeVisible();
+    await expect(details.getByText(runtime.performanceRevision!, { exact: true })).toBeVisible();
+    await expect(details.getByText("ftd-fixed-v1", { exact: true })).toBeVisible();
+    await expect(page.locator(".status-rail > .provenance-list")).toBeVisible();
+    await expect(page.getByText("到着区間の計算はCALMです。", { exact: true })).toHaveCount(0);
+    await page.keyboard.press("Space");
+    await expect(details).toHaveJSProperty("open", false);
+    const after = await readState();
+    expect(after.project).toEqual(before.project);
+    expect(after.outcome).toEqual(before.outcome);
+    expect(after.workingRecovery?.last_calculation).toEqual(before.workingRecovery?.last_calculation);
+    expect(after.readiness.calculationIsCurrent).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  }
+  expect(writes).toEqual([]);
+  await page.reload();
+  await expect(page.locator(".nav-log-table")).toBeVisible();
+  await expect(details).toHaveJSProperty("open", false);
+  const restored = await readState();
+  expect(restored.project).toEqual(before.project);
+  expect(restored.outcome).toEqual(before.outcome);
+  expect(restored.workingRecovery?.last_calculation).toEqual(before.workingRecovery?.last_calculation);
+});
+
 test("RJFM inbound guidance remains below NAV LOG at intermediate and wide widths", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
@@ -2782,14 +2846,14 @@ test("RJFM inbound guidance remains below NAV LOG at intermediate and wide width
 
 test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays editable", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(rjfmPhysicalUmkOmaruKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await expect(dialog).toBeHidden();
+  await confirmImportedDraft(page);
 
-  const rows = page.locator(".route-table tbody tr");
+  const rows = page.locator(".route-table tbody .route-leg-row");
   await expect(page.locator(".route-table th", { hasText: "ROLE" })).toHaveCount(0);
   const departure = rows.nth(0);
   const umk = rows.nth(1);
@@ -2811,6 +2875,8 @@ test("RJFM to UMK and UMK to OMARU inputs are fixed while OMARU outgoing stays e
 test("desktop map height is keyboard adjustable and fixed below breakpoint", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  await importKmlCandidate(page);
+  await confirmImportedDraft(page);
 
   const map = page.locator("#route-map-frame");
   const separator = page.getByRole("separator", { name: "地図の高さを調整" });
@@ -2902,18 +2968,20 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
 
   const legend = page.getByRole("group", { name: "RJFMガイダンス凡例" });
   await expect(legend).toHaveCSS("pointer-events", "none");
-  await expect(legend).toContainText("PCA 200–800 m");
+  await expect(legend).toContainText("PCA：約656–2,625 ft（200–800 m）");
   await expect(legend).toContainText("中心除外 9 km");
-  await expect(legend).toContainText("民間訓練試験空域 KS4（GSI）");
-  await expect(legend).toContainText("GSI: 12区画を表示");
-  const airspaceNote = page.getByLabel("RJFM空域データ注記");
-  await expect(airspaceNote).toContainText("NAV LOG計算やPCA判定には使用しません");
-  await expect(airspaceNote).not.toContainText("境界付近は空域を管轄する機関へ確認してください");
-  await expect(airspaceNote.getByRole("link", { name: "国土交通省" })).toHaveAttribute(
+  await expect(legend).not.toContainText("民間訓練試験空域 KS4（GSI）");
+  await expect(legend).not.toContainText("区画を表示");
+  await expect(page.locator(".rjfm-airspace-note")).toHaveCount(0);
+  const attribution = page.locator(".leaflet-control-attribution");
+  const airspaceCredit = attribution.locator(".rjfm-airspace-credit");
+  await expect(airspaceCredit).toHaveText("国土交通省・国土地理院データを加工");
+  await expect(airspaceCredit).toHaveCount(1);
+  await expect(airspaceCredit.getByRole("link", { name: "国土交通省", exact: true })).toHaveAttribute(
     "href",
     "https://www.mlit.go.jp/koku/koku_tk10_000004.html",
   );
-  await expect(airspaceNote.getByRole("link", { name: "国土地理院レイヤー" })).toHaveAttribute(
+  await expect(airspaceCredit.getByRole("link", { name: "国土地理院", exact: true })).toHaveAttribute(
     "href",
     /kokuarea_minkankunren$/,
   );
@@ -2933,6 +3001,10 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await expect(page.locator(".rjfm-center-marker")).toHaveCount(3);
   await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
   await expect(page.locator(".rjfm-pca-boundary")).toHaveAttribute("stroke", "#a45b13");
+  await page.locator(".rjfm-pca-boundary").dispatchEvent("mouseover");
+  await expect(page.getByRole("tooltip").filter({ hasText: "宮崎特別管制区（PCA）" })).toContainText("原告示高度 約656–2,625 ft（200–800 m）");
+  await expect(page.getByRole("tooltip").filter({ hasText: "宮崎特別管制区（PCA）" })).toContainText("運用判定 656–2,700 ft MSL（利用者承認値）");
+  await page.locator(".rjfm-pca-boundary").dispatchEvent("mouseout");
   await expect(page.locator(".rjfm-pca-exclusion")).toHaveCount(1);
   await expect(page.locator(".rjfm-pca-exclusion")).toHaveAttribute(
     "stroke-dasharray",
@@ -2955,10 +3027,40 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     width: "2",
   })));
 
+  for (const width of [390, 1100, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(attribution).toHaveCSS("font-size", "12px");
+    await expect(attribution.getByRole("link", { name: "OpenStreetMap", exact: true }))
+      .toHaveAttribute("href", "https://www.openstreetmap.org/copyright");
+    const bounds = await attribution.evaluate(element => {
+      const credit = element.getBoundingClientRect();
+      const map = element.closest(".route-map")!.getBoundingClientRect();
+      return { left: credit.left - map.left, right: map.right - credit.right,
+        bottom: map.bottom - credit.bottom, overflow: element.scrollWidth - element.clientWidth };
+    });
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeGreaterThanOrEqual(0);
+    expect(bounds.bottom).toBeGreaterThanOrEqual(0);
+    expect(bounds.overflow).toBeLessThanOrEqual(1);
+    await expect.poll(async () => {
+      const creditBox = await attribution.boundingBox();
+      const legendBox = await legend.boundingBox();
+      return creditBox!.y - (legendBox!.y + legendBox!.height);
+    }).toBeGreaterThanOrEqual(0);
+    const outline = page.locator(".rjfm-pca-boundary");
+    const beforeZoom = await outline.getAttribute("d");
+    await page.locator(".leaflet-control-zoom-in").click();
+    await expect(outline).not.toHaveAttribute("d", beforeZoom!);
+    await page.locator(".leaflet-control-zoom-out").click();
+    await expect(airspaceCredit).toHaveText("国土交通省・国土地理院データを加工");
+    await page.locator(".map-frame").screenshot({ path: test.info().outputPath(`credits-${width}.png`) });
+  }
+
   await page.setViewportSize({ width: 1100, height: 900 });
   await expect(legend).toBeVisible();
   await expect(page.locator(".rjfm-training-airspace")).toHaveCount(12);
   await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(19);
+  await expect(airspaceCredit).toHaveCount(1);
 
   await page.setViewportSize({ width: 390, height: 844 });
   const runway09Box = await runway09.boundingBox();
@@ -2974,8 +3076,8 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   await page.getByLabel("FUEL gal").fill("77");
   await expect(guidance).toHaveCount(0);
   await expect(legend).toBeVisible();
-  await expect(legend).toContainText("PCA 200–800 m");
-  await expect(legend).toContainText("民間訓練試験空域 KS4（GSI）");
+  await expect(legend).toContainText("PCA：約656–2,625 ft（200–800 m）");
+  await expect(legend).not.toContainText("民間訓練試験空域 KS4（GSI）");
   await expect(legend).not.toContainText("Newta CENTER");
   await expect(legend).not.toContainText("RWY 09");
   await expect(page.locator(".rjfm-guidance-path")).toHaveCount(0);
@@ -3000,8 +3102,8 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     name: "RJFM北方面出発ガイダンス",
   })).toHaveCount(0);
   await expect(legend).toBeVisible();
-  await expect(legend).toContainText("PCA 200–800 m");
-  await expect(legend).toContainText("民間訓練試験空域 KS4（GSI）");
+  await expect(legend).toContainText("PCA：約656–2,625 ft（200–800 m）");
+  await expect(legend).not.toContainText("民間訓練試験空域 KS4（GSI）");
   await expect(legend).not.toContainText("Newta CENTER");
   await expect(page.locator(".rjfm-guidance-path")).toHaveCount(0);
   await expect(page.locator(".rjfm-center-route")).toHaveCount(0);
@@ -3065,10 +3167,12 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
   ] as const) {
     await reloadWithGsiFixtureMode(page, rejectedMode, guidanceState);
     await expect(rejectedAirspaceLegend).toContainText(
-      "GSI空域は取得できず非表示",
+      "空域情報を取得できず非表示",
     );
     await expect(page.locator(".rjfm-training-airspace")).toHaveCount(0);
     await expect(page.locator(".rjfm-training-airspace-boundary")).toHaveCount(0);
+    await expect(airspaceCredit).toHaveCount(0);
+    await expect(attribution.getByRole("link", { name: "OpenStreetMap", exact: true })).toBeVisible();
     await expect(page.locator(".rjfm-pca-boundary")).toHaveCount(1);
     await expect(page.locator(".rjfm-pca-exclusion")).toHaveCount(1);
   }
@@ -3079,7 +3183,7 @@ test("RJFM departure guidance renders route overlays and runway diagnostics", as
     guidanceState,
   );
   await expect(rejectedAirspaceLegend).toContainText(
-    "GSI空域は取得できず非表示",
+    "空域情報を取得できず非表示",
   );
   await expect.poll(() => didGsiPendingPeerAbort(page), {
     message: "the pending peer GSI request should be aborted after the first tile fails",
@@ -3094,31 +3198,48 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
   await page.goto("/");
-  await expect(page).toHaveTitle(/AutoNavLog/);
+  await expect(page).toHaveTitle(/NavMate/);
   await expect(page.locator("body")).not.toBeEmpty();
   await expect(
     page.locator("[data-nextjs-dialog], .vite-error-overlay, #webpack-dev-server-client-overlay"),
   ).toHaveCount(0);
   await importKmlCandidate(page);
+  await confirmImportedDraft(page);
 
   await page.getByLabel("気象モード").selectOption("FTD");
   await expect(page.getByLabel("地上風向 ° FROM")).toHaveValue("360");
   await expect(page.getByLabel("地上風速 kt")).toHaveValue("15");
   await expect(page.getByLabel("5,000 ft風向 ° FROM")).toHaveValue("270");
   await expect(page.getByLabel("5,000 ft風速 kt")).toHaveValue("30");
-  const confirmRoute = page.getByRole("button", { name: "経路を確定" });
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByLabel("地上風向 ° FROM").fill("0");
-  await expect(confirmRoute).toBeDisabled();
-  await page.getByLabel("地上風向 ° FROM").fill("1.5");
-  await expect(confirmRoute).toBeDisabled();
+  const save = page.getByRole("button", { name: "保存", exact: true });
+  const invalidSubmissions: string[] = [];
+  const observeInvalidSubmission = (request: import("@playwright/test").Request) => {
+    if (request.url().endsWith("/api/projects/save") || request.url().endsWith("/api/calculation-jobs")) {
+      invalidSubmissions.push(request.url());
+    } else if (request.url().endsWith("/api/project") && request.method() === "PUT") {
+      const direction = request.postDataJSON().ftd_weather?.surface_wind?.direction_deg_from;
+      if (direction !== undefined && (!Number.isInteger(direction) || direction < 1 || direction > 360)) {
+        invalidSubmissions.push(request.url());
+      }
+    }
+  };
+  page.on("request", observeInvalidSubmission);
+  for (const invalidDirection of ["0", "1.5"]) {
+    await page.getByLabel("地上風向 ° FROM").fill(invalidDirection);
+    await save.click();
+    await expect(page.getByRole("alert")).toContainText("FTD固定気象は、地上と5,000 ftの風向・風速を範囲内で入力してください。");
+    expect(invalidSubmissions).toEqual([]);
+    await page.getByRole("button", { name: "メッセージを閉じる" }).click();
+  }
+  page.off("request", observeInvalidSubmission);
   await page.getByLabel("地上風向 ° FROM").fill("350");
   await page.getByLabel("地上風速 kt").fill("10");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("10");
   await page.getByLabel("5,000 ft風速 kt").fill("20");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("360");
-  await expect(confirmRoute).toBeEnabled();
-  await confirmRoute.click();
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
 
   const stateAfterConfirm = await page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -3245,7 +3366,9 @@ test("FTD route settings and checkpoint CRUD are available from the web UI", asy
 
   page.once("dialog", (dialog) => void dialog.accept());
   await editor.getByRole("button", { name: "訓練CP改を削除" }).click();
-  await expect(editor.getByText("まだチェックポイントはありません。")).toBeVisible();
+  await expect(editor.locator(".checkpoint-item")).toHaveCount(0);
+  await expect(editor.getByText("まだチェックポイントはありません。")).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: "チェックポイントを追加" })).toBeEnabled();
   expect(runtimeErrors).toEqual([]);
 });
 
@@ -3448,7 +3571,14 @@ test("NAV LOG summary, sticky route names, and TIME / FUEL PLAN remain stable ac
   }
   await expect(summary).toContainText(`${calculatedSummary.distance.text} NM`);
   await expect(summary).toContainText(calculatedSummary.time.text ?? "未取得");
-  await expect(summary.getByLabel("目的地空港の風予報")).toContainText("出典:");
+  expect(calculatedState.project?.weather_mode).toBe("FORECAST");
+  await expect(page.locator(".nav-log-heading")).toContainText(
+    `予報実行ID: ${calculatedState.outcome?.selected_forecast_run_id}`,
+  );
+  const destinationWind = summary.getByLabel("目的地空港の風予報");
+  await expect(destinationWind).not.toContainText("出典:");
+  await expect(destinationWind).not.toContainText("到着区間の計算はCALMです。");
+  await expect(destinationWind.locator("strong")).toContainText("目的地風:");
   await expect(fuel.getByRole("heading", { name: "TIME / FUEL PLAN" })).toBeVisible();
   const dismissNotice = page.getByLabel("メッセージを閉じる");
   if (await dismissNotice.count()) await dismissNotice.first().click();
@@ -3591,13 +3721,13 @@ test("VOR/DME reference columns can be added, configured independently, and remo
 test("climb and descent legs show magnetic-course altitude candidates", async ({ page }) => {
   await page.goto("/");
 
-  const openPaste = page.getByRole("button", { name: "KMLを貼り付け" });
+  const openPaste = page.getByRole("button", { name: "KMLを取り込む" });
   await openPaste.click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await expect(dialog).toBeHidden();
+  await confirmImportedDraft(page);
 
   const phaseSelects = page.getByLabel(/出発LegのPhase/);
   await page.getByRole("button", { name: "変更", exact: true }).click();
@@ -3611,9 +3741,10 @@ test("climb and descent legs show magnetic-course altitude candidates", async ({
   await expect(descentCandidate).toBeVisible();
   await expect(climbCandidate.locator("option")).not.toHaveCount(0);
   await expect(descentCandidate.locator("option")).not.toHaveCount(0);
+  // Static explanatory copy was removed; the controls retain the altitude basis.
   await expect(
     page.getByText(/上昇のALTは上昇先、降下のALTは降下開始時の巡航高度/),
-  ).toBeVisible();
+  ).toHaveCount(0);
 
   const climbAltitude = await climbCandidate.locator("option").first().getAttribute("value");
   const descentAltitude = await descentCandidate.locator("option").first().getAttribute("value");
@@ -3622,8 +3753,11 @@ test("climb and descent legs show magnetic-course altitude candidates", async ({
   }
   await climbCandidate.selectOption(climbAltitude);
   await descentCandidate.selectOption(descentAltitude);
+  const climbRow = climbCandidate.locator("xpath=ancestor::tr");
   const descentRow = descentCandidate.locator("xpath=ancestor::tr");
   const descentInput = descentRow.getByLabel(/出発Legの計画高度/);
+  await expect(climbRow.getByLabel(/出発Legの計画高度/)).toHaveValue(climbAltitude);
+  await expect(descentInput).toHaveValue(descentAltitude);
 
   await descentInput.fill("3000");
   await expect(descentCandidate).toHaveValue("custom");
@@ -3681,11 +3815,11 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   const saveResponse = page.waitForResponse(
     (response) => response.url().endsWith("/api/projects/save") && response.ok(),
   );
-  await page.getByLabel("プロジェクト").fill("訓練航法 8月");
+  await page.getByLabel("プロジェクト", { exact: true }).fill("訓練航法 8月");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   const savedResponse = await saveResponse;
   expect((await savedResponse.request().postDataJSON()).name).toBe("訓練航法 8月");
-  await expect(page.getByLabel("プロジェクト")).toHaveValue("訓練航法 8月");
+  await expect(page.getByLabel("プロジェクト", { exact: true })).toHaveValue("訓練航法 8月");
   await expect(page.locator("#saved-project")).toContainText("訓練航法 8月");
   await expect(windDirection).toHaveValue("270");
   await expect(windDirection).toHaveAttribute("aria-invalid", "true");
@@ -3734,13 +3868,104 @@ test("NAV LOG safe inputs validate and recalculate automatically", async ({ page
   await expect(page.locator(".derived-readonly-cell").first()).toHaveAttribute("title", /表示専用セル/);
 });
 
+for (const width of [1100, 1440]) {
+  test(`EOC TOAT stays visible for equal and different phase values at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    page.on("console", message => {
+      // A Compose runtime without NAVMATE_URL has no optional migration endpoint.
+      const disabledMigration = message.location().url.endsWith("/api/account-link")
+        && message.text().includes("404 (Not Found)");
+      if (message.type() === "error" && !disabledMigration) errors.push(message.text());
+    });
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/");
+    await expect(page).toHaveTitle(/NavMate/);
+    await calculateNavLog(page, false, true, true);
+    let state = await page.evaluate(async () => (await fetch("/api/state")).json()) as WebState;
+    const firstDescent = () => state.outcome!.sections.find(section => section.phase === "DESCENT")!;
+    const descentRow = () => state.outcome!.display_rows.find(row => (
+      row.row_type === "CALCULATION_ZONE" && row.source_result_sequence === firstDescent().sequence
+    ))!;
+    const findCruiseRow = () => state.outcome!.display_rows.find(row => (
+      row.row_type === "PHYSICAL_LEG_SUMMARY"
+      && row.section_id === firstDescent().section_id && row.phase === "CRUISE"
+    ))!;
+    expect(findCruiseRow()).toBeDefined();
+    expect(firstDescent().from_name).toBe("EOC");
+    // Use an exact, readable manual value on both sides of the boundary.
+    const cruiseRecalculation = page.waitForResponse(response => (
+      response.url().endsWith("/api/project/recalculate") && response.ok()
+    ));
+    await page.locator(`.nav-log-table tr[data-row-sequence="${findCruiseRow().sequence}"]`)
+      .getByLabel(/手動気温$/).fill("10");
+    state = await (await cruiseRecalculation).json() as WebState;
+    const cruiseRow = findCruiseRow();
+    const cruiseTemperature = Number(cruiseRow.toat.effective_value);
+    expect(cruiseTemperature).toBe(10);
+    const sourceSectionId = firstDescent().section_id;
+    const rowLocator = () => page.locator(`.nav-log-table tr[data-row-sequence="${descentRow().sequence}"]`);
+    await expect(rowLocator().getByLabel(/手動気温$/)).toBeVisible();
+    await expect(rowLocator().getByLabel(/手動気温$/)).toHaveAttribute("placeholder", descentRow().toat.text!);
+
+    for (const temperature of [cruiseTemperature, cruiseTemperature - 5]) {
+      const recalculation = page.waitForResponse(response => (
+        response.url().endsWith("/api/project/recalculate") && response.ok()
+      ));
+      await rowLocator().getByLabel(/手動気温$/).fill(String(temperature));
+      const response = await recalculation;
+      state = await response.json() as WebState;
+      expect(firstDescent().section_id).toBe(sourceSectionId);
+      expect(firstDescent().from_name).toBe("EOC");
+      expect(firstDescent().temperature_c.manual_override).toBe(temperature);
+      expect(descentRow().toat).toMatchObject({
+        state: "DISPLAY_VALUE", effective_value: temperature, text: temperature.toFixed(1), manual: true,
+      });
+      expect(state.outcome!.display_rows.find(row => row.sequence === cruiseRow.sequence)?.toat)
+        .toEqual(cruiseRow.toat);
+      await expect(rowLocator().getByLabel(/手動気温$/)).toHaveValue(String(temperature));
+      for (const field of ["wind", "wca", "mh", "gs"] as const) {
+        expect(descentRow()[field].state).toBe("DISPLAY_VALUE");
+      }
+      const inherited = state.outcome!.display_rows.filter(row => (
+        row.row_type === "CALCULATION_ZONE" && row.toat.state === "INHERIT"
+      ));
+      expect(inherited.length).toBeGreaterThan(0);
+      for (const row of inherited) {
+        const element = page.locator(`.nav-log-table tr[data-row-sequence="${row.sequence}"]`);
+        await expect(element.getByLabel(/手動気温$/)).toHaveCount(0);
+      }
+      await expectDisplayProjectionToMatchWebTable(page);
+      await page.locator(".nav-log-section").scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: `/tmp/autonavlog-issue225-${width}-${temperature === cruiseTemperature ? "equal" : "different"}.png`,
+      });
+    }
+    const boxes = await Promise.all([".input-rail", ".route-workspace", ".status-rail", ".nav-log-section"]
+      .map(selector => page.locator(selector).boundingBox()));
+    expect(boxes.every(Boolean)).toBe(true);
+    if (width <= 1240) {
+      for (let index = 1; index < boxes.length; index++) {
+        expect(boxes[index]!.y).toBeGreaterThanOrEqual(boxes[index - 1]!.y + boxes[index - 1]!.height - 1);
+      }
+    } else {
+      expect(boxes[0]!.x + boxes[0]!.width).toBeLessThanOrEqual(boxes[1]!.x + 1);
+      expect(boxes[1]!.x + boxes[1]!.width).toBeLessThanOrEqual(boxes[2]!.x + 1);
+      expect(boxes[3]!.y).toBeGreaterThanOrEqual(Math.max(...boxes.slice(0, 3).map(box => box!.y + box!.height)) - 1);
+    }
+    await expect(page.locator("body")).not.toBeEmpty();
+    await expect(page.locator("vite-error-overlay, .vite-error-overlay")).toHaveCount(0);
+    expect(errors.filter(message => !message.includes("401 (Unauthorized)"))).toEqual([]);
+  });
+}
+
 test("EOC wind edit updates the DESCENT basis Leg common wind", async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   await page.goto("/");
-  await expect(page).toHaveTitle(/AutoNavLog/);
+  await expect(page).toHaveTitle(/NavMate/);
   await calculateNavLog(page, true, true);
 
   const calculated = await page.evaluate(async () => {
@@ -3869,7 +4094,8 @@ test("stale automatic recalculation cannot overwrite newer planning inputs", asy
 test("calculated mobile layout has no body overflow", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await enterImportWorkflow(page);
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 
   await calculateNavLog(page);
 
@@ -3887,7 +4113,8 @@ test("calculated mobile layout has no body overflow", async ({ page }, testInfo)
 
 test("KMZ document selection modal moves and traps focus", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await enterImportWorkflow(page);
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await page.locator("#route-file").setInputFiles({
     name: "multiple.kmz",
     mimeType: "application/vnd.google-earth.kmz",
@@ -3908,200 +4135,133 @@ test("KMZ document selection modal moves and traps focus", async ({ page }) => {
 });
 
 test("grouped LineStrings require an explicit route candidate selection", async ({ page }) => {
-  await page.setViewportSize({ width: 1100, height: 900 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
-
-  await importKmlCandidate(page);
-  const candidateSelect = page.getByLabel("飛行経路候補");
-  const departureSelect = page.getByLabel("FROM", { exact: true });
-  await expect(departureSelect).toHaveAttribute("readonly", "");
-  await expect(page.getByLabel("TO", { exact: true })).toHaveAttribute("readonly", "");
-  await expect(candidateSelect).toHaveValue("line:0");
-  await expect(page.locator(".candidate-control")).not.toHaveClass(/is-required/);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
-  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
-  await dialog.getByRole("textbox").fill(twoConnectedRouteCandidatesKml);
-  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
-
-  await expect(candidateSelect).toHaveValue("");
-  const candidateControl = page.locator(".candidate-control");
-  await expect(candidateControl).toHaveClass(/is-required/);
-  await expect(candidateControl.getByText("経路選択", { exact: true })).toBeVisible();
-  await expect(candidateControl.getByText("選択必須", { exact: true })).toBeVisible();
-  await expect(candidateControl).toContainText("使用する飛行経路を選択してください。");
-  await expect(candidateSelect).toHaveAttribute("required", "");
-  await expect(candidateSelect).toHaveAttribute("aria-invalid", "true");
-  const intermediateCandidateBoxes = await Promise.all([
-    candidateControl.boundingBox(),
-    candidateSelect.boundingBox(),
-  ]);
-  if (!intermediateCandidateBoxes[0] || !intermediateCandidateBoxes[1]) {
-    throw new Error("Required route selection is missing at intermediate width");
+  await enterImportWorkflow(page);
+  await page.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
+  const paste = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await paste.getByRole("textbox").fill(twoConnectedRouteCandidatesKml);
+  await paste.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(paste).toBeHidden();
+  const chooser = page.getByRole("dialog", { name: "経路選択", exact: true });
+  const select = chooser.getByRole("combobox");
+  const adopt = chooser.getByRole("button", { name: "KMLを取り込む", exact: true });
+  await expect(select).toHaveValue("");
+  await expect(adopt).toBeDisabled();
+  await expect(select.locator("option")).toHaveCount(3);
+  await expect(select.locator("option").first()).toHaveText("経路を選択してください");
+  await expect(select.locator("option").nth(1)).toContainText("4点");
+  await expect(select.locator("option").nth(2)).toContainText("3点");
+  for (const width of [1100, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const container = await chooser.boundingBox();
+    const field = await select.boundingBox();
+    if (!container || !field) throw new Error("Required route selection is missing");
+    expect(field.x + field.width).toBeLessThanOrEqual(container.x + container.width + 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
   }
-  expect(
-    intermediateCandidateBoxes[1].x + intermediateCandidateBoxes[1].width,
-  ).toBeLessThanOrEqual(
-    intermediateCandidateBoxes[0].x + intermediateCandidateBoxes[0].width + 1,
-  );
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
-  ).toBeLessThanOrEqual(1);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(candidateControl).toBeVisible();
-  const wideCandidateBoxes = await Promise.all([
-    candidateControl.boundingBox(),
-    candidateSelect.boundingBox(),
-  ]);
-  if (!wideCandidateBoxes[0] || !wideCandidateBoxes[1]) {
-    throw new Error("Required route selection is missing at wide width");
-  }
-  expect(wideCandidateBoxes[1].x + wideCandidateBoxes[1].width).toBeLessThanOrEqual(
-    wideCandidateBoxes[0].x + wideCandidateBoxes[0].width + 1,
-  );
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
-  ).toBeLessThanOrEqual(1);
-  await expect(candidateSelect.locator("option")).toHaveCount(3);
-  await expect(candidateSelect.locator("option").nth(0)).toHaveText("経路を選択");
-  await expect(candidateSelect.locator("option").nth(1)).toHaveText(
-    /^RJFM→RJFO① · 3 Leg · \d+(?:\.\d+)? NM$/,
-  );
-  await expect(candidateSelect.locator("option").nth(2)).toHaveText(
-    /^RJFO→RJFM① · 2 Leg · \d+(?:\.\d+)? NM$/,
-  );
-  await expect(departureSelect).toHaveValue("");
-  await expect(page.getByLabel("TO")).toHaveValue("");
-  await expect(page.getByText("飛行経路候補を選択すると地図へ表示します")).toBeVisible();
-  await expect(page.locator(".leaflet-overlay-pane path.leaflet-interactive")).toHaveCount(0);
-  await expect(page.getByLabel("経路確認")).toHaveCount(0);
-
-  await candidateSelect.selectOption("connected_lines:0");
-  await expect(candidateControl).not.toHaveClass(/is-required/);
-  await expect(candidateControl.getByText("選択必須", { exact: true })).toHaveCount(0);
-  await expect(candidateSelect).toHaveAttribute("aria-invalid", "false");
-  await expect(departureSelect).toHaveValue(/^RJFM\b/);
-  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
-  const routeWorkspace = page.getByLabel("経路地図とLeg設定");
-  await expect(routeWorkspace.getByText("RJFM→RJFO①", { exact: true })).toBeVisible();
-  await expect(routeWorkspace.getByText("4点の形状を確認中", { exact: true })).toBeVisible();
-  await expect(page.locator(".leaflet-overlay-pane path.leaflet-interactive")).toHaveCount(1);
-
-  const routeConfirmation = page.getByLabel("経路確認");
-  const routeUseConfirmed = routeConfirmation.getByLabel("地図とKML記載順を確認しました");
-  await routeUseConfirmed.check();
-  await expect(routeUseConfirmed).toBeChecked();
-
-  await candidateSelect.selectOption("");
-  await expect(candidateControl).toHaveClass(/is-required/);
-  await expect(candidateControl.getByText("選択必須", { exact: true })).toBeVisible();
-  await expect(departureSelect).toHaveValue("");
-  await expect(page.getByLabel("TO")).toHaveValue("");
-  await expect(page.getByText("飛行経路候補を選択すると地図へ表示します")).toBeVisible();
-  await expect(page.getByLabel("経路確認")).toHaveCount(0);
-  await candidateSelect.selectOption("connected_lines:1");
-  await expect(routeUseConfirmed).not.toBeChecked();
-  await expect(departureSelect).toHaveValue(/^RJFO\b/);
-  await expect(page.getByLabel("TO")).toHaveValue(/RJFM/);
-  await expect(routeWorkspace.getByText("RJFO→RJFM①", { exact: true })).toBeVisible();
-
-  await routeUseConfirmed.check();
-  const confirmRequest = page.waitForRequest(
-    (request) => request.url().endsWith("/api/route/confirm") && request.method() === "POST",
-  );
-  await routeConfirmation.getByRole("button", { name: "経路を確定" }).click();
-  const confirmPayload = (await confirmRequest).postDataJSON() as Record<string, unknown>;
-  expect(confirmPayload).toMatchObject({
-    candidate_kind: "connected_lines",
-    candidate_index: 1,
-    route_use_confirmed: true,
-    polygon_route_confirmed: false,
-  });
-  await expect(routeWorkspace.getByText("RJFO → RJFM", { exact: true })).toBeVisible();
+  await select.selectOption("connected_lines:0");
+  await expect(adopt).toBeEnabled();
+  await select.selectOption("");
+  await expect(adopt).toBeDisabled();
+  await select.selectOption("connected_lines:1");
+  await adopt.click();
+  await expect(chooser).toBeHidden();
+  const strip = page.getByRole("list", { name: "経路リスト" });
+  await expect(strip.locator("li")).toHaveCount(3);
+  await expect(strip.locator("li").first()).toContainText("RJFO");
+  await expect(strip.locator("li").last()).toContainText("RJFM");
+  await expect(page.getByLabel("DATE", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("地図とKML記載順を確認しました")).toHaveCount(0);
+  const confirmed = page.waitForRequest(request => request.url().endsWith("/api/route/confirm") && request.method() === "POST");
+  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+  const payload = (await confirmed).postDataJSON();
+  expect(payload).toMatchObject({ candidate_kind: "map", route_use_confirmed: true });
+  expect(payload.map_points).toHaveLength(3);
+  await expect(page.getByLabel("FROM", { exact: true })).toHaveValue(/^RJFO\b/);
+  await expect(page.getByLabel("TO", { exact: true })).toHaveValue(/RJFM/);
 });
 
 test("same-named grouped routes remain distinguishable in the selector", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await enterImportWorkflow(page);
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(sameNamedConnectedRouteCandidatesKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
 
-  const candidateSelect = page.getByLabel("飛行経路候補");
+  const candidateSelect = page.getByRole("dialog", { name: "経路選択", exact: true }).getByRole("combobox");
   await expect(candidateSelect).toHaveValue("");
   const options = candidateSelect.locator("option");
   await expect(options).toHaveCount(3);
   await expect(options.nth(1)).toContainText(
-    "Duplicate routes / Outbound / Route（候補1） · 2 Leg",
+    "Duplicate routes / Outbound / Route · 3点",
   );
   await expect(options.nth(2)).toContainText(
-    "Duplicate routes / Inbound / Route（候補2） · 2 Leg",
+    "Duplicate routes / Inbound / Route · 3点",
   );
   expect(await options.nth(1).textContent()).not.toBe(await options.nth(2).textContent());
 });
 
 test("file picker, drop, and KMZ use the same grouped-route candidate flow", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
-
-  const candidateSelect = page.getByLabel("飛行経路候補");
-  const groupedRouteFile = {
-    name: "grouped-routes.kml",
-    mimeType: "application/vnd.google-earth.kml+xml",
-    buffer: Buffer.from(twoConnectedRouteCandidatesKml),
-  };
-  await page.locator("#route-file").setInputFiles(groupedRouteFile);
-  await expect(candidateSelect).toHaveValue("");
-  await expect(candidateSelect.locator("option")).toHaveCount(3);
-
-  await candidateSelect.selectOption("connected_lines:0");
-  await expect(page.getByLabel("FROM")).toHaveValue(/^RJFM\b/);
-  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
-
-  const dataTransfer = await page.evaluateHandle((kmlText) => {
-    const transfer = new DataTransfer();
-    transfer.items.add(new File(
-      [kmlText],
-      "dropped-grouped-routes.kml",
-      { type: "application/vnd.google-earth.kml+xml" },
-    ));
-    return transfer;
-  }, twoConnectedRouteCandidatesKml);
-  await page.locator(".drop-zone").dispatchEvent("drop", { dataTransfer });
-  await dataTransfer.dispose();
-
-  await expect(candidateSelect).toHaveValue("");
-  await expect(candidateSelect.locator("option")).toHaveCount(3);
-  await expect(page.getByLabel("FROM")).toHaveValue("");
-  await expect(page.getByLabel("TO")).toHaveValue("");
-
-  await page.locator("#route-file").setInputFiles({
-    name: "grouped-routes.kmz",
-    mimeType: "application/vnd.google-earth.kmz",
-    buffer: twoConnectedRouteCandidatesKmz,
-  });
-  await expect(candidateSelect).toHaveValue("");
-  await expect(candidateSelect.locator("option")).toHaveCount(3);
-  await expect(candidateSelect.locator("option").nth(1)).toContainText(
-    "RJFM→RJFO① · 3 Leg",
-  );
+  await enterImportWorkflow(page);
+  page.on("dialog", dialog => { void dialog.accept(); });
+  const chooser = page.getByRole("dialog", { name: "経路選択", exact: true });
+  const candidateSelect = chooser.getByRole("combobox");
+  const strip = page.getByRole("list", { name: "経路リスト" });
+  let expectedDraft: unknown;
+  for (const transport of ["picker", "drop", "kmz"]) {
+    if (transport === "drop") {
+      const dataTransfer = await page.evaluateHandle(kmlText => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([kmlText], "dropped-grouped-routes.kml", { type: "application/vnd.google-earth.kml+xml" }));
+        return transfer;
+      }, twoConnectedRouteCandidatesKml);
+      await page.locator(".drop-zone").dispatchEvent("drop", { dataTransfer });
+      await dataTransfer.dispose();
+    } else {
+      await page.locator("#route-file").setInputFiles({
+        name: transport === "kmz" ? "grouped-routes.kmz" : "grouped-routes.kml",
+        mimeType: transport === "kmz" ? "application/vnd.google-earth.kmz" : "application/vnd.google-earth.kml+xml",
+        buffer: transport === "kmz" ? twoConnectedRouteCandidatesKmz : Buffer.from(twoConnectedRouteCandidatesKml),
+      });
+    }
+    await expect(chooser).toBeVisible();
+    await expect(candidateSelect).toHaveValue("");
+    await expect(candidateSelect.locator("option")).toHaveCount(3);
+    await expect(candidateSelect.locator("option").nth(1)).toContainText("4点");
+    await candidateSelect.selectOption("connected_lines:0");
+    await chooser.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
+    await expect(chooser).toBeHidden();
+    await expect(strip.locator("li")).toHaveCount(4);
+    await expect(strip.locator("li").first()).toContainText("RJFM");
+    await expect(strip.locator("li").last()).toContainText("RJFO");
+    await expect(page.locator("#route-file")).toBeEnabled();
+    const draft = await page.evaluate(() => JSON.parse(sessionStorage.getItem("autonavlog.working-session.v1")!).mapRouteDraft);
+    if (expectedDraft) expect(draft).toEqual(expectedDraft);
+    expectedDraft = draft;
+  }
+  await confirmImportedDraft(page);
+  await expect(page.getByLabel("FROM", { exact: true })).toHaveValue(/^RJFM\b/);
+  await expect(page.getByLabel("TO", { exact: true })).toHaveValue(/RJFO/);
 });
 
 test("KML endpoints automatically determine read-only FROM and TO", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "経路を取り込む" })).toBeVisible();
+  await enterImportWorkflow(page);
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(kmlFromRjfk);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
 
+  await confirmImportedDraft(page);
   const departure = page.getByLabel("FROM");
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
   await expect(departure).toHaveValue(/^RJFK\b/);
   await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
   await expect(departure).toHaveAttribute("readonly", "");
@@ -4111,6 +4271,7 @@ test("KML endpoints automatically determine read-only FROM and TO", async ({ pag
 test("RUN UP, nose fairing, and A/C choices persist after save and reload", async ({ page }) => {
   await page.goto("/");
   await importKmlCandidate(page);
+  await confirmImportedDraft(page);
 
   const runUp = page.getByLabel("RUN UP あり");
   const noseFairing = page.getByLabel("ノーズフェアリングあり (OFF: -10 kt)");
@@ -4137,8 +4298,8 @@ test("RUN UP, nose fairing, and A/C choices persist after save and reload", asyn
   await runUp.uncheck();
   await noseFairing.check();
   await airConditioning.uncheck();
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
 
   const state = await page.evaluate(async () => {
     const response = await fetch("/api/state");
@@ -4171,7 +4332,7 @@ test("RUN UP, nose fairing, and A/C choices persist after save and reload", asyn
   await altitudeSaved;
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
+  await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
   await page.reload();
   await expect(runUp).not.toBeChecked();
   await expect(noseFairing).toBeChecked();
@@ -4258,7 +4419,7 @@ test("500 and 1000 fpm descent rates recalculate, render, and persist", async ({
   expect(navLogBox.y).toBeGreaterThanOrEqual(statusBox.y + statusBox.height - 1);
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
+  await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
   await page.reload();
   await expect(fastRate).toBeChecked();
   await expect(page.getByText("計算結果 1000 fpm", { exact: true })).toBeVisible();
@@ -4271,38 +4432,105 @@ test("500 and 1000 fpm descent rates recalculate, render, and persist", async ({
 
 test("Issue 129 preserves one imported 小丸 route node after browser confirmation and reload", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "KMLを貼り付け" }).click();
+  await page.getByRole("button", { name: "KMLを取り込む" }).click();
   const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
   await dialog.getByRole("textbox").fill(issue129OmaruPointKml);
   await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
-  await page.getByLabel("飛行経路候補").selectOption("");
-  await page.getByLabel("飛行経路候補").selectOption("connected_lines:0");
-  await expect(page.getByLabel("FROM")).toHaveValue(/RJFM/);
-  await expect(page.getByLabel("TO")).toHaveValue(/RJFO/);
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定" }).click();
+  await expect(dialog).toBeHidden();
+  await expectImportedDraft(page, "connected_lines:0");
+  await confirmImportedDraft(page);
 
   const state = await page.evaluate(async () => {
     const response = await fetch("/api/state");
     return await response.json() as WebState;
   });
-  expect(state.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "小丸", "RJFO"]);
+  expect(state.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "OMARU", "RJFO"]);
   const omaru = state.project?.route_nodes[2];
   expect(omaru).toMatchObject({
-    name: "小丸",
-    name_source: "IMPORTED",
+    name: "OMARU",
+    name_source: "GENERATED",
     latitude_deg: 32.16255070087476,
     longitude_deg: 131.47036916946163,
   });
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByText("Projectをローカルへ保存しました。", { exact: true })).toBeVisible();
+  await expect(page.getByText("プロジェクトを保存しました。", { exact: true })).toBeVisible();
   await page.reload();
   const restored = await page.evaluate(async () => {
     const response = await fetch("/api/state");
     return await response.json() as WebState;
   });
-  expect(restored.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "小丸", "RJFO"]);
+  expect(restored.project?.route_nodes.map((node) => node.name)).toEqual(["RJFM", "UMK", "OMARU", "RJFO"]);
+});
+
+test("Japanese TAF states distinguish missing data from failed acquisition without changing navigation", async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  await page.goto("/");
+  await calculateNavLog(page, false, false, true);
+  const state: WebState = await page.evaluate(async () => (await fetch("/api/state")).json());
+  expect(state.outcome).not.toBeNull();
+  expect(state.destinationWind).not.toBeNull();
+  const navigationCells = page.locator(".nav-log-table [data-display-text]");
+  const navigation = await navigationCells.evaluateAll(cells => cells.map(cell => cell.getAttribute("data-display-text")));
+  const cases = [
+    ["TAF_FETCH_FAILED", "取得失敗（通信・応答エラー）"],
+    ["TAF_FETCH_TIMEOUT", "取得失敗（タイムアウト）"],
+    ["TAF_FETCH_CAPACITY_UNAVAILABLE", "取得できません（混雑中）"],
+    ["TAF_PROXY_NOT_CONFIGURED", "取得先が未設定です"],
+    ["TAF_UNAVAILABLE", "対象空港のTAFがありません"],
+    ["TAF_TIME_OUT_OF_RANGE", "到着予定時刻の予報を確認できません"],
+    ["TAF_WIND_UNAVAILABLE", "風の予報を確認できません"],
+    ["DESTINATION_ICAO_INVALID", "空港識別符号を確認してください"],
+    ["UNKNOWN_FUTURE_REASON", "風の予報を利用できません"],
+    [null, "風の予報を利用できません"],
+  ] as const;
+  for (const [reason, label] of cases) {
+    await page.route("**/api/application-session", async route => {
+      const bootstrap = await (await route.fetch()).json();
+      await route.fulfill({ json: { ...bootstrap, state: { ...state,
+        destinationWind: { ...state.destinationWind, availability: "UNAVAILABLE",
+          wind_speed_kt: null, wind_direction_deg_from: null, reason_code: reason },
+      } } });
+    }, { times: 1 });
+    await page.reload();
+    const summary = page.getByRole("region", { name: "目的地空港の風予報" });
+    await expect(summary.locator("strong")).toHaveText(`目的地風: ${label}`);
+    await expect(summary).not.toContainText("到着区間の計算はCALMです。");
+    await expect.poll(() => navigationCells.evaluateAll(cells => cells.map(cell => cell.getAttribute("data-display-text")))).toEqual(navigation);
+    if (reason === "TAF_TIME_OUT_OF_RANGE") {
+      for (const width of [390, 1100, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await summary.scrollIntoViewIfNeeded();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+        await page.screenshot({ path: testInfo.outputPath(`taf-${width}.png`) });
+      }
+    }
+  }
+});
+
+test("Japanese startup and import errors preserve retry and editable input", async ({ page }) => {
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/application-session", async route => {
+    await waiting;
+    await route.abort();
+  }, { times: 1 });
+  await page.goto("/");
+  await expect(page.getByText("NavMateを起動しています", { exact: true })).toBeVisible();
+  release();
+  await expect(page.getByRole("alert")).toContainText("サーバーに接続できませんでした。再試行してください。");
+  await page.getByRole("button", { name: "起動を再試行" }).click();
+  await expect(page.getByRole("button", { name: "新規", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "KMLを取り込む", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "KML/XMLを貼り付け" });
+  await dialog.getByRole("textbox").fill("not a KML document");
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toContainText("貼り付けたテキストはKMLドキュメントではありません。");
+  await expect(dialog.getByRole("textbox")).toHaveValue("not a KML document");
+  await dialog.getByRole("textbox").fill(kml);
+  await dialog.getByRole("button", { name: "貼付KMLを読み込む" }).click();
+  await expect(dialog).toBeHidden();
+  await expectImportedDraft(page);
 });
 
 for (const width of [1100, 1440]) {
@@ -4311,8 +4539,10 @@ for (const width of [1100, 1440]) {
     page.on("pageerror", error => errors.push(error.message));
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/");
-    await expect(page).toHaveTitle(/AutoNavLog/);
+    await expect(page).toHaveTitle(/NavMate/);
     await calculateNavLog(page, false, false, true);
+    await expect(page.getByLabel("使用Forecast")).toHaveText("FTD固定気象");
+    await page.getByLabel("気象モード").selectOption("FORECAST");
     await expect(page.getByLabel("使用Forecast")).toHaveText("FTD固定気象");
     await expect(page.getByRole("note", { name: "Forecast切替理由" })).toHaveCount(0);
     const state = await page.evaluate(async () => (await fetch("/api/state")).json()) as WebState;

@@ -83,7 +83,7 @@ def test_corrupt_or_missing_payload_keeps_last_good_and_never_requests_gsm(local
     assert local.weather_catalog("MSM", json.dumps(catalog)) == "{}"
     state = json.loads(local.dispatch_response("calculate"))
     assert "weather_request" not in state
-    assert any(i["code"] == "FORECAST_PREPARE_FAILED" for i in state["outcome"]["issues"])
+    assert state["error"]["code"] == "WEATHER_PREPARED_UNAVAILABLE"
     assert local.session.last_calculation.model_dump(mode="json") == before
     assert local.local_weather.clients["GSM"].catalog is None
 
@@ -199,7 +199,87 @@ def test_missing_older_msm_delivery_is_not_evidence_for_gsm_fallback(local, monk
     state = resume(local, requests, {
         "MSM": ROOT / "tests/fixtures/forecast-policy/msm-outside-hgt",
     })
-    assert any(i["code"] == "FORECAST_PREPARE_FAILED" for i in state["outcome"]["issues"])
+    assert state["error"]["code"] == "WEATHER_PREPARED_UNAVAILABLE"
     assert len(requests) == 3  # catalog and two evaluated Runs; older asset is absent
     assert local.session.last_calculation.model_dump(mode="json") == last
     assert local.local_weather.clients["GSM"].catalog is None
+
+
+@pytest.mark.parametrize("fixed_model,refresh,expected", [
+    ("MSM", False, "GSM"), ("GSM", False, "GSM"), ("GSM", True, "MSM"),
+])
+def test_backup_uses_shared_model_selection_and_adopts_model_and_run(
+    local, fixed_model, refresh, expected,
+):
+    from uuid import uuid4
+
+    from autonavlog.application.project_fingerprints import forecast_selection_fingerprint
+    from autonavlog.forecast_backup import BackupRequest, input_identity
+    from autonavlog.weather.local_forecast import LocalForecastWeather
+    from autonavlog.web.forecast_backup import calculator
+
+    local.session.project.selected_forecast_model = fixed_model
+    local.session.project.selected_forecast_run_id = (
+        "20260915210000" if fixed_model == "MSM" else "20260915060000"
+    )
+    if refresh:
+        local.session.forecast_update_fingerprint = forecast_selection_fingerprint(
+            local.session.project
+        )
+    prepared = local.prepare_forecast_backup({"reason": "WEATHER_CATALOG_EXPIRED"})
+    request = BackupRequest(
+        **prepared.model_dump(), request_id=uuid4(), issued_at=datetime.now(UTC)
+    )
+    changed_model = request.project.model_copy(update={
+        "selected_forecast_model": "GSM" if fixed_model == "MSM" else "MSM",
+    })
+    assert input_identity(changed_model, False, refresh) != request.input_identity
+
+    def weather():
+        portable = LocalForecastWeather()
+        feeds = {
+            "MSM": FEED if fixed_model == "GSM" else (
+                ROOT / "tests/fixtures/forecast-policy/msm-outside-hgt"
+            ),
+            "GSM": ROOT / "tests/fixtures/forecast-policy/gsm",
+        }
+        for model, feed in feeds.items():
+            text = catalog_text(feed)
+            portable.catalog(model, text)
+            for asset in json.loads(text)["assets"]:
+                portable.accept(model, (feed / asset["file"]).read_bytes(), asset["sha256"])
+        return portable.provider
+
+    result = calculator(ROOT / "data", weather, local.app.destination_wind_provider)(request)
+    assert result.calculation.outcome.selected_forecast_model == expected
+    adopted = local.adopt_forecast_backup({
+        "request": request.model_dump(mode="json"), "result": result.model_dump(mode="json"),
+    })
+    assert adopted["readiness"]["calculationIsCurrent"]
+    assert adopted["project"]["selected_forecast_model"] == expected
+    assert adopted["outcome"]["selected_forecast_model"] == expected
+    assert adopted["workingRecovery"]["last_calculation"]["forecast_metadata"]["model"] == expected
+
+
+@pytest.mark.parametrize("model", ["MSM", "GSM"])
+@pytest.mark.parametrize("missing_listing", [False, True])
+def test_absent_source_listing_stops_selection_with_backup_eligible_error(
+    local, model, missing_listing,
+):
+    feed = FEED if model == "MSM" else ROOT / "tests/fixtures/forecast-policy/gsm"
+    local.session.project.selected_forecast_model = model
+    local.session.project.selected_forecast_run_id = (
+        "20260915210000" if model == "MSM" else "20260915060000"
+    )
+    before = local.session.last_calculation.model_dump(mode="json")
+    value = json.loads(catalog_text(feed))
+    value["listings"] = {} if missing_listing else {url: "" for url in value["listings"]}
+    local.begin_weather()
+    assert local.weather_catalog(model, json.dumps(value)) == "{}"
+    result = json.loads(local.dispatch_response("calculate"))
+    assert result["error"]["code"] == (
+        "WEATHER_DISCOVERY_FAILED" if missing_listing else "WEATHER_RUN_UNAVAILABLE"
+    )
+    assert local.session.last_calculation.model_dump(mode="json") == before
+    other_model = "GSM" if model == "MSM" else "MSM"
+    assert local.local_weather.clients[other_model].catalog is None

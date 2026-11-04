@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, expectImportedDraft, confirmImportedDraft } from "./helpers/importWorkflow";
 import { expect, test } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
@@ -23,18 +23,18 @@ test("Static Local workflow saves and restores a calculated Project across lifec
   await context.route("**/api/**", route => route.abort());
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles(fixture);
+  await expectImportedDraft(page);
+  await expect(page.locator(".route-workspace .leaflet-container")).toBeVisible();
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
   await page.getByLabel("気象モード").selectOption("FTD");
   await page.getByLabel("地上風向 ° FROM").fill("360");
   await page.getByLabel("地上風速 kt").fill("15");
   await page.getByLabel("5,000 ft風向 ° FROM").fill("270");
   await page.getByLabel("5,000 ft風速 kt").fill("30");
-  await page.locator('input[type="file"]').setInputFiles(fixture);
-  await expect(page.getByLabel("飛行経路候補")).toHaveValue("line:0");
-  await expect(page.locator(".route-workspace .leaflet-container")).toBeVisible();
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude);
   }
   await expect(page.locator(".status-rail")).toBeVisible();
@@ -47,7 +47,7 @@ test("Static Local workflow saves and restores a calculated Project across lifec
 
   await page.getByLabel("プロジェクト", { exact: true }).fill("Browser acceptance");
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Projectをローカルへ保存しました" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
   const savedId = await page.getByLabel("保存済み", { exact: true }).inputValue();
   expect(savedId).not.toBe("");
   await page.reload();
@@ -57,7 +57,7 @@ test("Static Local workflow saves and restores a calculated Project across lifec
   await other.goto("/");
   await expect(other.getByLabel("保存済み", { exact: true }).locator(`option[value="${savedId}"]`)).toHaveCount(1);
   await other.getByLabel("保存済み", { exact: true }).selectOption(savedId);
-  await other.getByRole("button", { name: "保存済みProjectを開く", exact: true }).click();
+  await other.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
   await expect(other.locator(".nav-log-table")).toHaveText(initialResult, { useInnerText: true });
   await page.bringToFront();
   await expect(page.locator(".nav-log-table")).toHaveText(initialResult, { useInnerText: true });

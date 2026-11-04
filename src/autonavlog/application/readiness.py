@@ -249,7 +249,8 @@ def collect_effective_issues(
     ):
         stale = _readiness_blocker(
             "RECALCULATION_REQUIRED",
-            "計算依存入力が変わりました。NAV LOGを再計算してください。",
+            "計算用の入力が変更されました。"
+            "古い結果が表示されているため、NAV LOGを再計算してください。",
         )
         effective.append(
             create_effective_issue(

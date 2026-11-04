@@ -76,7 +76,7 @@ def test_connected_lines_warn_when_merging_more_than_ten_meters_without_point() 
     assert len(imported.connected_lines) == 1
     assert imported.connected_lines[0].coordinates[1] == (31.0, 131.1)
     assert len(imported.warnings) == 1
-    assert "without a matching Point Placemark" in imported.warnings[0]
+    assert "対応するPointがないまま" in imported.warnings[0]
 
 
 def test_reversed_line_group_is_not_connected() -> None:
@@ -95,7 +95,7 @@ def test_reversed_line_group_is_not_connected() -> None:
     assert len(imported.lines) == 2
     assert imported.connected_lines == ()
     assert len(imported.warnings) == 1
-    assert "kept as individual candidates" in imported.warnings[0]
+    assert "結合せず個別の候補として保持しました" in imported.warnings[0]
 
 
 def test_connectable_lines_in_the_wrong_document_order_are_not_reordered() -> None:
@@ -114,7 +114,7 @@ def test_connectable_lines_in_the_wrong_document_order_are_not_reordered() -> No
     assert [line.name for line in imported.lines] == ["B→C", "A→B"]
     assert imported.connected_lines == ()
     assert len(imported.warnings) == 1
-    assert "kept as individual candidates" in imported.warnings[0]
+    assert "結合せず個別の候補として保持しました" in imported.warnings[0]
 
 
 def test_connected_group_that_collapses_after_deduplication_falls_back_to_lines() -> None:
@@ -133,8 +133,8 @@ def test_connected_group_that_collapses_after_deduplication_falls_back_to_lines(
     assert len(imported.lines) == 2
     assert imported.connected_lines == ()
     assert len(imported.warnings) == 1
-    assert "fewer than two distinct points" in imported.warnings[0]
-    assert "kept as individual candidates" in imported.warnings[0]
+    assert "点が2つ未満" in imported.warnings[0]
+    assert "結合せず個別の候補として保持しました" in imported.warnings[0]
 
 
 def test_same_named_sibling_folders_remain_distinct_connected_candidates() -> None:
