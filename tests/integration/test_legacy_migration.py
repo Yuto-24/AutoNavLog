@@ -280,9 +280,10 @@ def test_final_verification_detects_update_to_an_earlier_batch(migration):
     assert migration.status(KEY)["state"] == "LINKED"
 
 
+@pytest.mark.parametrize("backup_enabled", [False, True])
 @pytest.mark.parametrize("navmate_origin", ["https://navmate.example", "https://custom.example"])
 def test_signed_owner_link_google_boundary_cors_and_redirect(
-    migration, monkeypatch, navmate_origin
+    migration, monkeypatch, navmate_origin, backup_enabled
 ):
     monkeypatch.setenv("AUTONAVLOG_FIREBASE_PROJECT_ID", "test-project")
     monkeypatch.setenv("AUTONAVLOG_FIREBASE_API_KEY", "test-key")
@@ -304,7 +305,11 @@ def test_signed_owner_link_google_boundary_cors_and_redirect(
             GOOGLE if token == "valid-google" else (_ for _ in ()).throw(ValueError("invalid"))
         ),
     )
-    app = create_app(web_application=migration.web)
+    config = None
+    if backup_enabled:
+        monkeypatch.setenv("AUTONAVLOG_FORECAST_BACKUP_ORIGIN", navmate_origin)
+        config = WebRuntimeConfig(ROOT / "data", migration.web.project_service.repository.root)
+    app = create_app(config, web_application=migration.web)
     service = app.state.legacy_migration
     with TestClient(app, base_url="https://legacy.example") as client:
         signed = {
@@ -424,6 +429,59 @@ def test_last_calculation_is_portable_and_matching_only(migration):
     migration.web.project_service.repository.autosave(session.project)
     stale = migration.snapshot(KEY)
     assert json.loads(stale[0]["payload"])["lastCalculation"] is None
+
+
+def test_offline_rescue_can_resume_existing_migration_without_original_runtime(migration, tmp_path):
+    from datetime import UTC, timedelta
+
+    from test_issue_94_facade_persistence import _new_project
+
+    from scripts import legacy_rescue as rescue
+
+    session, _ = _new_project(migration.web)
+    migration.web.calculate(session)
+    expected = session.last_calculation.model_dump(mode="json")
+    migration.link(OWNER, GOOGLE)
+    project(migration, owner="other@example.com", name="other owner private data")
+    migration.link("other@example.com", GoogleIdentity("other-subject", "other-account"))
+    remote = Remote()
+    remote.lose_ack = True
+    migration.begin(KEY)
+    with pytest.raises(OSError):
+        migration.step(KEY, remote)
+    assert migration.status(KEY)["state"] == "LINKED"
+    # The fixture calls its DB links.sqlite3; production always uses account-links.sqlite3.
+    production_name = migration.path.with_name("account-links.sqlite3")
+    migration.path.rename(production_name)
+    original = rescue.fingerprint(rescue.files(tmp_path))
+    now = datetime.now(UTC)
+    # Source and destination are disjoint: use a child source, not the whole tmp_path.
+    source = tmp_path.parent / (tmp_path.name + "-source")
+    source.mkdir()
+    for name in ("projects", "owners", "account-links.sqlite3"):
+        (tmp_path / name).rename(source / name)
+    bundle, extracted = tmp_path / "bundle", tmp_path / "extracted"
+    rescue.snapshot(source, bundle, ended_at=(now - timedelta(hours=1)).isoformat(),
+                    retain_until=(now + timedelta(days=30)).isoformat(), revision="a" * 40,
+                    quiescence="offline fixture after interrupted migration unlocked")
+    rescue.extract_owner(bundle, extracted, KEY,
+                         expected_digest=rescue.hashlib.sha256((bundle / "manifest.json")
+                                                              .read_bytes()).hexdigest())
+    web = build_web_application(WebRuntimeConfig(data_root=ROOT / "data",
+                                                 storage_root=extracted / "data"))
+    recovered = LegacyMigration(extracted / "data/account-links.sqlite3", web,
+                                "https://navmate.example/")
+    web.owner_operation = recovered.legacy_operation
+    # Existing intended-write receipt recognizes the lost ACK: no duplicate upload or IDs.
+    assert finish(recovered, remote)["state"] == "NAVMATE_ACTIVE"
+    assert remote.commits == 1
+    assert len(remote.rows) == 1
+    record = json.loads(next(iter(remote.rows.values()))["payload"])
+    assert record["lastCalculation"]["outcome"] == expected["outcome"]
+    assert (record["lastCalculation"]["calculation_fingerprint"]
+            == expected["calculation_fingerprint"])
+    assert recovered.account_owner(GoogleIdentity("other-subject", "other-account")) is None
+    assert rescue.fingerprint(rescue.files(source)) == original
 
 
 def test_concurrent_two_owner_link_has_one_winner_and_domain_conflict(migration):

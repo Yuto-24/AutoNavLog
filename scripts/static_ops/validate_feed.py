@@ -9,12 +9,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # The workflow's tooling checkout owns the validation code, not the app candidate.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
 from jma_gpv_weather import ForecastRequirements, MsmClient, MsmPreparedData, RunId  # noqa: E402
 from jma_gpv_weather import WeatherVariable as Variable  # noqa: E402
 
 from autonavlog.weather.local_msm import WeatherCatalog  # noqa: E402
+from scripts.prepare_msm_feed import full_run_requirements  # noqa: E402
 
 
 def validate_feed(output: Path, report: dict, now: datetime, *, horizon_hours: int = 24) -> dict:
@@ -47,8 +49,17 @@ def validate_feed(output: Path, report: dict, now: datetime, *, horizon_hours: i
             raise ValueError("MSM payload Run differs from catalog")
         if asset.run in new_runs:
             # Validate the real library's surface/pressure variables and time coverage.
-            MsmClient().prepare_run(RunId(run), requirements,
-                                    available_runs=(data.selection,), prepared_data=data)
+            client = MsmClient()
+            client.prepare_run(RunId(run), requirements,
+                               available_runs=(data.selection,), prepared_data=data)
+            if report.get("full_run"):
+                # Validate expanded coverage against the catalog, not just the NPZ's
+                # self-description, while retaining the independent current-24h gate.
+                expanded = full_run_requirements(
+                    client, RunId(run), datetime.fromisoformat(report["valid_start"]))
+                available = client.discover_runs(expanded, listings=catalog.listings)
+                client.prepare_run(RunId(run), expanded,
+                                   available_runs=available, prepared_data=data)
     return {"status": "OK", "new_runs": sorted(new_runs), "assets": len(catalog.assets),
             "coverage_start": start.isoformat(), "coverage_hours": horizon_hours,
             "expires_at": catalog.expires_at.isoformat()}

@@ -31,6 +31,7 @@ from autonavlog.domain.planning import (
     AirportSelection,
     ArrivalAltitudeResult,
     CheckPointProjection,
+    DepartureVorSelection,
     PersistedUiState,
     RjfmDeparturePlan,
     RjfmInboundPlan,
@@ -39,7 +40,12 @@ from autonavlog.domain.planning import (
 )
 from autonavlog.domain.project import Airport, NavSection, Project, RouteNode
 from autonavlog.domain.values import AdoptedValue
-from autonavlog.domain.weather import ForecastRequirement, WeatherRequest, WeatherResult
+from autonavlog.domain.weather import (
+    ForecastCoverageError,
+    ForecastRequirement,
+    WeatherRequest,
+    WeatherResult,
+)
 from autonavlog.nav.airspeed import (
     cas_from_tas,
     isa_temperature_c,
@@ -50,6 +56,7 @@ from autonavlog.nav.geodesy import (
     GeodesicLeg,
     geodesic_leg,
 )
+from autonavlog.nav.rounding_mode import wind_direction_for_calculation
 from autonavlog.nav.variation import variation_for_departure_latitude
 from autonavlog.nav.wind_triangle import WindTriangleError, solve_wind_triangle
 from autonavlog.performance.climb import ClimbCalculator, ClimbPerformanceError
@@ -60,10 +67,12 @@ from autonavlog.performance.cruise import (
 from autonavlog.performance.repository import PerformanceDataError, PerformanceRepository
 from autonavlog.storage.airports import AirportRepository
 from autonavlog.weather.destination_taf import DestinationWindForecast
+from autonavlog.weather.forecast_provider import ForecastWeatherProvider
 from autonavlog.weather.provider import WeatherProvider
 
 from .arrival import calculate_arrival_altitude
 from .checkpoints import project_check_points
+from .forecast_selection import ForecastUnavailable, select_forecast
 from .forecast_service import ForecastService
 from .navlog_display import (
     NavLogPhysicalLeg,
@@ -78,7 +87,7 @@ from .phase_segments import (
     split_route_into_phase_segments,
 )
 from .rjfm_departure_plan import rjfm_plan_matches_project
-from .rjfm_inbound_plan import rjfm_inbound_plan_matches_project
+from .rjfm_inbound_plan import is_arita_node, rjfm_inbound_plan_matches_project
 
 
 @dataclass(frozen=True)
@@ -228,6 +237,15 @@ def _unavailable(reason_code: str = "AUTOMATIC_VALUE_UNAVAILABLE") -> AdoptedVal
     )
 
 
+class _ForecastRetry(Exception):
+    def __init__(self, requirement: ForecastRequirement):
+        self.requirement = requirement
+
+
+class _ForecastProcessingError(Exception):
+    pass
+
+
 class CalculationService:
     def __init__(
         self,
@@ -250,6 +268,7 @@ class CalculationService:
         self.last_weather_requests: list[WeatherRequest] = []
         self.last_weather_results: list[WeatherResult] = []
         self.last_forecast_metadata: dict[str, Any] = {}
+        self._rounding_mode = False
 
     @staticmethod
     def _airport_from_selection(selection: AirportSelection) -> Airport:
@@ -316,7 +335,63 @@ class CalculationService:
         provider: WeatherProvider,
         destination_wind: DestinationWindForecast | None = None,
         progress: Callable[[int, str], None] | None = None,
+        *,
+        rounding_mode: bool = False,
+        refresh_forecast: bool = False,
+        validate_only: bool = False,
     ) -> CalculationOutcome:
+        requirement: ForecastRequirement | None = None
+        # A restart discards every intermediate section and weather result.
+        # Requirements only grow across attempts, so selection cannot oscillate
+        # back to a Run already excluded by a later iteration.
+        for _ in range(4):
+            try:
+                return self._calculate(
+                    project, provider, destination_wind, progress,
+                    refresh_forecast=refresh_forecast, requirement_override=requirement,
+                    rounding_mode=rounding_mode, validate_only=validate_only,
+                )
+            except _ForecastRetry as retry:
+                requirement = self._merge_requirement(requirement, retry.requirement)
+            except _ForecastProcessingError as error:
+                return self._empty_outcome(project, [self._blocker(
+                    "WEATHER_PROCESSING_FAILED", str(error),
+                )])
+        return self._empty_outcome(project, [self._blocker(
+            "FORECAST_SELECTION_NOT_CONVERGED",
+            "反復計算中のForecast選択が収束しませんでした。前回の計算結果を保持します。",
+        )])
+
+    @staticmethod
+    def _merge_requirement(
+        previous: ForecastRequirement | None, current: ForecastRequirement,
+    ) -> ForecastRequirement:
+        if previous is None:
+            return current
+        return ForecastRequirement(
+            valid_times_utc=(*previous.valid_times_utc, *current.valid_times_utc),
+            require_aloft_wind=previous.require_aloft_wind or current.require_aloft_wind,
+            require_aloft_temperature=(previous.require_aloft_temperature
+                                       or current.require_aloft_temperature),
+            require_surface_temperature=(previous.require_surface_temperature
+                                         or current.require_surface_temperature),
+            coverage_requests=(*previous.coverage_requests, *current.coverage_requests),
+            route_points=tuple(dict.fromkeys((*previous.route_points, *current.route_points))),
+        )
+
+    def _calculate(
+        self,
+        project: Project,
+        provider: WeatherProvider,
+        destination_wind: DestinationWindForecast | None,
+        progress: Callable[[int, str], None] | None,
+        *,
+        refresh_forecast: bool,
+        requirement_override: ForecastRequirement | None,
+        rounding_mode: bool,
+        validate_only: bool,
+    ) -> CalculationOutcome:
+        self._rounding_mode = rounding_mode
         report = progress or (lambda _percent, _message: None)
         report(15, "経路データを準備しています。")
         working = project.model_copy(deep=True)
@@ -376,18 +451,14 @@ class CalculationService:
             ):
                 inbound_plan_rejection_reason = "CURRENT_REFERENCE_IDENTITY_UNAVAILABLE"
             elif (
-                rjfm_inbound_plan.reference_revision
-                != self.expected_rjfm_reference_revision
+                rjfm_inbound_plan.reference_revision != self.expected_rjfm_reference_revision
                 or rjfm_inbound_plan.reference_content_fingerprint
                 != self.expected_rjfm_reference_content_fingerprint
             ):
                 inbound_plan_rejection_reason = "REFERENCE_IDENTITY_MISMATCH"
             elif not rjfm_inbound_plan_matches_project(working, rjfm_inbound_plan):
                 inbound_plan_rejection_reason = "ROUTE_INPUT_MISMATCH"
-            elif (
-                rjfm_inbound_plan.adopted_vrep_altitude_ft_msl
-                != arrival_altitude_ft_msl
-            ):
+            elif rjfm_inbound_plan.adopted_vrep_altitude_ft_msl != arrival_altitude_ft_msl:
                 inbound_plan_rejection_reason = "ARRIVAL_ALTITUDE_MISMATCH"
         if rjfm_inbound_plan is not None and inbound_plan_rejection_reason is not None:
             issues.append(
@@ -483,9 +554,23 @@ class CalculationService:
                 check_point_projections,
                 arrival_altitude,
             )
+        departure_origin: Airport | DepartureVorSelection = departure
+        if ui_state is not None and ui_state.departure_vor is not None:
+            if ui_state.departure_vor.airport_id != working.departure_airport_id:
+                issues.append(
+                    Issue(
+                        code="PROJECT_STATE_INVALID",
+                        severity=IssueSeverity.BLOCKER,
+                        message="保存済みUI状態を安全に読み込めません。",
+                    )
+                )
+                return self._empty_outcome(
+                    working, issues, check_point_projections, arrival_altitude
+                )
+            departure_origin = ui_state.departure_vor
         departure_gap_nm = geodesic_leg(
-            departure.latitude_deg,
-            departure.longitude_deg,
+            departure_origin.latitude_deg,
+            departure_origin.longitude_deg,
             geometries[0].start.latitude_deg,
             geometries[0].start.longitude_deg,
         ).distance_nm
@@ -510,13 +595,24 @@ class CalculationService:
             )
             return self._empty_outcome(working, issues, check_point_projections, arrival_altitude)
 
+        if validate_only:
+            return self._empty_outcome(working, issues, check_point_projections, arrival_altitude)
         report(25, "気象データを準備しています。")
         initial_requirement = self.forecast_service.build_initial_requirement(working)
+        if isinstance(provider, ForecastWeatherProvider):
+            initial_requirement = initial_requirement.model_copy(update={
+                "coverage_requests": tuple(self._weather_requests(
+                    working, departure, destination, geometries, {}, arrival_altitude_ft_msl,
+                    fixed_rca_distance_nm=self._fixed_rca_distance(rjfm_departure_plan, geometries),
+                )),
+            })
+            initial_requirement = self._merge_requirement(requirement_override, initial_requirement)
         selected_run_id = self._select_and_prepare_run(
             working,
             provider,
             initial_requirement,
             issues,
+            refresh_forecast=refresh_forecast and project.weather_mode == "FORECAST",
         )
         if selected_run_id is None:
             return self._empty_outcome(working, issues, check_point_projections, arrival_altitude)
@@ -599,7 +695,14 @@ class CalculationService:
                 check_point_projections,
                 arrival_altitude,
             )
-            return outcome.model_copy(update={"selected_forecast_run_id": selected_run_id})
+            return outcome.model_copy(update={
+                "selected_forecast_run_id": selected_run_id,
+                "selected_forecast_model": (
+                    provider.selected_model if isinstance(provider, ForecastWeatherProvider)
+                    else outcome.selected_forecast_model
+                ),
+                "forecast_provenance": dict(self.last_forecast_metadata),
+            })
 
         if final.arrival_time_utc is not None:
             destination_request = next(
@@ -636,7 +739,7 @@ class CalculationService:
                     None,
                 )
                 final.display_rows = build_navlog_display_rows(
-                    self._navlog_physical_legs(geometries, rjfm_departure_plan),
+                    self._navlog_physical_legs(geometries, rjfm_departure_plan, rjfm_inbound_plan),
                     final.sections,
                     departure,
                     destination,
@@ -645,6 +748,7 @@ class CalculationService:
                     destination_wind,
                     total_usable_fuel_gal=working.total_usable_fuel_gal,
                     run_up_included=working.run_up_included,
+                    rounding_mode=rounding_mode,
                 )
         report(80, "計算結果を検証しています。")
         issues.extend(final.issues)
@@ -677,8 +781,26 @@ class CalculationService:
                 tuple(final.representative_times.values()),
                 arrival_time_utc=final.arrival_time_utc,
             )
-            run_status = provider.inspect_run_status(selected_run_id, final_requirement)
-            if not run_status.selected_run_covers_requirement:
+            if isinstance(provider, ForecastWeatherProvider):
+                final_requirement = final_requirement.model_copy(update={
+                    "coverage_requests": tuple(final_weather_requests),
+                })
+                final_requirement = self._merge_requirement(initial_requirement, final_requirement)
+                old_model = provider.selected_model
+                final_run = self._select_and_prepare_run(
+                    working, provider, final_requirement, issues,
+                    refresh_forecast=refresh_forecast,
+                )
+                if final_run is not None and (
+                    final_run != selected_run_id or provider.selected_model != old_model
+                ):
+                    raise _ForecastRetry(final_requirement)
+                covers = final_run is not None
+            else:
+                run_status = provider.inspect_run_status(selected_run_id, final_requirement)
+                covers = run_status.selected_run_covers_requirement
+            # Model selection already records its actual failure reason.
+            if not covers and not isinstance(provider, ForecastWeatherProvider):
                 issues.append(
                     self._blocker(
                         "FORECAST_RUN_OUT_OF_COVERAGE",
@@ -707,6 +829,11 @@ class CalculationService:
         return CalculationOutcome(
             project_id=working.id,
             selected_forecast_run_id=selected_run_id,
+            selected_forecast_model=(
+                provider.selected_model if isinstance(provider, ForecastWeatherProvider)
+                else (None if working.weather_mode == "FTD" else getattr(provider, "model", None))
+            ),
+            forecast_provenance=dict(self.last_forecast_metadata),
             sections=final.sections,
             display_rows=final.display_rows,
             derived_points=derived_points,
@@ -730,7 +857,8 @@ class CalculationService:
             ),
             fuel_plan=fuel_plan,
             summary=build_navlog_summary(
-                final.sections, self._navlog_physical_legs(geometries, rjfm_departure_plan),
+                final.sections,
+                self._navlog_physical_legs(geometries, rjfm_departure_plan, rjfm_inbound_plan),
             ),
             issues=issues,
             converged=converged,
@@ -822,10 +950,42 @@ class CalculationService:
         provider: WeatherProvider,
         requirement: ForecastRequirement,
         issues: list[Issue],
+        *,
+        refresh_forecast: bool = False,
     ) -> str | None:
         try:
             initial_time_utc: datetime | None = None
-            if project.selected_forecast_run_id is None:
+            selection_metadata: dict[str, Any] = {}
+            if isinstance(provider, ForecastWeatherProvider):
+                selection = select_forecast(
+                    provider.models, requirement,
+                    selected_model=project.selected_forecast_model,
+                    selected_run_id=project.selected_forecast_run_id,
+                    refresh=refresh_forecast,
+                )
+                if selection.update_required:
+                    issues.append(self._blocker(
+                        "FORECAST_UPDATE_REQUIRED",
+                        "固定Forecastでは計算できません。同じ入力でもう一度再計算すると更新します。",
+                    ))
+                    return None
+                provider.selected_model = selection.model
+                selected_run_id = selection.run_id
+                initial_time_utc = datetime.strptime(selected_run_id, "%Y%m%d%H%M%S").replace(
+                    tzinfo=UTC,
+                )
+                selection_metadata = {
+                    "model": selection.model,
+                    "fallback": selection.fallback_from is not None,
+                    "fallback_from": selection.fallback_from,
+                    "coverage_reason_codes": list(selection.coverage_reason_codes),
+                }
+                if selection.update_available:
+                    issues.append(Issue(
+                        code="FORECAST_UPDATE_AVAILABLE", severity=IssueSeverity.WARNING,
+                        message="更新可能なForecastがあります。同じ入力でもう一度再計算すると更新します。",
+                    ))
+            elif project.selected_forecast_run_id is None or refresh_forecast:
                 run = provider.resolve_run(requirement)
                 selected_run_id = run.id
                 initial_time_utc = run.initial_time_utc.astimezone(UTC)
@@ -865,11 +1025,15 @@ class CalculationService:
                     )
             prepared = provider.prepare_run(selected_run_id, requirement)
             metadata = dict(prepared.metadata)
+            metadata.update(selection_metadata)
             metadata["forecast_run_id"] = selected_run_id
-            if initial_time_utc is not None:
+            if initial_time_utc is not None and project.weather_mode != "FTD":
                 metadata["initial_time_utc"] = initial_time_utc.isoformat().replace("+00:00", "Z")
             self.last_forecast_metadata = metadata
             return selected_run_id
+        except ForecastUnavailable as error:
+            issues.append(self._blocker("FORECAST_UNAVAILABLE", str(error)))
+            return None
         except Exception as error:
             issues.append(self._blocker("FORECAST_PREPARE_FAILED", str(error)))
             return None
@@ -924,11 +1088,7 @@ class CalculationService:
         elapsed = 0.0
         offsets = self._route_leg_offsets(geometries)
         for index, geometry in enumerate(geometries):
-            default_seconds = (
-                geometry.distance_nm
-                / ForecastService.estimate_speed_kt
-                * 3600.0
-            )
+            default_seconds = geometry.distance_nm / ForecastService.estimate_speed_kt * 3600.0
             valid_time = previous_times.get(
                 str(geometry.section.id),
                 project.planned_departure_time_jst
@@ -1096,8 +1256,28 @@ class CalculationService:
         if selected_run_id is None:
             return []
         try:
+            if isinstance(provider, ForecastWeatherProvider):
+                requirement = ForecastRequirement(
+                    valid_times_utc=tuple(request.valid_time_utc for request in requests),
+                    coverage_requests=tuple(requests),
+                    require_aloft_wind=any(r.kind == WeatherRequestKind.ALOFT for r in requests),
+                    require_aloft_temperature=any(
+                        r.kind == WeatherRequestKind.ALOFT for r in requests
+                    ),
+                    require_surface_temperature=any(
+                        r.kind == WeatherRequestKind.SURFACE_TEMPERATURE for r in requests
+                    ),
+                )
+                try:
+                    provider.current.check_run(selected_run_id, requirement)
+                except ForecastCoverageError:
+                    raise _ForecastRetry(requirement) from None
             results = list(provider.query_batch(selected_run_id, requests))
+        except _ForecastRetry:
+            raise
         except Exception as error:
+            if isinstance(provider, ForecastWeatherProvider):
+                raise _ForecastProcessingError(str(error)) from error
             issues.append(self._blocker("WEATHER_QUERY_FAILED", str(error)))
             return []
         if {item.request_id for item in results} != {item.request_id for item in requests}:
@@ -1153,7 +1333,7 @@ class CalculationService:
             ):
                 weather = weather_by_id.get(self._weather_request_id(section, phase))
                 wind_direction, wind_speed, temperature, metadata, warnings = self._section_weather(
-                    section, weather, phase
+                    section, weather, phase, rounding_mode=self._rounding_mode
                 )
                 altitude_ft_msl, _ = self._weather_request_representative_altitude(
                     index,
@@ -1186,11 +1366,11 @@ class CalculationService:
                             metadata={"phase": phase.value},
                         )
                     )
-                wind_is_required = (
-                    phase != FlightPhase.DESCENT or index == descent_basis_index
-                )
-                if phase != FlightPhase.VISUAL_ARRIVAL and wind_is_required and (
-                    wind_speed is None or (wind_speed > 0 and wind_direction is None)
+                wind_is_required = phase != FlightPhase.DESCENT or index == descent_basis_index
+                if (
+                    phase != FlightPhase.VISUAL_ARRIVAL
+                    and wind_is_required
+                    and (wind_speed is None or (wind_speed > 0 and wind_direction is None))
                 ):
                     issues.append(
                         self._blocker(
@@ -1535,26 +1715,27 @@ class CalculationService:
         )
 
     def _build_rjfm_inbound_descent_plan(
-        self, environments: list[_LegEnvironment], geometries: list[_Geometry],
-        cruise_policy: CruisePerformanceSelectionPolicy, issues: list[Issue],
-        arrival_altitude_ft_msl: float | None, nose_fairing_enabled: bool,
-        air_conditioning_enabled: bool, descent_rate_fpm: int,
+        self,
+        environments: list[_LegEnvironment],
+        geometries: list[_Geometry],
+        cruise_policy: CruisePerformanceSelectionPolicy,
+        issues: list[Issue],
+        arrival_altitude_ft_msl: float | None,
+        nose_fairing_enabled: bool,
+        air_conditioning_enabled: bool,
+        descent_rate_fpm: int,
         plan: RjfmInboundPlan,
     ) -> _DescentPlan | None:
         """Build the OMARU-return profile without extending the physical route."""
         try:
-            controlled_ids = plan.controlled_section_ids or (
-                plan.controlled_section_id,
-            )
+            controlled_ids = plan.controlled_section_ids or (plan.controlled_section_id,)
             controlled_indices = [
-                i for i, geometry in enumerate(geometries)
-                if geometry.section.id in controlled_ids
+                i for i, geometry in enumerate(geometries) if geometry.section.id in controlled_ids
             ]
             controlled_index = min(controlled_indices)
             controlled_end_index = max(controlled_indices)
             end_index = next(
-                i for i, geometry in enumerate(geometries)
-                if geometry.end.id == plan.vrep_node_id
+                i for i, geometry in enumerate(geometries) if geometry.end.id == plan.vrep_node_id
             )
         except StopIteration:
             return None
@@ -1567,15 +1748,23 @@ class CalculationService:
             return None
         target = arrival_altitude_ft_msl
         if target is None or target >= 4500.0:
-            issues.append(self._blocker(
-                "RJFM_INBOUND_ALTITUDE_DELTA_INVALID",
-                "RJFM帰路のVREP高度は4,500 ft未満である必要があります。",
-                geometries[controlled_end_index].section.id,
-                metadata={"target_altitude_ft_msl": target, "start_altitude_ft_msl": 4500.0},
-            ))
+            issues.append(
+                self._blocker(
+                    "RJFM_INBOUND_ALTITUDE_DELTA_INVALID",
+                    "RJFM帰路のVREP高度は4,500 ft未満である必要があります。",
+                    geometries[controlled_end_index].section.id,
+                    metadata={"target_altitude_ft_msl": target, "start_altitude_ft_msl": 4500.0},
+                )
+            )
             return None
-        basis_index = next((i for i in range(start_index, end_index + 1)
-                            if geometries[i].section.phase == FlightPhase.DESCENT), end_index)
+        basis_index = next(
+            (
+                i
+                for i in range(start_index, end_index + 1)
+                if geometries[i].section.phase == FlightPhase.DESCENT
+            ),
+            end_index,
+        )
         basis = environments[basis_index]
         source = basis.geometry.section
         cruise_cas = self._preview_last_cruise_cas(
@@ -1584,9 +1773,7 @@ class CalculationService:
         manual_tas = source.manual_tas_for_phase(FlightPhase.DESCENT)
         if manual_tas is None and cruise_cas is None:
             issues.append(
-                self._blocker(
-                    "DESCENT_TAS_UNAVAILABLE", "降下TASを確定できません。", source.id
-                )
+                self._blocker("DESCENT_TAS_UNAVAILABLE", "降下TASを確定できません。", source.id)
             )
             return None
         wind = basis.for_phase(FlightPhase.DESCENT)
@@ -1626,17 +1813,23 @@ class CalculationService:
             )
         direct_total = sum(direct_seconds.values())
         vertical_seconds = (4500.0 - target) / descent_rate_fpm * 60.0
-        duration = vertical_seconds + 60.0
+        arita_return = is_arita_node(geometries[end_index].end)
+        deceleration_seconds = 0.0 if arita_return else 60.0
+        duration = vertical_seconds + deceleration_seconds
         if direct_total + 1e-9 < duration:
-            issues.append(Issue(
-                code="RJFM_INBOUND_DIRECT_DISTANCE_SHORTFALL", severity=IssueSeverity.WARNING,
-                message="UMKからVREPへの直線経路だけでは、計画降下に必要な時間が不足しています。実飛行ではUMK通過後の経路延長が必要です。",
-                section_id=source.id, acknowledgement_required=False,
-                metadata={
-                    "available_direct_seconds": direct_total,
-                    "required_operational_seconds": duration,
-                },
-            ))
+            issues.append(
+                Issue(
+                    code="RJFM_INBOUND_DIRECT_DISTANCE_SHORTFALL",
+                    severity=IssueSeverity.WARNING,
+                    message="UMKからVREPへの直線経路だけでは、計画降下に必要な時間が不足しています。実飛行ではUMK通過後の経路延長が必要です。",
+                    section_id=source.id,
+                    acknowledgement_required=False,
+                    metadata={
+                        "available_direct_seconds": direct_total,
+                        "required_operational_seconds": duration,
+                    },
+                )
+            )
         offsets = self._route_leg_offsets(geometries)
         if cruise_cas is None:
             cruise_cas = cas_from_tas(
@@ -1645,20 +1838,27 @@ class CalculationService:
                 wind.temperature_c or 0.0,
             )
         return _DescentPlan(
-            source_section_id=source.id, duration_seconds=duration,
+            source_section_id=source.id,
+            duration_seconds=duration,
             route_start_distance_nm=offsets[start_index][0],
-            route_end_distance_nm=offsets[end_index][1], cruise_cas_kt=cruise_cas,
+            route_end_distance_nm=offsets[end_index][1],
+            cruise_cas_kt=cruise_cas,
             metadata={
                 "type": "rjfm_inbound_operational_descent",
                 "rjfm_inbound_rule_version": plan.rule_version,
                 "boundary_method": "RJFM_INBOUND_PHYSICAL_UMK_FIXED_EOC",
                 "descent_rate_fpm": float(descent_rate_fpm),
-                "cruise_altitude_ft_msl": 4500.0, "target_altitude_ft_msl": target,
+                "cruise_altitude_ft_msl": 4500.0,
+                "target_altitude_ft_msl": target,
                 "vertical_descent_duration_seconds": vertical_seconds,
-                "deceleration_duration_seconds": 60.0, "planned_duration_seconds": duration,
-                "phase_profile_rule": "DESCEND_LEVEL_OFF_DECELERATE_V1",
+                "deceleration_duration_seconds": deceleration_seconds,
+                "planned_duration_seconds": duration,
+                "phase_profile_rule": "DESCEND_TO_ARITA_V1"
+                if arita_return
+                else "DESCEND_LEVEL_OFF_DECELERATE_V1",
                 "eoc_source_section_id": str(geometries[start_index].section.id),
-                "descent_wind_source_section_id": str(source.id), "fuel_flow_gph": 12.0,
+                "descent_wind_source_section_id": str(source.id),
+                "fuel_flow_gph": 12.0,
                 "operational_seconds_by_source_section": {
                     str(geometries[index].section.id): duration * seconds / direct_total
                     for index, seconds in direct_seconds.items()
@@ -1715,10 +1915,7 @@ class CalculationService:
             )
             cruise_cas = None if provisional is None else provisional[0]
         if section.manual_tas_for_phase(FlightPhase.DESCENT) is None and cruise_cas is None:
-            if (
-                rca_distance_nm is not None
-                and rca_distance_nm >= offsets[descent_index][1] - 1e-9
-            ):
+            if rca_distance_nm is not None and rca_distance_nm >= offsets[descent_index][1] - 1e-9:
                 issues.append(
                     self._blocker(
                         "DESCENT_CRUISE_CAS_SOURCE_UNAVAILABLE",
@@ -2732,7 +2929,7 @@ class CalculationService:
                                 ),
                                 "CRUISE_POWER_TABLE_BOUNDARY_USED": (
                                     "65%が性能表cornerの掲載PWR範囲外のため、最寄りの2行から"
-                                    "65%へ線形外挿しました（AutoNavLogの実装Policy）。"
+                                    "65%へ線形外挿しました（NavMateの実装Policy）。"
                                 ),
                             }
                             issues.append(
@@ -2822,12 +3019,9 @@ class CalculationService:
                     }
                 )
 
-            if (
-                rjfm_inbound_plan is not None
-                and section.id in (
-                    rjfm_inbound_plan.controlled_section_ids
-                    or (rjfm_inbound_plan.controlled_section_id,)
-                )
+            if rjfm_inbound_plan is not None and section.id in (
+                rjfm_inbound_plan.controlled_section_ids
+                or (rjfm_inbound_plan.controlled_section_id,)
             ):
                 performance_metadata["rjfm_inbound_fixed_altitude"] = True
 
@@ -2998,10 +3192,17 @@ class CalculationService:
                     ),
                     magnetic_course_deg=_automatic(magnetic_course),
                     wind_direction_deg_from=_manual_or_automatic(
-                        automatic_wind_direction,
-                        manual_wind_direction,
+                        wind_direction_for_calculation(
+                            automatic_wind_direction, enabled=self._rounding_mode
+                        ),
+                        wind_direction_for_calculation(
+                            manual_wind_direction, enabled=self._rounding_mode
+                        ),
                         state=wind_state,
-                        metadata=wind_metadata,
+                        metadata=(
+                            wind_metadata | {"rounding_mode": True}
+                            if self._rounding_mode else wind_metadata
+                        ),
                         warnings=wind_warnings,
                     ),
                     wind_speed_kt=_manual_or_automatic(
@@ -3124,7 +3325,7 @@ class CalculationService:
             for result, value in zip(sections, remaining, strict=True)
         ]
         display_rows = build_navlog_display_rows(
-            self._navlog_physical_legs(geometries, rjfm_departure_plan),
+            self._navlog_physical_legs(geometries, rjfm_departure_plan, rjfm_inbound_plan),
             sections,
             departure,
             destination,
@@ -3133,6 +3334,7 @@ class CalculationService:
             destination_wind,
             total_usable_fuel_gal=project.total_usable_fuel_gal,
             run_up_included=project.run_up_included,
+            rounding_mode=self._rounding_mode,
         )
         return _IterationResult(
             sections,
@@ -3149,6 +3351,7 @@ class CalculationService:
     def _navlog_physical_legs(
         geometries: list[_Geometry],
         rjfm_departure_plan: RjfmDeparturePlan | None,
+        rjfm_inbound_plan: RjfmInboundPlan | None = None,
     ) -> list[NavLogPhysicalLeg]:
         default = [
             NavLogPhysicalLeg(
@@ -3162,6 +3365,44 @@ class CalculationService:
             )
             for geometry in geometries
         ]
+        if rjfm_inbound_plan is not None:
+            start = next(
+                (
+                    i
+                    for i, g in enumerate(geometries)
+                    if g.start.id == rjfm_inbound_plan.omaru_node_id
+                ),
+                None,
+            )
+            vrep = next(
+                (g.end for g in geometries if g.end.id == rjfm_inbound_plan.vrep_node_id), None
+            )
+            end_node_id = (
+                geometries[-1].end.id
+                if vrep is not None and is_arita_node(vrep)
+                else rjfm_inbound_plan.vrep_node_id
+            )
+            end = next((i for i, g in enumerate(geometries) if g.end.id == end_node_id), None)
+            if start is not None and end is not None and start < end:
+                grouped = geometries[start : end + 1]
+                parent = NavLogPhysicalLeg(
+                    section_ids=tuple(g.section.id for g in grouped),
+                    phase=grouped[0].section.phase,
+                    start_name=grouped[0].start.name,
+                    start_node_id=grouped[0].start.id,
+                    end_name=grouped[-1].end.name,
+                    end_node_id=grouped[-1].end.id,
+                    adopted_distance_nm=sum(g.distance_nm for g in grouped),
+                    show_child_courses=True,
+                    vrep_node_id=rjfm_inbound_plan.vrep_node_id,
+                )
+                return [
+                    *CalculationService._navlog_physical_legs(
+                        geometries[:start], rjfm_departure_plan
+                    ),
+                    parent,
+                    *default[end + 1 :],
+                ]
         if rjfm_departure_plan is None or not geometries:
             return default
 
@@ -3189,9 +3430,7 @@ class CalculationService:
             rjfm_departure_plan.omaru.latitude_deg,
             rjfm_departure_plan.omaru.longitude_deg,
         )
-        variation = variation_for_departure_latitude(
-            grouped[0].start.latitude_deg
-        ).degrees_east
+        variation = variation_for_departure_latitude(grouped[0].start.latitude_deg).degrees_east
         parent = NavLogPhysicalLeg(
             section_ids=tuple(geometry.section.id for geometry in grouped),
             phase=grouped[0].section.phase,
@@ -3200,12 +3439,10 @@ class CalculationService:
             end_name=grouped[-1].end.name,
             end_node_id=grouped[-1].end.id,
             adopted_distance_nm=sum(geometry.distance_nm for geometry in grouped),
+            show_child_courses=True,
             summary_true_course_deg=direct.initial_true_course_deg,
             summary_variation_deg_east=variation,
-            summary_magnetic_course_deg=(
-                direct.initial_true_course_deg + variation
-            )
-            % 360.0,
+            summary_magnetic_course_deg=(direct.initial_true_course_deg + variation) % 360.0,
         )
         return [parent, *default[omaru_index + 1 :]]
 
@@ -3214,6 +3451,8 @@ class CalculationService:
         section: NavSection,
         weather: WeatherResult | None,
         phase: FlightPhase,
+        *,
+        rounding_mode: bool = False,
     ) -> tuple[float | None, float | None, float | None, dict[str, Any], tuple[str, ...]]:
         metadata = (
             {
@@ -3265,6 +3504,7 @@ class CalculationService:
         )
         if speed == 0:
             direction = None
+        direction = wind_direction_for_calculation(direction, enabled=rounding_mode)
         return direction, speed, temperature, metadata, warnings
 
     @staticmethod
@@ -3490,6 +3730,7 @@ class CalculationService:
         return CalculationOutcome(
             project_id=project.id,
             selected_forecast_run_id=project.selected_forecast_run_id,
+            selected_forecast_model=project.selected_forecast_model,
             arrival_altitude=arrival_altitude,
             fuel_plan=FuelPlan(
                 total_usable_gal=project.total_usable_fuel_gal,

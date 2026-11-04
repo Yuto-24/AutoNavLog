@@ -1,4 +1,4 @@
-"""Live gates call fresh collection; shell pipelines cannot hide a blocked verdict."""
+"""Catalog monitoring is independent; opted-in quota failures remain failures."""
 
 import os
 import re
@@ -45,11 +45,66 @@ def test_all_live_gates_collect_without_operator_report_or_reusable_output():
         assert "${{ secrets.STATIC_GITHUB_READ_TOKEN }}" in step
 
 
-def test_monitor_still_runs_evidence_after_weather_failure_without_enabling_schedule():
-    assert "if: always()" in COLLECTION[0]
-    assert "vars.STATIC_MONITOR_ENABLED == 'true'" in MONITOR
-    assert "github.ref == 'refs/heads/main'" in MONITOR
+def monitor_jobs():
+    return dict(re.findall(
+        r"^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)",
+        MONITOR.split("jobs:\n", 1)[1], re.MULTILINE | re.DOTALL,
+    ))
+
+
+@pytest.mark.parametrize("weather,quota,ref,expected", [
+    ("", "", "refs/heads/main", (False, False)),
+    ("true", "", "refs/heads/main", (True, False)),
+    ("true", "false", "refs/heads/main", (True, False)),
+    ("true", "unknown", "refs/heads/main", (True, False)),
+    ("", "true", "refs/heads/main", (False, True)),
+    ("true", "true", "refs/heads/main", (True, True)),
+    ("true", "true", "refs/heads/feature", (False, False)),
+])
+def test_monitor_jobs_have_independent_explicit_opt_in(weather, quota, ref, expected):
+    jobs = monitor_jobs()
+    assert set(jobs) == {"monitor", "quota-monitor"}
+    for (name, enabled) in zip(("monitor", "quota-monitor"), expected, strict=True):
+        job = jobs[name]
+        assert "needs:" not in job  # either job may fail/skip without suppressing the other
+        condition = re.search(r"^    if: (.+)$", job, re.MULTILINE)
+        assert condition is not None
+        expression = condition[1].replace("vars.STATIC_MONITOR_ENABLED", repr(weather))
+        expression = expression.replace("vars.STATIC_QUOTA_MONITOR_ENABLED", repr(quota))
+        expression = expression.replace("github.ref", repr(ref)).replace("&&", "and")
+        assert bool(eval(expression, {"__builtins__": {}})) == enabled
+
+
+def test_catalog_job_has_no_provider_credentials_or_collection():
+    jobs = monitor_jobs()
+    assert "collection_gate.py" not in jobs["monitor"]
+    assert "secrets." not in jobs["monitor"]
+    assert "operations.py monitor" not in jobs["quota-monitor"]
+    assert "if: always()" not in COLLECTION[0]  # failed checkout must not run collection
     assert "--publication" not in COLLECTION[0]
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_catalog_failure_is_preserved_and_does_not_claim_quota_acceptance(tmp_path, exit_code):
+    python = tmp_path / "python3"
+    python.write_text(f'#!/bin/sh\nprintf \'catalog-result\\n\'\nexit {exit_code}\n')
+    python.chmod(0o755)
+    summary = tmp_path / "summary"
+    job_steps = steps(monitor_jobs()["monitor"])
+    check = next(step for step in job_steps if "operations.py monitor" in step)
+    command = check.split("        run: ", 1)[1].strip()
+    env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
+           "GITHUB_STEP_SUMMARY": str(summary), "STATIC_ORIGIN": "https://example.test",
+           "QUOTA_MONITOR_ENABLED": ""}
+    result = subprocess.run(["bash", "-e", "-c", command], env=env, check=False)
+    assert result.returncode == exit_code
+    scope = next(step for step in job_steps if "Record monitoring scope" in step)
+    assert "if: always()" in scope
+    subprocess.run(["bash", "-e", "-c", dedent(scope.split("        run: |\n", 1)[1])],
+                   env=env, check=True)
+    assert summary.read_text().startswith("catalog-result\n")
+    assert "deferred to #281" in summary.read_text()
+    assert "UNKNOWN" in summary.read_text()
 
 
 def test_publication_is_independent_and_uses_trusted_gates_and_isolated_upload():
@@ -76,6 +131,7 @@ def test_publication_is_independent_and_uses_trusted_gates_and_isolated_upload()
     assert 'source="$GITHUB_WORKSPACE/app",target=/app' in candidate_step
     assert 'source="$RUNNER_TEMP/feed",target=/feed,readonly' in candidate_step
     assert "--env AUTONAVLOG_MSM_FEED=/feed" in candidate_step
+    assert '--env ARTIFACT_UID="$(id -u)" --env ARTIFACT_GID="$(id -g)"' in candidate_step
     assert "--env GITHUB" not in candidate_step
     assert "target=/tooling" not in candidate_step
     assert "docker.sock" not in candidate_step
@@ -115,10 +171,11 @@ def test_collection_shell_preserves_exit_and_redacted_summary(tmp_path, step, ex
 
 
 def test_hourly_preflight_precedes_all_heavy_work_and_preserves_serialization():
+    """Every event uses preflight before heavy work under the shared publication lock."""
     assert "cron: '23 * * * *'" in PRODUCTION
     assert "group: static-production\n  cancel-in-progress: false" in PRODUCTION
     preflight = next(step for step in steps(PRODUCTION) if "id: preflight" in step)
-    assert "if: github.event_name == 'schedule'" in preflight
+    assert re.search(r"^        if:", preflight, re.MULTILINE) is None
     assert "set -euo pipefail" in preflight
     assert (PRODUCTION.index("Install trusted producer dependencies")
             < PRODUCTION.index("id: preflight"))
@@ -131,13 +188,18 @@ def test_hourly_preflight_precedes_all_heavy_work_and_preserves_serialization():
     ("schedule", "false", False, False, False),
     ("schedule", "", False, False, False),
     ("schedule", "unknown", False, False, False),
-    ("workflow_dispatch", "", False, True, False),
-    ("workflow_dispatch", "", True, True, True),
+    ("workflow_dispatch", "", False, False, False),
+    ("workflow_dispatch", "", True, False, False),
+    ("workflow_dispatch", "false", True, False, False),
+    ("workflow_dispatch", "true", False, True, False),
+    ("workflow_dispatch", "true", True, True, True),
 ])
 def test_preflight_event_matrix(event, proceed, publish, build, upload):
+    """Build and upload require a positive preflight for schedule and dispatch alike."""
     workflow_steps = steps(PRODUCTION)
     boundary = next(i for i, step in enumerate(workflow_steps) if "id: preflight" in step)
-    heavy = workflow_steps[boundary + 1:]
+    heavy = [step for step in workflow_steps[boundary + 1:]
+             if "needs.preflight.outputs.proceed" in step]
     assert len(heavy) == 10
     for step in heavy:
         condition = re.search(r"^        if: (.+)$", step, re.MULTILINE)
@@ -145,10 +207,64 @@ def test_preflight_event_matrix(event, proceed, publish, build, upload):
         expression = condition[1]
         assert "always()" not in expression  # implicit success() must still stop on failure
         expression = expression.replace("github.event_name", repr(event))
-        expression = expression.replace("steps.preflight.outputs.proceed", repr(proceed))
+        expression = expression.replace("needs.preflight.outputs.proceed", repr(proceed))
         expression = expression.replace("inputs.publish", repr(publish))
         expression = expression.replace("&&", "and").replace("||", "or")
         is_upload = workflow_steps.index(step) >= next(
             i for i, candidate in enumerate(workflow_steps)
             if "Install independent upload CLI" in candidate)
         assert bool(eval(expression, {"__builtins__": {}})) == (upload if is_upload else build)
+
+
+def test_external_path_preserves_approved_identity_and_final_recheck():
+    """External refresh keeps opt-ins, approved identity and the final upload gate."""
+    assert "STATIC_EXTERNAL_TRIGGER_ENABLED == 'true'" in PRODUCTION
+    assert "vars.STATIC_AUTOMATION_ENABLED == 'true'" in PRODUCTION
+    assert "ref: ${{ steps.source.outputs.sha }}" in PRODUCTION
+    assert "external_trigger_gate.py" in PRODUCTION
+    upload = next(step for step in steps(PRODUCTION) if "pages deploy" in step)
+    assert (upload.index("--verify-context") < upload.index("--candidate")
+            < upload.index("pages deploy"))
+    assert "--candidate dist-static/weather/msm/catalog.json" in upload
+
+
+def test_freshness_lives_in_tooling_and_detected_run_is_recorded_in_actions():
+    """Legacy approved app can publish the hint; discovery and request identity stay distinct."""
+    assert "name: msm-detected/${{ needs.preflight.outputs.upstream_run }}" in PRODUCTION
+    assert "request_id:" in PRODUCTION
+    assert "freshness.py --dist app/web/dist-static" in PRODUCTION
+    assert PRODUCTION.index("freshness.py --dist") < PRODUCTION.index("--stage")
+    assert "--detected-run" in PRODUCTION
+    assert "needs: preflight" in PRODUCTION
+    assert "if: needs.preflight.outputs.proceed == 'true'" in PRODUCTION
+
+
+@pytest.mark.parametrize("event,publish,feed_refresh,environment", [
+    ("schedule", False, False, "static-production"),
+    ("workflow_dispatch", True, False, "static-production"),
+    ("workflow_dispatch", True, True, "static-production"),
+    ("workflow_dispatch", False, False, "static-validation"),
+    ("workflow_dispatch", False, True, "static-validation"),
+])
+def test_forecast_publication_environment_is_unattended_for_every_trigger(
+    event, publish, feed_refresh, environment,
+):
+    """Both jobs publish without human approval; build-only retains token isolation."""
+    jobs = dict(re.findall(
+        r"^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)",
+        PRODUCTION.split("jobs:\n", 1)[1], re.MULTILINE | re.DOTALL,
+    ))
+    assert set(jobs) == {"preflight", "build"}
+    for job in jobs.values():
+        expression = re.search(r"^    environment: \$\{\{ (.+) \}\}$", job, re.MULTILINE)
+        assert expression is not None
+        expression = expression[1].replace("github.event_name", repr(event))
+        expression = expression.replace("inputs.publish", repr(publish))
+        expression = expression.replace("inputs.feed_refresh", repr(feed_refresh))
+        expression = expression.replace("&&", "and").replace("||", "or")
+        assert eval(expression, {"__builtins__": {}}) == environment
+    assert "static-publication" not in PRODUCTION
+    assert "app_release.py" not in PRODUCTION
+    assert PRODUCTION.count("secrets.CLOUDFLARE_PAGES_TOKEN") == 1
+    upload = next(step for step in steps(PRODUCTION) if "pages deploy" in step)
+    assert "secrets.CLOUDFLARE_PAGES_TOKEN" in upload

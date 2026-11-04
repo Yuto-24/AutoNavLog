@@ -1,6 +1,8 @@
+import { ForecastBackupTransport, permitsForecastBackup, type BackupInput, type BackupTransport } from "./forecastBackup";
+import { backupMessages } from "./forecastBackupMessages";
 import { accountBoundaryClosed, type AuthProvider } from "./auth";
 import { ApplicationError } from "./application";
-import type { AutoNavLogApplication, ImportRouteInput, ConfirmRouteInput, UpdateProjectInput, ProgressListener } from "./application";
+import type { AutoNavLogApplication, CalculationOptions, ImportRouteInput, ConfirmRouteInput, UpdateProjectInput, ProgressListener } from "./application";
 import type { CheckPointInput, WebState, WorkingRecovery } from "./types";
 import { LocalClient } from "./localClient";
 import type { LocalProjectRepository, LocalProjectRecord, LocalProjectRepositoryFactory } from "./localProjectRepository";
@@ -8,6 +10,8 @@ import type { LocalProjectRepository, LocalProjectRecord, LocalProjectRepository
 export class LocalApplication implements AutoNavLogApplication {
   sync?: import("./accountSync").AccountSyncControl;
   private active = true;
+  private generation = 0;
+  private pendingBackup?: AbortController;
   private client: Pick<LocalClient, "request" | "dispose"> | undefined;
   private readonly repository: LocalProjectRepository;
   private tokens = new Map<string, string>();
@@ -15,15 +19,22 @@ export class LocalApplication implements AutoNavLogApplication {
   private queue: Promise<unknown> = Promise.resolve();
   constructor(createRepository: LocalProjectRepositoryFactory,
     private readonly createClient: () => Pick<LocalClient, "request" | "dispose"> = () => new LocalClient(),
-    readonly auth?: AuthProvider) {
+    readonly auth?: AuthProvider,
+    private readonly backup: BackupTransport = new ForecastBackupTransport()) {
     this.repository = createRepository(record => this.request<LocalProjectRecord>("validateRecord", record), undefined,
       (record, copyId) => this.request<LocalProjectRecord>("prepareSyncResolution", { record, copy_id: copyId ?? null }));
   }
 
   dispose() {
+    this.invalidatePending();
     this.active = false;
     this.client?.dispose();
     this.client = undefined;
+  }
+  private invalidatePending() {
+    this.generation++;
+    this.pendingBackup?.abort();
+    this.pendingBackup = undefined;
   }
   private assertActive() { if (!this.active) throw accountBoundaryClosed(); }
   private async request<T>(operation: string, input?: unknown): Promise<T> {
@@ -92,7 +103,9 @@ export class LocalApplication implements AutoNavLogApplication {
     this.tokens.set(record.id, record.token);
     if (name !== undefined) {
       const { durableToken: _token, repositoryRecovery: _repository, ...recovery } = working;
-      state = await this.request<WebState>("bootstrap", { ...recovery, project: draft });
+      state = await this.request<WebState>("adoptSavedProject", {
+        working: { ...recovery, project: draft }, rounding_mode: state.roundingMode ?? false,
+      });
     }
     return this.present(state);
   }
@@ -101,11 +114,50 @@ export class LocalApplication implements AutoNavLogApplication {
     const status = this.sync?.getState();
     if (status?.conflicts.length || status?.imports.length) throw new ApplicationError("表示中のプロジェクトの選択を完了してください。", "PROJECT_REVISION_CONFLICT");
   }
-  private execute(operation: string, input?: unknown): Promise<WebState> {
+  private execute(operation: string, input?: unknown, progress?: ProgressListener): Promise<WebState> {
+    // Invalidate immediately, before a queued edit waits for network work.
+    this.invalidatePending();
+    const generation = this.generation;
     return this.serial(async () => {
       this.assertResolved();
       let state: WebState;
-      try { state = await this.request<WebState>(operation, input); }
+      try {
+        try { state = await this.request<WebState>(operation, input); }
+        catch (error) {
+          if (!["calculate", "updateAndRecalculate"].includes(operation) || !permitsForecastBackup(error)) throw error;
+          if (generation !== this.generation) throw new ApplicationError(backupMessages.stale_result, "FORECAST_BACKUP_STALE");
+          const controller = new AbortController();
+          this.pendingBackup = controller;
+          try {
+            const prepared = await this.request<BackupInput>("prepareForecastBackup", {
+              reason: error.code, ...(operation === "calculate" && input ? input as object : {}),
+            });
+            progress?.({ percent: 30, message: backupMessages.backup_progress });
+            const result = await this.backup.calculate(prepared, controller.signal,
+              () => progress?.({ percent: 30, message: backupMessages.pending_unknown }));
+            this.assertActive();
+            if (generation !== this.generation || controller.signal.aborted)
+              throw new ApplicationError(backupMessages.stale_result, "FORECAST_BACKUP_STALE");
+            const previous = await this.request<WebState>("state");
+            if (generation !== this.generation || controller.signal.aborted)
+              throw new ApplicationError(backupMessages.stale_result, "FORECAST_BACKUP_STALE");
+            state = await this.request<WebState>("adoptForecastBackup", result);
+            if (generation !== this.generation || controller.signal.aborted) {
+              // The worker may have committed while an edit queued in this adapter.
+              // Restore before releasing the serial queue; no new edit ran yet.
+              if (previous.workingRecovery) {
+                const { durableToken: _token, repositoryRecovery: _repository, ...working } = previous.workingRecovery;
+                await this.request("refreshSavedWork", { working, rounding_mode: previous.roundingMode ?? false });
+              }
+              throw new ApplicationError(backupMessages.stale_result, "FORECAST_BACKUP_STALE");
+            }
+          } catch (backupError) {
+            if (controller.signal.aborted) throw new ApplicationError(backupMessages.stale_result, "FORECAST_BACKUP_STALE");
+            if (backupError instanceof ApplicationError) throw backupError;
+            throw new ApplicationError(backupMessages.backup_unavailable, "FORECAST_BACKUP_FAILED");
+          } finally { if (this.pendingBackup === controller) this.pendingBackup = undefined; }
+        }
+      }
       catch (error) {
         // update/recalculate may have committed its validated draft before calculation failed.
         if (operation === "updateAndRecalculate") {
@@ -125,17 +177,18 @@ export class LocalApplication implements AutoNavLogApplication {
       if (operation === "importRoute") return this.present(state);
       try { return await this.persist(state); }
       catch (error) {
-        if (operation === "confirmRoute" && error instanceof ApplicationError) {
-          // Python has accepted the route; retain it for session recovery/save retry.
+        if ((operation === "confirmRoute" || operation === "calculate") && error instanceof ApplicationError) {
+          // Python has committed the result; retain it for recovery/save retry.
           const committed = await this.present(state).catch(() => state);
           throw new ApplicationError(error.message, error.code,
-            { ...error.details, operation: "confirmRoute" }, committed);
+            { ...error.details, operation }, committed);
         }
         throw error;
       }
     });
   }
   bootstrap(recovery?: WorkingRecovery) {
+    this.invalidatePending();
     return this.serial(async () => {
       const { durableToken, repositoryRecovery: _repository, ...working } = recovery ?? {};
       if (recovery) await this.repository.restoreWorking?.(recovery);
@@ -151,17 +204,19 @@ export class LocalApplication implements AutoNavLogApplication {
   renameRouteNode(nodeId: string, name: string) { return this.execute("renameRouteNode", { node_id: nodeId, name }); }
   replaceCheckPoints(checkPoints: CheckPointInput[]) { return this.execute("replaceCheckPoints", { check_points: checkPoints }); }
   acknowledge(key: string, checked: boolean) { return this.execute("acknowledge", { key, checked }); }
-  async calculate(onProgress?: ProgressListener) {
+  async calculate(onProgress?: ProgressListener, options?: CalculationOptions) {
     // Report only known milestones; finer progress is deferred to #159.
     onProgress?.({ percent: 0, message: "計算を開始しています。" });
-    const state = await this.execute("calculate");
+    const state = await this.execute("calculate", options && { rounding_mode: options.roundingMode }, onProgress);
     onProgress?.({ percent: 100, message: "計算が完了しました。" });
     return state;
   }
   saveProject(name: string) {
+    this.invalidatePending();
     return this.serial(async () => { this.assertResolved(); return this.persist(await this.request<WebState>("state"), name); });
   }
   loadProject(projectId: string) {
+    this.invalidatePending();
     return this.serial(async () => {
       const record = await this.repository.read(projectId);
       const previous = await this.request<WebState>("state");
@@ -177,7 +232,9 @@ export class LocalApplication implements AutoNavLogApplication {
       catch (error) {
         if (previous.workingRecovery) {
           const { durableToken: _token, repositoryRecovery: _repository, ...working } = previous.workingRecovery;
-          await this.request("bootstrap", working);
+          await this.request("refreshSavedWork", {
+            working, rounding_mode: previous.roundingMode ?? false,
+          });
         }
         throw error;
       }
@@ -186,6 +243,7 @@ export class LocalApplication implements AutoNavLogApplication {
     });
   }
   deleteProject(projectId: string) {
+    this.invalidatePending();
     return this.serial(async () => {
       const state = await this.request<WebState>("state");
       const expected = state.project?.id === projectId
@@ -200,9 +258,11 @@ export class LocalApplication implements AutoNavLogApplication {
     });
   }
   async newWork() {
+    this.invalidatePending();
     await this.serial(async () => {
-      this.client?.dispose();
-      this.client = undefined;
+      // The queue drains previous writes before replacing Python work. Account disposal
+      // still terminates the worker; only this same-account boundary retains Pyodide.
+      if (this.client) await this.request("newWork");
       this.tokens.clear();
       this.listedTokens.clear();
     });

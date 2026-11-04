@@ -1,6 +1,124 @@
 # 変更履歴
 
-AutoNavLog のRelease履歴です。公開日時はGitHub Releaseを正本とします。
+NavMate のRelease履歴です。公開日時はGitHub Releaseを正本とします。
+
+## 2.2.0
+
+### 利用者向け
+
+#### 追加
+- 出発地の経路原点を空港の基準位置から対応するVOR座標へ切り替える「VOR Tracking Mode」を追加しました。全14箇所の登録出発空港および空港外VORに対応し、空港標高・離陸および上昇性能・到着地処理は維持されますが、モード切替時は再計算が必要です。
+
+#### 改善
+- 「Google Earth からペースト」による入力を簡素化しました。クリップボードからのKMLテキスト貼り付けとファイル読み込みの双方が引き続き利用可能です。
+- 新田CENTERの往路（RJFM→小丸）で不足していたUMK、および復路（小丸→RJFM、小丸→有田→RJFM）で不足していたUMKや有田を重複なく補完しました。親・子レグでは各区間の距離・真方位・磁方位を表示し、DIST・所要時間・燃料の合計値との整合性を確保しています。
+- 新田CENTERの復路（UMK 4500ft→有田 1500ft）に新たな降下計算を導入し、選択した降下率に応じて所要時間と燃料を算出します（500fpm時は6分・1.2gal、1000fpm時は3分・0.6gal。往路UMKまでの上昇性能はPOH値を維持。過去に保存した復路計算結果は再計算が必要です）。
+- EOC直後の最初の降下区間において、直前区間と同値の場合でもTOAT（気温）を明示的に表示するようにしました。
+- 新規作業の開始時に準備処理の状態を再利用することで、重複する初期化処理を削減し、動作を効率化しました。
+- 画面上の重複する案内表記を整理し、各種参照情報や機体性能バージョン、FTD関連の内部識別情報を詳細欄へ集約して画面を見やすくしました。
+
+#### 変更
+- 丸め処理の適用を現在の作業セッション限定とし、元の入力値を保持したまま風向（10度単位）のみを計算に反映し、DME（0.5NM単位）とTOAT（1度単位）は表示のみの丸めとするよう変更しました。
+
+#### 修正
+- 地図上で地点を選択して地点名を直接編集できるようにし、通常のEnterキーで確定できるようにしました。なお、日本語IMEでの文字変換確定時のEnterキーでは編集が終了しないよう制御しています。
+
+### 開発者向け
+- [PR #228 地図地点名編集](https://github.com/Yuto-24/AutoNavLog/pull/228): IME確定イベントを制御し、インライン編集確定の誤発火を抑止
+- [PR #229 EOC直後TOAT表示](https://github.com/Yuto-24/AutoNavLog/pull/229): EOC直後の降下レグで前区間と同一値でもTOATを表示する判定ロジックへ更新
+- [PR #302 準備ランタイム再利用](https://github.com/Yuto-24/AutoNavLog/pull/302): 新規作業開始時に準備フェーズのインスタンスを再利用し初期化負荷を低減
+- [PR #316 セッション限定丸め処理](https://github.com/Yuto-24/AutoNavLog/pull/316): 丸め設定をセッション内に限定し、風向（計算値）とDME・TOAT（表示用）を分離適用
+- [PR #321 新田CENTER補完・復路降下モデル](https://github.com/Yuto-24/AutoNavLog/pull/321): 新田CENTER補完、親子レグ整合、降下時流量12gph・追加60秒水平飛行なし・手動入力値保持・国富仮想延伸時の物理距離不変を実装（根拠資料: [issue-235-inbound-umk-local.md](https://github.com/Yuto-24/AutoNavLog/blob/a11ca7a/docs/evidence/issue-235-inbound-umk-local.md)）
+- [PR #323 内部識別情報の詳細欄集約](https://github.com/Yuto-24/AutoNavLog/pull/323): 画面案内を簡素化し、参照情報・性能バージョン・FTD内部識別子をアコーディオン内へ移動
+- [PR #329 VOR Tracking Mode](https://github.com/Yuto-24/AutoNavLog/pull/329): 出発地に対応するVORを持つ全14の登録空港に対応しました。空港標高・離陸/上昇性能および到着条件は変更ありません。
+- [PR #334 KML貼り付け導線の整理](https://github.com/Yuto-24/AutoNavLog/pull/334): 既存のKML貼り付け操作の入口を整理し、ボタン文言を「Google Earth からペースト」へ変更（ファイル読み込みも引き続き利用可能）
+
+## 2.1.3
+
+### 利用者向け
+
+#### 修正
+
+- MSMの予報一覧では利用可能な日時でも、配信データの収録範囲が足りず計算できない問題を修正しました。各Runの予報範囲までデータを準備します。
+- 配信データの不足と破損を区別し、予報対象期間外では「選択した日時のMSM予報は利用できません。」と表示します。
+
+### 開発者向け
+
+- #333のMSM収録範囲修正をv2.1.2へ最小限で反映しました。最新の短期Runに加え、必要な場合は最長の予報範囲を持つRunを準備します。一律の予報時間延長ではありません。
+- Run・SHA・取得元の整合性検査、公開時の鮮度制限、保存済み計算結果の保持を維持します。収録範囲が足りない有効キャッシュを破損扱いで再取得しません。
+- v2.1.2以降の無関係なmain機能は含めません。既存タグ、保存データの構造、Firestore Rules、indexesは変更しません。
+
+## 2.1.2
+
+### 利用者向け
+
+#### 修正
+
+- v1.23.2から2.1系への更新で、端末内の保存データを維持する互換修正を含みます。v2.1.1から製品機能の追加はありません。
+
+### 開発者向け
+
+- #317で1.xへ反映済みの公開テスト修正を2.1系にも反映しました。経路取込み画面への遷移と、起動失敗を意図的に起こす検証の前提を整えます。
+- v2.1.1の本番反映は公開前のbuild/test段階で停止したため、新しい不変タグで修正候補を公開します。既存タグは移動しません。
+
+## 2.1.1
+
+### 利用者向け
+
+#### 修正
+
+- v1.23.2で保存した端末内データを、2.1系でも引き続き読み込み・保存できるようにしました。
+
+### 開発者向け
+
+- v2.1.0を基準に、Project保存とアカウント削除処理のIndexedDBアクセスをversion 2へ統一しました。既存レコードを作り直さず、旧version 1の書込み制限を維持します。
+- 保存済みProject・作業中データ・計算結果の保持と、匿名／アカウント別DBの再読込みを検証します。Project schema、Firestore Rules、indexesは変更しません。
+- v2.1.0以降の新機能は含めません。公開対象はv2.1.1タグが指す候補commitです。
+
+## 2.1.0
+
+### 利用者向け
+
+#### 追加
+
+- 地図上で登録済みのVREPを選択し、経路に直接追加できる機能を追加しました。
+
+#### 改善
+
+- 地図の視認性向上のため、空港とVREPのアイコンを選択状況に応じて白抜き・塗りつぶし表示とし、VREP候補を小さな二重丸に変更しました。
+
+### 開発者向け
+
+- #169: Add the approved 115 derived VREP positions for 16 of the 17 scoped airports; Kanoya has no entries in the supplied AD2. Keep raw bearings, distances, ARPs and source provenance in the repository catalog.
+- Cluster unselected airports and VREPs together during new route creation. Preserve selected occurrences and selection-time reference snapshots through Project persistence; never refresh saved coordinates from the catalog.
+- Confirmed-route re-edit acceptance remains dependent on unmerged #175 / #283. No integration of #282 / #283 and no production deployment are included.
+
+## 2.0.0
+
+### 利用者向け
+
+#### 変更
+
+- AutoNavLog → NavMate
+
+### 開発者向け
+
+- #199 / #187 / #240: Display branding and user-adopted application icon only. Add favicon, Apple touch icon and web manifest; preserve the approved PNG source and deterministic derivatives.
+- Base this release on main 1.22.9. PR #282 / #283 features are explicitly excluded and remain separate unmerged work.
+- Preserve legacy import, persisted identifiers, Project schema, Firebase configuration, production Rules and domain. Production publication remains a separately reviewed gate.
+
+## 1.22.9
+
+### 利用者向け
+
+#### 追加
+
+- 2026年10月29日有効のAIP地図データ原本ZIPファイル3つを出典およびSHA-256付きで同梱しましたが、地図表示や計算への取り込みはまだ実装されていません。
+
+### 開発者向け
+
+- #279: AIPのKML・Shapefile・Documentsの元ZIPを改変せず登録し、サイズ・SHA-256と出典を記録。MAP向けruntimeの正規化・表示は#149で継続。
+- 地物数はShapefileの5,276件を基準とし、KMLの5,271件との進入管制空域2レイヤーの差分をmanifestと資料に明記。
 
 ## 1.22.8
 

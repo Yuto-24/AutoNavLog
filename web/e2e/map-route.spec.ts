@@ -1,4 +1,8 @@
+import { confirmImportedDraft } from "./helpers/importWorkflow";
+import { mapZoom, revealAirport, selectAirport, zoomMapTo } from "./helpers/mapCandidates";
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { deferPlanningRender, installPlanningRenderDelay } from "./helpers/planningRender";
 
 test.beforeEach(async ({ page }) => {
@@ -21,7 +25,6 @@ async function start(page: Page) {
   await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible({ timeout: 90_000 });
 }
 const strip = (page: Page) => page.getByRole("list", { name: "経路リスト" });
-const airport = (page: Page, icao: string) => page.locator(`.airport-draft-marker[title^="空港 ${icao} "]`);
 async function pick(page: Page, latitude: number, longitude: number) {
   const view = await page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!));
   const frame = (await page.locator(".route-map").boundingBox())!;
@@ -64,8 +67,8 @@ test("Leaflet zoom controls contain long-press styling without blocking map inte
 
   // Prepare the route before panning, while its airport markers are in view.
   await page.getByRole("button", { name: "Zoom out" }).click();
-  await airport(page, "RJFM").click();
-  await airport(page, "RJFK").click();
+  await selectAirport(page, "RJFM");
+  await selectAirport(page, "RJFK");
   const map = page.locator(".route-map");
   await map.scrollIntoViewIfNeeded();
   const mapBounds = (await map.boundingBox())!;
@@ -95,7 +98,10 @@ test("Leaflet zoom controls contain long-press styling without blocking map inte
     return (style.userSelect || style.getPropertyValue("-webkit-user-select")) === "none"
       && (!CSS.supports("-webkit-touch-callout", "none") || style.getPropertyValue("-webkit-touch-callout") === "none");
   }))).toBe(true);
-  await expect(page.getByRole("complementary", { name: "RJFM空域データ注記" })).not.toHaveCSS("user-select", "none");
+  await expect(page.getByRole("complementary", { name: "RJFM空域データ注記" })).toHaveCount(0);
+  await expect(attribution).toBeVisible();
+  await expect(osm).toBeVisible();
+  await expect(attribution).toHaveCSS("user-select", "none");
 });
 
 for (const width of [1100, 1440]) {
@@ -114,12 +120,12 @@ for (const width of [1100, 1440]) {
     else expect(draftInput.x + draftInput.width).toBeLessThanOrEqual(draftRoute.x + 2);
     const before = await page.locator(".route-map").boundingBox();
     expect(before!.height).toBeGreaterThan(500);
+    await revealAirport(page, "RJFM");
     const viewport = await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"));
-    await airport(page, "RJFM").click();
+    await selectAirport(page, "RJFM");
     await expect(strip(page).locator("li")).toHaveCount(1);
     expect(await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(viewport);
-    await page.getByRole("button", { name: "Zoom out" }).click();
-    await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).zoom)).toBe(8);
+    await zoomMapTo(page, 8);
     await page.getByRole("button", { name: "Zoom out" }).click();
     await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!).zoom)).toBe(7);
     await pick(page, 32.115635, 130.337678);
@@ -130,9 +136,9 @@ for (const width of [1100, 1440]) {
     await expect(page.getByRole("button", { name: "経路を確定", exact: true })).toBeDisabled();
     await page.locator(".route-workspace").screenshot({ path: info.outputPath("map-draft.png") });
     await page.reload();
-    await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
+    await expect(page.getByText("NavMateを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
     await expect(strip(page).locator("li")).toHaveCount(4, { timeout: 90_000 });
-    await airport(page, "RJFS").click();
+    await selectAirport(page, "RJFS");
     await expect(strip(page).locator("li")).toHaveCount(5);
     if (local) await deferPlanningRender(page);
     await page.getByRole("button", { name: "経路を確定", exact: true }).click();
@@ -149,6 +155,7 @@ for (const width of [1100, 1440]) {
     if (width <= 1240) { expect(input.y + input.height).toBeLessThanOrEqual(route.y + 2); expect(route.y + route.height).toBeLessThanOrEqual(readiness.y + 2); }
     else { expect(input.x + input.width).toBeLessThanOrEqual(route.x + 2); expect(route.x + route.width).toBeLessThanOrEqual(readiness.x + 2); }
     await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+    await expect(page.getByLabel("気象モード")).toHaveValue("FORECAST");
     await page.getByLabel("気象モード").selectOption("FTD");
     for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
       await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude!);
@@ -165,7 +172,7 @@ for (const width of [1100, 1440]) {
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
     await page.reload();
-    await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
+    await expect(page.getByText("NavMateを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
     await expect(page.locator(".nav-log-table")).toBeVisible();
     await expect(page.locator(".route-workspace.is-route-building")).toHaveCount(0);
     const projectId = await page.getByLabel("保存済み", { exact: true }).inputValue();
@@ -174,8 +181,8 @@ for (const width of [1100, 1440]) {
     await page.getByRole("button", { name: "新規", exact: true }).click();
     await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible({ timeout: 90_000 });
     expect(await page.evaluate(() => localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last"))).toBe(savedView);
-    await airport(page, "RJFM").click();
-    await page.getByRole("button", { name: "Zoom in" }).click();
+    await selectAirport(page, "RJFM");
+    await zoomMapTo(page, (await mapZoom(page)) + 1);
     await page.getByLabel("保存済み", { exact: true }).selectOption(projectId);
     page.once("dialog", dialog => dialog.dismiss());
     await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
@@ -216,11 +223,12 @@ for (const width of [1100, 1440]) {
 
 test("repeated airport occurrence removal, clear and new-work cancellation", async ({ page }) => {
   await start(page);
-  await airport(page, "RJFM").click();
+  await selectAirport(page, "RJFM");
+  await zoomMapTo(page, 9);
   await pick(page, 31.98, 131.3);
-  await airport(page, "RJFM").click();
+  await selectAirport(page, "RJFM");
   await pick(page, 32.01, 131.3);
-  await airport(page, "RJFM").click();
+  await selectAirport(page, "RJFM");
   await expect(strip(page).locator("li")).toHaveCount(5);
   await page.getByRole("button", { name: "3番目のRJFMを削除" }).click();
   await expect(strip(page).locator("li")).toHaveCount(4);
@@ -244,9 +252,9 @@ test("direct airport route survives failed local persistence and can be saved", 
   const initialView = await page.evaluate(() => JSON.parse(localStorage.getItem("autonavlog.map-viewport.v1.anonymous.last")!));
   expect(initialView.latitude).toBeCloseTo(31.8772, 2);
   expect(initialView.longitude).toBeCloseTo(131.4486, 2);
-  await airport(page, "RJFM").click();
+  await selectAirport(page, "RJFM");
   await page.getByRole("button", { name: "Zoom out" }).click();
-  await airport(page, "RJFK").click();
+  await selectAirport(page, "RJFK");
   await expect(strip(page).locator("li")).toHaveCount(2);
   await page.evaluate(() => {
     const put = IDBObjectStore.prototype.put;
@@ -261,10 +269,215 @@ test("direct airport route survives failed local persistence and can be saved", 
   await page.getByRole("button", { name: "経路を確定", exact: true }).click();
   await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toBeInViewport();
-  await expect(page.locator(".route-table tbody tr")).toHaveCount(2);
+  await expect(page.locator(".route-table tbody .route-point-row")).toHaveCount(2);
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
   await page.reload();
-  await expect(page.getByText("AutoNavLogを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
-  await expect(page.locator(".route-table tbody tr")).toHaveCount(2);
+  await expect(page.getByText("NavMateを起動しています", { exact: true })).toHaveCount(0, { timeout: 120_000 });
+  await expect(page.locator(".route-table tbody .route-point-row")).toHaveCount(2);
 });
+
+for (const width of [1100, 1440]) {
+  test(`Issue 235: click OMARU with correct provenance and restore the draft at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1100 });
+    await start(page);
+    await expect(page.locator('.map-route-controls .field-hint')).toHaveText(
+      'VREPはAD2のARPから算出した参考位置です。公示座標ではなく精度は保証されません。小丸は運用参照図からの未検証デジタイズによる推定位置（誤差0.35 NM）であり、精度は保証されません。',
+    );
+    await page.locator('.map-route-controls').screenshot({ path: `/tmp/issue235-omaru-notice-${width}.png` });
+    await selectAirport(page, "RJFM");
+    await zoomMapTo(page, 9);
+    const marker = page.locator('.vrep-draft-marker[title="小丸"]');
+    for (let attempt = 0; attempt < 12 && !await marker.count(); attempt++) {
+      const cluster = page.locator('.candidate-cluster').filter({ has: page.locator('[data-candidates~="RJFM:OMARU"]') });
+      await cluster.click();
+      await expect(page.locator('.route-map')).not.toHaveClass(/leaflet-zoom-anim/);
+    }
+    await marker.hover();
+    await expect(page.getByRole('tooltip')).toContainText('運用参照図より推定（未検証・誤差0.35NM）');
+    await marker.click();
+    await expect(strip(page).locator('li')).toHaveCount(2);
+    await expect(strip(page).locator('li').nth(1)).toContainText('小丸');
+    await page.reload();
+    await expect(strip(page).locator('li')).toHaveCount(2);
+    await expect(strip(page).locator('li').nth(1)).toContainText('小丸');
+    await expect(marker).toHaveCount(1);
+    await marker.click();
+    // Each explicit click is an occurrence, just like existing VREP markers.
+    await expect(strip(page).locator('li')).toHaveCount(3);
+    await expect(page).toHaveTitle(/NavMate/);
+    await expect(page.locator('vite-error-overlay')).toHaveCount(0);
+    await selectAirport(page, 'RJFO');
+    await page.getByRole('button', { name: '経路を確定', exact: true }).click();
+    await expect(page.getByLabel('DATE', { exact: true })).toBeVisible();
+    const input = (await page.locator('.input-rail').boundingBox())!;
+    const route = (await page.locator('.route-workspace').boundingBox())!;
+    const readiness = (await page.locator('.status-rail').boundingBox())!;
+    if (width <= 1240) {
+      expect(input.y + input.height).toBeLessThanOrEqual(route.y + 2);
+      expect(route.y + route.height).toBeLessThanOrEqual(readiness.y + 2);
+    } else {
+      expect(input.x + input.width).toBeLessThanOrEqual(route.x + 2);
+      expect(route.x + route.width).toBeLessThanOrEqual(readiness.x + 2);
+    }
+    await page.screenshot({ path: `/tmp/issue235-omaru-map-${width}.png` });
+  });
+}
+
+for (const manualVor of [false, true]) {
+  test(`MAP to Planning and NAV LOG: VOR defaults follow FROM but preserve explicit ${manualVor}`, async ({ page }) => {
+    test.setTimeout(180_000);
+    await start(page);
+    const golden = readFileSync(resolve("../tests/fixtures/issue_43_golden.kml"), "utf8");
+    const coordinates = golden.match(/<coordinates>([\s\S]*?)<\/coordinates>/)![1]!.trim().split(/\s+/);
+    const points = manualVor ? coordinates : ["130.7194444444,31.8033333333,0", ...coordinates.slice(1)];
+    const kml = `<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><LineString><coordinates>${points.join(" ")}</coordinates></LineString></Placemark></Document></kml>`;
+    await page.locator('input[type="file"]').setInputFiles({ name: "departure.kml", mimeType: "application/vnd.google-earth.kml+xml", buffer: Buffer.from(kml) });
+    await confirmImportedDraft(page);
+    const vor = page.getByRole("checkbox", { name: "VOR Tracking Mode", exact: true });
+    await expect(page.getByLabel("FROM", { exact: true })).toHaveValue(manualVor ? /^RJFM/ : /^RJFK/);
+    await expect(vor).toBeChecked({ checked: !manualVor });
+    await vor.setChecked(manualVor);
+    // Main's unified KML/MAP flow changes FROM through the confirmed-route draft.
+    for (const from of ["RJFM", "RJFK"]) {
+      await page.getByRole("button", { name: "経路を編集", exact: true }).click();
+      page.once("dialog", dialog => dialog.accept());
+      await page.getByRole("button", { name: "経路をクリア", exact: true }).click();
+      await revealAirport(page, from);
+      await selectAirport(page, from);
+      await selectAirport(page, "RJFS");
+      await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+      await expect(page.getByLabel("FROM", { exact: true })).toHaveValue(new RegExp(`^${from}`));
+      await expect(vor).toBeChecked({ checked: manualVor });
+    }
+    await page.reload();
+    await expect(vor).toBeChecked({ checked: manualVor, timeout: 120_000 });
+    await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+    await page.getByLabel("気象モード").selectOption("FTD");
+    // Confirmed KML routes require valid leg inputs before a named save.
+    await expect(page.getByRole("spinbutton", { name: /出発Legの計画高度$/ }).first()).toBeVisible();
+    for (const altitude of await page.getByRole("spinbutton", { name: /出発Legの計画高度$/ }).all()) {
+      if (await altitude.isEditable() && !(await altitude.inputValue())) await altitude.fill("6500");
+    }
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
+    const projectId = await page.getByLabel("保存済み", { exact: true }).inputValue();
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await page.getByLabel("保存済み", { exact: true }).selectOption(projectId);
+    await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
+    await expect(vor).toBeChecked({ checked: manualVor });
+    await expect(page.getByLabel("FROM", { exact: true })).toHaveValue(/^RJFK/);
+  });
+}
+
+test("MAP to Planning and NAV LOG: new map departures default to VOR except RJFM", async ({ page }) => {
+  test.setTimeout(180_000);
+  await start(page);
+  for (const from of ["RJFK", "RJFM"]) {
+    await selectAirport(page, from);
+    await selectAirport(page, "RJFS");
+    await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+    await expect(page.getByLabel("FROM", { exact: true })).toHaveValue(new RegExp(`^${from}`));
+    await expect(page.getByRole("checkbox", { name: "VOR Tracking Mode", exact: true }))
+      .toBeChecked({ checked: from !== "RJFM" });
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+  }
+});
+
+for (const width of [390, 1100, 1440]) {
+  test(`MAP to Planning and NAV LOG: VOR Tracking Mode survives reload at ${width}px`, async ({ page }, info) => {
+    test.setTimeout(240_000);
+    await page.setViewportSize({ width, height: 1100 });
+    await start(page);
+    await revealAirport(page, "RJFM");
+    await selectAirport(page, "RJFM");
+    // Match the established valid MAP fixture, including the penultimate arrival VREP.
+    await zoomMapTo(page, 7);
+    await pick(page, 32.115635, 130.337678);
+    await pick(page, 32.893463, 130.536873);
+    await pick(page, 33.029605, 130.444088);
+    await selectAirport(page, "RJFS");
+    await page.getByRole("button", { name: "経路を確定", exact: true }).click();
+    const vor = page.getByRole("checkbox", { name: "VOR Tracking Mode", exact: true });
+    await expect(vor).not.toBeChecked();
+    await page.locator(".flight-plan-section").screenshot({ path: info.outputPath("vor-planning.png") });
+    const layout = await vor.evaluate(checkbox => {
+      const bounds = (element: Element) => element.getBoundingClientRect().toJSON();
+      const label = checkbox.closest("label")!;
+      return {
+        checkbox: bounds(checkbox), label: bounds(label), text: bounds(label.querySelector("span")!),
+        from: bounds(document.querySelector('input[aria-label="FROM"]')!),
+        to: bounds(document.querySelector('input[aria-label="TO"]')!),
+      };
+    });
+    expect(layout.checkbox.width).toBeCloseTo(17, 0);
+    expect(layout.checkbox.height).toBeCloseTo(17, 0);
+    expect(layout.text.x).toBeGreaterThan(layout.checkbox.right);
+    expect(Math.abs((layout.text.top + layout.text.bottom) / 2
+      - (layout.checkbox.top + layout.checkbox.bottom) / 2)).toBeLessThanOrEqual(2);
+    expect(layout.label.x).toBeCloseTo(layout.from.x, 0);
+    expect(layout.label.top).toBeGreaterThanOrEqual(layout.from.bottom);
+    expect(layout.label.top - layout.from.bottom).toBeLessThanOrEqual(8);
+    expect(layout.label.right).toBeLessThanOrEqual(layout.from.right + 1);
+    expect(layout.to.height).toBeCloseTo(layout.from.height, 0);
+    if (width === 1100) {
+      expect(layout.to.x).toBeGreaterThan(layout.from.right);
+      expect(layout.to.top).toBeCloseTo(layout.from.top, 0);
+    } else {
+      expect(layout.to.top).toBeGreaterThan(layout.label.bottom);
+    }
+    // Clicking the visible text must activate the independent checkbox label.
+    await page.getByText("VOR Tracking Mode", { exact: true }).click();
+    await expect(vor).toBeChecked();
+    await page.getByText("VOR Tracking Mode", { exact: true }).click();
+    await expect(vor).not.toBeChecked();
+    await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+    await page.getByLabel("気象モード").selectOption("FTD");
+    for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
+      await page.getByLabel(`${name}出発Legの計画高度`, { exact: true }).fill(altitude!);
+    }
+    await vor.check();
+    await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+    await expect(page.locator(".nav-log-table")).toBeVisible();
+    await expect(page.locator(".nav-log-table")).toContainText("MZE");
+    await expect(page.getByLabel("TO", { exact: true })).toHaveValue(/^RJFS/);
+    // One frame: calculation may still be smoothly scrolling the viewport.
+    const [input, route, readiness] = await page.evaluate(() =>
+      [".input-rail", ".route-workspace", ".status-rail"].map(selector => {
+        const { x, y, width, height } = document.querySelector(selector)!.getBoundingClientRect();
+        return { x, y, width, height };
+      }),
+    );
+    for (const region of [input, route, readiness]) {
+      expect(region.width).toBeGreaterThan(0);
+      expect(region.height).toBeGreaterThan(0);
+    }
+    if (width <= 1240) {
+      expect(input.y + input.height).toBeLessThanOrEqual(route.y + 2);
+      expect(route.y + route.height).toBeLessThanOrEqual(readiness.y + 2);
+    } else {
+      expect(input.x + input.width).toBeLessThanOrEqual(route.x + 2);
+      expect(route.x + route.width).toBeLessThanOrEqual(readiness.x + 2);
+    }
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "プロジェクトを保存しました" })).toBeVisible();
+    const projectId = await page.getByLabel("保存済み", { exact: true }).inputValue();
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "新規", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
+    await page.getByLabel("保存済み", { exact: true }).selectOption(projectId);
+    await page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true }).click();
+    await expect(vor).toBeChecked();
+    await expect(page.locator(".nav-log-table")).toContainText("MZE");
+    await page.reload();
+    await expect(vor).toBeChecked({ timeout: 120_000 });
+    await expect(page.locator(".nav-log-table")).toContainText("MZE");
+    await vor.uncheck();
+    await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
+    await expect(page.locator(".nav-log-table")).toContainText("RJFM");
+  });
+}

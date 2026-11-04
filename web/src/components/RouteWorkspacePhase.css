@@ -137,12 +137,38 @@
   font-weight: 650;
 }
 
-@media (max-width: 760px) {
+/* Use the table's available width, including when desktop side panels narrow it. */
+@container (max-width: 700px) {
+  .route-workspace .route-table-phase-compact th:nth-child(1) {
+    width: 28%;
+  }
+
   .route-workspace .route-table-phase-compact th:nth-child(2) {
-    width: 230px;
+    width: 48%;
   }
 
   .route-workspace .route-table-phase-compact th:nth-child(3) {
-    width: 118px;
+    width: 24%;
   }
+
+  .route-table th, .route-table td { padding-left: 6px; padding-right: 6px; overflow-wrap: anywhere; }
+  .route-table .route-point-content { min-width: 0; }
+  .route-table .route-point-content .point-index { flex-shrink: 0; }
+  .route-table .route-name-display { flex: 1; flex-wrap: wrap; }
+  .route-table .route-name-display strong { min-width: 0; max-width: 100%; }
+  .route-table .route-point-content:has(.route-name-editor) { flex-wrap: wrap; }
+  .route-table .route-name-editor { width: 100%; }
+  .route-table .route-name-editor input { min-width: 0; flex-basis: 100%; }
+  .route-table .phase-heading { flex-wrap: wrap; }
+  .route-table .arrival-airport-reference { grid-template-columns: 1fr; }
+}
+
+@container (max-width: 460px) {
+  .route-workspace .route-table-phase-compact th:nth-child(2) { width: 50%; }
+  .route-workspace .route-table-phase-compact th:nth-child(3) { width: 22%; }
+  .route-table th, .route-table td { padding-left: 4px; padding-right: 4px; }
+  .route-table .route-point-content { gap: 4px; }
+  .route-table .altitude-input-row { flex-direction: column; align-items: stretch; }
+  .route-table .altitude-input-row > .altitude-candidate-select,
+  .route-table .altitude-input-row > .table-number-input { flex: 0 0 auto; }
 }

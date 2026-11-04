@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import re
 import subprocess
 import tomllib
@@ -34,78 +33,9 @@ def base_version(root: Path, commit: str) -> str:
     return value
 
 
-def runtime_path(path: str) -> bool:
-    if path.startswith("web/") and re.search(r"\.(?:test|spec)\.[cm]?[jt]sx?$", path):
-        return False
-    return (
-        path.startswith(("src/", "web/src/", "web/public/", "web/scripts/", "data/", "vendor/"))
-        or path
-        in {
-            "VERSION",
-            "CHANGELOG.md",
-            "KNOWN_ISSUES.md",
-            "Dockerfile",
-            ".dockerignore",
-            "compose.yaml",
-            "docker-compose.yml",
-            "pyproject.toml",
-            "web/package.json",
-            "web/package-lock.json",
-            "web/index.html",
-            "MANIFEST.in",
-            "setup.py",
-            "setup.cfg",
-        }
-        or bool(
-            re.fullmatch(
-                r"(?:compose[.\w-]*\.ya?ml|web/(?:vite|tsconfig|postcss|tailwind).*)", path
-            )
-        )
-    )
-
-
-class _WithoutDocstrings(ast.NodeTransformer):
-    def visit_Module(self, node: ast.Module) -> ast.Module:
-        return self._strip(node)
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
-        return self._strip(node)
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        return self._strip(node)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
-        return self._strip(node)
-
-    def _strip(self, node):
-        self.generic_visit(node)
-        if ast.get_docstring(node, clean=False) is not None:
-            node.body = node.body[1:]
-        return node
-
-
-def python_documentation_only(root: Path, base: str, path: str) -> bool:
-    """Exempt unchanged Python syntax apart from comments and docstrings.
-
-    File creation/deletion and syntax errors are never treated as documentation.
-    Other languages remain subject to file-level classification, without guessing
-    whether a comment-looking line might be inside a string literal.
-    """
-    if not path.endswith(".py"):
-        return False
-    try:
-        before = git(root, "show", f"{base}:{path}")
-        after = git(root, "show", f"HEAD:{path}")
-        trees = [
-            ast.dump(_WithoutDocstrings().visit(ast.parse(source))) for source in (before, after)
-        ]
-    except (subprocess.CalledProcessError, SyntaxError):
-        return False
-    return trees[0] == trees[1]
-
-
 def parse_contract(body: str) -> str:
-    lines = re.sub(r"<!--[\s\S]*?-->", "", body).splitlines()
+    visible = re.sub(r"<!--[\s\S]*?(?:-->|\Z)", "", body).replace("\r\n", "\n")
+    lines = visible.splitlines()
     markers = [
         line.strip()
         for line in lines
@@ -120,11 +50,40 @@ def parse_contract(body: str) -> str:
         re.fullmatch(r"Reason: \S.*", line.strip()) for line in lines
     ):
         raise ValueError("Release: not-required requires a Reason: line")
+    if kind == "not-required":
+        notes = re.search(
+            r"^## Pending release notes[ \t]*\n(.*?)(?=^ {0,3}#{1,2}(?:[ \t]|$)|\Z)",
+            visible,
+            re.MULTILINE | re.DOTALL,
+        )
+        if notes is None or not any(
+            re.search(r"\w", line) and not line.lstrip().startswith("#")
+            for line in notes[1].splitlines()
+        ):
+            raise ValueError(
+                "Release: not-required requires Pending release notes or an explicit None"
+            )
     return kind
 
 
-def validate(root: Path, base: str | None = None, pr_body: str | None = None) -> None:
+def checked_pr_base(root: Path, pr_head: str) -> str:
+    # checkout@v4 tests GitHub's synthetic PR merge, whose first parent is the
+    # base actually tested. Event base.sha can lag a newly merged release.
+    parents = git(root, "rev-list", "--parents", "-n", "1", "HEAD").split()
+    if len(parents) != 3 or not pr_head or parents[2] != pr_head:
+        raise ValueError("PR checkout must be a two-parent merge with the expected PR head")
+    return parents[1]
+
+
+def validate(
+    root: Path, base: str | None = None, pr_body: str | None = None,
+    pr_head: str | None = None,
+) -> None:
     current = validate_sources(root)
+    if pr_head is not None:
+        if not base:
+            raise ValueError("PR validation requires an event base")
+        base = checked_pr_base(root, pr_head)
     if not base:
         return
     if pr_body is None:
@@ -141,26 +100,22 @@ def validate(root: Path, base: str | None = None, pr_body: str | None = None) ->
     else:
         if current != previous or "VERSION" in changed:
             raise ValueError("Release: not-required must not change VERSION")
-        runtime = [
-            path
-            for path in changed
-            if runtime_path(path) and not python_documentation_only(root, merge_base, path)
-        ]
-        if runtime:
+        if "CHANGELOG.md" in changed:
             raise ValueError(
-                "Release: not-required cannot include production/runtime changes: "
-                + ", ".join(runtime)
+                "Release: not-required must not change CHANGELOG.md; "
+                "record pending release notes in the PR body"
             )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base")
+    parser.add_argument("--pr-head", help="Verify the synthetic merge and use its actual base")
     parser.add_argument("--pr-body-file")
     args = parser.parse_args()
     body = Path(args.pr_body_file).read_text(encoding="utf-8") if args.pr_body_file else None
     try:
-        validate(Path(__file__).resolve().parents[1], args.base, body)
+        validate(Path(__file__).resolve().parents[1], args.base, body, args.pr_head)
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Release validation failed: {error}\n")
     print("Release sources are valid.")

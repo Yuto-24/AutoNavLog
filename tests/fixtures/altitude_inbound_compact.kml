@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+<Placemark><name>RJFO→鶴御崎→OMARU→UMK→有田→RJFM</name><LineString><coordinates>
+131.7371201529664,33.47949406702627,0
+132.0333581581308,32.95363837860089,0
+131.47036916946163,32.16255070087476,0
+131.42429852046251,31.985137767624444,0
+131.3535165268158,31.94977931375614,0
+131.4484517490447,31.87712141761355,0
+</coordinates></LineString></Placemark>
+<Placemark><name>鶴御崎</name><Point><coordinates>132.0333581581308,32.95363837860089,0</coordinates></Point></Placemark>
+</Document></kml>

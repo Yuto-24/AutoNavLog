@@ -1,0 +1,29 @@
+# syntax=docker/dockerfile:1.7
+FROM node:24-bookworm-slim AS node
+
+FROM python:3.12-slim-bookworm AS updater
+ENV PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/browsers
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && apt-get update && apt-get install -y --no-install-recommends git curl \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /opt/runtime
+COPY pyproject.toml VERSION README.md ./
+COPY vendor ./vendor
+COPY src ./src
+COPY web/package.json web/package-lock.json ./web/
+RUN python -m pip install 'setuptools>=69' wheel \
+      vendor/jma_gpv_weather-0.6.0-py3-none-any.whl '.[test]' \
+    && npm --prefix web ci \
+    && npm --prefix web exec -- playwright install --with-deps chromium
+COPY scripts ./scripts
+COPY web/scripts ./web/scripts
+ENTRYPOINT ["python", "/opt/runtime/scripts/static_ops/local_runtime.py"]
+
+FROM python:3.12-slim-bookworm AS web
+ENV PYTHONUNBUFFERED=1
+COPY scripts/static_ops/local_runtime.py /opt/local_runtime.py
+ENTRYPOINT ["python", "/opt/local_runtime.py"]

@@ -152,7 +152,7 @@ async def _calculate(client: httpx.AsyncClient) -> dict[str, object]:
     ("flight_date", "departure_time_jst"),
     [("2026-08-11", "09:00"), ("2026-08-10", "10:00")],
 )
-async def test_saved_forecast_pin_is_invalidated_after_date_update_without_ftd(
+async def test_saved_forecast_pin_is_preserved_after_date_update_without_ftd(
     tmp_path: Path,
     flight_date: str,
     departure_time_jst: str,
@@ -209,7 +209,7 @@ async def test_saved_forecast_pin_is_invalidated_after_date_update_without_ftd(
         )
         updated = await client.put("/api/project", json=payload)
         assert updated.status_code == 200, updated.text
-        assert updated.json()["project"]["selected_forecast_run_id"] is None
+        assert updated.json()["project"]["selected_forecast_run_id"] == historical_run_id
 
 
 @pytest.mark.anyio
@@ -262,6 +262,19 @@ def test_web_serves_available_static_bundle(
     assert root_response.status_code == 200
     assert root_response.path == static_root / "index.html"
 
+    # Every manifest icon must remain a root-level file that the supported
+    # Legacy frontend can serve, not the SPA fallback HTML.
+    public = ROOT / "web/public"
+    manifest = json.loads((public / "manifest.webmanifest").read_text())
+    icon_paths = [icon["src"].removeprefix("/") for icon in manifest["icons"]]
+    for name in [
+        "manifest.webmanifest", "favicon.ico", "favicon-32.png", "apple-touch-icon.png", *icon_paths
+    ]:
+        (static_root / name).write_bytes((public / name).read_bytes())
+        response = frontend_route.endpoint(name)
+        assert isinstance(response, FileResponse)
+        assert response.path == static_root / name
+
     assets_route = next(route for route in app.routes if route.path == "/assets")
     assert isinstance(assets_route.app, StaticFiles)
 
@@ -285,6 +298,8 @@ async def test_web_route_calculation_save_and_fail_closed_state(
         assert (await client.get("/healthz")).status_code == 200
         root_response = await client.get("/")
         assert root_response.status_code == 503
+        assert "<h1>NavMate Web</h1>" in root_response.text
+        assert app.title == "NavMate Web"
         assert root_response.headers["cache-control"] == "no-cache"
 
         created = await client.post("/api/session")

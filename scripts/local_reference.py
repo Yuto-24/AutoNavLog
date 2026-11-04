@@ -28,6 +28,7 @@ def reference_state(
     manual: bool = False,
     local: bool = False,
     feed: str | None = None,
+    gsm_feed: str | None = None,
     flight_date: str = "2026-09-16",
     departure_time: str = "12:00",
     native_cache: str | None = None,
@@ -78,11 +79,11 @@ def reference_state(
             app.development_weather = False
         if feed:
             from autonavlog.weather.destination_taf import DecodedTafProvider
-            from autonavlog.weather.local_msm import LocalMsmWeather
+            from autonavlog.weather.local_forecast import LocalForecastWeather, LocalWeatherRequest
 
-            feed_weather = LocalMsmWeather()
+            feed_weather = LocalForecastWeather()
             app.weather_factory = lambda: feed_weather.provider
-            app.weather_label = "実MSM（端末内処理）"
+            app.weather_label = "MSM / GSM予報（端末内処理）"
             app.destination_wind_provider = DecodedTafProvider([], "TAF_PROXY_NOT_CONFIGURED")
             app.development_weather = False
             if native_cache:
@@ -96,9 +97,14 @@ def reference_state(
                     def discover_runs(self, requirements):
                         return super().discover_runs(requirements, listings=listing_data)
 
-                app.weather_factory = lambda: MsmWeatherProvider(
-                    native_cache, client=CapturedListingClient(native_cache)
-                )
+                from autonavlog.weather.forecast_provider import ForecastWeatherProvider
+
+                app.weather_factory = lambda: ForecastWeatherProvider({
+                    "MSM": MsmWeatherProvider(
+                        native_cache, client=CapturedListingClient(native_cache),
+                    ),
+                    "GSM": feed_weather.provider.models["GSM"],
+                })
         session = app.create_session("reference")
         filename = f"issue_125_{route}.kml" if route else "issue_43_golden.kml"
         app.accept_import(
@@ -176,18 +182,28 @@ def reference_state(
             app.save(session, SaveProjectRequest(name="Pinned Forecast"))
             session = app.create_session("reference")
             assert session.project.selected_forecast_run_id == pinned_run
-        if feed and not native_cache:
+        if feed:
             from datetime import UTC, datetime, timedelta
 
-            catalog = json.loads((Path(feed) / "catalog.json").read_text())
-            # Reference fixtures retain their weather times; refresh only index lifetime.
-            catalog["generated_at"] = datetime.now(UTC).isoformat()
-            catalog["expires_at"] = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
-            requirement = session.calculation_service.forecast_service.build_initial_requirement(
-                session.project
-            )
-            asset = json.loads(feed_weather.plan(session.project, requirement, json.dumps(catalog)))
-            feed_weather.accept((Path(feed) / asset["file"]).read_bytes(), asset["sha256"])
+            feed_weather.begin()
+            for _ in range(128):
+                try:
+                    return app.calculate(session)
+                except LocalWeatherRequest as suspension:
+                    request = suspension.request
+                    model = request["model"]
+                    directory = Path(feed if model == "MSM" else gsm_feed or "missing-gsm-feed")
+                    if request["kind"] == "catalog":
+                        catalog = json.loads((directory / "catalog.json").read_text())
+                        # Refresh delivery lifetime only, never weather times or Run identity.
+                        catalog["generated_at"] = datetime.now(UTC).isoformat()
+                        catalog["expires_at"] = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+                        feed_weather.catalog(model, json.dumps(catalog))
+                    else:
+                        asset = request["asset"]
+                        feed_weather.accept(model, (directory / asset["file"]).read_bytes(),
+                                            asset["sha256"])
+            raise RuntimeError("Local reference acquisition did not converge")
         return app.calculate(session)
 
 
@@ -199,6 +215,7 @@ if __name__ == "__main__":
     parser.add_argument("--pinned", action="store_true")
     parser.add_argument("--manual", action="store_true")
     parser.add_argument("--feed")
+    parser.add_argument("--gsm-feed")
     parser.add_argument("--flight-date", default="2026-09-16")
     parser.add_argument("--departure-time", default="12:00")
     parser.add_argument("--native-cache")
@@ -212,6 +229,7 @@ if __name__ == "__main__":
                 pinned=arguments.pinned,
                 manual=arguments.manual,
                 feed=arguments.feed,
+                gsm_feed=arguments.gsm_feed,
                 flight_date=arguments.flight_date,
                 departure_time=arguments.departure_time,
                 native_cache=arguments.native_cache,

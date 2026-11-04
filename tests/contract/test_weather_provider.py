@@ -33,7 +33,7 @@ def test_fake_provider_fixes_selected_run_and_preserves_request_ids() -> None:
 
 def _stub_msm_module() -> ModuleType:
     module = ModuleType("jma_gpv_weather")
-    module.__version__ = "0.5.0"
+    module.__version__ = "0.6.0"
     module.WeatherVariable = SimpleNamespace(
         ALOFT_WIND="wind",
         ALOFT_TEMPERATURE="temperature",

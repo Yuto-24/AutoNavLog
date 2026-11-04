@@ -21,6 +21,7 @@ from autonavlog.domain.planning import (
     load_persisted_ui_state,
 )
 from autonavlog.domain.project import ManualWind, NavSection, Project, RouteNode
+from autonavlog.nav.geodesy import geodesic_leg
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -500,26 +501,103 @@ def test_existing_later_omaru_is_not_moved_or_duplicated() -> None:
     )
 
 
-def test_omaru_first_uses_virtual_umk_without_inserting_node() -> None:
+def test_omaru_first_inserts_physical_umk_idempotently_and_preserves_inputs() -> None:
+    project = _project(
+        [("RJFM", 31.877, 131.449), ("小丸", 32.22, 131.55), ("RJFO", 33.479, 131.737)]
+    )
+    omaru = project.route_nodes[1]
+    omaru.name_source = RouteNodeNameSource.USER
+    remainder = project.sections[1].model_copy(deep=True)
+    original_first = project.sections[0].model_copy(deep=True)
+    plan = apply_rjfm_departure_exception(project, _references())
+    assert plan is not None
+    assert plan.trigger == RjfmDepartureTrigger.UMK
+    assert plan.main_route_mode == RjfmMainRouteMode.UMK_PHYSICAL
+    assert [n.name for n in project.ordered_nodes()] == ["RJFM", "UMK", "小丸", "RJFO"]
+    assert project.ordered_sections()[2] == remainder.model_copy(update={"sequence": 2})
+    assert project.ordered_sections()[1].id == original_first.id
+    assert project.ordered_sections()[0].manual_wind_by_phase == original_first.manual_wind_by_phase
+    assert project.ordered_sections()[1].manual_temperature_c == original_first.manual_temperature_c
+    assert [s.planned_altitude_ft_msl for s in project.ordered_sections()[:2]] == [5500, 5500]
+    assert plan.umk.estimated_error_nm == _references().umk.estimated_error_nm
+    before = project.model_dump(mode="json")
+    assert apply_rjfm_departure_exception(project, _references()) == plan
+    assert project.model_dump(mode="json") == before
+    restored = Project.model_validate_json(project.model_dump_json())
+    assert apply_rjfm_departure_exception(restored, _references()) == plan
+    assert restored.model_dump(mode="json") == before
+
+
+@pytest.mark.parametrize("deactivate", ["departure", "omaru"])
+def test_generated_umk_is_removed_and_original_geometry_restored(deactivate: str) -> None:
+    project = _project(
+        [("RJFM", 31.877, 131.449), ("first", 32.22, 131.55), ("RJFO", 33.479, 131.737)]
+    )
+    origin, omaru = project.route_nodes[:2]
+    origin.manual_true_course_deg = 12
+    origin.manual_distance_nm = 30
+    original_sections = [s.model_copy(deep=True) for s in project.sections]
+    assert apply_rjfm_departure_exception(project, _references()) is not None
+    assert origin.manual_true_course_deg is None
+    assert sum(n.manual_distance_nm or 0 for n in project.ordered_nodes()[:2]) == pytest.approx(30)
+    if deactivate == "departure":
+        project.departure_airport_id = "RJFO"
+    else:
+        omaru.latitude_deg = 0
+    assert apply_rjfm_departure_exception(project, _references()) is None
+    assert len(project.route_nodes) == 3
+    assert origin.manual_true_course_deg == 12 and origin.manual_distance_nm == 30
+    assert project.sections == original_sections
+
+
+def test_generated_umk_preserves_manual_distance_through_reapply_and_reference_update() -> None:
+    project = _project(
+        [("RJFM", 31.877, 131.449), ("first", 32.22, 131.55), ("RJFO", 33.479, 131.737)]
+    )
+    origin = project.route_nodes[0]
+    origin.manual_true_course_deg = 12
+    origin.manual_distance_nm = 30
+    references = _references()
+
+    for latitude in (references.umk.latitude_deg, 32.09):
+        references.umk.latitude_deg = latitude
+        assert apply_rjfm_departure_exception(project, references) is not None
+        origin, umk, omaru = project.ordered_nodes()[:3]
+        first = geodesic_leg(
+            origin.latitude_deg, origin.longitude_deg, umk.latitude_deg, umk.longitude_deg
+        )
+        second = geodesic_leg(
+            umk.latitude_deg, umk.longitude_deg, omaru.latitude_deg, omaru.longitude_deg
+        )
+        assert origin.manual_distance_nm == pytest.approx(
+            30 * first.distance_nm / (first.distance_nm + second.distance_nm)
+        )
+        assert umk.manual_distance_nm == pytest.approx(30 - origin.manual_distance_nm)
+        assert origin.manual_true_course_deg is None and umk.manual_true_course_deg is None
+        before = project.model_dump(mode="json")
+        project = Project.model_validate_json(project.model_dump_json())
+        assert apply_rjfm_departure_exception(project, references) is not None
+        assert project.model_dump(mode="json") == before
+
+
+def test_explicit_umk_keeps_name_coordinates_and_manual_geometry() -> None:
     project = _project(
         [
             ("RJFM", 31.877, 131.449),
-            ("first", 32.22, 131.55),
+            ("手動UMK", 32.081, 131.50),
+            ("小丸", 32.22, 131.55),
             ("RJFO", 33.479, 131.737),
         ]
     )
-
-    plan = apply_rjfm_departure_exception(project, _references())
-
-    assert plan is not None
-    assert plan.trigger == RjfmDepartureTrigger.OMARU
-    assert plan.main_route_mode == RjfmMainRouteMode.OMARU_VIRTUAL_UMK
-    assert len(project.route_nodes) == 3
-    assert project.ordered_nodes()[1].name == "OMARU"
-    assert project.ordered_nodes()[1].name_source is RouteNodeNameSource.GENERATED
-    assert project.ordered_sections()[0].planned_altitude_ft_msl == 5500
-    state = load_persisted_ui_state(project.metadata["ui_state"])
-    assert state.rjfm_departure_plan == plan
+    umk = project.route_nodes[1]
+    umk.name_source = RouteNodeNameSource.USER
+    umk.manual_true_course_deg = 12
+    umk.manual_distance_nm = 30
+    original = umk.model_copy(deep=True)
+    for _ in range(2):
+        assert apply_rjfm_departure_exception(project, _references()) is not None
+        assert len(project.route_nodes) == 4
+        assert umk == original
 
 
 def test_non_matching_first_point_does_not_apply() -> None:
@@ -653,3 +731,176 @@ def test_current_guidance_requires_direction_and_runway_mapping() -> None:
             ],
             center_route=[plan.umk, plan.over_field, plan.omaru],
         )
+
+
+def test_generated_outbound_umk_does_not_suppress_inbound_completion() -> None:
+    from autonavlog.application.rjfm_inbound_plan import (
+        RjfmInboundReferences,
+        apply_rjfm_inbound_exception,
+    )
+
+    project = _project(
+        [
+            ("RJFM", 31.877, 131.449),
+            ("OMARU", 32.22, 131.55),
+            ("ARITA", 31.97, 131.48),
+            ("RJFM", 31.877, 131.449),
+        ]
+    )
+    project.destination_airport_id = "RJFM"
+    project.route_nodes[-2].role = RouteNodeRole.VISUAL_REPORTING_POINT
+    refs = _references()
+    inbound_refs = RjfmInboundReferences(
+        revision=refs.revision,
+        content_fingerprint=refs.content_fingerprint,
+        umk=refs.umk,
+        omaru=refs.omaru,
+    )
+    for _ in range(2):
+        assert apply_rjfm_departure_exception(project, refs) is not None
+        assert apply_rjfm_inbound_exception(project, inbound_refs) is not None
+        assert apply_rjfm_departure_exception(project, refs) is not None
+        assert [n.name for n in project.ordered_nodes()] == [
+            "RJFM",
+            "UMK",
+            "OMARU",
+            "UMK",
+            "ARITA",
+            "RJFM",
+        ]
+        if _ == 0:
+            before = project.model_dump(mode="json")
+            project = Project.model_validate_json(project.model_dump_json())
+        else:
+            assert project.model_dump(mode="json") == before
+    project.route_nodes[2].latitude_deg = 0
+    assert apply_rjfm_departure_exception(project, refs) is None
+    assert apply_rjfm_inbound_exception(project, inbound_refs) is None
+    assert len(project.route_nodes) == 4
+    assert all(s.planned_altitude_ft_msl == 5000 for s in project.sections)
+
+
+def test_saved_climb_checkpoint_follows_split_and_restores_on_removal() -> None:
+    from autonavlog.application.checkpoints import project_check_points
+    from autonavlog.domain.enums import VisualReferenceRole
+    from autonavlog.domain.project import VisualReference
+    from autonavlog.nav.geodesy import geodesic_leg, point_along_leg
+
+    project = _project(
+        [("RJFM", 31.877, 131.449), ("OMARU", 32.22, 131.55), ("RJFO", 33.479, 131.737)]
+    )
+    origin, omaru = project.route_nodes[:2]
+    geometry = geodesic_leg(
+        origin.latitude_deg, origin.longitude_deg, omaru.latitude_deg, omaru.longitude_deg
+    )
+    latitude, longitude = point_along_leg(
+        origin.latitude_deg,
+        origin.longitude_deg,
+        geometry.initial_true_course_deg,
+        geometry.distance_nm * 0.2,
+    )
+    original_id = project.sections[0].id
+    checkpoint = VisualReference(
+        name="saved climb CP",
+        latitude_deg=latitude,
+        longitude_deg=longitude,
+        role=VisualReferenceRole.CHECK_POINT,
+        linked_section_id=original_id,
+    )
+    project.visual_references = [checkpoint]
+    assert not project_check_points(project).issues
+    assert apply_rjfm_departure_exception(project, _references()) is not None
+    assert checkpoint.linked_section_id == project.sections[0].id
+    assert checkpoint.linked_section_id != original_id
+    assert not project_check_points(project).issues
+    restored = Project.model_validate_json(project.model_dump_json())
+    assert apply_rjfm_departure_exception(restored, _references()) is not None
+    assert not project_check_points(restored).issues
+    restored.departure_airport_id = "RJFO"
+    assert apply_rjfm_departure_exception(restored, _references()) is None
+    assert restored.visual_references[0].linked_section_id == original_id
+    assert not project_check_points(restored).issues
+
+
+@pytest.mark.parametrize("initial_fraction,new_fraction", [(0.4, 0.7), (0.7, 0.4)])
+def test_saved_checkpoint_relinks_when_reference_umk_moves_across_it(
+    initial_fraction: float, new_fraction: float
+) -> None:
+    from autonavlog.application.checkpoints import project_check_points
+    from autonavlog.domain.enums import VisualReferenceRole
+    from autonavlog.domain.project import VisualReference
+    from autonavlog.nav.geodesy import point_along_leg
+
+    project = _project(
+        [("RJFM", 31.877, 131.449), ("OMARU", 32.22, 131.55), ("RJFO", 33.479, 131.737)]
+    )
+    origin, omaru = project.route_nodes[:2]
+    origin.manual_distance_nm = 30
+    geometry = geodesic_leg(
+        origin.latitude_deg, origin.longitude_deg, omaru.latitude_deg, omaru.longitude_deg
+    )
+
+    def position(fraction: float) -> tuple[float, float]:
+        return point_along_leg(
+            origin.latitude_deg,
+            origin.longitude_deg,
+            geometry.initial_true_course_deg,
+            geometry.distance_nm * fraction,
+        )
+
+    latitude, longitude = position(0.55)
+    checkpoint = VisualReference(
+        name="saved boundary CP",
+        latitude_deg=latitude,
+        longitude_deg=longitude,
+        role=VisualReferenceRole.CHECK_POINT,
+        linked_section_id=project.sections[0].id,
+    )
+    destination = project.route_nodes[-1]
+    other_geometry = geodesic_leg(
+        omaru.latitude_deg, omaru.longitude_deg,
+        destination.latitude_deg, destination.longitude_deg,
+    )
+    other_latitude, other_longitude = point_along_leg(
+        omaru.latitude_deg, omaru.longitude_deg,
+        other_geometry.initial_true_course_deg, other_geometry.distance_nm * 0.5,
+    )
+    unrelated = VisualReference(
+        name="unrelated CP",
+        latitude_deg=other_latitude,
+        longitude_deg=other_longitude,
+        role=VisualReferenceRole.CHECK_POINT,
+        linked_section_id=project.sections[1].id,
+    )
+    project.visual_references = [checkpoint, unrelated]
+    refs = _references()
+    refs.umk.latitude_deg, refs.umk.longitude_deg = position(initial_fraction)
+    assert apply_rjfm_departure_exception(project, refs) is not None
+    initial_link = checkpoint.linked_section_id
+    unrelated_link = unrelated.linked_section_id
+    node_ids = [node.id for node in project.ordered_nodes()]
+    section_ids = [section.id for section in project.ordered_sections()]
+    saved = Project.model_validate_json(project.model_dump_json())
+    checkpoint = saved.visual_references[0]
+    refs.umk.latitude_deg, refs.umk.longitude_deg = position(new_fraction)
+    # Show the saved link becomes invalid on the new geometry before repair.
+    saved.route_nodes[1].latitude_deg = refs.umk.latitude_deg
+    saved.route_nodes[1].longitude_deg = refs.umk.longitude_deg
+    assert any(
+        issue.code == "CP_NOT_ABEAM_LINKED_SECTION"
+        and issue.metadata.get("checkpoint_id") == str(checkpoint.id)
+        for issue in project_check_points(saved).issues
+    )
+    saved = Project.model_validate_json(project.model_dump_json())
+    assert apply_rjfm_departure_exception(saved, refs) is not None
+    checkpoint = saved.visual_references[0]
+    assert checkpoint.linked_section_id != initial_link
+    assert checkpoint.latitude_deg == latitude and checkpoint.longitude_deg == longitude
+    assert saved.visual_references[1].linked_section_id == unrelated_link
+    assert [node.id for node in saved.ordered_nodes()] == node_ids
+    assert [section.id for section in saved.ordered_sections()] == section_ids
+    assert sum(node.manual_distance_nm or 0 for node in saved.route_nodes[:2]) == pytest.approx(30)
+    assert not project_check_points(saved).issues
+    before = saved.model_dump(mode="json")
+    assert apply_rjfm_departure_exception(saved, refs) is not None
+    assert saved.model_dump(mode="json") == before

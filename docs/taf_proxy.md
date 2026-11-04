@@ -113,7 +113,7 @@ rate limiterを課金上限とはみなさない。既にPaidのaccountを使う
    `VITE_TAF_PROXY_URL`に設定して`npm --prefix web run build:local`を実行する。
    この値は公開URLでありsecretではない。既存Application modeの切替方針は変更しない。
 6. 静的配信originからのGET・目的地TAF表示を確認する。workers.dev独立endpointを使い、
-   AutoNavLog / AviationWeather originへのfail-open routeを設定しない。
+   NavMate / AviationWeather originへのfail-open routeを設定しない。
    custom routeを後で採用する場合はCloudflare設定もfail closedにする。
 
 #123のcanonical originは`https://navmate.yuto24.com`。ignored `wrangler.local.jsonc`の

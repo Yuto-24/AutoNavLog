@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from autonavlog.domain.enums import VisualReferenceRole
 from autonavlog.domain.planning import (
     CP_PROJECTION_POLICY_VERSION,
@@ -14,6 +16,45 @@ from autonavlog.performance.repository import PerformanceRepository
 from autonavlog.weather.ftd_provider import FTD_WEATHER_POLICY_VERSION
 
 from .fingerprints import make_fingerprint
+
+
+def forecast_selection_fingerprint(project: Project, *, rounding_mode: bool = False) -> str:
+    """Bind explicit Forecast refresh intent to weather-relevant inputs.
+
+    Selection itself, save/revision bookkeeping and warning acknowledgements are
+    excluded so recording the first calculation cannot consume the second click.
+    Manual inputs are included because they can change iterative flight timing.
+    """
+    state = project.metadata.get("ui_state", {})
+    planning_keys = {
+        "arrival_plan", "rjfm_departure_plan", "rjfm_inbound_plan",
+        "reference_data_snapshot", "departure_vor",
+    }
+    # Browser JSON roundtrips erase integral float notation in untyped metadata.
+    # Restore domain types before hashing so an unchanged Save keeps its intent.
+    planning = PersistedUiState.model_validate_json(json.dumps({
+        key: state.get(key) for key in planning_keys
+    } if isinstance(state, dict) else {}, allow_nan=False)).model_dump(
+        mode="python", include=planning_keys,
+    )
+    return make_fingerprint(
+        kind="forecast_selection",
+        fields={
+            **project.model_dump(
+                mode="python",
+                include={
+                    "id", "flight_date", "planned_departure_time_jst",
+                    "departure_airport_id", "destination_airport_id", "aircraft_profile_id",
+                    "weather_mode", "ftd_weather", "route_nodes", "sections",
+                    "visual_references", "descent_rate_fpm", "tgl_count",
+                    "default_variation_deg_east", "nose_fairing_enabled",
+                    "air_conditioning_enabled", "run_up_included", "total_usable_fuel_gal",
+                },
+            ),
+            "planning": planning,
+            "rounding_mode": rounding_mode,
+        },
+    )
 
 
 def selected_reference_fingerprint(snapshot: ReferenceDataSnapshot) -> str:
@@ -115,6 +156,11 @@ def current_calculation_input_fingerprint(
             "tgl_count": project.tgl_count,
             "aircraft_profile_id": project.aircraft_profile_id,
             "selected_forecast_run_id": project.selected_forecast_run_id,
+            # Preserve the historical FTD/MSM encoding without rewriting stored hashes.
+            # GSM and an explicitly unknown forecast identity must still differ.
+            **({"selected_forecast_model": project.selected_forecast_model}
+               if project.weather_mode != "FTD" and project.selected_forecast_model != "MSM"
+               else {}),
             "weather_mode": project.weather_mode,
             "ftd_weather": (
                 None
@@ -124,6 +170,9 @@ def current_calculation_input_fingerprint(
             "ftd_weather_policy_version": (
                 FTD_WEATHER_POLICY_VERSION if project.weather_mode == "FTD" else None
             ),
+            # Preserve old AIRPORT-mode fingerprints; adopted VOR provenance is an input.
+            **({"departure_vor": ui_state.departure_vor.model_dump(mode="python")}
+               if ui_state.departure_vor is not None else {}),
             "route_nodes": route_nodes,
             "sections": sections,
             "arrival_plan": (

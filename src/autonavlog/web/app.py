@@ -34,6 +34,7 @@ from .cloudflare_access import (
 from .facade import AutoNavLogWebApplication, WebApplicationError, WebSession
 from .models import (
     AcknowledgeRequest,
+    CalculationRequest,
     ConfirmRouteRequest,
     ImportRouteRequest,
     LoadProjectRequest,
@@ -192,6 +193,7 @@ def create_app(
         resolved_config.session_cookie_secure if resolved_config is not None else True
     )
     calculation_jobs = CalculationJobQueue(workers=4, maximum_queued=128)
+    backup_jobs = None
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -203,9 +205,11 @@ def create_app(
             if web.weather_prewarmer is not None:
                 web.weather_prewarmer.shutdown()
             calculation_jobs.shutdown()
+            if backup_jobs is not None:
+                backup_jobs.close()
 
     app = FastAPI(
-        title="AutoNavLog Web",
+        title="NavMate Web",
         version=__version__,
         docs_url=None,
         redoc_url=None,
@@ -215,6 +219,27 @@ def create_app(
     app.state.web_application = web
     app.state.calculation_jobs = calculation_jobs
     app.add_middleware(SecurityHeadersMiddleware)
+
+    # Disabled unless explicitly configured. This calculation-only boundary never
+    # enters Legacy sessions, project storage or migration owner operations.
+    backup_origin = os.environ.get("AUTONAVLOG_FORECAST_BACKUP_ORIGIN", "")
+    if backup_origin:
+        if resolved_config is None:
+            raise ValueError("Forecast backup requires an explicit runtime configuration")
+        from autonavlog.forecast_backup import calculation_contract
+
+        from .backup_process import ProcessCalculator
+        from .forecast_backup import BackupJobs, install_backup_routes
+
+        root = resolved_config.storage_root / "forecast-backup"
+        cache = root / "temporary"
+        cache.mkdir(parents=True, exist_ok=True)
+        backup_jobs = BackupJobs(root / "jobs.sqlite3",
+                                 ProcessCalculator(resolved_config.data_root, cache))
+        install_backup_routes(app, backup_jobs, calculation_contract(resolved_config.data_root),
+                              backup_origin, tuple(filter(None, os.environ.get(
+                                  "AUTONAVLOG_FORECAST_BACKUP_TRUSTED_PROXIES", "").split(","))))
+        app.state.forecast_backup_jobs = backup_jobs
 
     # Environment settings are read here for both CLI and ASGI startup.
     migration_project = os.environ.get("AUTONAVLOG_FIREBASE_PROJECT_ID", "")
@@ -262,13 +287,17 @@ def create_app(
     def application_session(
         request: Request,
         recovery: WorkingRecovery | None = None,
+        rounding_mode: bool | None = None,
     ) -> dict[str, Any]:
         session = web.create_session(
             _owner_identity(request), restore_persisted=False, persist_working=False
         )
         try:
             state = (
-                web.present(session) if recovery is None else web.restore_working(session, recovery)
+                web.present(session) if recovery is None else web.restore_working(
+                    session, recovery, reset_rounding=rounding_mode is None,
+                    rounding_mode=bool(rounding_mode),
+                )
             )
         except Exception:
             web.invalidate_session(session.token, session.owner_id)
@@ -432,13 +461,18 @@ def create_app(
         return payload
 
     @app.post("/api/calculation-jobs", status_code=202)
-    def create_calculation_job(session: SessionDependency) -> dict[str, Any]:
+    def create_calculation_job(
+        session: SessionDependency, payload: CalculationRequest | None = None
+    ) -> dict[str, Any]:
         """Queue one calculation or return a precise capacity/session error."""
         try:
             job = calculation_jobs.submit(
                 owner_id=session.owner_id,
                 session_token=session.token,
-                task=lambda report_progress: web.calculate(session, progress=report_progress),
+                task=lambda report_progress: web.calculate(
+                    session, progress=report_progress,
+                    rounding_mode=None if payload is None else payload.rounding_mode,
+                ),
             )
         except CalculationJobAlreadyActiveError as error:
             raise WebApplicationError(
@@ -539,7 +573,7 @@ def create_app(
         if index.is_file():
             return FileResponse(index)
         return HTMLResponse(
-            "<h1>AutoNavLog Web</h1>"
+            "<h1>NavMate Web</h1>"
             "<p>Frontend assets are not built. Run npm --prefix web run build.</p>",
             status_code=503,
         )

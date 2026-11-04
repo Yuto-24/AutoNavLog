@@ -1,6 +1,6 @@
-# Cloudflare TunnelでAutoNavLog Webを公開する
+# Cloudflare TunnelでNavMate Webを公開する
 
-AutoNavLogはローカルoriginを `127.0.0.1:8123` で起動し、既存の
+NavMateはローカルoriginを `127.0.0.1:8123` で起動し、既存の
 Cloudflare Tunnel connectorから同じhostの `http://localhost:8123` へ転送します。
 originをInternetへ直接listenさせません。
 
@@ -37,8 +37,9 @@ curl --fail --silent http://127.0.0.1:8123/healthz
 ```
 
 `--weather fake` はUIと計算確認専用で、release-ready statusにはなりません。標準imageは
-同梱の `jma-gpv-weather==0.5.0` wheelを組み込み、`--weather msm` で起動します。
-上空風・気温と地表面気温はMSM、目的地の参考風はAviationWeather.govのTAFから取得します。
+同梱の `jma-gpv-weather==0.6.0` wheelを組み込み、`--weather msm` で起動します。
+上空風・気温と地表面気温は選択したモデルから取得します。MSMを優先し、MSMのcoverageが
+不足する場合はGSM日本域へ切り替えます。目的地の参考風はAviationWeather.govのTAFから取得します。
 
 ## 2. 接続済みのremotely-managed tunnel
 
@@ -61,7 +62,7 @@ remotely-managed tunnelはorigin側でtokenだけを使って接続し、route�
 
 公開hostnameと同じdomainをCloudflare Accessのself-hosted applicationへ登録し、
 利用を許可するidentity／email groupだけのAllow policyを作成します。Accessがoriginへ付与する
-`Cf-Access-Jwt-Assertion` をAutoNavLog自身でも検証します。検証対象はRS256署名、Team domainの
+`Cf-Access-Jwt-Assertion` をNavMate自身でも検証します。検証対象はRS256署名、Team domainの
 `iss`、設定済みapplication `aud`、`exp` です。署名鍵はTeam domainのJWKSから`kid`で選び、
 検証済み`email` claimだけをsession所有者と保存Projectの `web_owner_id` に使用します。
 `Cf-Access-Authenticated-User-Email` 単独のrequestは拒否します。

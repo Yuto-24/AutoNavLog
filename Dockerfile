@@ -13,6 +13,8 @@ COPY web/package.json web/package-lock.json ./web/
 RUN npm --prefix web ci
 COPY VERSION CHANGELOG.md KNOWN_ISSUES.md ./
 COPY web ./web
+COPY data/reference/vrep.json ./data/reference/vrep.json
+COPY data/reference/rjfm/rjfm-reference.json ./data/reference/rjfm/rjfm-reference.json
 RUN npm --prefix web run build
 
 
@@ -39,15 +41,22 @@ COPY --from=frontend /build/web/dist ./src/autonavlog/web/static
 
 FROM python-base AS test
 
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY tests ./tests
+COPY docs/evidence/airport-vor-departure.json ./docs/evidence/airport-vor-departure.json
+COPY docs/reference/vrep-169-confirmed-source.md ./docs/reference/vrep-169-confirmed-source.md
 COPY scripts ./scripts
 COPY VERSION CHANGELOG.md KNOWN_ISSUES.md Dockerfile .dockerignore ./
 COPY web/package.json web/package-lock.json ./web/
+COPY web/public ./web/public
+COPY assets/branding ./assets/branding
 COPY .github/workflows/test.yml ./.github/workflows/test.yml
 COPY .github/workflows/static-production.yml ./.github/workflows/static-production.yml
 
 RUN chmod 755 scripts/run_ci_checks.sh \
-    && python -m pip install vendor/jma_gpv_weather-0.5.0-py3-none-any.whl ".[test]" \
+    && python -m pip install vendor/jma_gpv_weather-0.6.0-py3-none-any.whl ".[test]" \
     && rm -rf build dist src/autonavlog.egg-info
 
 CMD ["/opt/autonavlog/scripts/run_ci_checks.sh"]
@@ -55,7 +64,7 @@ CMD ["/opt/autonavlog/scripts/run_ci_checks.sh"]
 
 # Batch-only producer for static Weather files; no application endpoint or Project input.
 FROM python-base AS weather-feed
-RUN python -m pip install vendor/jma_gpv_weather-0.5.0-py3-none-any.whl .
+RUN python -m pip install vendor/jma_gpv_weather-0.6.0-py3-none-any.whl .
 COPY scripts/prepare_msm_feed.py ./scripts/prepare_msm_feed.py
 ENTRYPOINT ["python", "/opt/autonavlog/scripts/prepare_msm_feed.py"]
 CMD ["--help"]
@@ -63,7 +72,7 @@ CMD ["--help"]
 FROM python-base AS runtime
 
 RUN chmod -R a=rX /opt/autonavlog \
-    && python -m pip install vendor/jma_gpv_weather-0.5.0-py3-none-any.whl . \
+    && python -m pip install vendor/jma_gpv_weather-0.6.0-py3-none-any.whl . \
     && rm -rf build dist src/autonavlog.egg-info
 
 USER autonavlog

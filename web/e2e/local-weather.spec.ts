@@ -1,4 +1,4 @@
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft, importedMapNames } from "./helpers/importWorkflow";
 import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -13,9 +13,10 @@ const reference = (pinned = false) => JSON.parse(execFileSync(
   [resolve("../scripts/local_reference.py"), "--feed", fixture, ...(pinned ? ["--pinned"] : [])],
   { encoding: "utf8" },
 ));
+const calculationState = (page: Page) => page.evaluate(() => (window as any).weatherCalculations.at(-1));
 const state = (page: Page) => page.evaluate(() => (window as any).weatherStates.at(-1));
 const record = (page: Page) => page.evaluate(() => new Promise<any>((resolve, reject) => {
-  const opening = indexedDB.open("autonavlog.projects", 1);
+  const opening = indexedDB.open("autonavlog.projects");
   opening.onerror = () => reject(opening.error);
   opening.onsuccess = () => {
     const db = opening.result;
@@ -27,22 +28,22 @@ const record = (page: Page) => page.evaluate(() => new Promise<any>((resolve, re
 async function setup(page: Page) {
   await page.goto("/");
   await enterImportWorkflow(page);
+  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
+  await confirmImportedDraft(page);
   await page.getByLabel("DATE", { exact: true }).fill("2026-09-16");
   await page.getByLabel("ETD JST", { exact: true }).fill("12:00");
   await page.getByLabel("気象モード").selectOption("FORECAST");
-  await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  for (const [name, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  for (const [name, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     const field = page.getByLabel(`${name}出発Legの計画高度`, { exact: true });
     await field.fill(altitude!); await field.blur();
   }
 }
 async function calculate(page: Page) {
-  const previous = await page.evaluate(() => (window as any).weatherStates.length);
+  const previous = await page.evaluate(() => (window as any).weatherCalculations.length);
   await page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ }).click();
-  await page.waitForFunction(count => (window as any).weatherStates.length > count, previous);
-  await expect.poll(async () => (await state(page))?.readiness?.calculationIsCurrent).toBe(true);
+  await page.waitForFunction(count => (window as any).weatherCalculations.length > count, previous);
+  await expect(page.getByRole("button", { name: /NAV LOGを(?:作る|再計算)$/ })).toBeEnabled();
+  await expect.poll(async () => (await calculationState(page))?.readiness?.calculationIsCurrent).toBe(true);
   await expect(page.locator(".nav-log-table")).toBeVisible();
 }
 
@@ -63,14 +64,22 @@ test.beforeEach(async ({ page, context }) => {
   }));
   await page.addInitScript(() => {
     (window as any).weatherStates = [];
+    (window as any).weatherCalculations = [];
     const Original = window.Worker;
     window.Worker = class extends Original {
+      calculationIds = new Set<string>();
+      postMessage(message: any, transfer?: any) {
+        if (message?.type === "APPLY" && message.argumentList?.[0]?.value === "calculate")
+          this.calculationIds.add(message.id);
+        super.postMessage(message, transfer);
+      }
       constructor(url: string | URL, options?: WorkerOptions) {
         super(url, options);
         this.addEventListener("message", event => {
           if (typeof event.data.value === "string") {
             try { const parsed = JSON.parse(event.data.value);
               if (parsed.workingRecovery || parsed.error) (window as any).weatherStates.push(parsed);
+              if (this.calculationIds.delete(event.data.id)) (window as any).weatherCalculations.push(parsed);
             } catch { /* other RPC result */ }
           }
         });
@@ -83,8 +92,8 @@ test("portable real MSM: cold, warm after reload, Python reference and saved NAV
   const downloads: string[] = [];
   context.on("request", r => { if (r.url().includes("/weather/msm/")) downloads.push(r.url()); });
   await setup(page); await calculate(page);
-  compare(calculationCoreGolden(await state(page)), calculationCoreGolden(reference()));
-  expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915210000");
+  compare(calculationCoreGolden(await calculationState(page)), importedMapNames(calculationCoreGolden(reference())));
+  expect((await calculationState(page)).outcome.selected_forecast_run_id).toBe("20260915210000");
   expect(downloads.filter(url => url.endsWith(".npz"))).toHaveLength(1);
   const before = (await record(page)).lastCalculation;
   await page.reload();
@@ -97,17 +106,23 @@ test("portable real MSM: cold, warm after reload, Python reference and saved NAV
   await page.reload();
   await expect(page.locator(".nav-log-table")).toBeVisible();
   expect((await record(page)).lastCalculation.outcome.summary).toEqual(before.outcome.summary);
+  // Draft inputs can diverge from the retained NAV LOG before recalculation.
+  await page.getByLabel("気象モード").selectOption("FTD");
+  await expect(page.getByLabel("使用Forecast")).toHaveText("Forecast: MSM / Run: 20260915210000");
+  expect((await record(page)).lastCalculation.outcome.selected_forecast_model).toBe("MSM");
 });
 
-test("saved Run stays fixed while a newer Run is available", async ({ page }) => {
+for (const switchRounding of [false, true]) {
+test(`saved Run stays fixed on first click and refreshes snapshot on second click${switchRounding ? " after rounding change" : ""}`, async ({ page }) => {
   const native = reference(true);
   const recovery = native.workingRecovery;
   for (const project of [recovery.project, recovery.last_calculation.project]) delete project.metadata.web_owner_id;
   await page.goto("/");
   await enterImportWorkflow(page);
-  await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "経路作成", exact: true })).toBeVisible();
   await page.evaluate(recovery => new Promise<void>((resolve, reject) => {
-    const opening = indexedDB.open("autonavlog.projects", 1);
+    const opening = indexedDB.open("autonavlog.projects");
+    opening.onerror = () => reject(opening.error);
     opening.onsuccess = () => {
       const db = opening.result;
       const tx = db.transaction("projects", "readwrite");
@@ -126,8 +141,40 @@ test("saved Run stays fixed while a newer Run is available", async ({ page }) =>
   await calculate(page);
   expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915180000");
   expect((await state(page)).outcome.issues.map((i: any) => i.code)).toContain("FORECAST_UPDATE_AVAILABLE");
-  compare(calculationCoreGolden(await state(page)), calculationCoreGolden(native));
+  compare(calculationCoreGolden(await calculationState(page)), calculationCoreGolden(native));
+  if (switchRounding) {
+    const mode = page.getByRole("radio", { name: "四捨五入", exact: true });
+    await mode.click();
+    await expect(mode).toBeChecked();
+    await expect(mode).toBeEnabled();
+    expect((await state(page)).roundingMode).toBe(true);
+    expect((await state(page)).outcome.selected_forecast_run_id).toBe("20260915180000");
+    expect((await state(page)).outcome.issues.map((i: any) => i.code)).toContain("FORECAST_UPDATE_AVAILABLE");
+  }
+  await page.getByLabel("プロジェクト", { exact: true }).fill("Forecast refresh");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect.poll(async () => (await record(page)).checkpoint?.name).toBe("Forecast refresh");
+  await calculate(page);
+  const refreshed = await state(page);
+  expect(refreshed.project.selected_forecast_run_id).toBe("20260915210000");
+  expect(refreshed.outcome.selected_forecast_run_id).toBe("20260915210000");
+  expect(refreshed.outcome.issues.map((i: any) => i.code)).not.toContain("FORECAST_UPDATE_AVAILABLE");
+  await expect.poll(async () => (await record(page)).lastCalculation.forecast_metadata.forecast_run_id)
+    .toBe("20260915210000");
+  const saved = (await record(page)).lastCalculation;
+  expect(saved.project.selected_forecast_run_id).toBe("20260915210000");
+  expect(saved.outcome.selected_forecast_run_id).toBe("20260915210000");
+  await page.reload();
+  if (switchRounding) {
+    await expect(page.getByLabel("DATE", { exact: true })).toBeVisible();
+    await expect(page.locator(".nav-log-table")).toHaveCount(0);
+    expect((await state(page)).roundingMode).toBe(false);
+  } else {
+    await expect(page.locator(".nav-log-table")).toBeVisible();
+  }
+  expect((await record(page)).lastCalculation).toEqual(saved);
 });
+}
 
 test("Project quota retry releases the actual Weather cache and keeps Last Calculation", async ({ page }) => {
   await setup(page); await calculate(page);
@@ -181,3 +228,100 @@ for (const failure of ["listing", "communication", "missing", "integrity", "deco
     expect((await record(page)).lastCalculation).toBeNull();
   });
 }
+
+async function policyFeed(context: import("@playwright/test").BrowserContext, model: "msm" | "gsm", directory: string) {
+  const catalog = JSON.parse(readFileSync(resolve(directory, "catalog.json"), "utf8"));
+  await context.route(`**/weather/${model}/catalog.json`, route => route.fulfill({
+    contentType: "application/json", body: JSON.stringify({ ...catalog,
+      generated_at: new Date(Date.now() - 1000).toISOString(),
+      expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+    }),
+  }));
+  await context.route(`**/weather/${model}/*.npz`, route => route.fulfill({
+    contentType: "application/octet-stream",
+    body: readFileSync(resolve(directory, new URL(route.request().url()).pathname.split("/").at(-1)!)),
+  }));
+}
+const policyFixture = (name: string) => resolve("../tests/fixtures/forecast-policy", name);
+
+test("portable GSM fallback: complete Local NAV LOG matches Legacy, persists model and needs two clicks to return to MSM", async ({ page, context }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  const downloads: string[] = [];
+  context.on("request", r => { if (/\/weather\/(msm|gsm)\//.test(r.url())) downloads.push(r.url()); });
+  await policyFeed(context, "msm", policyFixture("msm-outside-hgt"));
+  await policyFeed(context, "gsm", policyFixture("gsm"));
+  await setup(page); await calculate(page);
+  const fallback = await calculationState(page);
+  expect(fallback.outcome.selected_forecast_model).toBe("GSM");
+  expect(fallback.outcome.selected_forecast_run_id).toBe("20260915060000");
+  expect(fallback.outcome.forecast_provenance.coverage_reason_codes).toEqual(["ALTITUDE_OUTSIDE_HGT_RANGE"]);
+  await expect(page.getByLabel("使用Forecast")).toHaveText("Forecast: GSM / Run: 20260915060000");
+  await expect(page.getByRole("note", { name: "Forecast切替理由" })).toContainText("必要高度が予報の高度範囲外");
+  expect(downloads.filter(url => url.endsWith(".npz")).map(url => url.includes("/gsm/") ? "GSM" : "MSM"))
+    .toEqual(["MSM", "MSM", "GSM"]);
+  for (const width of [1100, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    // Read all regions in one frame: calculation scroll may still be animating.
+    const boxes = await page.evaluate(() =>
+      [".input-rail", ".route-workspace", ".status-rail", ".nav-log-section"].map(selector => {
+        const element = document.querySelector(selector);
+        return element ? element.getBoundingClientRect().toJSON() : null;
+      }));
+    expect(boxes.every(Boolean)).toBe(true);
+    if (width <= 1240) {
+      for (let i = 1; i < boxes.length; i++) expect(boxes[i]!.y)
+        .toBeGreaterThanOrEqual(boxes[i - 1]!.y + boxes[i - 1]!.height - 1);
+    } else {
+      expect(boxes[0]!.x + boxes[0]!.width).toBeLessThanOrEqual(boxes[1]!.x + 1);
+      expect(boxes[1]!.x + boxes[1]!.width).toBeLessThanOrEqual(boxes[2]!.x + 1);
+      expect(boxes[3]!.y).toBeGreaterThanOrEqual(Math.max(...boxes.slice(0, 3).map(b => b!.y + b!.height)) - 1);
+    }
+  }
+  const native = JSON.parse(execFileSync(
+    process.env.AUTONAVLOG_REFERENCE_PYTHON ?? resolve("../.venv/bin/python"),
+    [resolve("../scripts/local_reference.py"), "--feed", policyFixture("msm-outside-hgt"),
+      "--gsm-feed", policyFixture("gsm")], { encoding: "utf8" },
+  ));
+  compare(calculationCoreGolden(fallback), importedMapNames(calculationCoreGolden(native)));
+  const last = (await record(page)).lastCalculation;
+  expect(last.project.selected_forecast_model).toBe("GSM");
+  expect(last.outcome.forecast_provenance).toEqual(fallback.outcome.forecast_provenance);
+  await page.reload();
+  await expect(page.getByLabel("使用Forecast")).toHaveText("Forecast: GSM / Run: 20260915060000");
+  expect((await record(page)).lastCalculation).toEqual(last);
+  await policyFeed(context, "msm", fixture);
+  await page.evaluate(() => caches.delete("autonavlog.weather.msm.v1"));
+  await calculate(page);
+  expect((await calculationState(page)).outcome.selected_forecast_model).toBe("GSM");
+  expect((await calculationState(page)).outcome.issues.map((issue: any) => issue.code)).toContain("FORECAST_UPDATE_AVAILABLE");
+  await calculate(page);
+  expect((await calculationState(page)).outcome.selected_forecast_model).toBe("MSM");
+  await expect(page.getByLabel("使用Forecast")).toHaveText("Forecast: MSM / Run: 20260915210000");
+  expect(errors).toEqual([]);
+});
+
+test("portable selection uses older MSM after affirmative newest HGT exclusion without fetching GSM", async ({ page, context }) => {
+  await policyFeed(context, "msm", policyFixture("msm-newest-outside-hgt"));
+  await context.route("**/weather/gsm/**", route => { throw new Error(`Unnecessary GSM: ${route.request().url()}`); });
+  await setup(page); await calculate(page);
+  expect((await calculationState(page)).outcome.selected_forecast_model).toBe("MSM");
+  expect((await calculationState(page)).outcome.selected_forecast_run_id).toBe("20260915180000");
+  await expect(page.getByRole("note", { name: "Forecast切替理由" })).toHaveCount(0);
+});
+
+test("portable source-value failure preserves saved NAV LOG and does not try older Run or GSM", async ({ page, context }) => {
+  await setup(page); await calculate(page);
+  const previous = (await record(page)).lastCalculation;
+  await policyFeed(context, "msm", policyFixture("msm-source-unavailable"));
+  await page.evaluate(() => caches.delete("autonavlog.weather.msm.v1"));
+  const payloads: string[] = [];
+  context.on("request", r => { if (r.url().includes("/weather/") && r.url().endsWith(".npz")) payloads.push(r.url()); });
+  await context.route("**/weather/gsm/**", route => { throw new Error(`Error-driven GSM fallback: ${route.request().url()}`); });
+  await page.getByRole("button", { name: "NAV LOGを再計算", exact: true }).click();
+  await expect.poll(async () => (await state(page))?.outcome?.issues.map((i: any) => i.code))
+    .toContain("FORECAST_PREPARE_FAILED");
+  expect(payloads).toHaveLength(1);
+  expect((await record(page)).lastCalculation).toEqual(previous);
+  await expect(page.locator(".nav-log-table")).toBeVisible();
+});

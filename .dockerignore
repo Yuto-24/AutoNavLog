@@ -1,4 +1,6 @@
 .git
+.env*
+web/.env*
 .github/*
 !.github/workflows/
 .github/workflows/*
@@ -25,6 +27,8 @@ web/*.tsbuildinfo
 web/dist
 src/autonavlog/web/static
 *.png
+!web/public/*.png
+!assets/branding/*.png
 
 web/dist-local
 
@@ -33,3 +37,7 @@ web/public-local/
 web/dist-static/
 .wrangler/
 web/.wrangler/
+
+web/dist-backup/
+
+.autonavlog-worktree/

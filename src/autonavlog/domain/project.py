@@ -21,6 +21,7 @@ from .enums import (
     RouteNodeRole,
     VisualReferenceRole,
 )
+from .weather import ForecastModel, legacy_forecast_model
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -41,7 +42,40 @@ class Airport(DomainModel):
     source_revision: str
 
 
+class ReferencePointSource(DomainModel):
+    url: str = Field(max_length=500)
+    filename: str = Field(max_length=100)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    table_pdf_page: int = Field(ge=1)
+    table_page: str = Field(max_length=100)
+    table_effective_date: date
+    arp_pdf_page: int = Field(ge=1)
+    arp_effective_date: date
+    arp_latitude_dms: str = Field(max_length=20)
+    arp_longitude_dms: str = Field(max_length=20)
+    arp_latitude_deg: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    arp_longitude_deg: float = Field(ge=-180, le=180, allow_inf_nan=False)
+
+
+class ReferencePointSnapshot(DomainModel):
+    """Selection-time reference data, never refreshed implicitly from a master."""
+
+    reference_id: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=100)
+    name_ja: str = Field(max_length=100)
+    kind: Literal["ROUTE_POINT", "VISUAL_REPORTING_POINT"]
+    airport_icao: str = Field(pattern=r"^[A-Z]{4}$")
+    latitude_deg: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude_deg: float = Field(ge=-180, le=180, allow_inf_nan=False)
+    bearing_true_deg: float = Field(ge=0, le=360, allow_inf_nan=False)
+    distance_nm: float = Field(gt=0, allow_inf_nan=False)
+    note: str = Field(max_length=1000)
+    derivation: str = Field(min_length=1, max_length=500)
+    source: ReferencePointSource
+
+
 class RouteNode(DomainModel):
+    reference_snapshot: ReferencePointSnapshot | None = None
     id: UUID = Field(default_factory=uuid4)
     sequence: int = Field(ge=0)
     name: str = Field(min_length=1)
@@ -140,7 +174,7 @@ class NavSection(DomainModel):
 
 class Project(DomainModel):
     id: UUID = Field(default_factory=uuid4)
-    schema_version: Literal[4] = 4
+    schema_version: Literal[5] = 5
     name: str = Field(min_length=1)
     pilot_name: str = ""
     ship_identifier: str = ""
@@ -159,6 +193,7 @@ class Project(DomainModel):
     descent_rate_fpm: Literal[500, 1000] = 500
     tgl_count: int = Field(default=0, ge=0)
     selected_forecast_run_id: str | None = None
+    selected_forecast_model: ForecastModel | None = None
     revision: int = Field(default=0, ge=0)
     status: ProjectStatus = ProjectStatus.DRAFT
     acknowledged_warning_codes: set[str] = Field(default_factory=set)
@@ -168,6 +203,18 @@ class Project(DomainModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def migrate_schema_version(cls, value: Any) -> Any:
+        return 5 if value == 4 else value
+
+    @model_validator(mode="after")
+    def migrate_forecast_selection(self) -> Project:
+        if "selected_forecast_model" not in self.model_fields_set:
+            object.__setattr__(self, "selected_forecast_model",
+                               legacy_forecast_model(self.selected_forecast_run_id))
+        return self
 
     @field_validator("planned_departure_time_jst")
     @classmethod

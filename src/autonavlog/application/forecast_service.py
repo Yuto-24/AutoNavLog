@@ -43,6 +43,8 @@ class ForecastService:
         return ForecastRequirement(
             valid_times_utc=tuple(times),
             require_surface_temperature=True,
+            route_points=tuple((node.latitude_deg, node.longitude_deg)
+                               for node in project.route_nodes),
         )
 
     def build_final_requirement(
@@ -60,4 +62,6 @@ class ForecastService:
                 *arrival_times,
             ),
             require_surface_temperature=True,
+            route_points=tuple((node.latitude_deg, node.longitude_deg)
+                               for node in project.route_nodes),
         )

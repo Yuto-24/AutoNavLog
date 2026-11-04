@@ -1,7 +1,6 @@
 import { MapDraftLayers, RouteStrip, type MapRouteBuilderProps } from "./MapRouteBuilder";
 import { MapViewport } from "./MapViewport";
 import type { KeyValueStorage } from "../platform";
-import { ExternalLink } from "./ExternalLink";
 import type { Dispatch, SetStateAction } from "react";
 import type { CheckPointDraft, NodeNameDraft } from "../applicationSession";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
@@ -46,8 +45,29 @@ import { RouteConfirmation } from "./RouteConfirmation";
 import "./RouteWorkspacePhase.css";
 import { localMode } from "../executionMode";
 
+function MapAttributionLayout() {
+  const map = useMap();
+  useEffect(() => {
+    const attribution = map.attributionControl?.getContainer();
+    const frame = map.getContainer().closest<HTMLElement>(".map-frame");
+    if (!attribution || !frame) return;
+    const updateHeight = () => frame.style.setProperty(
+      "--map-attribution-height", `${attribution.getBoundingClientRect().height}px`,
+    );
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(attribution);
+    updateHeight();
+    return () => {
+      observer.disconnect();
+      frame.style.removeProperty("--map-attribution-height");
+    };
+  }, [map]);
+  return null;
+}
+
 interface RouteWorkspaceProps {
   mapBuilder?: MapRouteBuilderProps;
+  onEditRoute?: () => void;
   viewportStorage: KeyValueStorage;
   viewportScope: string;
   preserveRouteViewport: boolean;
@@ -185,7 +205,7 @@ function CheckPointMapPicker({
 }
 
 export function RouteWorkspace({
-  mapBuilder, viewportStorage, viewportScope, preserveRouteViewport,
+  mapBuilder, onEditRoute, viewportStorage, viewportScope, preserveRouteViewport,
   onOpenExternalUrl,
   checkPointDraft, setCheckPointDraft, nodeNameDraft: nodeDraft, setNodeNameDraft: setNodeDraft,
   candidate,
@@ -374,6 +394,10 @@ export function RouteWorkspace({
   const civilAirspaceReference = rjfmMapReference?.civilTrainingTestAirspace ?? null;
   const civilAirspaceReferenceIsApproved = civilAirspaceReference !== null
     && isApprovedRjfmAirspaceReference(civilAirspaceReference);
+  // Only the strictly allowlisted source URLs enter Leaflet's HTML attribution.
+  const airspaceAttribution = civilAirspaceReferenceIsApproved
+    ? `<span class="rjfm-airspace-credit"><a data-airspace-source href="${civilAirspaceReference.sourcePageUrl}" target="_blank" rel="noopener noreferrer">国土交通省</a>・<a data-airspace-source href="${civilAirspaceReference.layerMetadataUrl}" target="_blank" rel="noopener noreferrer">国土地理院</a>データを加工</span>`
+    : undefined;
   const civilAirspaceRequestKey = civilAirspaceReference === null
     ? ""
     : JSON.stringify({
@@ -531,12 +555,21 @@ export function RouteWorkspace({
               : mapBuilder ? "地図で経路を作成" : candidate?.name ?? "飛行経路候補を選択すると地図へ表示します"}
           </p>
         </div>
+        {onEditRoute && <button className="secondary-button" disabled={busy} onClick={onEditRoute}>経路を編集</button>}
         {project && <span className="route-count">{nodes.length}点 / {sections.length} Leg</span>}
       </div>
       <div
         id="route-map-frame"
         className={`map-frame${pickingCheckPoint ? " is-picking-checkpoint" : ""}`}
         style={mapFrameStyle}
+        onClickCapture={(event) => {
+          const link = event.target instanceof Element
+            ? event.target.closest<HTMLAnchorElement>("a[data-airspace-source]")
+            : null;
+          if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          onOpenExternalUrl(link.href);
+        }}
       >
         <MapContainer
           // Local Account changes may unmount immediately; Leaflet zoom timers outlive remove().
@@ -552,6 +585,7 @@ export function RouteWorkspace({
             url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
             referrerPolicy="strict-origin-when-cross-origin"
           />
+          <MapAttributionLayout />
           {rjfmMapReference && pcaCoordinates.length >= 3 && (
             <>
               <Polygon
@@ -568,12 +602,12 @@ export function RouteWorkspace({
                 <Tooltip sticky>
                   <span>
                     宮崎特別管制区（PCA）水平境界 / 原告示高度
-                    {" "}{rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
-                    –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m
+                    {" "}約{Math.round(rjfmMapReference.pca.sourceAltitudeLowerM / 0.3048).toLocaleString("ja-JP")}
+                    –{Math.round(rjfmMapReference.pca.sourceAltitudeUpperM / 0.3048).toLocaleString("ja-JP")} ft（{rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
+                    –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m）
                     <br />
                     運用判定 {rjfmMapReference.pca.operationalAltitudeLowerFtMsl.toLocaleString("ja-JP")}
-                    –{rjfmMapReference.pca.operationalAltitudeUpperFtMsl.toLocaleString("ja-JP")} ft MSL
-                    （利用者承認値）
+                    –{rjfmMapReference.pca.operationalAltitudeUpperFtMsl.toLocaleString("ja-JP")} ft MSL（利用者承認値）
                   </span>
                 </Tooltip>
               </Polygon>
@@ -604,51 +638,31 @@ export function RouteWorkspace({
             <Polygon
               key={airspace.id}
               className="rjfm-training-airspace"
+              attribution={airspaceAttribution}
+              interactive={false}
               positions={airspace.positions}
               pathOptions={{
                 fillColor: "#5b83cf",
                 fillOpacity: 0.1,
                 stroke: false,
               }}
-            >
-              <Tooltip sticky>
-                <span>
-                  <strong>{airspace.name}</strong>
-                  <br />
-                  {airspace.lowerLimit} – {airspace.upperLimit}
-                  <br />
-                  {airspace.authority}
-                  <br />
-                  出典: 国土地理院（表示専用）
-                </span>
-              </Tooltip>
-            </Polygon>
+            />
           ))}
           {trainingAirspace.boundaries.map((boundary) => (
             <Polyline
               key={boundary.id}
               className="rjfm-training-airspace-boundary"
+              attribution={airspaceAttribution}
+              interactive={false}
               positions={boundary.positions}
               pathOptions={{
                 color: "#315caa",
                 opacity: 0.82,
                 weight: 2,
               }}
-            >
-              <Tooltip sticky>
-                <span>
-                  <strong>{boundary.name}</strong>
-                  <br />
-                  {boundary.lowerLimit} – {boundary.upperLimit}
-                  <br />
-                  {boundary.authority}
-                  <br />
-                  出典: 国土地理院（表示専用）
-                </span>
-              </Tooltip>
-            </Polyline>
+            />
           ))}
-          {coordinates.length >= 2 && (
+          {!mapBuilder && coordinates.length >= 2 && (
             <Polyline positions={coordinates} pathOptions={{ color: "#173b5e", weight: 4 }} />
           )}
           {rjfmGuidance && rjfmGuidance.center_route.length >= 2 && (
@@ -702,8 +716,8 @@ export function RouteWorkspace({
               </Tooltip>
             </CircleMarker>
           ))}
-          {nodes.map((node, index) => {
-            const isVrep = node.role === "VISUAL_REPORTING_POINT";
+          {!mapBuilder && nodes.map((node, index) => {
+            const isVrep = node.role === "VISUAL_REPORTING_POINT" || node.reference_snapshot?.kind === "VISUAL_REPORTING_POINT";
             const isAirport = node.role === "AIRPORT" || node.role === "DESTINATION";
             return (
               <CircleMarker
@@ -804,7 +818,7 @@ export function RouteWorkspace({
             </CircleMarker>
           )}
           {mapBuilder && <MapDraftLayers {...mapBuilder} />}
-          <MapViewport storage={viewportStorage} scope={viewportScope} projectId={project?.id ?? null} coordinates={fitCoordinates} preserveViewport={preserveRouteViewport} />
+          <MapViewport storage={viewportStorage} scope={viewportScope} projectId={project?.id ?? null} coordinates={fitCoordinates} preserveViewport={preserveRouteViewport} importFitCoordinates={mapBuilder?.importFitCoordinates} />
           <CheckPointMapPicker active={!mapBuilder && pickingCheckPoint} onPick={handleMapPick} />
           {!mapBuilder && !project && <FitBounds
             coordinates={fitCoordinates}
@@ -823,19 +837,14 @@ export function RouteWorkspace({
               <>
                 <span>
                   <i className="is-pca" aria-hidden="true" />
-                  PCA {rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
-                  –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m
+                  PCA：約{Math.round(rjfmMapReference.pca.sourceAltitudeLowerM / 0.3048).toLocaleString("ja-JP")}
+                  –{Math.round(rjfmMapReference.pca.sourceAltitudeUpperM / 0.3048).toLocaleString("ja-JP")} ft（{rjfmMapReference.pca.sourceAltitudeLowerM.toLocaleString("ja-JP")}
+                  –{rjfmMapReference.pca.sourceAltitudeUpperM.toLocaleString("ja-JP")} m）
                 </span>
                 <span>
                   <i className="is-pca-exclusion" aria-hidden="true" />
                   中心除外 {rjfmMapReference.pca.exclusionRadiusKm.toLocaleString("ja-JP")} km
                 </span>
-                {trainingAirspace.status === "ready" && (
-                  <span>
-                    <i className="is-training-airspace" aria-hidden="true" />
-                    民間訓練試験空域 KS4（GSI）
-                  </span>
-                )}
               </>
             )}
             {rjfmGuidance && (
@@ -855,9 +864,7 @@ export function RouteWorkspace({
                   ? "空域情報を取得中…"
                   : trainingAirspace.status === "unavailable"
                     ? "空域情報を取得できず非表示"
-                    : trainingAirspace.status === "ready"
-                      ? `空域: ${trainingAirspace.polygons.length}区画を表示`
-                      : ""}
+                    : ""}
               </span>
             )}
           </div>
@@ -870,28 +877,6 @@ export function RouteWorkspace({
         )}
       </div>
       {mapBuilder ? <RouteStrip {...mapBuilder} /> : <MapResizeHandle value={mapHeight} min={320} max={900} onChange={setMapHeight} />}
-      {rjfmMapReference && (
-        <aside className="rjfm-airspace-note" aria-label="RJFM空域データ注記">
-          <span>{rjfmMapReference.civilTrainingTestAirspace.caution}</span>
-          {civilAirspaceReferenceIsApproved && (
-            <span>
-              出典: <ExternalLink
-                onOpen={onOpenExternalUrl}
-                href={rjfmMapReference.civilTrainingTestAirspace.sourcePageUrl}
-              >国土交通省</ExternalLink>
-              ・<ExternalLink
-                onOpen={onOpenExternalUrl}
-                href={rjfmMapReference.civilTrainingTestAirspace.layerMetadataUrl}
-              >国土地理院レイヤー</ExternalLink>
-            </span>
-          )}
-          <span>
-            レイヤー設定確認: <time
-              dateTime={rjfmMapReference.civilTrainingTestAirspace.checkedAtUtc}
-            >{rjfmMapReference.civilTrainingTestAirspace.checkedAtUtc}</time>
-          </span>
-        </aside>
-      )}
 
       <RouteConfirmation
         visible={Boolean(candidate && !project && !mapBuilder)}
@@ -905,7 +890,7 @@ export function RouteWorkspace({
         onConfirm={onConfirmRoute}
       />
 
-      {project && (
+      {project && !mapBuilder && (
         <CheckPointEditor
           draft={checkPointDraft}
           setDraft={setCheckPointDraft}
@@ -922,6 +907,7 @@ export function RouteWorkspace({
         />
       )}
 
+      {!mapBuilder && <>
       {project && phaseEditing && (
         <div className="phase-edit-note" role="status">
           CLIMB / DESCENT を別Legへ選ぶと、既存の同Phaseは自動でCRUISEへ戻ります。
@@ -965,7 +951,7 @@ export function RouteWorkspace({
                 </td>
               </tr>
             )}
-            {nodes.map((node, index) => {
+            {!mapBuilder && nodes.map((node, index) => {
               const section = sectionByFromNode.get(node.id);
               const guidance = section
                 ? guidanceBySection.get(section.id)
@@ -1000,258 +986,278 @@ export function RouteWorkspace({
                 effectiveAltitude > 3000 &&
                 !isCandidateAltitude;
               const phaseLocked = Boolean(section && isPhaseLocked(section));
-              return (
-                <tr
-                  key={node.id}
-                  className={[
-                    node.role === "VISUAL_REPORTING_POINT" ? "vrep-row" : "",
-                    node.role === "DESTINATION" ? "destination-row" : "",
-                    hasAltitudeCandidateWarning ? "altitude-warning-row" : "",
-                  ].filter(Boolean).join(" ")}
-                >
-                  <td>
-                    <span className="point-index">{index}</span>
-                    {editingNodeId === node.id ? (
-                      <div className="route-name-editor">
-                        <input
-                          aria-label={`${node.name}の名称`}
-                          autoFocus
-                          disabled={busy || nodeNameSaving}
-                          value={nodeNameDraft}
-                          onChange={(event) => setNodeNameDraft(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              void saveNodeNameEdit();
-                            }
-                            if (event.key === "Escape") {
-                              event.preventDefault();
-                              cancelNodeNameEdit();
-                            }
-                          }}
-                        />
-                        <button
-                          className="route-name-save"
-                          type="button"
-                          disabled={busy || nodeNameSaving}
-                          onClick={() => void saveNodeNameEdit()}
-                        >
-                          {nodeNameSaving ? "保存中" : "保存"}
-                        </button>
-                        <button
-                          className="route-name-cancel"
-                          type="button"
-                          disabled={busy || nodeNameSaving}
-                          onClick={cancelNodeNameEdit}
-                        >
-                          取消
-                        </button>
-                        {nodeNameError && <small className="field-error">{nodeNameError}</small>}
-                      </div>
-                    ) : (
-                      <div className="route-name-display">
-                        <strong>{node.name}</strong>
-                        {node.role !== "AIRPORT" && node.role !== "DESTINATION" && (
-                          <button
-                            className="route-name-edit"
-                            type="button"
-                            disabled={busy}
-                            onClick={() => {
-                              setEditingNodeId(node.id);
-                              setNodeNameDraft(node.name);
-                              setNodeNameError(null);
-                            }}
-                          >
-                            編集
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                  <td className={hasAltitudeCandidateWarning ? "altitude-warning-cell" : ""}>
-                    {section && fixedLabels ? (
-                      <div
-                        className="fixed-altitude-control"
-                        aria-label={`${node.name}出発Legの固定高度`}
-                      >
-                        <strong>{fixedLabels.primary}</strong>
-                        <small>{fixedLabels.detail}</small>
-                      </div>
-                    ) : section ? (
-                      <div className="altitude-controls">
-                        {guidance?.appliesToCruisingAltitudeInput && (
-                          <select
-                            className="table-select altitude-candidate-select"
-                            aria-label={
-                              section.phase === "CRUISE"
-                                ? node.name + "出発Legの巡航高度候補"
-                                : node.name +
-                                  "出発Legの" +
-                                  altitudeBasisLabels[section.phase] +
-                                  "候補"
-                            }
-                            value={
-                              isCandidateAltitude
-                                ? String(effectiveAltitude)
-                                : "custom"
-                            }
-                            onChange={(event) => {
-                              if (event.target.value !== "custom") {
-                                onAltitudeInputChange(section.id, event.target.value);
-                              }
-                            }}
-                          >
-                            {guidance.candidateAltitudesFtMsl.map((altitude) => (
-                              <option key={altitude} value={altitude}>
-                                {altitude.toLocaleString("ja-JP")} ft
-                              </option>
-                            ))}
-                            <option value="custom">任意値</option>
-                          </select>
-                        )}
-                        <input
-                          className="table-number-input"
-                          aria-label={node.name + "出発Legの計画高度"}
-                          type="number"
-                          min="100"
-                          max="25000"
-                          step="100"
-                          value={altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)}
-                          placeholder="入力"
-                          onChange={(event) =>
-                            onAltitudeInputChange(section.id, event.target.value)
+              const pointContent = (
+                <div className="route-point-content" id={`route-point-${node.id}`}>
+                  <span className="point-index">{index}</span>
+                  {editingNodeId === node.id ? (
+                    <div className="route-name-editor">
+                      <input
+                        aria-label={`${node.name}の名称`}
+                        autoFocus
+                        disabled={busy || nodeNameSaving}
+                        value={nodeNameDraft}
+                        onChange={(event) => setNodeNameDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void saveNodeNameEdit();
                           }
-                        />
-                        {guidance && (
-                          <small className="altitude-course">
-                            {guidance.appliesToCruisingAltitudeInput
-                              ? altitudeBasisLabels[section.phase] + "・"
-                              : ""}
-                            VAR {guidance.variationDegEast > 0 ? "+" : ""}{guidance.variationDegEast}°
-                            {" / MC "}{formatOperationalMagneticCourse(
-                              guidance.vfrCruisingAltitudeMagneticCourseDeg,
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            cancelNodeNameEdit();
+                          }
+                        }}
+                      />
+                      <button
+                        className="route-name-save"
+                        type="button"
+                        disabled={busy || nodeNameSaving}
+                        onClick={() => void saveNodeNameEdit()}
+                      >
+                        {nodeNameSaving ? "保存中" : "保存"}
+                      </button>
+                      <button
+                        className="route-name-cancel"
+                        type="button"
+                        disabled={busy || nodeNameSaving}
+                        onClick={cancelNodeNameEdit}
+                      >
+                        取消
+                      </button>
+                      {nodeNameError && <small className="field-error">{nodeNameError}</small>}
+                    </div>
+                  ) : (
+                    <div className="route-name-display">
+                      <strong>{node.name}</strong>
+                      {node.role !== "AIRPORT" && node.role !== "DESTINATION" && (
+                        <button
+                          className="route-name-edit"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            setEditingNodeId(node.id);
+                            setNodeNameDraft(node.name);
+                            setNodeNameError(null);
+                          }}
+                        >
+                          編集
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+              return (
+                <Fragment key={node.id}>
+                  {section && (
+                    <tr
+                      className={`route-point-row${node.role === "VISUAL_REPORTING_POINT" ? " vrep-point-row" : ""}`}
+                      data-node-id={node.id}
+                    >
+                      <td>{pointContent}</td>
+                      <td />
+                      <td />
+                    </tr>
+                  )}
+                  <tr
+                    data-node-id={section ? undefined : node.id}
+                    data-section-id={section?.id}
+                    data-from-node-id={section?.from_node_id}
+                    data-to-node-id={section?.to_node_id}
+                    aria-labelledby={section ? `route-point-${section.from_node_id} route-point-${section.to_node_id}` : undefined}
+                    className={[
+                      section ? "route-leg-row" : "route-point-row",
+                      node.role === "VISUAL_REPORTING_POINT" ? "vrep-row" : "",
+                      node.role === "DESTINATION" ? "destination-row" : "",
+                      hasAltitudeCandidateWarning ? "altitude-warning-row" : "",
+                    ].filter(Boolean).join(" ")}
+                  >
+                    <td>
+                      {section ? null : pointContent}
+                    </td>
+                    <td className={hasAltitudeCandidateWarning ? "altitude-warning-cell" : ""}>
+                      {section && fixedLabels ? (
+                        <div
+                          className="fixed-altitude-control"
+                          aria-label={`${node.name}出発Legの固定高度`}
+                        >
+                          <strong>{fixedLabels.primary}</strong>
+                          <small>{fixedLabels.detail}</small>
+                        </div>
+                      ) : section ? (
+                        <div className="altitude-controls">
+                          <div className="altitude-input-row">
+                            {guidance?.appliesToCruisingAltitudeInput && (
+                              <select
+                                className="table-select altitude-candidate-select"
+                                aria-label={
+                                  section.phase === "CRUISE"
+                                    ? node.name + "出発Legの巡航高度候補"
+                                    : node.name +
+                                      "出発Legの" +
+                                      altitudeBasisLabels[section.phase] +
+                                      "候補"
+                                }
+                                value={
+                                  isCandidateAltitude
+                                    ? String(effectiveAltitude)
+                                    : "custom"
+                                }
+                                onChange={(event) => {
+                                  if (event.target.value !== "custom") {
+                                    onAltitudeInputChange(section.id, event.target.value);
+                                  }
+                                }}
+                              >
+                                {guidance.candidateAltitudesFtMsl.map((altitude) => (
+                                  <option key={altitude} value={altitude}>
+                                    {altitude.toLocaleString("ja-JP")} ft
+                                  </option>
+                                ))}
+                                <option value="custom">任意値</option>
+                              </select>
                             )}
-                            {hasAltitudeCandidateWarning ? "・候補外（警告）" : ""}
-                          </small>
-                        )}
-                      </div>
-                    ) : node.role === "DESTINATION" ? (
-                      <div className="arrival-altitude-control">
-                        <div className="arrival-airport-reference">
-                          <span>飛行場標高</span>
-                          <strong>
-                            {destinationAirport?.elevationFtMsl.toLocaleString("ja-JP") ?? "—"}
-                            {" ft MSL"}
-                          </strong>
-                          {destinationAirport && (
-                            <small>
-                              {destinationAirport.icao} {destinationAirport.name}
+                            <input
+                              className="table-number-input"
+                              aria-label={node.name + "出発Legの計画高度"}
+                              type="number"
+                              min="100"
+                              max="25000"
+                              step="100"
+                              value={altitudeInputs[section.id] ?? String(section.planned_altitude_ft_msl)}
+                              placeholder="入力"
+                              onChange={(event) =>
+                                onAltitudeInputChange(section.id, event.target.value)
+                              }
+                            />
+                          </div>
+                          {guidance && (
+                            <small className="altitude-course">
+                              {guidance.appliesToCruisingAltitudeInput
+                                ? altitudeBasisLabels[section.phase] + "・"
+                                : ""}
+                              VAR {guidance.variationDegEast > 0 ? "+" : ""}{guidance.variationDegEast}°
+                              {" / MC "}{formatOperationalMagneticCourse(
+                                guidance.vfrCruisingAltitudeMagneticCourseDeg,
+                              )}
+                              {hasAltitudeCandidateWarning ? "・候補外（警告）" : ""}
                             </small>
                           )}
                         </div>
-                        <label>
-                          <span>今回採用する場周経路高度</span>
-                          <input
-                            className="arrival-pattern-input"
-                            aria-label="今回採用する場周経路高度"
-                            aria-describedby={`${node.id}-pattern-altitude-help`}
-                            aria-invalid={validPatternAltitude === null}
-                            type="number"
-                            min="100"
-                            max="25000"
-                            step="100"
-                            value={destinationPatternAltitudeFtMsl}
-                            onChange={(event) =>
-                              onDestinationPatternAltitudeChange(event.target.value)
-                            }
-                          />
-                        </label>
-                        <small
-                          id={`${node.id}-pattern-altitude-help`}
-                          className={`arrival-altitude-help ${validPatternAltitude === null ? "field-error" : ""}`}
-                        >
-                          {destinationAirport
-                            ? `参照値 ${destinationAirport.patternAltitudeFtMsl.toLocaleString("ja-JP")} ft MSL（標高差 ${(destinationAirport.patternAltitudeFtMsl - destinationAirport.elevationFtMsl).toLocaleString("ja-JP")} ft）`
-                            : "目的地空港の参照データ値を確認してください。"}
-                          <br />
-                          {validPatternAltitude === null
-                            ? patternAltitudeBelowAirport
-                              ? "採用場周経路高度は飛行場標高より高くしてください。"
-                              : "100～25,000 ftの範囲で100 ft単位の整数を入力してください。"
-                            : "運用差がある場合は、今回使用するMSL高度へ編集してください。"}
-                        </small>
+                      ) : node.role === "DESTINATION" ? (
+                        <div className="arrival-altitude-control">
+                          <div className="arrival-airport-reference">
+                            <span>飛行場標高</span>
+                            <strong>
+                              {destinationAirport?.elevationFtMsl.toLocaleString("ja-JP") ?? "—"}
+                              {" ft MSL"}
+                            </strong>
+                            {destinationAirport && (
+                              <small>
+                                {destinationAirport.icao} {destinationAirport.name}
+                              </small>
+                            )}
+                          </div>
+                          <label>
+                            <span>今回採用する場周経路高度</span>
+                            <input
+                              className="arrival-pattern-input"
+                              aria-label="今回採用する場周経路高度"
+                              aria-describedby={`${node.id}-pattern-altitude-help`}
+                              aria-invalid={validPatternAltitude === null}
+                              type="number"
+                              min="100"
+                              max="25000"
+                              step="100"
+                              value={destinationPatternAltitudeFtMsl}
+                              onChange={(event) =>
+                                onDestinationPatternAltitudeChange(event.target.value)
+                              }
+                            />
+                          </label>
+                          <small
+                            id={`${node.id}-pattern-altitude-help`}
+                            className={`arrival-altitude-help ${validPatternAltitude === null ? "field-error" : ""}`}
+                          >
+                            {destinationAirport
+                              ? `参照値 ${destinationAirport.patternAltitudeFtMsl.toLocaleString("ja-JP")} ft MSL（標高差 ${(destinationAirport.patternAltitudeFtMsl - destinationAirport.elevationFtMsl).toLocaleString("ja-JP")} ft）`
+                              : "目的地空港の参照データ値を確認してください。"}
+                            <br />
+                            {validPatternAltitude === null
+                              ? patternAltitudeBelowAirport
+                                ? "採用場周経路高度は飛行場標高より高くしてください。"
+                                : "100～25,000 ftの範囲で100 ft単位の整数を入力してください。"
+                              : "運用差がある場合は、今回使用するMSL高度へ編集してください。"}
+                          </small>
+                        </div>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="phase-cell">
+                      <div className="route-phase-content">
+                        <div className="route-phase-primary">
+                          {section && fixedLabels ? (
+                            <span
+                              className="fixed-phase"
+                              aria-label={`${node.name}出発Legの固定Phase`}
+                            >
+                              {fixedLabels.phase}
+                            </span>
+                          ) : section && phaseLocked ? (
+                            <span
+                              className="phase-locked-value"
+                              aria-label={`${node.name}出発Legの固定Phase`}
+                            >
+                              {phaseLabels[section.phase]}（固定）
+                            </span>
+                          ) : section ? (
+                            <select
+                              className={`table-select phase-select${phaseEditing ? " is-editing" : " is-readonly"}`}
+                              aria-label={`${node.name}出発LegのPhase`}
+                              aria-disabled={!phaseEditing}
+                              tabIndex={phaseEditing ? 0 : -1}
+                              title={
+                                phaseEditing
+                                  ? "CLIMBまたはDESCENTを選ぶと同Phaseの基準Legが移動します。"
+                                  : undefined
+                              }
+                              value={section.phase}
+                              onPointerDown={(event) => {
+                                if (!phaseEditing) event.preventDefault();
+                              }}
+                              onKeyDown={(event) => {
+                                if (!phaseEditing) event.preventDefault();
+                              }}
+                              onChange={(event) =>
+                                changePhaseBasis(section, event.target.value as FlightPhase)
+                              }
+                            >
+                              {phaseOptionsForSection(section).map((phase) => (
+                                <option key={phase} value={phase}>
+                                  {phaseLabels[phase]}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="phase-arrival-value">到着</span>
+                          )}
+                        </div>
+                        {section?.phase === "DESCENT" && displayedDescentRate !== null && (
+                          <small className="descent-rate-result">
+                            計算結果 {displayedDescentRate} fpm
+                          </small>
+                        )}
                       </div>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="phase-cell">
-                    {section && fixedLabels ? (
-                      <span
-                        className="fixed-phase"
-                        aria-label={`${node.name}出発Legの固定Phase`}
-                      >
-                        {fixedLabels.phase}
-                      </span>
-                    ) : section && phaseLocked ? (
-                      <span
-                        className="phase-locked-value"
-                        aria-label={`${node.name}出発Legの固定Phase`}
-                      >
-                        {phaseLabels[section.phase]}（固定）
-                      </span>
-                    ) : section ? (
-                      <select
-                        className={`table-select phase-select${phaseEditing ? " is-editing" : " is-readonly"}`}
-                        aria-label={`${node.name}出発LegのPhase`}
-                        aria-disabled={!phaseEditing}
-                        tabIndex={phaseEditing ? 0 : -1}
-                        title={
-                          phaseEditing
-                            ? "CLIMBまたはDESCENTを選ぶと同Phaseの基準Legが移動します。"
-                            : "変更する場合はPHASE列の「変更」を押してください。"
-                        }
-                        value={section.phase}
-                        onPointerDown={(event) => {
-                          if (!phaseEditing) event.preventDefault();
-                        }}
-                        onKeyDown={(event) => {
-                          if (!phaseEditing) event.preventDefault();
-                        }}
-                        onChange={(event) =>
-                          changePhaseBasis(section, event.target.value as FlightPhase)
-                        }
-                      >
-                        {phaseOptionsForSection(section).map((phase) => (
-                          <option key={phase} value={phase}>
-                            {phaseLabels[phase]}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="phase-arrival-value">到着</span>
-                    )}
-                    {section?.phase === "DESCENT" && displayedDescentRate !== null && (
-                      <small className="descent-rate-result">
-                        計算結果 {displayedDescentRate} fpm
-                      </small>
-                    )}
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+                </Fragment>
               );
             })}
           </tbody>
         </table>
       </div>
-      {project && (
-        <p className="altitude-guidance-note">
-          上昇のALTは上昇先、降下のALTは降下開始時の巡航高度です。いずれもMC候補から選択できます。
-          <br />
-          {altitudeGuidance.legalThresholdNote}
-          <br />
-          {altitudeGuidance.terrainLimitationNote}
-        </p>
-      )}
+      </>}
     </section>
   );
 }

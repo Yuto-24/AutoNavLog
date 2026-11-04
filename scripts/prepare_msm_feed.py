@@ -1,4 +1,4 @@
-"""Produce a rolling static MSM feed using the upstream desktop public API.
+"""Produce a rolling MSM feed or explicit on-demand GSM feed via the upstream API.
 
 This offline publisher has no HTTP endpoint and receives no Project data. Serve the
 output as ordinary static files; the browser owns calculation and interpolation.
@@ -18,6 +18,7 @@ from urllib.request import urlopen
 
 from jma_gpv_weather import Bounds, ForecastRequirements, MsmClient, MsmPreparedData, RunId
 from jma_gpv_weather import WeatherVariable as Variable
+from jma_gpv_weather.msm.spec import MAX_FORECAST_HOURS
 
 from autonavlog.weather.local_msm import PreparedAsset, WeatherCatalog
 
@@ -29,11 +30,28 @@ def forecast_requirements(start: datetime, hours: int) -> ForecastRequirements:
     )
 
 
+def full_run_requirements(client: MsmClient, run: RunId, start: datetime) -> ForecastRequirements:
+    """Use the library's per-Run horizon, not a fixed horizon that excludes short Runs."""
+    times = []
+    for hour in range(MAX_FORECAST_HOURS + 1):
+        valid = start + timedelta(hours=hour)
+        candidate = forecast_requirements(valid, 0)
+        if client.check_coverage(candidate, run=run).outside_spec:
+            break
+        times.append(valid)
+    if not times:
+        raise ValueError(f"Run {run} has no publishable coverage from {start.isoformat()}")
+    return ForecastRequirements(tuple(times), candidate.variables)
+
+
 def acquire_listings(
     client: MsmClient, requirements: ForecastRequirements, *, require_content: bool = False,
+    existing: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    listings: dict[str, str] = {}
+    listings = dict(existing or {})
     for url in client.listing_urls(requirements):
+        if url in listings:
+            continue
         try:
             with urlopen(url + "/", timeout=60) as response:
                 payload = response.read(8 * 1024 * 1024 + 1)
@@ -59,29 +77,48 @@ def produce(
     *,
     now: datetime | None = None,
     max_runs: int = 2,
+    model: str = "MSM",
+    expected_run: str | None = None,
+    full_run: bool = False,
 ) -> dict[str, object]:
+    if full_run and model != "MSM":
+        raise ValueError("full_run is only supported for MSM")
     started = perf_counter()
     generated = now or datetime.now(UTC)
     requirements = forecast_requirements(start, hours)
-    client = MsmClient(cache, bounds)
+    codec = MsmPreparedData
+    if model == "GSM":
+        from jma_gpv_weather import GsmClient, GsmPreparedData
+
+        client = GsmClient(cache, bounds)
+        codec = GsmPreparedData
+    elif model == "MSM":
+        client = MsmClient(cache, bounds)
+    else:
+        raise ValueError("model must be MSM or GSM")
     listings = acquire_listings(client, requirements)
     runs = client.discover_runs(requirements, listings=listings)
+    if expected_run is not None and max(str(RunId(run.run_utc)) for run in runs) != expected_run:
+        raise ValueError("Discovered Run changed since admission; no payload work permitted")
     output.mkdir(parents=True, exist_ok=True)
     assets: dict[str, PreparedAsset] = {}
     retained_listings: dict[str, str] = {}
     cutoff = generated - timedelta(days=7)
+    # validate_feed permits a candidate age of 30 minutes but measures Run age at validation.
+    # Keep every indexed Run within seven days for that entire candidate lifetime.
+    asset_cutoff = cutoff + timedelta(minutes=30)
     previous_path = output / "catalog.json"
     if previous_path.exists():
         previous = WeatherCatalog.model_validate_json(previous_path.read_text())
         for asset in previous.assets:
-            if datetime.strptime(asset.run, "%Y%m%d%H%M%S").replace(tzinfo=UTC) < cutoff:
+            if datetime.strptime(asset.run, "%Y%m%d%H%M%S").replace(tzinfo=UTC) < asset_cutoff:
                 continue
             path = output / asset.file
             if not path.is_file():
                 continue
             if path.stat().st_size != asset.bytes:
-                raise ValueError(f"Retained MSM payload size mismatch: {asset.file}")
-            data = MsmPreparedData.from_bytes(path.read_bytes(), expected_sha256=asset.sha256)
+                raise ValueError(f"Retained {model} payload size mismatch: {asset.file}")
+            data = codec.from_bytes(path.read_bytes(), expected_sha256=asset.sha256)
             assets[asset.run] = asset
             retained_requirements = ForecastRequirements(
                 tuple(sorted({key[0] for key in (*data.surface, *data.pressure)})),
@@ -91,18 +128,34 @@ def produce(
                 if url in previous.listings:
                     retained_listings[url] = previous.listings[url]
         del previous
+    selected = list(runs[:max_runs])
+    expanded = {}
+    if full_run and runs:
+        expanded = {
+            selection.run_utc: full_run_requirements(client, RunId(selection.run_utc), start)
+            for selection in runs
+        }
+        # Keep the latest long-horizon Run even when the newest two are short Runs.
+        longest = max(runs, key=lambda item: (
+            expanded[item.run_utc].valid_times[-1], item.run_utc))
+        if longest not in selected:
+            selected.append(longest)
+        listings = acquire_listings(client, expanded[longest.run_utc], existing=listings)
     report_runs = []
-    for selection in runs[:max_runs]:
+    for selection in selected:
         before = perf_counter()
+        run_requirements = expanded.get(selection.run_utc, requirements)
+        available = (client.discover_runs(run_requirements, listings=listings)
+                     if full_run else runs)
         forecast = client.prepare_run(
             RunId(selection.run_utc),
-            requirements,
-            available_runs=runs,
+            run_requirements,
+            available_runs=available,
         )
-        payload = MsmPreparedData.from_forecast(forecast).to_bytes()
+        payload = codec.from_forecast(forecast).to_bytes()
         digest = hashlib.sha256(payload).hexdigest()
         # Apply the consumer's budgets before publishing an unusable payload.
-        MsmPreparedData.from_bytes(payload, expected_sha256=digest)
+        codec.from_bytes(payload, expected_sha256=digest)
         asset = PreparedAsset(
             run=str(RunId(selection.run_utc)),
             file=f"{digest}.npz",
@@ -117,7 +170,9 @@ def produce(
             {
                 "run": asset.run,
                 "bytes": asset.bytes,
-                "sources": [remote.url for remote in selection.files],
+                "sources": [remote.url for remote in forecast.selection.files],
+                "valid_start": run_requirements.valid_times[0].isoformat(),
+                "valid_end": run_requirements.valid_times[-1].isoformat(),
                 "prepare_seconds": perf_counter() - before,
             }
         )
@@ -125,7 +180,7 @@ def produce(
     assets = {
         run: asset
         for run, asset in assets.items()
-        if datetime.strptime(run, "%Y%m%d%H%M%S").replace(tzinfo=UTC) >= cutoff
+        if datetime.strptime(run, "%Y%m%d%H%M%S").replace(tzinfo=UTC) >= asset_cutoff
     }
     catalog = WeatherCatalog(
         schema_version=1,
@@ -144,6 +199,8 @@ def produce(
             if path.name not in retained and path.stat().st_mtime < cutoff.timestamp():
                 path.unlink()
     return {
+        "model": model,
+        "full_run": full_run,
         "generated_at": generated.isoformat(),
         "valid_start": start.isoformat(),
         "hours": hours,
@@ -155,11 +212,14 @@ def produce(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", choices=["MSM", "GSM"], default="MSM")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--start", type=datetime.fromisoformat)
     parser.add_argument("--hours", type=int, default=24)
     parser.add_argument("--max-runs", type=int, default=2)
+    parser.add_argument("--expected-run")
+    parser.add_argument("--full-run", action="store_true")
     parser.add_argument(
         "--bounds", type=float, nargs=4, metavar=("LAT_MIN", "LAT_MAX", "LON_MIN", "LON_MAX")
     )
@@ -169,7 +229,9 @@ def main() -> None:
         parser.error("start requires a timezone; hours must be 1–48; max-runs must be 1–32")
     bounds = Bounds(*args.bounds) if args.bounds else Bounds()
     try:
-        report = produce(args.output, args.cache, start, args.hours, bounds, max_runs=args.max_runs)
+        report = produce(args.output, args.cache, start, args.hours, bounds,
+                         max_runs=args.max_runs, model=args.model, expected_run=args.expected_run,
+                         full_run=args.full_run)
     except Exception as error:
         print(
             json.dumps(

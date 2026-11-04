@@ -15,6 +15,7 @@ from autonavlog.application.arrival import calculate_arrival_altitude, standard_
 from autonavlog.application.calculation_service import CalculationService
 from autonavlog.application.checkpoints import project_check_points
 from autonavlog.application.navlog_display import reproject_route_node_labels
+from autonavlog.application.project_fingerprints import forecast_selection_fingerprint
 from autonavlog.application.project_service import ProjectService
 from autonavlog.application.readiness import ReadinessEvaluation
 from autonavlog.application.readiness_service import MaterializedReadiness, ReadinessService
@@ -42,6 +43,7 @@ from autonavlog.application.rjfm_inbound_plan import (
     TARGET_ALTITUDE_FT_MSL as RJFM_INBOUND_TARGET_ALTITUDE_FT_MSL,
 )
 from autonavlog.application.rjfm_inbound_service import build_rjfm_inbound_guidance
+from autonavlog.domain.airport_vor import AIRPORT_VORS
 from autonavlog.domain.calculation import CalculationOutcome, Issue
 from autonavlog.domain.enums import (
     AdoptedSource,
@@ -90,6 +92,7 @@ from autonavlog.weather.destination_taf import (
     DestinationWindProvider,
     unavailable_destination_wind,
 )
+from autonavlog.weather.forecast_provider import ForecastWeatherProvider
 from autonavlog.weather.ftd_provider import FtdWeatherProvider
 from autonavlog.weather.provider import WeatherProvider
 
@@ -148,14 +151,17 @@ ISSUE_ACTIONS: dict[str, str] = {
     "VISUAL_REPORTING_POINT_REQUIRED": "目的空港直前のVREPを選択してください。",
     "VISUAL_REPORTING_POINT_ROUTE_INVALID": "VREPの位置と到着順序を確認してください。",
     "ARRIVAL_ALTITUDE_OVERRIDE_REASON_REQUIRED": "変則Entryの高度と理由を入力してください。",
+    "FORECAST_UPDATE_AVAILABLE": "同じ入力でもう一度NAV LOGを再計算するとForecastを更新します。",
+    "FORECAST_UPDATE_REQUIRED": (
+        "同じ入力でもう一度NAV LOGを再計算してください。前回結果は保持されます。"
+    ),
+    "FORECAST_UNAVAILABLE": "飛行日時・経路・高度を確認してください。前回結果は保持されます。",
     "FORECAST_PREPARE_FAILED": "通信とForecast Runを確認して再計算してください。",
     "FORECAST_RUN_OUT_OF_COVERAGE": "互換Forecast Runへ切り替えてください。",
     "WEATHER_QUERY_FAILED": "通信状態と気象データ取得先を確認して再計算してください。",
     "WIND_UNAVAILABLE": "風向・風速を取得するか、手入力してください。",
     "TEMPERATURE_UNAVAILABLE": "気温を取得するか、手入力してください。",
-    "CRUISE_POWER_TABLE_BOUNDARY_USED": (
-        "65% PWRの線形外挿値とPOH原表を確認してください。"
-    ),
+    "CRUISE_POWER_TABLE_BOUNDARY_USED": ("65% PWRの線形外挿値とPOH原表を確認してください。"),
     "PILOT_REQUIRED": "PILOTを入力してください。",
     "SHIP_REQUIRED": "SHIPを入力してください。",
     "DEVELOPMENT_WEATHER_PROVIDER": "実際の気象データで再計算してください。",
@@ -194,6 +200,8 @@ class WebSession:
     restore_warning: str | None = None
     persist_working: bool = True
     last_calculation: WorkingCalculation | None = None
+    rounding_mode: bool = False
+    forecast_update_fingerprint: str | None = None
 
 
 class AutoNavLogWebApplication:
@@ -278,7 +286,14 @@ class AutoNavLogWebApplication:
             self._session_order.append(token)
             return session
 
-    def restore_working(self, session: WebSession, recovery: WorkingRecovery) -> dict[str, Any]:
+    def restore_working(
+        self,
+        session: WebSession,
+        recovery: WorkingRecovery,
+        *,
+        reset_rounding: bool = True,
+        rounding_mode: bool = False,
+    ) -> dict[str, Any]:
         # Validate before committing. No autosave, marker update, calculation or replay.
         with self.owner_operation(session.owner_id), session.lock:
             if recovery.project is not None:
@@ -297,13 +312,22 @@ class AutoNavLogWebApplication:
             if recovery.last_calculation is not None:
                 self._assert_project_owner(recovery.last_calculation.project, session.owner_id)
             session.last_calculation = recovery.last_calculation
-            session.project = recovery.project
+            session.forecast_update_fingerprint = None
+            session.project = (
+                None if recovery.project is None else recovery.project.model_copy(deep=True)
+            )
             session.outcome = recovery.outcome
             session.destination_wind = recovery.destination_wind
+            if reset_rounding:
+                self._reset_rounding_mode(session)
+            else:
+                session.rounding_mode = rounding_mode
             session.import_result = recovery.import_result
             session.import_filename = recovery.import_filename
             session.readiness = None
             try:
+                if session.project is not None:
+                    self._normalize_rjfm_departure(session.project)
                 return self.present(session)
             except Exception as error:
                 session.last_calculation = None
@@ -378,6 +402,7 @@ class AutoNavLogWebApplication:
             session.import_filename = filename
             session.project = None
             session.outcome = None
+            session.rounding_mode = False
             session.destination_wind = None
             session.readiness = None
             return self.present(session)
@@ -395,7 +420,7 @@ class AutoNavLogWebApplication:
                 )
             result = session.import_result
             if request.candidate_kind == "map":
-                if session.project is not None:
+                if session.project is not None and request.edit_project_id != session.project.id:
                     raise WebApplicationError(
                         "PROJECT_ALREADY_CONFIRMED", "新規作業から経路を作成してください。"
                     )
@@ -403,30 +428,95 @@ class AutoNavLogWebApplication:
                     request.map_points[0].airport_id or "",
                     request.map_points[-1].airport_id or "",
                 )
+                if request.edit_project_id is not None and session.project is None:
+                    raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
+                if session.project is not None:
+                    adopted = self.project_service.ui_state(session.project).reference_data_snapshot
+                    if adopted is not None:
+                        if departure.id == session.project.departure_airport_id:
+                            departure = adopted.departure_airport
+                        if destination.id == session.project.destination_airport_id:
+                            destination = adopted.destination_airport
+                original_ids = [point.original_node_id for point in request.map_points]
+                supplied_ids = [identity for identity in original_ids if identity is not None]
+                known_nodes = (
+                    {node.id: node for node in session.project.route_nodes}
+                    if session.project else {}
+                )
+                known_ids = set(known_nodes)
+                if (
+                    len(supplied_ids) != len(set(supplied_ids))
+                    or not set(supplied_ids) <= known_ids
+                ):
+                    raise WebApplicationError(
+                        "ROUTE_NODE_NOT_FOUND", "更新対象の経路点の情報が正しくありません。"
+                    )
                 entries = []
-                for point in request.map_points:
+                for point_index, point in enumerate(request.map_points):
                     if point.airport_id:
                         airport, _ = self._selected_airports(point.airport_id, point.airport_id)
-                        entries.append((
-                            airport.icao, float(airport.latitude_deg), float(airport.longitude_deg),
-                            f"REFERENCE:{airport.source_revision}", RouteNodeNameSource.GENERATED,
-                        ))
+                        if point_index == 0:
+                            airport = departure
+                        elif point_index == len(request.map_points) - 1:
+                            airport = destination
+                        original = (known_nodes.get(point.original_node_id)
+                                    if point.original_node_id is not None else None)
+                        # Copied endpoints retain adopted geometry across catalog updates.
+                        # A changed airport identity still uses the current catalog.
+                        unchanged_endpoint = (
+                            original is not None and session.project is not None
+                            and (
+                                (point_index == 0
+                                 and original.id == session.project.ordered_nodes()[0].id
+                                 and point.airport_id == session.project.departure_airport_id)
+                                or (point_index == len(request.map_points) - 1
+                                    and original.id == session.project.ordered_nodes()[-1].id
+                                    and point.airport_id == session.project.destination_airport_id)
+                            )
+                            and (point.latitude_deg, point.longitude_deg)
+                            == (original.latitude_deg, original.longitude_deg)
+                        )
+                        origin = (
+                            original if unchanged_endpoint and original is not None else airport
+                        )
+                        saved_vor = (
+                            self.project_service.ui_state(session.project).departure_vor
+                            if point_index == 0 and request.departure_origin == "VOR"
+                            and session.project is not None
+                            and point.airport_id == session.project.departure_airport_id
+                            else None
+                        )
+                        if saved_vor is not None:
+                            # A later airport occurrence promoted to FROM must use the
+                            # adopted VOR geometry before unchanged-leg matching.
+                            origin = saved_vor
+                        origin_name = (
+                            saved_vor.identifier if saved_vor is not None
+                            else original.name if origin is original and original else airport.icao
+                        )
+                        origin_revision = (
+                            saved_vor.source_revision if saved_vor else airport.source_revision
+                        )
+                        entries.append(
+                            (
+                                origin_name,
+                                float(origin.latitude_deg),
+                                float(origin.longitude_deg),
+                                f"REFERENCE:{origin_revision}",
+                                RouteNodeNameSource.GENERATED,
+                            )
+                        )
                     else:
                         entries.append((
                             point.name, point.latitude_deg, point.longitude_deg,
                             "MAP", RouteNodeNameSource.GENERATED,
                         ))
-                destination_entry = entries[-1]
-                entries = [
-                    entry for index, entry in enumerate(entries)
-                    if index == 0
-                    or (entry[1], entry[2]) != (entries[index - 1][1], entries[index - 1][2])
-                ]
-                if len(entries) < 2:
+                retained_ids = original_ids
+                # Every click is an occurrence, including consecutive visits to one reference.
+                if len({(entry[1], entry[2]) for entry in entries}) < 2:
                     raise WebApplicationError(
                         "ROUTE_INCOMPLETE", "異なる2地点以上で経路を作成してください。"
                     )
-                entries[-1] = destination_entry
                 # MAP labels are generated names, not explicit KML Point Placemarks.
                 explicit_point_names: dict[int, str] = {}
             else:
@@ -456,6 +546,10 @@ class AutoNavLogWebApplication:
                 destination.id,
                 explicit_point_names,
             )
+            if request.edit_project_id is not None:
+                return self._confirm_route_edit(
+                    session, request, entries, retained_ids, departure, destination
+                )
             departure_time = self._departure_datetime(
                 request.flight_date,
                 request.departure_time_jst,
@@ -513,6 +607,14 @@ class AutoNavLogWebApplication:
                 destination.id,
                 use_penultimate_as_vrep=request.use_penultimate_as_vrep,
             )
+            if request.candidate_kind == "map":
+                for node, point in zip(project.route_nodes, request.map_points, strict=True):
+                    snapshot = point.reference_snapshot
+                    if snapshot is not None:
+                        node.reference_snapshot = snapshot.model_copy(deep=True)
+                        node.name = snapshot.name
+                        node.name_source = RouteNodeNameSource.GENERATED
+                        node.source = f"REFERENCE:{snapshot.reference_id}"
             state = PersistedUiState(
                 reference_data_snapshot=ReferenceDataSnapshot(
                     departure_airport=departure,
@@ -528,6 +630,7 @@ class AutoNavLogWebApplication:
                 ),
             )
             self.project_service.set_ui_state(project, state, reconfirmed=True)
+            self._apply_departure_origin(project, request.departure_origin)
             self._normalize_rjfm_departure(project)
             if request.defaults_confirmed:
                 session.readiness_service.confirm_defaults(project, None)
@@ -541,6 +644,149 @@ class AutoNavLogWebApplication:
             session.outcome = materialized.outcome
             session.readiness = materialized.evaluation
             return self.present(session)
+
+    def _confirm_route_edit(
+        self,
+        session: WebSession,
+        request: ConfirmRouteRequest,
+        entries: list[RouteEntry],
+        original_ids: list[UUID | None],
+        departure: Any,
+        destination: Any,
+    ) -> dict[str, Any]:
+        """Replace only changed directed legs; occurrence IDs disambiguate repeat visits."""
+        previous = session.project
+        assert previous is not None
+        previous_nodes = {node.id: node for node in previous.route_nodes}
+        for point in request.map_points:
+            original = (
+                previous_nodes.get(point.original_node_id)
+                if point.original_node_id is not None else None
+            )
+            if point.reference_snapshot is not None and point.name != point.reference_snapshot.name:
+                if not (
+                    original is not None and point.name == original.name
+                    and point.reference_snapshot == original.reference_snapshot
+                    and (point.latitude_deg, point.longitude_deg)
+                    == (original.latitude_deg, original.longitude_deg)
+                ):
+                    raise WebApplicationError(
+                        "ROUTE_NODE_NOT_FOUND", "更新対象の経路点の情報が正しくありません。"
+                    )
+            if len(point.name) > 100 and (original is None or point.name != original.name):
+                raise WebApplicationError(
+                    "ROUTE_NODE_NOT_FOUND", "更新対象の経路点の情報が正しくありません。"
+                )
+        ordered_previous = previous.ordered_nodes()
+        if (
+            departure.id == previous.departure_airport_id
+            and destination.id == previous.destination_airport_id
+            and len(entries) == len(ordered_previous)
+            and all(
+                original_id == node.id
+                and (entry[1], entry[2]) == (node.latitude_deg, node.longitude_deg)
+                for entry, original_id, node in zip(
+                    entries, original_ids, ordered_previous, strict=True
+                )
+            )
+        ):
+            return self.present(session)
+        working = previous.model_copy(deep=True, update={"route_nodes": [], "sections": []})
+        working.departure_airport_id = departure.id
+        working.destination_airport_id = destination.id
+        self._install_route(
+            working,
+            entries,
+            request.all_leg_altitude_ft_msl,
+            destination.id,
+            use_penultimate_as_vrep=request.use_penultimate_as_vrep,
+            destination_snapshot=destination,
+        )
+        nodes = []
+        for node, original_id, point in zip(
+            working.ordered_nodes(), original_ids, request.map_points, strict=True
+        ):
+            original = previous_nodes.get(original_id) if original_id is not None else None
+            if original and (original.latitude_deg, original.longitude_deg) == (
+                node.latitude_deg,
+                node.longitude_deg,
+            ):
+                node = original.model_copy(update={"sequence": node.sequence, "role": node.role})
+            elif point.reference_snapshot is not None:
+                snapshot = point.reference_snapshot
+                node.reference_snapshot = snapshot.model_copy(deep=True)
+                node.name = snapshot.name
+                node.name_source = RouteNodeNameSource.GENERATED
+                node.source = f"REFERENCE:{snapshot.reference_id}"
+            nodes.append(node)
+        old_sections = {(leg.from_node_id, leg.to_node_id): leg for leg in previous.sections}
+        sections = []
+        for generated, start, end in zip(
+            working.ordered_sections(), nodes, nodes[1:], strict=False
+        ):
+            existing = old_sections.get((start.id, end.id))
+            sections.append(
+                existing.model_copy(update={"sequence": generated.sequence})
+                if existing
+                else generated.model_copy(update={"from_node_id": start.id, "to_node_id": end.id})
+            )
+        previous_state = self.project_service.ui_state(previous)
+        next_vrep_id = nodes[-2].id if request.use_penultimate_as_vrep and len(nodes) >= 3 else None
+        previous_vrep_id = (
+            previous_state.arrival_plan.visual_reporting_point_node_id
+            if previous_state.arrival_plan else None
+        )
+        if destination.id != previous.destination_airport_id or next_vrep_id != previous_vrep_id:
+            # Changing arrival roles relocates the descent/visual tail, not the
+            # retained leg's identity, manual altitude, speeds or checkpoints.
+            tail_phases = {FlightPhase.DESCENT, FlightPhase.VISUAL_ARRIVAL}
+            for section, generated in zip(sections, working.ordered_sections(), strict=True):
+                if generated.phase in tail_phases:
+                    section.phase = generated.phase
+                elif section.phase in tail_phases:
+                    section.phase = FlightPhase.CRUISE
+        working = working.model_copy(update={"route_nodes": nodes, "sections": sections})
+        if (
+            working.route_nodes == previous.route_nodes
+            and working.sections == previous.sections
+            and departure.id == previous.departure_airport_id
+            and destination.id == previous.destination_airport_id
+        ):
+            return self.present(session)
+        retained_sections = {section.id for section in sections}
+        working.visual_references = [
+            reference
+            for reference in previous.visual_references
+            if reference.linked_section_id is None
+            or reference.linked_section_id in retained_sections
+        ]
+        state = self.project_service.ui_state(previous).model_copy(deep=True)
+        state.reference_data_snapshot = ReferenceDataSnapshot(
+            departure_airport=departure, destination_airport=destination
+        )
+        vrep = nodes[-2] if request.use_penultimate_as_vrep and len(nodes) >= 3 else None
+        if not (
+            vrep
+            and state.arrival_plan
+            and state.arrival_plan.visual_reporting_point_node_id == vrep.id
+            and destination.id == previous.destination_airport_id
+        ):
+            state.arrival_plan = (
+                self._automatic_arrival_plan(vrep.id, destination) if vrep else None
+            )
+        if departure.id != previous.departure_airport_id:
+            state.departure_vor = None
+        self.project_service.set_ui_state(working, state, reconfirmed=True)
+        self._apply_departure_origin(working, request.departure_origin)
+        self._normalize_rjfm_departure(working)
+        materialized = session.readiness_service.evaluate(working, session.outcome)
+        self._persist_draft(session, materialized.project)
+        session.project = materialized.project
+        session.outcome = materialized.outcome
+        if materialized.outcome is None:
+            session.destination_wind = None
+        session.readiness = materialized.evaluation
+        return self.present(session)
 
     def update_project(
         self,
@@ -707,33 +953,48 @@ class AutoNavLogWebApplication:
         self,
         session: WebSession,
         progress: Callable[[int, str], None] | None = None,
+        *,
+        rounding_mode: bool | None = None,
     ) -> dict[str, Any]:
         with self.owner_operation(session.owner_id), session.lock:
             if session.project is None:
                 raise WebApplicationError("PROJECT_REQUIRED", "先に経路を確定してください。")
             report = progress or (lambda _percent, _message: None)
+            selected_rounding_mode = (
+                session.rounding_mode if rounding_mode is None else rounding_mode
+            )
             report(10, "経路と計算条件を確認しています。")
             calculation_project = session.project.model_copy(deep=True)
             outcome, destination_wind = self._calculate_outcome(
                 session,
                 calculation_project,
                 progress=report,
+                rounding_mode=selected_rounding_mode,
             )
+            if selected_rounding_mode != session.rounding_mode and outcome.blockers:
+                # A failed mode transition must retain the last-good mode/result,
+                # including when rounding makes a previously solvable wind invalid.
+                detail = " / ".join(issue.message for issue in outcome.blockers[:3])
+                raise WebApplicationError(
+                    "CALCULATION_FAILED", f"計算に失敗しました。{detail}"
+                )
             report(90, "計算結果と準備状況を反映しています。")
             materialized = session.readiness_service.record_calculation(
                 calculation_project,
                 outcome,
             )
-            self._persist_calculation(
-                session,
-                materialized,
-                destination_wind,
-            )
+            previous_last_calculation = session.last_calculation
+            try:
+                self._persist_calculation(session, materialized, destination_wind)
+            except Exception:
+                session.last_calculation = previous_last_calculation
+                raise
             session.project = materialized.project
             session.outcome = materialized.outcome
             session.destination_wind = destination_wind
             session.readiness = materialized.evaluation
             session.restore_warning = None
+            session.rounding_mode = selected_rounding_mode
             report(98, "画面表示を準備しています。")
             return self.present(session)
 
@@ -794,12 +1055,7 @@ class AutoNavLogWebApplication:
             request.flight_date,
             request.departure_time_jst,
         )
-        forecast_selection_invalidated = (
-            working.flight_date != request.flight_date
-            or working.planned_departure_time_jst != requested_departure_time
-            or working.weather_mode != request.weather_mode
-            or working.ftd_weather != request.ftd_weather
-        )
+        weather_mode_changed = working.weather_mode != request.weather_mode
         working.flight_date = request.flight_date
         working.planned_departure_time_jst = requested_departure_time
         if request.pilot_name is not None:
@@ -818,8 +1074,11 @@ class AutoNavLogWebApplication:
                 "ftd_weather": request.ftd_weather,
                 "selected_forecast_run_id": (
                     None
-                    if forecast_selection_invalidated
+                    if weather_mode_changed
                     else working.selected_forecast_run_id
+                ),
+                "selected_forecast_model": (
+                    None if weather_mode_changed else working.selected_forecast_model
                 ),
             }
         )
@@ -852,6 +1111,8 @@ class AutoNavLogWebApplication:
             sections[update.section_id] = section.model_copy(update=section_update)
         working.sections = [sections[section.id] for section in working.ordered_sections()]
         self._apply_arrival_plan(working, request)
+        if request.departure_origin is not None:
+            self._apply_departure_origin(working, request.departure_origin)
         self._normalize_rjfm_departure(working)
         if request.defaults_confirmed:
             session.readiness_service.confirm_defaults(working, session.outcome)
@@ -862,8 +1123,17 @@ class AutoNavLogWebApplication:
         session: WebSession,
         project: Project,
         progress: Callable[[int, str], None] | None = None,
+        *,
+        rounding_mode: bool | None = None,
     ) -> tuple[CalculationOutcome, DestinationWindForecast | None]:
+        selected_rounding_mode = session.rounding_mode if rounding_mode is None else rounding_mode
         self._normalize_rjfm_departure(project)
+        fingerprint = forecast_selection_fingerprint(
+            project, rounding_mode=selected_rounding_mode
+        )
+        refresh_forecast = self.forecast_refresh_requested(
+            session, project, rounding_mode=selected_rounding_mode
+        )
         state = self.project_service.ui_state(project)
         plan = state.arrival_plan
         if (
@@ -877,6 +1147,7 @@ class AutoNavLogWebApplication:
                 status_code=409,
             )
         if project.weather_mode == "FTD":
+            session.forecast_update_fingerprint = None
             if project.ftd_weather is None:
                 raise WebApplicationError(
                     "FTD_WEATHER_REQUIRED",
@@ -886,6 +1157,7 @@ class AutoNavLogWebApplication:
                 project,
                 FtdWeatherProvider(project.ftd_weather),
                 progress=progress,
+                rounding_mode=selected_rounding_mode,
             )
             destination_icao = self.airports.get(project.destination_airport_id).icao
             ftd_destination_wind = unavailable_destination_wind(
@@ -895,13 +1167,23 @@ class AutoNavLogWebApplication:
             ).model_copy(update={"source_label": "FTD固定気象"})
             return self._with_rjfm_guidance(session, project, outcome), ftd_destination_wind
 
+        if isinstance(session.weather_provider, ForecastWeatherProvider):
+            session.weather_provider.begin_calculation()
+        # Consume intent only after a completed application calculation. Local
+        # transport may suspend and resume this action to acquire a missing Run.
         destination_wind: DestinationWindForecast | None = None
         outcome = session.calculation_service.calculate(
             project,
             session.weather_provider,
             progress=progress,
+            rounding_mode=selected_rounding_mode,
+            refresh_forecast=refresh_forecast,
         )
         for _ in range(3):
+            if not outcome.sections or any(
+                issue.code.startswith(("FORECAST_", "WEATHER_")) for issue in outcome.blockers
+            ):
+                break
             forecast = self._destination_wind(project, outcome)
             current_signature = self._destination_wind_signature(destination_wind)
             forecast_signature = self._destination_wind_signature(forecast)
@@ -913,7 +1195,15 @@ class AutoNavLogWebApplication:
                 session.weather_provider,
                 forecast,
                 progress=progress,
+                rounding_mode=selected_rounding_mode,
+                refresh_forecast=refresh_forecast,
             )
+        session.forecast_update_fingerprint = (
+            fingerprint if any(
+                issue.code in {"FORECAST_UPDATE_AVAILABLE", "FORECAST_UPDATE_REQUIRED"}
+                for issue in outcome.issues
+            ) else None
+        )
         if not self.development_weather:
             return self._with_rjfm_guidance(session, project, outcome), destination_wind
         decorated = outcome.model_copy(
@@ -934,33 +1224,115 @@ class AutoNavLogWebApplication:
         )
         return self._with_rjfm_guidance(session, project, decorated), destination_wind
 
+    def _apply_departure_origin(self, project: Project, mode: str) -> None:
+        state = self.project_service.ui_state(project)
+        if mode == "VOR" and state.departure_vor is not None:
+            # Keep the adopted source snapshot when merely updating other inputs.
+            return
+        if mode == "AIRPORT" and state.departure_vor is None:
+            return
+        snapshot = state.reference_data_snapshot
+        airport = (
+            self.reference_catalog.airports[project.departure_airport_id]
+            if snapshot is None
+            else snapshot.departure_airport
+        )
+        vor = AIRPORT_VORS.get(project.departure_airport_id) if mode == "VOR" else None
+        if mode == "VOR" and vor is None:
+            raise WebApplicationError(
+                "ROUTE_AIRPORT_ENDPOINT_MISMATCH",
+                "経路の先頭・末尾が選択した出発地・目的地と一致しません。",
+            )
+        origin = airport if vor is None else vor
+        node = project.ordered_nodes()[0]
+        node.latitude_deg = origin.latitude_deg
+        node.longitude_deg = origin.longitude_deg
+        node.name = airport.icao if vor is None else vor.identifier
+        node.name_source = RouteNodeNameSource.GENERATED
+        node.source = f"REFERENCE:{origin.source_revision}"
+        node.reference_snapshot = None
+        self.project_service.set_ui_state(
+            project,
+            state.model_copy(update={
+                "departure_vor": vor,
+                "calculated_against_fingerprint": None,
+            }),
+            reconfirmed=True,
+        )
+
+    @staticmethod
+    def forecast_refresh_requested(
+        session: WebSession, project: Project, *, rounding_mode: bool | None = None,
+    ) -> bool:
+        """Refresh intent belongs to this working session and unchanged inputs."""
+        try:
+            fingerprint = forecast_selection_fingerprint(
+                project,
+                rounding_mode=session.rounding_mode if rounding_mode is None else rounding_mode,
+            )
+        except (TypeError, ValueError):
+            # Invalid planning cannot retain refresh intent. Let the established
+            # readiness/state validation report its domain error to the caller.
+            session.forecast_update_fingerprint = None
+            return False
+        if project.weather_mode != "FORECAST" or session.forecast_update_fingerprint != fingerprint:
+            session.forecast_update_fingerprint = None
+            return False
+        return True
+
     def _normalize_rjfm_departure(self, project: Project) -> None:
         normalize_rjfm_departure_plan(project, self.rjfm_reference_pack)
-        state = self.project_service.ui_state(project)
-        arrival = calculate_arrival_altitude(project, state).result
         points = self.rjfm_reference_pack.points
-        apply_rjfm_inbound_exception(
-            project,
-            RjfmInboundReferences(
-                revision=self.rjfm_reference_pack.revision,
-                content_fingerprint=self.rjfm_reference_pack.content_fingerprint,
-                umk=RjfmCoordinate(
-                    latitude_deg=points["UMK"].position.latitude_deg,
-                    longitude_deg=points["UMK"].position.longitude_deg,
-                    source=f"RJFM_REFERENCE:{self.rjfm_reference_pack.revision}:UMK",
-                    estimated_error_nm=0.35,
-                ),
-                omaru=RjfmCoordinate(
-                    latitude_deg=points["OMARU"].position.latitude_deg,
-                    longitude_deg=points["OMARU"].position.longitude_deg,
-                    source=f"RJFM_REFERENCE:{self.rjfm_reference_pack.revision}:OMARU",
-                    estimated_error_nm=0.35,
-                ),
+        references = RjfmInboundReferences(
+            revision=self.rjfm_reference_pack.revision,
+            content_fingerprint=self.rjfm_reference_pack.content_fingerprint,
+            umk=RjfmCoordinate(
+                latitude_deg=points["UMK"].position.latitude_deg,
+                longitude_deg=points["UMK"].position.longitude_deg,
+                source=f"RJFM_REFERENCE:{self.rjfm_reference_pack.revision}:UMK",
+                estimated_error_nm=0.35,
             ),
-            adopted_vrep_altitude_ft_msl=(
-                None if arrival is None else arrival.adopted_altitude_ft_msl
+            omaru=RjfmCoordinate(
+                latitude_deg=points["OMARU"].position.latitude_deg,
+                longitude_deg=points["OMARU"].position.longitude_deg,
+                source=f"RJFM_REFERENCE:{self.rjfm_reference_pack.revision}:OMARU",
+                estimated_error_nm=0.35,
             ),
         )
+        apply_rjfm_inbound_exception(project, references)
+        state = self.project_service.ui_state(project)
+        nodes = project.ordered_nodes()
+        if (
+            len(nodes) >= 3
+            and state.rjfm_inbound_plan is not None
+            and nodes[-2].id == state.rjfm_inbound_plan.vrep_node_id
+            and (
+                state.arrival_plan is None
+                or state.arrival_plan.visual_reporting_point_node_id != nodes[-2].id
+            )
+        ):
+            arrival_plan = (
+                self._automatic_arrival_plan(
+                    nodes[-2].id, self.reference_catalog.airports[project.destination_airport_id]
+                )
+                if state.arrival_plan is None
+                else state.arrival_plan.model_copy(
+                    update={"visual_reporting_point_node_id": nodes[-2].id}
+                )
+            )
+            state = state.model_copy(update={"arrival_plan": arrival_plan})
+            project.metadata["ui_state"] = state.model_dump(mode="json")
+        arrival = calculate_arrival_altitude(project, state).result
+        apply_rjfm_inbound_exception(
+            project,
+            references,
+            adopted_vrep_altitude_ft_msl=None
+            if arrival is None
+            else arrival.adopted_altitude_ft_msl,
+        )
+        # Inbound normalization may add a second UMK and change its controlled
+        # sections. Seal the departure fingerprint against the completed route.
+        normalize_rjfm_departure_plan(project, self.rjfm_reference_pack)
 
     def _with_rjfm_guidance(
         self,
@@ -971,7 +1343,10 @@ class AutoNavLogWebApplication:
         state = self.project_service.ui_state(project)
         fingerprint_project = project.model_copy(
             deep=True,
-            update={"selected_forecast_run_id": outcome.selected_forecast_run_id},
+            update={
+                "selected_forecast_run_id": outcome.selected_forecast_run_id,
+                "selected_forecast_model": outcome.selected_forecast_model,
+            },
         )
         fingerprint = session.readiness_service.fingerprints(
             fingerprint_project,
@@ -1095,6 +1470,7 @@ class AutoNavLogWebApplication:
     def load(self, session: WebSession, project_id: UUID) -> dict[str, Any]:
         with self.owner_operation(session.owner_id), session.lock:
             self._restore_project(session, project_id, explicit=True)
+            session.forecast_update_fingerprint = None
             return self.present(session)
 
     def delete(self, session: WebSession, project_id: UUID) -> dict[str, Any]:
@@ -1275,6 +1651,30 @@ class AutoNavLogWebApplication:
         session.import_result = None
         session.import_filename = None
         session.restore_warning = restore_warning
+        self._reset_rounding_mode(session)
+
+    @staticmethod
+    def _reset_rounding_mode(session: WebSession) -> None:
+        """A restored result is not a saved preference: new work starts OFF.
+
+        The existing result provenance identifies rounded runs without adding
+        Project or storage schema fields. Retain the durable record, but require
+        a fresh calculation before showing a restored rounded result as OFF.
+        """
+        session.rounding_mode = False
+        outcomes = [
+            session.outcome,
+            None if session.last_calculation is None else session.last_calculation.outcome,
+        ]
+        if any(
+            section.wind_direction_deg_from.automatic_metadata.get("rounding_mode") is True
+            for outcome in outcomes if outcome is not None
+            for section in outcome.sections
+        ):
+            session.outcome = None
+            session.last_calculation = None
+            session.destination_wind = None
+            session.readiness = None
 
     def _outcome_for_presentation(
         self,
@@ -1313,6 +1713,11 @@ class AutoNavLogWebApplication:
             return self._present_unlocked(session)
 
     def _present_unlocked(self, session: WebSession) -> dict[str, Any]:
+        # Observe edits away and back, rather than reviving an earlier second click.
+        if session.project is None:
+            session.forecast_update_fingerprint = None
+        else:
+            self.forecast_refresh_requested(session, session.project)
         evaluation = None if session.project is None else self._evaluate(session)
         issues: list[dict[str, Any]] = []
         displayed_issue_keys: set[tuple[str, UUID | None, int | None]] = set()
@@ -1386,6 +1791,7 @@ class AutoNavLogWebApplication:
         summaries = self._owned_project_summaries(session)
         check_point_planning = self._check_point_planning(session.project)
         return {
+            "roundingMode": session.rounding_mode,
             "workingRecovery": WorkingRecovery(
                 version=1,
                 project=session.project,
@@ -2312,7 +2718,6 @@ class AutoNavLogWebApplication:
             float(airport.longitude_deg),
         ).distance_nm
 
-
     def _automatic_arrival_plan(
         self,
         vrep_id: UUID,
@@ -2340,8 +2745,9 @@ class AutoNavLogWebApplication:
         destination_id: str,
         *,
         use_penultimate_as_vrep: bool,
+        destination_snapshot: Any | None = None,
     ) -> None:
-        destination = self.reference_catalog.airports[destination_id]
+        destination = destination_snapshot or self.reference_catalog.airports[destination_id]
         project.route_nodes = [
             RouteNode(
                 sequence=index,
@@ -2579,6 +2985,10 @@ class AutoNavLogWebApplication:
                         "coordinates": [
                             list(item) for item in route_shape.display_coordinates
                         ],
+                        "routeCoordinates": (
+                            [list(item) for item in route_shape.coordinates]
+                            if len(route_shape.coordinates) <= 500 else None
+                        ),
                     },
                 )
             )
@@ -2597,6 +3007,10 @@ class AutoNavLogWebApplication:
                         "vertexCount": len(line.coordinates),
                         "distanceNm": round(imported_line_length_nm(line), 2),
                         "coordinates": [list(item) for item in line.display_coordinates],
+                        "routeCoordinates": (
+                            [list(item) for item in line.coordinates]
+                            if len(line.coordinates) <= 500 else None
+                        ),
                     },
                 )
             )
@@ -2613,6 +3027,10 @@ class AutoNavLogWebApplication:
                     "vertexCount": len(polygon.outer_boundary),
                     "distanceNm": None,
                     "coordinates": [list(item) for item in polygon.display_outer_boundary],
+                    "routeCoordinates": (
+                        [list(item) for item in polygon.outer_boundary]
+                        if len(polygon.outer_boundary) <= 500 else None
+                    ),
                 }
             )
         if len(result.points) >= 2 and not result.lines and not result.connected_lines:
@@ -2626,6 +3044,10 @@ class AutoNavLogWebApplication:
                     "coordinates": [
                         [point.latitude_deg, point.longitude_deg] for point in result.points
                     ],
+                    "routeCoordinates": (
+                        [[point.latitude_deg, point.longitude_deg] for point in result.points]
+                        if len(result.points) <= 500 else None
+                    ),
                 }
             )
         for candidate in candidates:

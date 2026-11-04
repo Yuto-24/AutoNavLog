@@ -46,6 +46,9 @@ export function restoreProjectDraft(project: Project, draft: ProjectDraft): Proj
 }
 export interface VorColumn { id: number; stationIdentifier: string | null }
 export interface ApplicationSession {
+  editingRouteProjectId?: string | null;
+  pendingImportDraft?: boolean;
+  selectedImportCandidate?: string;
   mapRouteDraft?: MapRoutePoint[];
   legacyRouteInput?: boolean;
   vorColumns: VorColumn[];
@@ -72,9 +75,18 @@ const strings = (value: unknown) => record(value) && Object.values(value).every(
 // Validate representation, not input validity: empty, incomplete and out-of-range text is work.
 export function decodeSession(raw: string): ApplicationSession {
   const value: unknown = JSON.parse(raw);
+  // Pre-VOR working sessions remain AIRPORT mode; retain raw unfinished inputs.
+  if (record(value) && record(value.form) && !("departureOrigin" in value.form)) {
+    value.form.departureOrigin = "AIRPORT";
+  }
+  // Older sessions already contain a working choice; never replace it with a new default.
+  if (record(value) && record(value.form) && !("departureOriginExplicit" in value.form)) {
+    value.form.departureOriginExplicit = true;
+  }
   if (!record(value) || value.version !== 1 || !record(value.working) ||
       value.working.version !== 1 || !record(value.form) ||
       !Object.entries(initialPlanningForm()).every(([key, seed]) => typeof (value.form as Record<string, unknown>)[key] === typeof seed) ||
+      !["AIRPORT", "VOR"].includes(String(value.form.departureOrigin)) ||
       !strings(value.altitudeInputs) || !record(value.navLogDrafts) ||
       !Object.values(value.navLogDrafts).every(draft => record(draft) &&
         typeof draft.plannedAltitude === "string" &&
@@ -102,9 +114,14 @@ export function decodeSession(raw: string): ApplicationSession {
           ["CLIMB", "CRUISE", "DESCENT", "VISUAL_ARRIVAL"].includes(String(section.phase)))))) {
     throw new Error("Incompatible working session");
   }
+  if (value.selectedImportCandidate !== undefined && typeof value.selectedImportCandidate !== "string") throw new Error("Incompatible import selection");
+  if (value.pendingImportDraft !== undefined && (typeof value.pendingImportDraft !== "boolean" ||
+      (value.pendingImportDraft && value.working.project !== null))) throw new Error("Incompatible import draft");
   if (value.legacyRouteInput !== undefined && typeof value.legacyRouteInput !== "boolean") throw new Error("Incompatible route input mode");
+  if (value.editingRouteProjectId != null && (!record(value.working.project) ||
+      value.editingRouteProjectId !== value.working.project.id)) throw new Error("Incompatible route edit");
   if (value.mapRouteDraft !== undefined && (!validMapDraft(value.mapRouteDraft) ||
-      (value.working.project !== null && value.mapRouteDraft.length > 0))) {
+      (value.working.project !== null && value.mapRouteDraft.length > 0 && !value.editingRouteProjectId))) {
     throw new Error("Incompatible Map Route Draft");
   }
   return value as unknown as ApplicationSession;

@@ -47,20 +47,51 @@ export function checkArtifact(root, { freshWeather = true, allowDirty = false } 
   for (const name of [...manifest.wheels, manifest.data]) {
     if (files["local/" + name]?.sha256 !== manifest.sha256[name]) throw new Error("Local asset hash mismatch: " + name);
   }
-  const catalog = JSON.parse(readFileSync(join(root, "weather/msm/catalog.json")));
-  if (freshWeather && (!Number.isFinite(Date.parse(catalog.expires_at)) || Date.parse(catalog.expires_at) <= Date.now())) {
-    throw new Error("MSM catalog expired; regenerate the feed before deployment");
-  }
-  if (!catalog.assets?.length) throw new Error("Empty MSM feed");
-  for (const asset of catalog.assets) {
-    const file = files["weather/msm/" + asset.file];
-    if (file?.bytes !== asset.bytes || file?.sha256 !== asset.sha256) throw new Error("MSM asset mismatch: " + asset.file);
+  const weatherExpiry = {};
+  for (const model of ["MSM", "GSM"]) {
+    const prefix = `weather/${model.toLowerCase()}/`;
+    // MSM keeps the existing scheduled feed. GSM is an optional, explicit
+    // publication; whenever present it must pass the same integrity/expiry gates.
+    if (model === "GSM" && !files[prefix + "catalog.json"]) {
+      if (Object.keys(files).some(name => name.startsWith(prefix) && name.endsWith(".npz"))) {
+        throw new Error("GSM payloads require a catalog");
+      }
+      continue;
+    }
+    const catalog = JSON.parse(readFileSync(join(root, prefix + "catalog.json")));
+    const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
+    const timestamp = value => typeof value === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+      ? Date.parse(value) : NaN;
+    const generated = timestamp(catalog.generated_at), expiry = timestamp(catalog.expires_at);
+    if (catalog.schema_version !== 1 || !Number.isFinite(generated) || !Number.isFinite(expiry)
+      || generated >= expiry || !object(catalog.listings)
+      || Object.values(catalog.listings).some(value => typeof value !== "string")
+      || Object.keys(catalog).some(key => !["schema_version", "generated_at", "expires_at", "listings", "assets"].includes(key))) {
+      throw new Error(`${model} catalog format invalid`);
+    }
+    if (freshWeather && (expiry <= Date.now() || generated > Date.now() + 5 * 60_000)) {
+      throw new Error(`${model} catalog expired; regenerate the feed before deployment`);
+    }
+    if (!Array.isArray(catalog.assets) || !catalog.assets.length) throw new Error(`Empty ${model} feed`);
+    const runs = new Set();
+    for (const asset of catalog.assets) {
+      if (!object(asset) || typeof asset.run !== "string" || !/^\d{14}$/.test(asset.run) || runs.has(asset.run)
+        || typeof asset.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(asset.sha256) || asset.file !== `${asset.sha256}.npz`
+        || !Number.isSafeInteger(asset.bytes) || asset.bytes <= 0 || asset.bytes > 32 * 1024 * 1024
+        || Object.keys(asset).some(key => !["run", "file", "sha256", "bytes"].includes(key))) {
+        throw new Error(`${model} asset format invalid`);
+      }
+      runs.add(asset.run);
+      const file = files[prefix + asset.file];
+      if (file?.bytes !== asset.bytes || file?.sha256 !== asset.sha256) throw new Error(`${model} asset mismatch: ` + asset.file);
+    }
+    weatherExpiry[model] = catalog.expires_at;
   }
   const entries = Object.entries(files);
   return { version: release.version, dirty: release.dirty, allowDirty, fileCount: entries.length,
     totalBytes: entries.reduce((sum, [, file]) => sum + file.bytes, 0),
     largest: entries.sort((a, b) => b[1].bytes - a[1].bytes).slice(0, 5),
-    limits, weatherExpiresAt: catalog.expires_at, freshWeather };
+    limits, weatherExpiresAt: weatherExpiry.MSM, gsmWeatherExpiresAt: weatherExpiry.GSM ?? null, freshWeather };
 }
 
 export function sourceDirty(root) {

@@ -13,10 +13,10 @@ if (!env.AUTONAVLOG_MSM_FEED) throw new Error("AUTONAVLOG_MSM_FEED is required f
 for (const name of ["VITE_FIREBASE_API_KEY", "VITE_FIREBASE_AUTH_DOMAIN", "VITE_FIREBASE_PROJECT_ID", "VITE_FIREBASE_APP_ID", "VITE_TAF_PROXY_URL"]) {
   if (!env[name]?.trim()) throw new Error(name + " is required for production");
 }
-for (const name of ["VITE_TAF_PROXY_URL", "VITE_LEGACY_MIGRATION_URL"]) {
+for (const name of ["VITE_TAF_PROXY_URL", "VITE_LEGACY_MIGRATION_URL", "VITE_FORECAST_BACKUP_URL"]) {
   if (!env[name]) continue;
   const url = new URL(env[name]);
-  if ((name === "VITE_TAF_PROXY_URL" && url.pathname !== "/taf") || url.protocol !== "https:" || url.username || url.password || url.hash || url.search) {
+  if ((name === "VITE_FORECAST_BACKUP_URL" && url.pathname !== "/api/forecast-backup/jobs/") || (name === "VITE_TAF_PROXY_URL" && url.pathname !== "/taf") || url.protocol !== "https:" || url.username || url.password || url.hash || url.search) {
     throw new Error(name + " must be a public HTTPS URL without credentials, query or fragment");
   }
 }
@@ -34,7 +34,7 @@ const release = {
   dirty: sourceDirty(resolve("..")),
   // Public Web configuration, never tokens or server credentials.
   configuration: Object.fromEntries(["VITE_FIREBASE_API_KEY", "VITE_FIREBASE_AUTH_DOMAIN",
-    "VITE_FIREBASE_PROJECT_ID", "VITE_FIREBASE_APP_ID", "VITE_TAF_PROXY_URL", "VITE_LEGACY_MIGRATION_URL"]
+    "VITE_FIREBASE_PROJECT_ID", "VITE_FIREBASE_APP_ID", "VITE_TAF_PROXY_URL", "VITE_LEGACY_MIGRATION_URL", "VITE_FORECAST_BACKUP_URL"]
     .filter(name => env[name]).map(name => [name, env[name]])),
   files: inventory(resolve("dist-static")),
 };

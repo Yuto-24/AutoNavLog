@@ -70,11 +70,13 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-async def _wait_for_calculation(client: httpx.AsyncClient) -> dict[str, Any]:
+async def _wait_for_calculation(
+    client: httpx.AsyncClient, *, timeout_seconds: float = 90.0,
+) -> dict[str, Any]:
     created = await client.post("/api/calculation-jobs")
     assert created.status_code == 202, created.text
     job = created.json()
-    deadline = asyncio.get_running_loop().time() + 90.0
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
     while asyncio.get_running_loop().time() < deadline:
         response = await client.get(f"/api/calculation-jobs/{job['job_id']}")
         assert response.status_code == 200, response.text
@@ -186,7 +188,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
             for row in calculated["outcome"]["display_rows"]
             if row["row_type"] == "PHYSICAL_LEG_SUMMARY"
             and row["from_node_id"] == physical_node_ids[1]
-            and row["to_node_id"] == physical_node_ids[2]
+            and row["to_node_id"] == physical_node_ids[-1]
         )
         assert navlog_inbound["pa"]["text"] == "4500"
         inbound_guidance = calculated["outcome"]["rjfm_inbound_guidance"]
@@ -200,7 +202,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         assert eoc[0]["longitude_deg"] == pytest.approx(131.42429852046251)
 
         ui_state = calculated_project["metadata"]["ui_state"]
-        assert ui_state["state_schema_version"] == 7
+        assert ui_state["state_schema_version"] == 8
         assert ui_state["rjfm_inbound_plan"]["controlled_section_ids"] == [inbound["id"]]
         plan = ui_state["rjfm_inbound_plan"]
         assert plan["omaru_node_id"] == physical_node_ids[1]
@@ -218,7 +220,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         assert loaded_state["readiness"]["calculationIsCurrent"] is True
         assert loaded_project["weather_mode"] == "FTD"
         assert loaded_project["ftd_weather"] == calculated_project["ftd_weather"]
-        assert loaded_project["metadata"]["ui_state"]["state_schema_version"] == 7
+        assert loaded_project["metadata"]["ui_state"]["state_schema_version"] == 8
         assert loaded_project["metadata"]["ui_state"]["rjfm_inbound_plan"] == plan
 
         changed_sections = [
@@ -250,7 +252,7 @@ async def test_real_inbound_route_calculation_and_project_roundtrip(
         assert stale_guidance["status"] == "AVAILABLE"
         assert stale_guidance["rounded_dme_nm"] is None
         assert not changed_state["readiness"]["calculationIsCurrent"]
-        assert changed_state["project"]["metadata"]["ui_state"]["state_schema_version"] == 7
+        assert changed_state["project"]["metadata"]["ui_state"]["state_schema_version"] == 8
         assert changed_state["project"]["metadata"]["ui_state"]["rjfm_inbound_plan"] == plan
 
 
@@ -293,16 +295,15 @@ async def test_production_available_reference_returns_numeric_v2_guidance(
             },
         )
         assert confirmed.status_code == 200, confirmed.text
-        # Issue #103 now correctly previews the final RJFM VREP at 1,500 ft.
-        # This historic numeric-guidance fixture instead exercises the valid
-        # higher manual arrival plan that preserves numeric-guidance feasibility coverage.
+        # The agreed ARITA return now uses 1,500 ft and exactly six minutes;
+        # the validated real-reference solver can provide an extension candidate.
         confirmed_project = confirmed.json()["project"]
         assert confirmed_project["sections"][-1]["planned_altitude_ft_msl"] == 1500
         automatic_outcome = (await _wait_for_calculation(client))["outcome"]
         automatic_guidance = automatic_outcome["rjfm_inbound_guidance"]
         assert automatic_guidance is not None
-        assert automatic_guidance["status"] == "NO_SOLUTION"
-        assert automatic_guidance["reason_code"] == "NO_FEASIBLE_KS43_AVOIDANCE"
+        assert automatic_guidance["status"] == "AVAILABLE"
+        assert automatic_guidance["reason_code"] is None
         manual = await client.put(
             "/api/project",
             json={
@@ -319,8 +320,17 @@ async def test_production_available_reference_returns_numeric_v2_guidance(
         )
         assert manual.status_code == 200, manual.text
         assert manual.json()["project"]["sections"][-1]["planned_altitude_ft_msl"] == 2500
-        calculated = await _wait_for_calculation(client)
+        # The production avoidance search exceeds 90 seconds under coverage,
+        # including on the unchanged baseline. Keep its numeric assertions below
+        # and a finite deadline without turning this into a performance test.
+        calculated = await _wait_for_calculation(client, timeout_seconds=180.0)
         outcome = calculated["outcome"]
+        assert outcome["arrival_altitude"]["adopted_altitude_ft_msl"] == 1500
+        assert all(
+            section["performance_metadata"]["planned_duration_seconds"] == 360
+            for section in outcome["sections"]
+            if section["performance_metadata"].get("type") == "rjfm_inbound_operational_descent"
+        )
         guidance = outcome["rjfm_inbound_guidance"]
         assert guidance is not None
         assert guidance["status"] == "AVAILABLE", guidance

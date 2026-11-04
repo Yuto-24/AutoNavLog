@@ -43,6 +43,28 @@ def test_old_schema_migration_is_pure_and_validated():
     assert original == before
 
 
+def test_run_only_project_migrates_to_msm_without_mutating_source():
+    original = record()
+    original["draft"]["schema_version"] = 4
+    original["draft"].pop("selected_forecast_model", None)
+    original["draft"]["selected_forecast_run_id"] = "20260915000000"
+    before = copy.deepcopy(original)
+    migrated = migrate_record(original)
+    assert migrated.draft.schema_version == 5
+    assert migrated.draft.selected_forecast_model == "MSM"
+    assert migrated.draft.selected_forecast_run_id == "20260915000000"
+    assert original == before
+
+
+def test_gsm_round_trip_keeps_model_separate_from_run():
+    original = record()
+    original["draft"]["selected_forecast_model"] = "GSM"
+    original["draft"]["selected_forecast_run_id"] = "20260915000000"
+    restored = migrate_record(migrate_record(original).model_dump(mode="json"))
+    assert restored.draft.selected_forecast_model == "GSM"
+    assert restored.draft.selected_forecast_run_id == "20260915000000"
+
+
 @pytest.mark.parametrize(
     "damage", ["version", "identity", "checkpoint", "draft", "owner", "calculation"]
 )

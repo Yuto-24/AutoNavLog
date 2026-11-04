@@ -2,7 +2,7 @@ import { test as base, expect, type BrowserContext, type Page } from "@playwrigh
 import { dirname, resolve } from "node:path";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { backend, waitForSyncAccount } from "./helpers/sync-auth";
-import { enterImportWorkflow } from "./helpers/importWorkflow";
+import { enterImportWorkflow, confirmImportedDraft } from "./helpers/importWorkflow";
 
 type Stage = { name: string; status: "not-run" | "running" | "passed" | "failed"; error?: string };
 type LegacyEvidence = {
@@ -110,11 +110,12 @@ async function openReceived(page: Page, subject: string, fuel: string) {
 }
 async function create(page: Page, name: string) {
   await enterImportWorkflow(page);
-  await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
   await page.locator('input[type="file"]').setInputFiles(resolve("../tests/fixtures/issue_43_golden.kml"));
-  await page.getByLabel("地図とKML記載順を確認しました").check();
-  await page.getByRole("button", { name: "経路を確定", exact: true }).click();
-  for (const [node, altitude] of [["RJFM", "6500"], ["米ノ津", "7500"], ["玉名", "6500"]]) {
+  await confirmImportedDraft(page);
+  await page.getByLabel("DATE", { exact: true }).fill("2026-09-11");
+  await page.getByLabel("ETD JST", { exact: true }).fill("09:00");
+  await page.getByLabel("気象モード").selectOption("FTD");
+  for (const [node, altitude] of [["RJFM", "6500"], ["WP1", "7500"], ["WP2", "6500"]]) {
     const input = page.getByLabel(`${node}出発Legの計画高度`, { exact: true });
     await input.click(); await input.fill(altitude!);
   }

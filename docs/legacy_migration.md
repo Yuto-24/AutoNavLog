@@ -69,6 +69,9 @@ before opening during the migration period. An unavailable registry cannot prove
 Legacy link was not created elsewhere, so that startup fails closed with Retry/Sign out.
 Anonymous Local work remains available after sign-out. Do not cache negative link status. Runtime
 shutdown and eventual removal of the activation service dependency remain #146.
+See [server retirement preparation](server_retirement.md) for the ordered shutdown gates,
+offline rescue snapshot and owner-scoped recovery. A completed #186 implementation does
+not mean every owner has migrated, nor that fresh-device login is independent of Legacy.
 
 ## Configure the migration period
 
