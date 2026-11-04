@@ -1,5 +1,6 @@
 """Scheduled metadata-only decisions fail closed and cannot refresh old forecasts."""
 
+import hashlib
 import io
 import json
 import subprocess
@@ -55,7 +56,7 @@ def source(monkeypatch):
     return state
 
 
-def test_new_run_uses_only_catalog_and_listings_without_mutation(source):
+def test_new_run_uses_only_catalog_and_listings_without_mutation(source, capsys):
     before = json.dumps(source["catalog"])
     result = gate.preflight("https://canonical.test", NOW)
     assert result["status"] == "NEW_RUN" and result["proceed"] is True
@@ -63,6 +64,14 @@ def test_new_run_uses_only_catalog_and_listings_without_mutation(source):
     assert result["generation_hours"] == 25
     assert json.dumps(source["catalog"]) == before
     assert len(source["calls"]) == 3
+    captured = capsys.readouterr()
+    diagnostic = json.loads(captured.err)
+    assert captured.out == ""
+    assert diagnostic["stage"] == "preflight"
+    assert diagnostic["discovered_run"] == result["upstream_run"]
+    assert diagnostic["expected_run"] is None
+    assert diagnostic["hours"] == 25
+    assert diagnostic["listing_count"] == 2
 
 
 def test_local_catalog_reuses_same_gates_without_fetching_remote_catalog(source):
@@ -80,11 +89,12 @@ def test_local_catalog_rejects_oversize_before_parsing():
         gate.preflight_catalog(b" " * (8 * 1024 * 1024 + 1))
 
 
-def test_no_new_run_is_positive_healthy_noop(source):
+def test_no_new_run_is_positive_healthy_noop(source, capsys):
     source["listing"] = listing(0)
     result = gate.preflight("https://canonical.test", NOW)
     assert result["status"] == "NO_NEW_RUN" and result["proceed"] is False
     assert result["current_catalog_expired"] is False
+    assert json.loads(capsys.readouterr().err)["discovered_run"] == "20261013000000"
 
 
 @pytest.mark.parametrize("failure", [OSError("listing unavailable"),
@@ -211,3 +221,107 @@ def test_admitted_detected_run_is_pinned_before_payload_and_upload(source, tmp_p
                                      expected_run="20261013000000")
     assert gate.require_newer_candidate("https://canonical.test", candidate, NOW,
                                        expected_run="20261013030000")["status"] == "NEWER_CANDIDATE"
+
+
+@pytest.mark.parametrize("change,discovered", [
+    ("newer", "20261013060000"),
+    ("older", "20261013000000"),
+    ("incomplete", None),
+    ("hour_boundary", "20261013000000"),
+])
+def test_discovery_change_is_diagnosable_before_any_payload(
+        source, tmp_path, capsys, change, discovered):
+    start = NOW.replace(minute=0)
+    if change == "hour_boundary":
+        start = NOW.replace(hour=8, minute=0)
+        source["listing"] = (listing(0).replace("16-33", "16-48") + "\n"
+                             + listing(3).replace("16-33", "16-30"))
+    admitted = gate.preflight("https://canonical.test", start + timedelta(minutes=56))
+    before = json.loads(capsys.readouterr().err)
+    expected = admitted["upstream_run"]
+    assert expected == "20261013030000"
+    if change == "newer":
+        source["listing"] += "\n" + listing(6)
+    elif change == "older":
+        source["listing"] = listing(0) + "\n" + listing(3).splitlines()[0]
+    elif change == "incomplete":
+        source["listing"] = listing(3).splitlines()[0]
+    else:
+        start += timedelta(hours=1)
+    output = tmp_path / "feed"
+    output.mkdir()
+    previous = output / "catalog.json"
+    previous.write_bytes(b"existing catalog must not be touched")
+    source["calls"].clear()
+    error_type = NoCompatibleRunError if discovered is None else ValueError
+    with pytest.raises(error_type) as error:
+        prepare_msm_feed.produce(output, tmp_path / "cache", start, 25,
+                                 prepare_msm_feed.Bounds(), expected_run=expected)
+    assert previous.read_bytes() == b"existing catalog must not be touched"
+    assert list(output.iterdir()) == [previous]
+    assert len(source["calls"]) == 2  # One acquisition only; no retry or extra diagnostic fetch.
+    after = json.loads(capsys.readouterr().err)
+    assert after["stage"] == "generation"
+    assert after["expected_run"] == expected
+    assert after["discovered_run"] == discovered
+    assert after["status"] == ("FAILED" if discovered is None else "DISCOVERED")
+    if discovered is not None:
+        assert f"expected_run={expected}; discovered_run={discovered}" in str(error.value)
+    if change == "hour_boundary":
+        assert before["listings"] == after["listings"]
+        assert before["valid_start"] != after["valid_start"]
+    else:
+        assert before["listings"] != after["listings"]
+        assert before["valid_start"] == after["valid_start"]
+
+
+def test_discovery_diagnostics_hash_inputs_without_exposing_them(capsys):
+    url = "https://user:password@example.test/listing?token=secret"
+    body = "<html>private response containing credentials</html>"
+    prepare_msm_feed.log_run_discovery(
+        prepare_msm_feed.forecast_requirements(NOW, 25), {url: body},
+        stage="generation", expected_run="secret-cli-value", failed=True)
+    captured = capsys.readouterr()
+    report = json.loads(captured.err)
+    assert captured.out == ""
+    assert report["expected_run"] is None
+    assert report["discovered_run"] is None
+    assert report["listing_count"] == 1
+    assert report["listing_bytes"] == len(body.encode())
+    assert report["listings"] == [{
+        "url_sha256": hashlib.sha256(url.encode()).hexdigest(),
+        "bytes": len(body.encode()), "sha256": hashlib.sha256(body.encode()).hexdigest(),
+    }]
+    for secret in (url, body, "password", "token", "secret-cli-value"):
+        assert secret not in captured.err
+    assert datetime.fromisoformat(report["checked_at"]).tzinfo is not None
+
+
+def test_preflight_cli_keeps_stdout_json_and_github_outputs(source, monkeypatch, tmp_path, capsys):
+    original = gate.preflight
+    monkeypatch.setattr(gate, "preflight", lambda origin: original(origin, NOW))
+    output = tmp_path / "github-output"
+    monkeypatch.setattr(sys, "argv", ["preflight", "--origin", "https://canonical.test",
+                                     "--github-output", str(output)])
+    gate.main()
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["status"] == "NEW_RUN"
+    assert json.loads(captured.err)["stage"] == "preflight"
+    assert output.read_text() == "upstream_run=20261013030000\nproceed=true\n"
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_refresh_forwards_diagnostics_once_and_preserves_report(
+        monkeypatch, tmp_path, capsys, returncode):
+    diagnostic = '{"event":"run_discovery","stage":"generation"}\n'
+    report = {"runs": [{"run": "20261013030000"}]}
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(
+        [], returncode, stdout=json.dumps(report) if not returncode else "", stderr=diagnostic))
+    if returncode:
+        with pytest.raises(subprocess.CalledProcessError):
+            refresh(tmp_path / "producer", tmp_path, tmp_path / "cache")
+    else:
+        assert refresh(tmp_path / "producer", tmp_path, tmp_path / "cache") == report
+    captured = capsys.readouterr()
+    assert captured.err == diagnostic
+    assert captured.out == ""

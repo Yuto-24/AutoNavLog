@@ -71,9 +71,13 @@ def prepare_at(client, output, valid, selected=None):
     return status, client.prepare_run(status.selected_run, requirements)
 
 
-def test_full_run_keeps_latest_short_and_long_horizon_and_segment_boundaries(full_source, tmp_path):
+def test_full_run_keeps_latest_short_and_long_horizon_and_segment_boundaries(
+        full_source, tmp_path, capsys):
     report = prepare_msm_feed.produce(tmp_path, tmp_path / "cache", START, 25,
-                                      Bounds(), now=START, full_run=True)
+                                      Bounds(), now=START, full_run=True,
+                                      expected_run="20261031090000")
+    diagnostic = json.loads(capsys.readouterr().err)
+    assert diagnostic["expected_run"] == diagnostic["discovered_run"] == "20261031090000"
     assert [r["run"] for r in report["runs"]] == [
         "20261031090000", "20261031060000", "20261031000000"]
     assert validate_feed(tmp_path, report, START)["status"] == "OK"

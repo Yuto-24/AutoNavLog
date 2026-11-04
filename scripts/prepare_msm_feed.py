@@ -30,6 +30,45 @@ def forecast_requirements(start: datetime, hours: int) -> ForecastRequirements:
     )
 
 
+def diagnostic_run_id(value: str | None) -> str | None:
+    """Log only canonical Run IDs, never arbitrary CLI input."""
+    if value is None or len(value) != 14 or not value.isascii() or not value.isdigit():
+        return None
+    try:
+        datetime.strptime(value, "%Y%m%d%H%M%S")
+    except ValueError:
+        return None
+    return value
+
+
+def log_run_discovery(
+    requirements: ForecastRequirements, listings: dict[str, str], *, stage: str,
+    expected_run: str | None = None, discovered_run: str | None = None,
+    failed: bool = False,
+) -> None:
+    """Describe acquired discovery inputs without URLs, response bodies or extra reads."""
+    summaries = []
+    for url, listing in sorted(listings.items()):
+        payload = listing.encode("utf-8")
+        summaries.append({
+            "url_sha256": hashlib.sha256(url.encode("utf-8")).hexdigest(),
+            "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
+        })
+    start, end = min(requirements.valid_times), max(requirements.valid_times)
+    print(json.dumps({
+        "event": "run_discovery", "stage": stage,
+        "status": "FAILED" if failed else "DISCOVERED",
+        "checked_at": datetime.now(UTC).isoformat(),
+        "expected_run": diagnostic_run_id(expected_run),
+        "discovered_run": diagnostic_run_id(discovered_run),
+        "valid_start": start.isoformat(), "valid_end": end.isoformat(),
+        "hours": (end - start).total_seconds() / 3600,
+        "listing_count": len(summaries),
+        "listing_bytes": sum(item["bytes"] for item in summaries),
+        "listings": summaries,
+    }), file=sys.stderr)
+
+
 def full_run_requirements(client: MsmClient, run: RunId, start: datetime) -> ForecastRequirements:
     """Use the library's per-Run horizon, not a fixed horizon that excludes short Runs."""
     times = []
@@ -96,10 +135,21 @@ def produce(
         client = MsmClient(cache, bounds)
     else:
         raise ValueError("model must be MSM or GSM")
-    listings = acquire_listings(client, requirements)
-    runs = client.discover_runs(requirements, listings=listings)
-    if expected_run is not None and max(str(RunId(run.run_utc)) for run in runs) != expected_run:
-        raise ValueError("Discovered Run changed since admission; no payload work permitted")
+    listings: dict[str, str] = {}
+    try:
+        listings = acquire_listings(client, requirements)
+        runs = client.discover_runs(requirements, listings=listings)
+    except Exception:
+        log_run_discovery(requirements, listings, stage="generation", expected_run=expected_run,
+                          failed=True)
+        raise
+    discovered = max((str(RunId(run.run_utc)) for run in runs), default=None)
+    log_run_discovery(requirements, listings, stage="generation", expected_run=expected_run,
+                      discovered_run=discovered)
+    if expected_run is not None and discovered != expected_run:
+        raise ValueError(
+            "Discovered Run changed since admission; no payload work permitted"
+            f"; expected_run={diagnostic_run_id(expected_run)}; discovered_run={discovered}")
     output.mkdir(parents=True, exist_ok=True)
     assets: dict[str, PreparedAsset] = {}
     retained_listings: dict[str, str] = {}

@@ -24,8 +24,9 @@ def refresh(producer: Path, output: Path, cache: Path, expected_run: str | None 
         text=True,
         capture_output=True,
     )
-    if result.returncode:
+    if result.stderr:
         print(result.stderr, file=sys.stderr, end="")
+    if result.returncode:
         result.check_returncode()
     report = json.loads(result.stdout)
     if not report.get("runs"):
