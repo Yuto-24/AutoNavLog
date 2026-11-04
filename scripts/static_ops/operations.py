@@ -16,9 +16,17 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zoneinfo import ZoneInfo
 
 
+class StaticRedirectError(ValueError):
+    """A configured static origin must not redirect verification requests."""
+
+
+class VerificationError(ValueError):
+    """Verification failure with bounded, non-secret diagnostic fields."""
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise ValueError("Static origin redirected")
+        raise StaticRedirectError("Static origin redirected")
 
 
 def static_request(url: str) -> Request:
@@ -314,6 +322,13 @@ def restore(origin: str, target: Path, now: datetime) -> dict:
 def monitor(origin: str, now: datetime, *, expected: dict | None = None) -> dict:
     raw = fetch(origin.rstrip("/") + "/weather/msm/catalog.json", 8 * 1024 * 1024)
     received = datetime.now(UTC)
+    return monitor_catalog(raw, now, received=received, expected=expected)
+
+
+def monitor_catalog(
+    raw: bytes, now: datetime, *, received: datetime, expected: dict | None = None
+) -> dict:
+    """Check the actual catalog response, shared by monitoring and publication."""
     evidence = {
         "catalog_received_at": received.isoformat(),
         "catalog_checked_at": now.isoformat(),
@@ -334,14 +349,18 @@ def monitor(origin: str, now: datetime, *, expected: dict | None = None) -> dict
         evidence["catalog_checked_at"] = now.isoformat()
 
     def fail(reason: str) -> NoReturn:
-        raise ValueError(f"{reason}: {json.dumps(evidence, sort_keys=True)}")
+        raise VerificationError(f"{reason}: {json.dumps(evidence, sort_keys=True)}")
 
     try:
         catalog = json.loads(raw)
-        evidence.update(
-            catalog_generated_at=catalog.get("generated_at"),
-            catalog_expires_at=catalog.get("expires_at"),
-        )
+        # Do not echo arbitrary response strings in publication diagnostics.
+        for field in ("generated_at", "expires_at"):
+            try:
+                instant(catalog.get(field))
+            except (ValueError, TypeError, AttributeError):
+                evidence["catalog_" + field] = "invalid"
+            else:
+                evidence["catalog_" + field] = catalog[field]
         remaining = (instant(catalog["expires_at"]) - now).total_seconds()
         evidence["weather_seconds_remaining"] = remaining
     except (ValueError, KeyError, TypeError, AttributeError):

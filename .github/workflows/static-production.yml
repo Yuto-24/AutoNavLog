@@ -235,6 +235,4 @@ jobs:
           EXPECTED_SOURCE: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
-          python3 tooling/scripts/static_ops/wait_for_candidate.py "$RUNNER_TEMP/static-upload/dist-static/release.json" --timeout-seconds 300 --interval-seconds 10 --attempt-timeout-seconds 30 >> "$GITHUB_STEP_SUMMARY"
-          python3 tooling/scripts/static_ops/freshness.py --origin "$STATIC_ORIGIN" --commit "$EXPECTED_SOURCE"
-          python3 tooling/scripts/static_ops/operations.py monitor --origin "$STATIC_ORIGIN" >> "$GITHUB_STEP_SUMMARY"
+          python3 tooling/scripts/static_ops/wait_for_candidate.py "$RUNNER_TEMP/static-upload/dist-static/release.json" --timeout-seconds 300 --interval-seconds 10 --attempt-timeout-seconds 30 --verify-payloads >> "$GITHUB_STEP_SUMMARY"

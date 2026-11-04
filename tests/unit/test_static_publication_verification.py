@@ -308,7 +308,7 @@ def test_standalone_monitor_failure_identifies_separate_response(remote_checker)
 
 
 @pytest.mark.parametrize("identity_ok", [False, True])
-def test_workflow_only_monitors_after_identity_success(tmp_path, identity_ok):
+def test_workflow_uses_only_complete_verification(tmp_path, identity_ok):
     workflow = (ROOT / ".github/workflows/static-production.yml").read_text()
     verification = workflow.split("- name: Verify canonical deployment and fresh catalog\n")[1]
     script = textwrap.dedent(verification.split("        run: |\n")[1])
@@ -336,7 +336,203 @@ def test_workflow_only_monitors_after_identity_success(tmp_path, identity_ok):
     )
     assert (result.returncode == 0) == identity_ok
     calls = (tmp_path / "calls").read_text().splitlines()
-    assert calls == ["tooling/scripts/static_ops/wait_for_candidate.py"] + (
-        ["tooling/scripts/static_ops/freshness.py",
-         "tooling/scripts/static_ops/operations.py"] if identity_ok else []
+    assert calls == ["tooling/scripts/static_ops/wait_for_candidate.py"]
+    assert "--verify-payloads" in script
+
+
+@pytest.fixture
+def complete_checker(remote_checker, monkeypatch, tmp_path):
+    """Exercise the real complete checker against independently served response bytes."""
+    state = remote_checker
+    spec = importlib.util.spec_from_file_location("freshness", SCRIPTS / "freshness.py")
+    freshness = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(freshness)
+    monkeypatch.setitem(sys.modules, "freshness", freshness)
+    generated = datetime.now(UTC)
+    run = generated.replace(hour=generated.hour // 3 * 3, minute=0, second=0, microsecond=0)
+    payload = b"forecast fixture bytes"
+    digest = hashlib.sha256(payload).hexdigest()
+    state.asset = "weather/msm/" + digest + ".npz"
+    state.catalog.update(schema_version=1, assets=[{
+        "file": digest + ".npz", "sha256": digest, "bytes": len(payload),
+        "run": run.strftime("%Y%m%d%H%M%S"),
+    }])
+    hint = json.dumps(freshness.document(state.catalog, state.candidate["commit"])).encode()
+    state.responses = {
+        "weather/msm/catalog.json": json.dumps(state.catalog).encode(),
+        "weather/msm/freshness.json": hint,
+        state.asset: payload,
+    }
+    state.candidate["files"] = {
+        name: freshness.inventory(raw) for name, raw in state.responses.items()
+    }
+    state.responses["release.json"] = json.dumps(state.candidate).encode()
+    state.good = state.responses.copy()
+    state.calls = []
+
+    def fetch(url, limit):
+        name = url.removeprefix("https://example.com/")
+        state.calls.append(name)
+        raw = state.responses[name]
+        if isinstance(raw, Exception):
+            raise raw
+        if len(raw) > limit:
+            raise ValueError("Response exceeds byte budget")
+        return raw
+
+    monkeypatch.setattr(ops, "fetch", fetch)
+    path = tmp_path / "complete-release.json"
+
+    def execute():
+        path.write_text(json.dumps(state.candidate))
+        monkeypatch.setattr(sys, "argv", [
+            "check_candidate.py", str(path), "--remote", "--verify-payloads",
+        ])
+        with pytest.raises(SystemExit) as result:
+            runpy.run_path(str(SCRIPTS / "check_candidate.py"), run_name="__main__")
+        return result.value.code
+
+    state.execute = execute
+    return state
+
+
+def run_complete_poll(monkeypatch, clock, state, failures, timeout=45):
+    import contextlib
+    import io
+
+    def run(command, **kwargs):
+        clock.calls.append((command, kwargs))
+        state.responses = state.good.copy()
+        state.responses.update(next(failures))
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = state.execute()
+        return subprocess.CompletedProcess(command, code, stdout.getvalue(), stderr.getvalue())
+
+    monkeypatch.setattr(poll.subprocess, "run", run)
+    poll.wait_for_candidate(Path("release.json"), verify_payloads=True, timeout=timeout)
+
+
+def test_complete_success_reads_one_catalog_and_reports_all_checks(complete_checker, capsys):
+    state = complete_checker
+    assert state.execute() == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "OK"
+    assert result["commit"] == state.candidate["commit"]
+    assert result["run"] == state.catalog["assets"][0]["run"]
+    assert state.calls == list(state.good)[-1:] + list(state.good)[:-1]
+
+
+@pytest.mark.parametrize("target", ["release.json", "weather/msm/catalog.json",
+                                     "weather/msm/freshness.json", "payload"])
+@pytest.mark.parametrize("recovers", [True, False])
+def test_complete_mismatch_recovers_or_exhausts_budget(
+    complete_checker, monkeypatch, clock, capsys, target, recovers
+):
+    state = complete_checker
+    target = state.asset if target == "payload" else target
+    if target == "release.json":
+        # Same approved app SHA, different deployment inventory/configuration.
+        other = copy.deepcopy(state.candidate)
+        other["configuration"] = {"unexpected": True}
+        bad = json.dumps(other).encode()
+    elif target.endswith(".npz"):
+        bad = b"x" * len(state.good[target])  # hash mismatch without a size mismatch
+    else:
+        bad = b"{}"
+    failures = iter([{target: bad}, {}] if recovers else [{target: bad}] * 3)
+    if recovers:
+        run_complete_poll(monkeypatch, clock, state, failures, timeout=25)
+        assert len(clock.calls) == 2
+        assert "verified after 2 attempt(s)" in capsys.readouterr().err
+    else:
+        with pytest.raises(TimeoutError, match=r"25s \(3 attempt\(s\)\); last failure"):
+            run_complete_poll(monkeypatch, clock, state, failures, timeout=25)
+        assert capsys.readouterr().out == ""
+    assert state.calls.count("release.json") == len(clock.calls)
+    assert "--verify-payloads" in clock.calls[0][0]
+
+
+def test_partial_successes_from_different_attempts_do_not_combine(
+    complete_checker, monkeypatch, clock, capsys
+):
+    state = complete_checker
+    run_complete_poll(monkeypatch, clock, state, iter([
+        {state.asset: b"truncated"},
+        {"weather/msm/freshness.json": b"{}"},
+        {},
+    ]))
+    assert len(clock.calls) == 3
+    assert state.calls.count("weather/msm/catalog.json") == 3
+    assert state.calls.count(state.asset) == 2
+    output = capsys.readouterr()
+    assert output.out.count('"status": "OK"') == 1
+    assert "verified after 3 attempt(s)" in output.err
+    assert '"expected"' in output.err and '"observed"' in output.err
+    assert '"run"' in output.err and '"commit"' in output.err
+    assert '"bytes": 9' in output.err  # truncated payload size
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 408, 429, 500, 503])
+def test_complete_http_failure_classification(
+    complete_checker, monkeypatch, clock, capsys, status
+):
+    from urllib.error import HTTPError
+
+    state = complete_checker
+    error = HTTPError("https://secret.invalid/?token=SECRET", status, "SECRET", {}, None)
+    failures = iter([{"release.json": error}, {}])
+    if status in {400, 401, 403}:
+        with pytest.raises(RuntimeError, match=f"1 attempt.*HTTP status={status}"):
+            run_complete_poll(monkeypatch, clock, state, failures)
+        assert len(clock.calls) == 1 and clock.sleeps == []
+    else:
+        run_complete_poll(monkeypatch, clock, state, failures)
+        assert len(clock.calls) == 2
+    assert "SECRET" not in str(capsys.readouterr())
+
+
+@pytest.mark.parametrize("failure", ["identity", "missing_hint", "origin", "redirect"])
+def test_complete_permanent_configuration_failures_stop_immediately(
+    complete_checker, monkeypatch, clock, failure
+):
+    state = complete_checker
+    responses = {}
+    if failure == "identity":
+        state.candidate["dirty"] = True
+    elif failure == "missing_hint":
+        del state.candidate["files"]["weather/msm/freshness.json"]
+    elif failure == "origin":
+        monkeypatch.setenv("STATIC_ORIGIN", "https://user:SECRET@example.com")
+    else:
+        responses["release.json"] = ops.StaticRedirectError("SECRET")
+    with pytest.raises(RuntimeError, match="stopped after 1 attempt") as error:
+        run_complete_poll(monkeypatch, clock, state, iter([responses]))
+    assert "SECRET" not in str(error.value)
+    assert len(clock.calls) == 1 and clock.sleeps == []
+    assert state.calls == (["release.json"] if failure == "redirect" else [])
+
+
+def test_complete_rejects_hint_with_valid_inventory_but_wrong_run(complete_checker, capsys):
+    state = complete_checker
+    name = "weather/msm/freshness.json"
+    hint = json.loads(state.responses[name])
+    hint["run"] = "20200101000000"
+    raw = json.dumps(hint).encode()
+    state.responses[name] = raw
+    state.candidate["files"][name] = {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+    state.responses["release.json"] = json.dumps(state.candidate).encode()
+    assert state.execute() == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert hint["run"] in output.err
+    assert state.catalog["assets"][0]["run"] in output.err
+
+
+def test_complete_timeout_retains_last_target(monkeypatch, clock):
+    error = subprocess.TimeoutExpired(
+        "check", 5, stderr=b"Verifying target=weather/msm/freshness.json commit=aaa\n"
     )
+    checker(monkeypatch, clock, iter([(5, error)]))
+    with pytest.raises(TimeoutError, match="1 attempt.*target=weather/msm/freshness.json"):
+        poll.wait_for_candidate(Path("release.json"), verify_payloads=True, timeout=5)

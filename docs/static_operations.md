@@ -138,20 +138,28 @@ inventory, and the same response must pass the existing MSM freshness monitor ch
 (nonempty assets, at least two hours remaining, no future generation timestamp).
 Publication freshness is evaluated at catalog receipt, including body-read time.
 Failed checks retry after 10 seconds for up to 300 seconds (monotonic deadline).
-Each check runs `check_candidate.py --remote` in a child process with at most 30 seconds,
-clipped to the remaining overall budget; a hung or slowly streaming response cannot
-extend the polling window. Inventory mismatch, HTTP/network errors, invalid JSON and
-other checker failures are retried within that budget. Redirects remain rejected on
-every attempt and are never followed; only exact inventory equality passes. Reads
-retain the existing `Cache-Control: no-cache` header, origin and byte budget.
-Deadline expiry fails closed, including a match returned at/after the deadline. Attempt
-diagnostics go to the job log; only successful identity verification enters the summary.
-Catalog results include receipt/check timestamps, observed hash/size, generation/expiry,
-seconds remaining and, during candidate verification, expected hash/size and whether they
-match. Mismatch/freshness errors keep these diagnostics on one line in the attempt log.
-The independent MSM monitor still makes a separate request **after** identity and catalog
-verification succeeds, never on timeout; its diagnostics describe that separate response.
-Matching release metadata alone does not establish which catalog that request received.
+For MSM publication, each check runs `check_candidate.py --remote --verify-payloads`
+in a child process with at most 30 seconds, clipped to the remaining overall budget.
+The same attempt verifies the exact candidate release, catalog hash/size/freshness,
+freshness hint agreement and inventory, and every catalog NPZ's actual hash/size.
+Release and catalog are each fetched once per attempt; no successful partial check is
+carried into another attempt. There is no subsequent one-shot freshness/monitor request.
+The standalone scheduled monitor and app-release verification keep their existing roles.
+
+Inventory/content mismatch, invalid remote data, timeouts, network failures and HTTP
+404/408/429/5xx retry within the budget. Invalid local candidates/configuration,
+redirects, certificate verification failures and other HTTP errors (including 401/403)
+stop immediately. Redirects are never followed. Reads retain the existing
+`Cache-Control: no-cache` header, origin and byte budgets. A hung response cannot extend
+the polling window; deadline expiry fails closed, including a match at/after the deadline.
+
+Attempt diagnostics identify the target and applicable expected/observed hashes, sizes,
+Run and commit, without response bodies, credentials or configuration values. Release
+mismatch fingerprints use sorted JSON to identify semantic inventory/configuration changes.
+Catalog diagnostics retain receipt/check timestamps, generation/expiry and seconds remaining.
+The final failure includes the attempt count and last reason. Only a complete successful
+attempt enters the job summary. These checks do not establish the cause of an earlier
+transient delivery mismatch.
 These retries do not re-upload, change the approved SHA/configuration gates, or authorize
 another deployment. Failure after upload needs investigation; it does not automatically
 roll production back.
