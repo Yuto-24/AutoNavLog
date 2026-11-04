@@ -55,6 +55,7 @@ KML はファイル選択、ドラッグ＆ドロップ、クリップボード�
 | --- | --- |
 | アーキテクチャと実装境界 | [Architecture](docs/architecture.md)、[Application Contract](docs/application_contract.md) |
 | Static Web のビルド・検証 | [Static production](docs/static_production.md) |
+| Static Web をローカル Docker で配信 | [Local Static Web Docker 起動](docs/local_static_docker.md) |
 | ローカル計算の構成・実行 | [Local Calculation](docs/local_calculation_poc.md) |
 | 気象データの生成・運用 | [Local Weather](docs/local_weather.md)、[Static operations](docs/static_operations.md) |
 | テストの使い分け | [Testing](docs/testing.md) |
@@ -80,12 +81,12 @@ Static Web の build、artifact 検証、Browser E2E、公開手順は [Static p
 
 Legacy serverのサポート対象runtimeは Docker / Docker Compose です。host上での直接実行はサポート対象ではありません。
 
-- [Local Docker 起動](docs/local_static_docker.md)
-- [Cloudflare Tunnel による旧環境の公開](docs/cloudflare_tunnel.md)
+- [Legacy の Docker Compose 定義](compose.yaml)（ローカル試験時は `AUTONAVLOG_TRUSTED_LOCAL_IDENTITY=local-user docker compose up -d --build`）
+- [Cloudflare Tunnel による旧環境の起動・公開手順](docs/cloudflare_tunnel.md)
 - [Legacy からのデータ移行](docs/legacy_migration.md)
 - [サーバ廃止の準備](docs/server_retirement.md)
 
-Legacy のサーバ保存・復元手順を Static Web のデータ保護策として利用しないでください。特に Docker volume を扱う際は、[Legacy 運用手順](docs/cloudflare_tunnel.md)に従い保存データを削除しないでください。
+Legacy のサーバ保存・復元手順を Static Web のデータ保護策として利用しないでください。Legacy の Project データは `compose.yaml` の named volume `autonavlog-data` に保存されます。通常の更新・停止では `docker compose down -v` を実行しないでください。volume が削除され、保存済みデータが失われます。
 
 ## ライセンスと問い合わせ
 
