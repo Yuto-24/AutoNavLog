@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
 from jma_gpv_weather import MsmClient  # noqa: E402
+from jma_gpv_weather.errors import NoCompatibleRunError  # noqa: E402
 from jma_gpv_weather.msm.spec import parse_listing  # noqa: E402
 
 from autonavlog.weather.local_msm import WeatherCatalog  # noqa: E402
@@ -62,26 +63,37 @@ def preflight_catalog(raw: bytes, now: datetime | None = None) -> dict:
             advertised.update(file.run_utc for file in files)
         if any(run > started or run.hour % 3 or run.minute or run.second for run in advertised):
             raise ValueError("Invalid upstream Run")
-        # The real library checks all 25 hours and interpolation brackets from source files.
-        # Empty/unavailable/incomplete discovery raises; it must never become NO_NEW_RUN.
-        complete = client.discover_runs(requirements, listings=listings)
-        newest = max(run.run_utc for run in complete)
+        # Admission requires complete 25-hour coverage; an existing 24-hour Run
+        # can remain usable after it ages out of the longer producer window.
+        try:
+            complete = client.discover_runs(requirements, listings=listings)
+        except NoCompatibleRunError:
+            complete = ()
+        newest = max((run.run_utc for run in complete), default=None)
     except Exception:
         log_run_discovery(requirements, listings, stage="preflight", failed=True)
         raise
     log_run_discovery(requirements, listings, stage="preflight",
-                      discovered_run=newest.strftime("%Y%m%d%H%M%S"))
+                      discovered_run=newest.strftime("%Y%m%d%H%M%S") if newest else None)
     checked = now or datetime.now(UTC)
     remaining = (catalog.expires_at - checked).total_seconds()
-    if newest <= latest:
+    proceed = newest is not None and newest > latest
+    if not proceed:
         if any(run > latest for run in advertised):
             raise ValueError("Newer upstream Run is incomplete")
-        if newest < latest:
-            raise ValueError("Published latest Run missing from complete upstream discovery")
-        # The browser discovers coverage from retained catalog listings. Upstream
-        # completeness alone cannot establish that the published metadata is usable.
+        # A 25-hour producer window can outlive a short Run's forecast horizon.
+        # For a healthy no-op, verify the published Run's actual 24-hour coverage
+        # against both fresh upstream listings and the retained catalog.
         published_requirements = forecast_requirements(
             checked.replace(minute=0, second=0, microsecond=0), 24)
+        try:
+            upstream_complete = client.discover_runs(
+                published_requirements, listings=listings)
+        except NoCompatibleRunError as error:
+            raise ValueError(
+                "Published latest Run missing from complete upstream discovery") from error
+        if latest not in {run.run_utc for run in upstream_complete}:
+            raise ValueError("Published latest Run missing from complete upstream discovery")
         published_complete = client.discover_runs(
             published_requirements, listings=catalog.listings)
         if latest not in {run.run_utc for run in published_complete}:
@@ -89,10 +101,9 @@ def preflight_catalog(raw: bytes, now: datetime | None = None) -> dict:
         if remaining < 7200:
             raise ValueError(
                 "No new Run and production freshness warning (less than two hours or expired)")
-    proceed = newest > latest
     return {"status": "NEW_RUN" if proceed else "NO_NEW_RUN", "proceed": proceed,
             "published_run": latest.strftime("%Y%m%d%H%M%S"),
-            "upstream_run": newest.strftime("%Y%m%d%H%M%S"),
+            "upstream_run": (newest if proceed else latest).strftime("%Y%m%d%H%M%S"),
             "generation_hours": PUBLICATION_GENERATION_HOURS,
             "weather_seconds_remaining": remaining, "current_catalog_expired": remaining <= 0}
 
