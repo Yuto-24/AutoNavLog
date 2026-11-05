@@ -74,6 +74,73 @@ def test_new_run_uses_only_catalog_and_listings_without_mutation(source, capsys)
     assert diagnostic["listing_count"] == 2
 
 
+def short_horizon_published_run(source, now, *, include_long_run=True):
+    """A 03 UTC Run covers 24h from 12 UTC, but not the producer's 25h."""
+    source["catalog"].update(
+        generated_at=(now - timedelta(hours=1)).isoformat(),
+        expires_at=(now + timedelta(hours=5)).isoformat(),
+    )
+    source["catalog"]["assets"][0]["run"] = "20261013030000"
+    source["catalog"]["listings"][DIRECTORY] = listing(3)
+    long_run = listing(0).replace("16-33", "16-78") + "\n" if include_long_run else ""
+    source["listing"] = long_run + listing(3)
+
+
+@pytest.mark.parametrize("include_long_run", [True, False])
+def test_short_run_ages_out_of_25h_but_remains_healthy_for_24h(
+        source, capsys, include_long_run):
+    now = datetime(2026, 10, 13, 12, 56, tzinfo=UTC)
+    short_horizon_published_run(source, now, include_long_run=include_long_run)
+    result = gate.preflight("https://canonical.test", now)
+    assert result["status"] == "NO_NEW_RUN"
+    assert result["proceed"] is False
+    assert result["upstream_run"] == "20261013030000"
+    assert result["weather_seconds_remaining"] == 5 * 3600
+    assert len(source["calls"]) == 3
+    diagnostic = json.loads(capsys.readouterr().err)
+    assert diagnostic["discovered_run"] == ("20261013000000" if include_long_run else None)
+    assert diagnostic["hours"] == 25
+
+
+@pytest.mark.parametrize("failure", [
+    "upstream_missing", "upstream_incomplete", "catalog_incomplete", "newer_incomplete",
+])
+def test_short_run_noop_rejects_missing_or_incomplete_sources(source, failure):
+    now = datetime(2026, 10, 13, 12, 56, tzinfo=UTC)
+    short_horizon_published_run(source, now)
+    if failure == "upstream_missing":
+        source["listing"] = listing(0).replace("16-33", "16-78")
+    elif failure == "upstream_incomplete":
+        source["listing"] = listing(0).replace("16-33", "16-78") + "\n" + listing(3).splitlines()[0]
+    elif failure == "catalog_incomplete":
+        source["catalog"]["listings"][DIRECTORY] = listing(3).splitlines()[0]
+    else:
+        source["listing"] += "\n" + listing(6).splitlines()[0]
+    with pytest.raises((ValueError, NoCompatibleRunError)):
+        gate.preflight("https://canonical.test", now)
+
+
+def test_short_run_noop_never_hides_freshness_warning(source):
+    now = datetime(2026, 10, 13, 12, 56, tzinfo=UTC)
+    short_horizon_published_run(source, now, include_long_run=False)
+    source["catalog"].update(
+        generated_at=(now - timedelta(hours=5)).isoformat(),
+        expires_at=(now + timedelta(hours=1)).isoformat(),
+    )
+    with pytest.raises(ValueError, match="freshness warning"):
+        gate.preflight("https://canonical.test", now)
+
+
+def test_short_run_still_admits_a_newer_complete_25h_run(source):
+    now = datetime(2026, 10, 13, 12, 56, tzinfo=UTC)
+    short_horizon_published_run(source, now)
+    source["listing"] += "\n" + listing(6)
+    result = gate.preflight("https://canonical.test", now)
+    assert result["status"] == "NEW_RUN"
+    assert result["upstream_run"] == "20261013060000"
+    assert result["proceed"] is True
+
+
 def test_local_catalog_reuses_same_gates_without_fetching_remote_catalog(source):
     raw = json.dumps(source["catalog"]).encode()
     remote = gate.preflight("https://canonical.test", NOW)

@@ -90,13 +90,17 @@ any mismatch with `STATIC_APPROVED_SHA`. Scheduled runs then read the canonical 
 catalog and fresh upstream listings before restoring NPZ files, downloading GRIB,
 decoding, building the candidate sandbox, or running Browser E2E. A complete newer
 Run covering the producer's 25-hour admission window enables the existing publication path.
-With no newer Run, a valid catalog with at least two hours remaining and matching
-complete upstream discovery, plus current 24-hour coverage in its own retained
-listings, produces `NO_NEW_RUN` and skips heavy work and upload.
+With no newer complete 25-hour Run, a valid catalog with at least two hours remaining
+and the published latest Run still complete for the current 24-hour requirements in
+**both** fresh upstream and retained catalog listings produces `NO_NEW_RUN` and skips
+heavy work and upload. A Run can leave the 25-hour producer window solely because
+its forecast horizon has elapsed; this is not evidence of missing upstream files.
+A newer advertised but incomplete Run still blocks a healthy no-op.
 The preflight never writes a catalog or renews forecast timestamps.
 
 Failed reads, blank successful responses, malformed listings/catalogs, incomplete
-newer Runs without a complete newer candidate, and regressed discovery fail closed.
+newer Runs without a complete newer candidate, and missing/incomplete published
+Run coverage over the current 24-hour window fail closed.
 An upstream directory HTTP 404 is known absence; other failed reads cannot become
 absence. With no new Run, expired or less-than-two-hours-remaining catalogs fail.
 An expired catalog with a complete newer Run may recover through all existing gates;
