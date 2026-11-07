@@ -84,7 +84,7 @@ async function serveForecast(context: BrowserContext) {
 }
 test.beforeEach(async ({ context }) => { await blockApi(context); await serveForecast(context); });
 
-test("browser process restart retains named draft and Last Calculation, opens only explicitly", async ({ baseURL }) => {
+test("browser process restart loads named checkpoint and retains Last Calculation, opens only explicitly", async ({ baseURL }) => {
   test.setTimeout(180_000);
   const profile = mkdtempSync(join(tmpdir(), "autonavlog-124-profile-"));
   let context = await chromium.launchPersistentContext(profile, { baseURL });
@@ -146,16 +146,17 @@ test("browser process restart retains named draft and Last Calculation, opens on
         if (event.data?.argumentList?.[0]?.value === "calculate") throw Error("Unexpected calculation on load");
       });
     });
+    page.once("dialog", dialog => dialog.accept());
     await load(page, saved.id);
     await expect(page.locator(".nav-log-table")).toBeVisible();
     expect((await working(page)).last_calculation).toEqual(saved.lastCalculation);
-    await expect(page.getByLabel("FUEL gal", { exact: true })).toHaveValue("76");
+    await expect(page.getByLabel("FUEL gal", { exact: true })).toHaveValue("90");
     // Invalid ephemeral edits win over the durable validated draft on same-tab reload.
     await page.getByLabel("FUEL gal", { exact: true }).fill("");
     await page.reload();
     await expect(page.getByLabel("FUEL gal", { exact: true })).toHaveValue("");
     expect((await working(page)).project.id).toBe(saved.id);
-    expect((await records(page))[0].draft.total_usable_fuel_gal).toBe(76);
+    expect((await records(page))[0].draft.total_usable_fuel_gal).toBe(90);
     expect(requests).toEqual([]);
     expect(weatherRequests).toEqual([]);
   } finally { await context.close(); }
@@ -339,4 +340,100 @@ local_application.app._calculate_outcome = _fail_recalculation
   expect(after.lastCalculation).toEqual(before.lastCalculation);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+}
+
+
+test("#358 checkpoint load confirms only discarded edits and survives reload, pending input and explicit save", async ({ page }) => {
+  await start(page); await confirm(page, "FTD");
+  await save(page, "Checkpoint route");
+  const saved = (await records(page))[0];
+  const fuel = page.getByLabel("FUEL gal", { exact: true });
+  const open = page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true });
+  let accept = false;
+  const dialogs: string[] = [];
+  page.on("dialog", async dialog => { dialogs.push(dialog.message()); await (accept ? dialog.accept() : dialog.dismiss()); });
+  await open.click();
+  await expect(open).toBeEnabled();
+  expect(dialogs).toEqual([]);
+  await fuel.fill("76");
+  await expect.poll(async () => (await records(page))[0].draft.total_usable_fuel_gal).toBe(76);
+  await page.reload();
+  await expect(fuel).toHaveValue("76");
+  const beforeCancel = (await records(page))[0];
+  await open.click();
+  await expect.poll(() => dialogs.length).toBe(1);
+  await expect(open).toBeEnabled();
+  await expect(fuel).toHaveValue("76");
+  expect((await records(page))[0]).toEqual(beforeCancel);
+  await calculate(page);
+  const calculated = (await records(page))[0].lastCalculation;
+  expect(calculated.project.total_usable_fuel_gal).toBe(76);
+  accept = true;
+  await open.click();
+  await expect(fuel).toHaveValue("90");
+  await expect.poll(async () => (await records(page))[0].draft).toEqual(saved.checkpoint);
+  expect((await records(page))[0].lastCalculation).toEqual(calculated);
+  await expect(page.getByRole("status").filter({ hasText: "入力が変更されているため再計算してください" })).toBeVisible();
+  await page.reload();
+  await expect(fuel).toHaveValue("90");
+  const count = dialogs.length;
+  await open.click();
+  await expect(open).toBeEnabled();
+  expect(dialogs).toHaveLength(count);
+  // Click in the same task as the input event, before the 300 ms autosave.
+  await fuel.fill("");
+  await open.click();
+  await expect(fuel).toHaveValue("90");
+  expect(dialogs).toHaveLength(count + 1);
+  await page.waitForTimeout(800);
+  expect((await records(page))[0].draft.total_usable_fuel_gal).toBe(90);
+  await fuel.fill("82");
+  await save(page, "New checkpoint");
+  await fuel.fill("71");
+  await open.click();
+  await expect(fuel).toHaveValue("82");
+  await page.reload();
+  await expect(fuel).toHaveValue("82");
+  expect((await records(page))[0].checkpoint.total_usable_fuel_gal).toBe(82);
+});
+
+
+for (const operation of ["updateProject", "updateAndRecalculate"] as const) {
+  test(`#358 load drains ${operation} and prevents delayed edits from returning`, async ({ page }) => {
+    await start(page); await confirm(page, "FTD");
+    if (operation === "updateAndRecalculate") await calculate(page);
+    await save(page, "Pending work");
+    const saved = (await records(page))[0];
+    await page.evaluate(operation => {
+      const original = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function(message: any, ...rest: any[]) {
+        if (message.type === "APPLY" && message.argumentList?.[0]?.value === operation) {
+          Worker.prototype.postMessage = original;
+          (window as any).releaseEdit = () => (original as any).call(this, message, ...rest);
+          return;
+        }
+        return (original as any).call(this, message, ...rest);
+      };
+    }, operation);
+    const field = operation === "updateProject"
+      ? page.getByLabel("FUEL gal", { exact: true })
+      : page.locator(".nav-log-table").getByLabel(/手動TAS$/).first();
+    const originalValue = await field.inputValue();
+    await field.fill(operation === "updateProject" ? "76" : "120");
+    await page.waitForFunction(() => Boolean((window as any).releaseEdit));
+    // A second input is still queued while the first worker request is held.
+    await field.fill(operation === "updateProject" ? "72" : "125");
+    page.once("dialog", dialog => dialog.accept());
+    const open = page.getByRole("button", { name: "保存済みプロジェクトを開く", exact: true });
+    await open.click();
+    await expect(open).toBeDisabled();
+    await page.evaluate(() => (window as any).releaseEdit());
+    await expect(open).toBeEnabled();
+    await expect(field).toHaveValue(originalValue);
+    await page.waitForTimeout(900);
+    expect((await records(page))[0].draft).toEqual(saved.checkpoint);
+    await page.reload();
+    await expect(field).toHaveValue(originalValue);
+    expect((await records(page))[0].draft).toEqual(saved.checkpoint);
+  });
 }

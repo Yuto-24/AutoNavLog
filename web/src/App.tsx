@@ -9,6 +9,7 @@ import { ApplicationError } from "./application";
 import { WorkChangeQueue } from "./workChangeQueue";
 import type { AutoNavLogApplication, UpdateProjectInput } from "./application";
 import { readSession, writeSession, clearSession, RECOVERY_FAILED, emptyCheckPointDraft, projectDraft, restoreProjectDraft } from "./applicationSession";
+import { hasProjectInputChanges } from "./projectLoad";
 import type { ApplicationSession, PendingKmz, NodeNameDraft, VorColumn } from "./applicationSession";
 import { routeImportInput } from "./fileInput";
 import { PlatformError, type PlatformCapabilities, type FileContentSource } from "./platform";
@@ -132,6 +133,8 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   const [navLogEditErrors, setNavLogEditErrors] = useState<NavLogEditErrors>({});
   const [navLogEditVersion, setNavLogEditVersion] = useState(0);
   const [draftAutosaveVersion, setDraftAutosaveVersion] = useState(0);
+  const [loadingProject, setLoadingProject] = useState(false);
+  const loadingProjectRef = useRef(false);
   const [calculationInputsAreLocallyCurrent, setCalculationInputsAreLocallyCurrent] =
     useState(true);
   const [navLogEditStatus, setNavLogEditStatus] = useState<{
@@ -1243,13 +1246,14 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   };
 
   useEffect(() => {
-    if (draftAutosaveVersion === 0 || !state?.project) return;
+    if (loadingProject || draftAutosaveVersion === 0 || !state?.project) return;
     if (draftAutosaveTimerRef.current !== null) {
       window.clearTimeout(draftAutosaveTimerRef.current);
     }
     const generation = draftAutosaveVersion;
     draftAutosaveTimerRef.current = window.setTimeout(() => {
       draftAutosaveTimerRef.current = null;
+      if (loadingProjectRef.current) return;
       try {
         void enqueueDraftAutosave(generation, true).catch(showDraftAutosaveFailure);
       } catch {
@@ -1262,7 +1266,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
         draftAutosaveTimerRef.current = null;
       }
     };
-  }, [draftAutosaveVersion, state?.project?.id]);
+  }, [loadingProject, draftAutosaveVersion, state?.project?.id]);
 
   const destinationPatternProjectBasis = state ? patternRequestBasis(state) : null;
   const destinationPatternProjectId = state?.project?.id ?? null;
@@ -1275,6 +1279,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   const destinationPatternRecalculates = Boolean(state?.outcome);
 
   useEffect(() => {
+    if (loadingProject) return;
     if (restoredPattern.current === form.destinationPatternAltitudeFtMsl) return;
     restoredPattern.current = null;
     const selectedPattern = patternAltitudeFtMsl(form.destinationPatternAltitudeFtMsl);
@@ -1295,7 +1300,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       destinationPatternRecalculationRef.current =
         destinationPatternRecalculationRef.current.then(async () => {
           if (
-            cancelled ||
+            loadingProjectRef.current || cancelled ||
             requestGeneration !== destinationPatternGenerationRef.current ||
             calculationGeneration !== calculationInputGenerationRef.current ||
             requestBasis !== destinationPatternBasisRef.current
@@ -1335,6 +1340,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       window.clearTimeout(timeout);
     };
   }, [
+    loadingProject,
     application,
     destinationPatternApplied,
     destinationPatternDestinationId,
@@ -1413,7 +1419,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   };
 
   useEffect(() => {
-    if (!state?.project || !state.outcome || navLogEditVersion === 0) return;
+    if (loadingProject || !state?.project || !state.outcome || navLogEditVersion === 0) return;
     const requestGeneration = navLogEditVersion;
     const errors = validateNavLogDrafts(state.project.sections, navLogDrafts);
     setNavLogEditErrors(errors);
@@ -1421,7 +1427,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
     const timeout = window.setTimeout(() => {
       navLogRecalculationRef.current = navLogRecalculationRef.current.then(async () => {
         if (
-          requestGeneration !== calculationInputGenerationRef.current ||
+          loadingProjectRef.current || requestGeneration !== calculationInputGenerationRef.current ||
           !navLogEditPendingRef.current
         ) return;
         setNavLogEditStatus({ kind: "saving", message: "自動再計算中…" });
@@ -1455,7 +1461,7 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
       });
     }, 700);
     return () => window.clearTimeout(timeout);
-  }, [altitudeInputs, application, form, navLogDrafts, navLogEditVersion, state?.outcome, state?.project]);
+  }, [loadingProject, altitudeInputs, application, form, navLogDrafts, navLogEditVersion, state?.outcome, state?.project]);
 
   const handleCalculate = async (roundingMode?: boolean) => {
     if (busy || calculationInFlight.current) return;
@@ -1508,18 +1514,41 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
   };
 
   const handleLoad = async () => {
-    if (!selectedProjectId || !confirmDiscardMapDraft()) return;
-    cancelPendingRecalculation();
-    invalidateDestinationPatternRequests();
-    const loaded = await run(
+    if (!selectedProjectId || busy || loadingProjectRef.current) return;
+    if (!application.checkpointLoads && !confirmDiscardMapDraft()) return;
+    loadingProjectRef.current = true;
+    setLoadingProject(true);
+    const loaded = await runTask(
       async () => {
-        const draftSaved = await flushDraftAutosave(false);
-        if (!draftSaved) throw new Error(DRAFT_AUTOSAVE_FAILURE);
-        return application.loadProject(selectedProjectId);
+        // Drain already-started work, but do not save raw inputs before confirmation.
+        await Promise.all([waitForDraftAutosaves(), navLogRecalculationRef.current, destinationPatternRecalculationRef.current]);
+        if (!application.checkpointLoads && !await flushDraftAutosave(false)) throw new Error(DRAFT_AUTOSAVE_FAILURE);
+        return application.loadProject(selectedProjectId, {
+          confirmDiscard: (target, storedChanges) => {
+            const session = latestSession.current;
+            const current = session?.working.project;
+            const reference = current?.id === target.id ? target : current;
+            const changes = storedChanges || Boolean(session && reference && hasProjectInputChanges(session, reference, state?.airports ?? []))
+              || Boolean(current && current.id !== target.id && state?.savedProjects.some(project => project.id === current.id && project.kind === "LATEST"))
+              || Boolean(session?.mapRouteDraft?.length || session?.pendingImportDraft);
+            return !changes || window.confirm("作成中の変更を破棄しますか？");
+          },
+        });
       },
-      undefined,
-      { syncCalculationInputs: true },
+      { apply: next => {
+        if (!next) return;
+        cancelPendingRecalculation();
+        invalidateDestinationPatternRequests();
+        draftAutosaveGenerationRef.current += 1;
+        setDraftAutosaveVersion(0);
+        applyState(next, { syncCalculationInputs: true });
+        setProjectName(next.project?.name ?? "未保存の新規作業");
+        setCheckPointDraft(emptyCheckPointDraft());
+        setNodeNameDraft({ id: null, name: "" });
+      } },
     );
+    loadingProjectRef.current = false;
+    setLoadingProject(false);
     if (!loaded) return;
     setMapRouteDraft([]);
     setEditingRouteProjectId(null);
@@ -1723,8 +1752,8 @@ function App({ application, platform, FileInput, onNewWork }: AppProps & { onNew
         await workChanges.resolve(generation, async () => {
           if (!active()) return;
           if (next?.savedProjects.some(project => project.id === id)) {
-            const loaded = await application.loadProject(id);
-            if (active()) {
+            const loaded = await application.loadProject(id, { restoreDraft: true });
+            if (active() && loaded) {
               setMapRouteDraft([]);
               setEditingRouteProjectId(null);
               applyState(loaded, { syncCalculationInputs: true });

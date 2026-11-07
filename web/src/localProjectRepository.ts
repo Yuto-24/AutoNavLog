@@ -17,9 +17,9 @@ export interface LocalProjectRepository {
   captureWorking?(id: string, token: string): Promise<unknown>;
   restoreWorking?(recovery: WorkingRecovery): Promise<void>;
   readWorking?(id: string, token: string): Promise<LocalProjectRecord>;
-  read(id: string): Promise<LocalProjectRecord>;
+  read(id: string, remember?: boolean): Promise<LocalProjectRecord>;
   write(record: LocalProjectRecord, expectedToken: string | null, replaceLatest: boolean): Promise<void>;
-  open(record: LocalProjectRecord): Promise<void>;
+  open(record: LocalProjectRecord, expectedToken?: string): Promise<void>;
   delete(id: string, expectedToken: string | null): Promise<void>;
 }
 export interface LocalAccountContext { account_id: string | null; assertActive(): void; onClose(listener: () => void): () => void }
@@ -199,13 +199,13 @@ export class IndexedDbProjectRepository implements LocalProjectRepository {
       }
     }), true);
   }
-  async open(record: LocalProjectRecord) {
+  async open(record: LocalProjectRecord, expectedToken = record.token) {
     const candidates = await this.latestTokens();
     await this.safe(() => this.transaction("readwrite", (store, rows) => {
       if (rowVersions(rows) !== candidates.snapshot) throw conflict();
       const current = rows.find(row => (row as LocalProjectRecord).id === record.id) as LocalProjectRecord | undefined;
       if ((current as { claimedAccount?: string })?.claimedAccount) throw conflict();
-      if (!current || current.token !== record.token) throw conflict();
+      if (!current || current.token !== expectedToken) throw conflict();
       store.put(record); // migration is committed only after domain validation succeeded
       for (const row of rows as LocalProjectRecord[]) {
         if ((row as { claimedAccount?: string }).claimedAccount) continue;

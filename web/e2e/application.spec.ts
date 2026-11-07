@@ -1,3 +1,5 @@
+import { IDBFactory } from "fake-indexeddb";
+import { IndexedDbProjectRepository } from "../src/localProjectRepository";
 import { browserPlatform } from "../src/browserPlatform";
 import { expect, test } from "@playwright/test";
 import { readFileSync, readdirSync } from "node:fs";
@@ -453,4 +455,50 @@ test("explicit Local Save adopts the same working Project without a recovery boo
   expect(saved.project?.name).toBe("Saved forecast");
   expect(saved.project?.revision).toBe(1);
   expect(saved.workingRecovery?.last_calculation).toEqual({ retained: true });
+});
+
+
+for (const latest of [false, true]) test(`#358 ${latest ? "Latest retains draft" : "load restores checkpoint"}, cancellation and CAS`, async () => {
+  const factory = new IDBFactory();
+  const repository = new IndexedDbProjectRepository(async raw => structuredClone(raw) as any, async () => {}, () => factory);
+  const project: any = { id: "saved", name: "Saved", revision: 1, metadata: {}, total_usable_fuel_gal: 90 };
+  const record: any = { schemaVersion: 2, id: project.id, token: "before", checkpoint: latest ? null : project,
+    draft: { ...project, total_usable_fuel_gal: 76 }, lastCalculation: { outcome: { provenance: "retained" } }, updatedAt: "before" };
+  await repository.write(record, null, latest);
+  let working: any = { version: 1, project: record.draft, last_calculation: record.lastCalculation };
+  const app = new LocalApplication(() => repository, () => ({
+    request: async <T>(operation: string, input?: any) => {
+      if (operation === "bootstrap") working = structuredClone(input);
+      if (operation === "refreshSavedWork") working = input.working;
+      return { ...state, project: working.project, workingRecovery: structuredClone(working) } as T;
+    }, dispose() {},
+  }));
+  let changes: boolean | undefined;
+  expect(await app.loadProject(project.id, { confirmDiscard: (_target, dirty) => { changes = dirty; return false; } })).toBeNull();
+  expect(changes).toBe(!latest);
+  expect(await repository.read(project.id)).toEqual(record);
+  expect(working.project).toEqual(record.draft);
+  if (!latest) {
+    const resolved = await app.loadProject(project.id, { restoreDraft: true });
+    expect(resolved?.project?.total_usable_fuel_gal).toBe(76);
+    expect(await repository.read(project.id)).toEqual(record);
+  }
+  const loaded = await app.loadProject(project.id);
+  expect(loaded?.project?.total_usable_fuel_gal).toBe(latest ? 76 : 90);
+  const restored = await repository.read(project.id);
+  expect(restored.draft).toEqual(latest ? record.draft : record.checkpoint);
+  expect(restored.lastCalculation).toEqual(record.lastCalculation);
+  expect(loaded?.workingRecovery?.durableToken).toBe(restored.token);
+  if (!latest) expect(restored.token).not.toBe(record.token);
+  await app.loadProject(project.id, { confirmDiscard: (_target, dirty) => { expect(dirty).toBe(false); return true; } });
+  // A different tab writes after the confirmed read, before the atomic open.
+  const originalOpen = repository.open.bind(repository);
+  const newer = { ...restored, token: "other-tab", draft: { ...restored.draft, total_usable_fuel_gal: 65 } };
+  repository.open = async (next, expected) => {
+    await repository.write(newer, restored.token, false);
+    await originalOpen(next, expected);
+  };
+  await expect(app.loadProject(project.id)).rejects.toMatchObject({ code: "PROJECT_REVISION_CONFLICT" });
+  expect(await repository.read(project.id)).toEqual(newer);
+  expect(working.project).toEqual(restored.draft);
 });

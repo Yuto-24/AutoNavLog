@@ -84,6 +84,13 @@ recovery retains an opaque repository baseline (checkpoint and CAS base) so a re
 cannot replace an old working checkpoint with a newer remote one before detecting the
 first edit's conflict. This baseline is stripped before Python hydration and never synced.
 
+Explicit checkpoint Load commits the replacement draft and any own-device Latest
+tombstone as one Local transaction and remote mutation group. It retains Last
+Calculation, and remote CAS still requires conflict resolution if another device has
+changed the Project. Inspecting a Load that is cancelled must not replace the active
+session's repository baseline. Opening the branch selected by conflict resolution
+uses that branch's draft; it is not another checkpoint Load.
+
 ## Delete and Undo
 
 Deletion atomically stores PENDING_DELETE plus its deadline and hides the Project

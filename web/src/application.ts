@@ -46,9 +46,15 @@ export class ApplicationError extends Error {
 export interface CalculationProgress { percent: number; message: string }
 export type ProgressListener = (progress: CalculationProgress) => void;
 export interface CalculationOptions { roundingMode: boolean }
+export interface LoadProjectOptions {
+  // Sync resolution opens the chosen working branch, not its older checkpoint.
+  restoreDraft?: boolean;
+  confirmDiscard?: (project: Project, storedChanges: boolean) => boolean;
+}
 
 // Operation boundaries intentionally preserve draft commits and atomic update/recalculate.
 export interface AutoNavLogApplication {
+  readonly checkpointLoads?: boolean;
   readonly auth?: AuthProvider;
   readonly sync?: import("./accountSync").AccountSyncControl;
   refreshProjects?(): Promise<ApplicationSnapshot>;
@@ -62,7 +68,7 @@ export interface AutoNavLogApplication {
   acknowledge(key: string, checked: boolean): Promise<ApplicationSnapshot>;
   calculate(onProgress?: ProgressListener, options?: CalculationOptions): Promise<ApplicationSnapshot>;
   saveProject(name: string): Promise<ApplicationSnapshot>;
-  loadProject(projectId: string): Promise<ApplicationSnapshot>;
+  loadProject(projectId: string, options?: LoadProjectOptions): Promise<ApplicationSnapshot | null>;
   deleteProject(projectId: string): Promise<ApplicationSnapshot>;
   newWork(): Promise<void>;
 }
