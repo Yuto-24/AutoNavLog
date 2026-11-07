@@ -235,8 +235,14 @@ test("anonymous workflow, account switch, logout, reauthentication and cross-tab
   expect(await savedNames(page)).toContain("Account A route");
   await expect(page.getByLabel("プロジェクト", { exact: true })).toBeDisabled();
   await page.getByLabel("保存済み", { exact: true }).selectOption({ label: "Account A route" });
+  page.once("dialog", async dialog => {
+    expect(dialog.message()).toBe("作成中の変更を破棄しますか？");
+    await dialog.accept();
+  });
   await page.getByRole("button", { name: "保存済みプロジェクトを開く" }).click();
-  await expect(page.getByLabel("FUEL gal", { exact: true })).toHaveValue("77");
+  await expect(page.getByLabel("FUEL gal", { exact: true })).toHaveValue("90");
+  const loaded = (await accountRecords(page))[0];
+  expect(loaded.draft).toEqual(loaded.checkpoint);
   await expect(page.locator(".nav-log-table")).toBeVisible();
   expect((await accountRecords(page))[0].lastCalculation).toEqual(last);
 });
