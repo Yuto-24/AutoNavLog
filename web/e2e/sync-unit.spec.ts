@@ -417,3 +417,43 @@ for (const operation of ["replaceLatest", "open"] as const) test("claim after La
   await account.initialize(recovered, true);
   expect(await account.read(latest.id)).toEqual(latest);
 });
+
+
+test("#358 checkpoint open syncs atomically, retains calculation and conflicts with a concurrent remote edit", async () => {
+  const a = repo("A").repository, b = repo("B").repository, remote = new Remote();
+  const saved = record();
+  await a.write(saved, null, false); await remote.sync(a); await remote.sync(b);
+  const edited = edit(saved, "Draft");
+  await a.write(edited, saved.token, false); await remote.sync(a); await remote.sync(b);
+  const read = await b.read(saved.id);
+  const restored = { ...read, token: crypto.randomUUID(), draft: structuredClone(read.checkpoint!) };
+  await b.open(restored, read.token);
+  expect((await b.read(saved.id)).draft).toEqual(saved.checkpoint);
+  expect((await b.read(saved.id)).lastCalculation).toEqual(saved.lastCalculation);
+  await remote.sync(b); await remote.sync(a);
+  expect((await a.read(saved.id)).draft).toEqual(saved.checkpoint);
+  // Offline reset cannot silently overwrite a newer remote branch.
+  const nextA = edit(await a.read(saved.id), "New remote edit");
+  await a.write(nextA, restored.token, false); await remote.sync(a);
+  const staleReset = { ...restored, token: crypto.randomUUID() };
+  await b.open(staleReset, restored.token); await remote.sync(b);
+  expect((await b.status()).conflicts).toHaveLength(1);
+  expect(remote.rows.get(saved.id)?.record.draft.name).toBe("New remote edit");
+});
+
+test("#358 cancelled preview keeps the loaded account recovery baseline and stale open preserves deletion", async () => {
+  const a = repo("A").repository, b = repo("B").repository, remote = new Remote();
+  const saved = record();
+  await a.write(saved, null, false); await remote.sync(a); await remote.sync(b);
+  const read = await b.read(saved.id);
+  const baseline = await b.captureWorking(saved.id, read.token);
+  const newer = edit(saved, "Remote");
+  await a.write(newer, saved.token, false); await remote.sync(a); await remote.sync(b);
+  await b.read(saved.id, false);
+  expect(await b.captureWorking(saved.id, read.token)).toEqual(baseline);
+  await expect(b.open({ ...read, token: crypto.randomUUID(), draft: read.checkpoint! }, read.token))
+    .rejects.toMatchObject({ code: "PROJECT_REVISION_CONFLICT" });
+  await a.delete(saved.id, newer.token); await remote.sync(a); await remote.sync(b);
+  await expect(b.open({ ...newer, token: crypto.randomUUID(), draft: newer.checkpoint! }, newer.token))
+    .rejects.toMatchObject({ code: "PROJECT_REVISION_CONFLICT" });
+});

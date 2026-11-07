@@ -87,11 +87,11 @@ export class AccountProjectRepository extends IndexedDbProjectRepository {
     projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return { projects, unavailable, tokens };
   }
-  async read(id: string) {
+  async read(id: string, remember = true) {
     const row = (await this.rows()).find(row => row.id === id);
     if (!row || (row.sync && deletionState(row.sync.value) !== "ACTIVE")) throw unavailable();
     const record = await this.decode(row);
-    this.loaded.set(id, structuredClone(row));
+    if (remember) this.loaded.set(id, structuredClone(row));
     return record;
   }
   async readWorking(id: string, token: string) {
@@ -154,13 +154,23 @@ export class AccountProjectRepository extends IndexedDbProjectRepository {
     this.loaded.set(record.id, (await this.rows()).find(row => row.id === record.id)!);
     this.changed();
   }
-  async open(record: LocalProjectRecord) {
-    await this.change((store, rows) => {
+  async open(record: LocalProjectRecord, expectedToken = record.token) {
+    const valid = await this.validate(record);
+    const opened = await this.change((store, rows) => {
       if (rows.some(row => row.sync?.conflict)) throw conflict();
       const old = rows.find(row => row.id === record.id);
-      if (!old || old.token !== record.token || (old.sync && deletionState(old.sync.value) !== "ACTIVE")) throw conflict();
-      this.discardLatest(store, rows, record.id, crypto.randomUUID());
+      if (!old || old.token !== expectedToken || (old.sync && deletionState(old.sync.value) !== "ACTIVE")) throw conflict();
+      const changed = record.token !== expectedToken;
+      const next = changed ? this.row(valid, old) : old;
+      const group = old.sync?.dirty ? old.sync.group : next.sync?.group ?? crypto.randomUUID();
+      if (changed) {
+        next.sync!.group = group;
+        store.put(next);
+      }
+      this.discardLatest(store, rows, record.id, group);
+      return next;
     });
+    this.loaded.set(record.id, structuredClone(opened));
     this.changed();
   }
   async delete(id: string, expectedToken: string | null) {

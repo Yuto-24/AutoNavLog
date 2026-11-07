@@ -2,12 +2,14 @@ import { ForecastBackupTransport, permitsForecastBackup, type BackupInput, type 
 import { backupMessages } from "./forecastBackupMessages";
 import { accountBoundaryClosed, type AuthProvider } from "./auth";
 import { ApplicationError } from "./application";
-import type { AutoNavLogApplication, CalculationOptions, ImportRouteInput, ConfirmRouteInput, UpdateProjectInput, ProgressListener } from "./application";
+import type { AutoNavLogApplication, CalculationOptions, ImportRouteInput, ConfirmRouteInput, UpdateProjectInput, ProgressListener, LoadProjectOptions } from "./application";
+import { sameProjectContent, sameProjectDraft } from "./projectLoad";
 import type { CheckPointInput, WebState, WorkingRecovery } from "./types";
 import { LocalClient } from "./localClient";
 import type { LocalProjectRepository, LocalProjectRecord, LocalProjectRepositoryFactory } from "./localProjectRepository";
 
 export class LocalApplication implements AutoNavLogApplication {
+  readonly checkpointLoads = true;
   sync?: import("./accountSync").AccountSyncControl;
   private active = true;
   private generation = 0;
@@ -215,19 +217,25 @@ export class LocalApplication implements AutoNavLogApplication {
     this.invalidatePending();
     return this.serial(async () => { this.assertResolved(); return this.persist(await this.request<WebState>("state"), name); });
   }
-  loadProject(projectId: string) {
+  loadProject(projectId: string, options: LoadProjectOptions = {}) {
     this.invalidatePending();
     return this.serial(async () => {
-      const record = await this.repository.read(projectId);
+      this.assertResolved();
+      const record = await this.repository.read(projectId, false);
       const previous = await this.request<WebState>("state");
+      const project = options.restoreDraft ? record.draft : record.checkpoint ?? record.draft;
+      const storedChanges = !sameProjectDraft(record.draft, project);
+      if (options.confirmDiscard && !options.confirmDiscard(project, storedChanges)) return null;
+      const opened = !sameProjectContent(record.draft, project) ? { ...record, draft: structuredClone(project),
+        token: crypto.randomUUID(), updatedAt: new Date().toISOString() } : record;
       const last = record.lastCalculation as { outcome: WorkingRecovery["outcome"]; destination_wind: WorkingRecovery["destination_wind"] } | null;
-      const recovery: WorkingRecovery = { version: 1, project: record.draft,
+      const recovery: WorkingRecovery = { version: 1, project,
         outcome: last?.outcome ?? null, destination_wind: last?.destination_wind ?? null,
         last_calculation: record.lastCalculation, import_result: null, import_filename: null };
       let state: WebState;
       try {
         state = await this.request<WebState>("bootstrap", recovery);
-        await this.repository.open(record);
+        await this.repository.open(opened, record.token);
       }
       catch (error) {
         if (previous.workingRecovery) {
@@ -238,7 +246,7 @@ export class LocalApplication implements AutoNavLogApplication {
         }
         throw error;
       }
-      this.tokens.set(record.id, record.token);
+      this.tokens.set(record.id, opened.token);
       return this.present(state);
     });
   }

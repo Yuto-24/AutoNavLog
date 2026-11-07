@@ -35,6 +35,19 @@ Validated edits autosave without advancing revision. Explicit Save advances revi
 one, updates the domain `Project.updated_at`, and commits the checkpoint and working draft together. Once saved, a Project keeps
 its own draft and is never removed by Latest cleanup.
 
+Explicit Load of a named Project restores its checkpoint and replaces its durable
+draft in the same CAS transaction as opening it. Last Calculation and its Forecast
+provenance remain intact; readiness is reevaluated against the checkpoint. Latest,
+which has no checkpoint, still opens its draft. This differs from same-tab reload,
+which continues to recover the working session without resetting the draft.
+
+Load pauses scheduled input autosave/recalculation and drains already-started work
+before inspecting the target. It asks for confirmation only when the operation would
+discard a stored draft or unfinished input. Cancellation leaves the inputs and stored
+records intact and resumes scheduled work. Successful Load resets the raw inputs and
+session to the restored Project. A concurrent write or deletion after confirmation
+fails the CAS check and retains the previous working state.
+
 There is at most one usable autosave-only Latest per browser origin/profile. A successful
 new Latest write replaces the former one in the same transaction. Saving Latest promotes
 it to a named checkpoint. Successfully opening a different Project drops the former
